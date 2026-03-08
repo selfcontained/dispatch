@@ -35,7 +35,8 @@ type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
   | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string };
+  | { type: "media.changed"; agentId: string }
+  | { type: "media.seen"; agentId: string; keys: string[] };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -187,7 +188,13 @@ async function registerRoutes() {
     const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
     await mkdir(mediaDir, { recursive: true });
     const files = await listMediaFiles(id, mediaDir);
-    return { files };
+    const seenKeys = await loadSeenMediaKeys(id, files.map(toMediaKey));
+    return {
+      files: files.map((file) => ({
+        ...file,
+        seen: seenKeys.has(toMediaKey(file))
+      }))
+    };
   });
 
   app.get("/api/v1/agents/:id/media/:file", async (request, reply) => {
@@ -210,6 +217,36 @@ async function registerRoutes() {
     }
 
     return reply.type(mimeType(file)).send(await readFile(filePath));
+  });
+
+  app.post("/api/v1/agents/:id/media/seen", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const body = request.body as { keys?: unknown } | undefined;
+    if (!Array.isArray(body?.keys) || !body.keys.every((key) => typeof key === "string")) {
+      return reply.code(400).send({ error: "keys must be an array of strings." });
+    }
+
+    const keys = Array.from(
+      new Set(
+        body.keys
+          .map((key) => key.trim())
+          .filter((key) => isValidMediaKey(key))
+      )
+    );
+
+    if (keys.length === 0) {
+      return { ok: true, updated: 0 };
+    }
+
+    await markSeenMediaKeys(id, keys);
+    uiEventBroker.publish({ type: "media.seen", agentId: id, keys });
+    return { ok: true, updated: keys.length };
   });
 
   app.post("/api/v1/agents", async (request, reply) => {
@@ -559,6 +596,52 @@ async function listMediaFiles(
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, 50)
     .map(({ mtimeMs: _drop, ...rest }) => rest);
+}
+
+function toMediaKey(file: { name: string; updatedAt: string }): string {
+  return `${file.name}:${file.updatedAt}`;
+}
+
+function isValidMediaKey(key: string): boolean {
+  if (key.length === 0 || key.length > 1024) {
+    return false;
+  }
+
+  return !/[\u0000-\u001F]/.test(key);
+}
+
+async function loadSeenMediaKeys(agentId: string, keys: string[]): Promise<Set<string>> {
+  if (keys.length === 0) {
+    return new Set();
+  }
+
+  const result = await pool.query<{ mediaKey: string }>(
+    `
+    SELECT media_key AS "mediaKey"
+    FROM media_seen
+    WHERE agent_id = $1 AND media_key = ANY($2::text[])
+    `,
+    [agentId, keys]
+  );
+
+  return new Set(result.rows.map((row) => row.mediaKey));
+}
+
+async function markSeenMediaKeys(agentId: string, keys: string[]): Promise<void> {
+  if (keys.length === 0) {
+    return;
+  }
+
+  await pool.query(
+    `
+    INSERT INTO media_seen (agent_id, media_key, seen_at)
+    SELECT $1, key, NOW()
+    FROM UNNEST($2::text[]) AS key
+    ON CONFLICT (agent_id, media_key) DO UPDATE
+      SET seen_at = EXCLUDED.seen_at
+    `,
+    [agentId, keys]
+  );
 }
 
 function isImageFile(name: string): boolean {

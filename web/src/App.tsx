@@ -62,7 +62,8 @@ type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
   | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string };
+  | { type: "media.changed"; agentId: string }
+  | { type: "media.seen"; agentId: string; keys: string[] };
 
 function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -232,20 +233,46 @@ export function App(): JSX.Element {
       const id = agentId ?? selectedAgentId;
       if (!id) {
         setMediaFiles([]);
+        setSeenMediaKeys(new Set());
         setMediaState("checking");
         return;
       }
 
       try {
         const payload = await api<{ files: MediaFile[] }>(`/api/v1/agents/${id}/media`);
-        setMediaFiles(payload.files ?? []);
+        const files = payload.files ?? [];
+        setMediaFiles(files);
+        setSeenMediaKeys(
+          new Set(
+            files
+              .filter((file) => file.seen === true)
+              .map((file) => `${file.name}:${file.updatedAt}`)
+          )
+        );
         setMediaState("ok");
       } catch {
         setMediaFiles([]);
+        setSeenMediaKeys(new Set());
         setMediaState("down");
       }
     },
     [api, selectedAgentId]
+  );
+
+  const markMediaSeen = useCallback(
+    async (agentId: string, keys: string[]) => {
+      if (keys.length === 0) {
+        return;
+      }
+
+      try {
+        await api<{ ok: boolean; updated: number }>(`/api/v1/agents/${agentId}/media/seen`, {
+          method: "POST",
+          body: JSON.stringify({ keys })
+        });
+      } catch {}
+    },
+    [api]
   );
 
   const pollHealth = useCallback(async () => {
@@ -767,6 +794,23 @@ export function App(): JSX.Element {
 
         if (payload.type === "media.changed" && payload.agentId === selectedAgentIdRef.current) {
           void refreshMedia(payload.agentId);
+          return;
+        }
+
+        if (payload.type === "media.seen" && payload.agentId === selectedAgentIdRef.current) {
+          setSeenMediaKeys((current) => {
+            const next = new Set(current);
+            let changed = false;
+
+            for (const key of payload.keys) {
+              if (!next.has(key)) {
+                next.add(key);
+                changed = true;
+              }
+            }
+
+            return changed ? next : current;
+          });
         }
       } catch {}
     };
@@ -955,12 +999,14 @@ export function App(): JSX.Element {
     }
 
     const root = mediaViewportRef.current;
-    if (!root) {
+    const selected = selectedAgentId;
+    if (!root || !selected) {
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
+        const newlySeen: string[] = [];
         setSeenMediaKeys((current) => {
           let changed = false;
           const next = new Set(current);
@@ -970,6 +1016,7 @@ export function App(): JSX.Element {
               const mediaKey = (entry.target as HTMLElement).dataset.mediaKey;
               if (mediaKey && !next.has(mediaKey)) {
                 next.add(mediaKey);
+                newlySeen.push(mediaKey);
                 changed = true;
               }
             }
@@ -977,6 +1024,10 @@ export function App(): JSX.Element {
 
           return changed ? next : current;
         });
+
+        if (newlySeen.length > 0) {
+          void markMediaSeen(selected, newlySeen);
+        }
       },
       {
         root,
@@ -990,7 +1041,7 @@ export function App(): JSX.Element {
     return () => {
       observer.disconnect();
     };
-  }, [mediaFiles, mediaOpen]);
+  }, [markMediaSeen, mediaFiles, mediaOpen, selectedAgentId]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {

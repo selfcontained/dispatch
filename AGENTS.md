@@ -13,3 +13,8 @@
 ## Web Finalization
 - If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
 - After running `npm run finalize:web`, verify the served app once (not only Vite dev server) when the task affects UI/theme/rendering behavior.
+
+## Vite Dev Server
+- For frontend development/validation, run the Vite dev server (`npm --prefix web run dev`) instead of the backend static server.
+- Do not pin a fixed Vite port unless explicitly requested; let Vite choose an open port automatically.
+- If multiple local Dispatch instances are running, always use the exact URL printed by the active Vite process for Playwright/manual checks.

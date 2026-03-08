@@ -19,6 +19,7 @@ export type MediaFile = {
   size: number;
   updatedAt: string;
   url: string;
+  seen?: boolean;
 };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";

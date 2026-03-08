@@ -39,6 +39,13 @@ export async function runMigrations(): Promise<void> {
       status TEXT NOT NULL DEFAULT 'free',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS media_seen (
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      media_key TEXT NOT NULL,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (agent_id, media_key)
+    );
   `;
 
   try {
