@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import type { WorktreeMode } from "@/components/app/types";
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -12,12 +13,19 @@ type CreateAgentDialogProps = {
   createType: string;
   createCwd: string;
   createFullAccess: boolean;
+  worktreeMode: WorktreeMode;
+  worktreeLoading: boolean;
+  worktreeSaving: boolean;
+  worktreeError: string | null;
+  worktreeRepoRoot: string | null;
   creating: boolean;
   setOpen: (open: boolean) => void;
   setCreateName: (name: string) => void;
   setCreateType: (value: string) => void;
   setCreateCwd: (cwd: string) => void;
+  setWorktreeMode: (value: WorktreeMode) => void;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
+  refreshWorktreeMode: () => Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
@@ -27,12 +35,19 @@ export function CreateAgentDialog({
   createType,
   createCwd,
   createFullAccess,
+  worktreeMode,
+  worktreeLoading,
+  worktreeSaving,
+  worktreeError,
+  worktreeRepoRoot,
   creating,
   setOpen,
   setCreateName,
   setCreateType,
   setCreateCwd,
+  setWorktreeMode,
   setCreateFullAccess,
+  refreshWorktreeMode,
   onSubmit
 }: CreateAgentDialogProps): JSX.Element {
   return (
@@ -70,9 +85,36 @@ export function CreateAgentDialog({
             <Input
               value={createCwd}
               onChange={(event) => setCreateCwd(event.target.value)}
+              onBlur={() => void refreshWorktreeMode()}
               placeholder="/absolute/path"
               required
             />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm text-muted-foreground">Repo worktree mode</label>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void refreshWorktreeMode()}>
+                Reload
+              </Button>
+            </div>
+            <select
+              value={worktreeMode}
+              onChange={(event) => setWorktreeMode(event.target.value as WorktreeMode)}
+              className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
+              disabled={worktreeLoading || worktreeSaving}
+            >
+              <option value="ask">Ask each time</option>
+              <option value="auto">Auto-create worktrees</option>
+              <option value="off">Off</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {worktreeError
+                ? worktreeError
+                : worktreeRepoRoot
+                  ? `Saved in ${worktreeRepoRoot}/.dispatch/config.json`
+                  : "Enter a git working directory to persist this setting in the repo."}
+            </p>
           </div>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">

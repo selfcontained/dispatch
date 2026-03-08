@@ -15,7 +15,8 @@ import {
   type AgentVisualState,
   type ConnState,
   type MediaFile,
-  type ServiceState
+  type ServiceState,
+  type WorktreeMode
 } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const DEFAULT_WORKTREE_MODE: WorktreeMode = "ask";
 
 function readLastUsedCwd(): string {
   if (typeof window === "undefined") {
@@ -62,6 +64,11 @@ export function App(): JSX.Element {
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
+  const [createWorktreeMode, setCreateWorktreeMode] = useState<WorktreeMode>(DEFAULT_WORKTREE_MODE);
+  const [createWorktreeRepoRoot, setCreateWorktreeRepoRoot] = useState<string | null>(null);
+  const [createWorktreeLoading, setCreateWorktreeLoading] = useState(false);
+  const [createWorktreeSaving, setCreateWorktreeSaving] = useState(false);
+  const [createWorktreeError, setCreateWorktreeError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -497,6 +504,70 @@ export function App(): JSX.Element {
     [api, createCwd, createFullAccess, createName, createType, ensureTerminalConnected, refreshAgents, refreshMedia]
   );
 
+  const refreshCreateWorktreeMode = useCallback(async () => {
+    const cwd = createCwd.trim();
+    if (!cwd) {
+      setCreateWorktreeRepoRoot(null);
+      setCreateWorktreeError("Enter a git working directory to load repo defaults.");
+      setCreateWorktreeMode(DEFAULT_WORKTREE_MODE);
+      return;
+    }
+
+    setCreateWorktreeLoading(true);
+    setCreateWorktreeError(null);
+    try {
+      const payload = await api<{
+        repoRoot: string;
+        config: { worktreeMode: WorktreeMode };
+      }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
+      setCreateWorktreeMode(payload.config.worktreeMode);
+      setCreateWorktreeRepoRoot(payload.repoRoot);
+      setCreateWorktreeError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load repo config.";
+      setCreateWorktreeRepoRoot(null);
+      setCreateWorktreeMode(DEFAULT_WORKTREE_MODE);
+      setCreateWorktreeError(message);
+    } finally {
+      setCreateWorktreeLoading(false);
+    }
+  }, [api, createCwd]);
+
+  const setAndPersistWorktreeMode = useCallback(
+    async (value: WorktreeMode) => {
+      setCreateWorktreeMode(value);
+      const cwd = createCwd.trim();
+      if (!cwd) {
+        setCreateWorktreeError("Enter a git working directory before saving.");
+        return;
+      }
+
+      setCreateWorktreeSaving(true);
+      setCreateWorktreeError(null);
+
+      try {
+        const payload = await api<{
+          repoRoot: string;
+          config: { worktreeMode: WorktreeMode };
+        }>("/api/v1/repo-config", {
+          method: "PATCH",
+          body: JSON.stringify({
+            cwd,
+            worktreeMode: value
+          })
+        });
+        setCreateWorktreeMode(payload.config.worktreeMode);
+        setCreateWorktreeRepoRoot(payload.repoRoot);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to save repo config.";
+        setCreateWorktreeError(message);
+      } finally {
+        setCreateWorktreeSaving(false);
+      }
+    },
+    [api, createCwd]
+  );
+
   useEffect(() => {
     const host = terminalHostRef.current;
     if (!host) {
@@ -784,6 +855,13 @@ export function App(): JSX.Element {
     window.localStorage.setItem(MEDIA_SIDEBAR_LEGACY_KEY, value);
   }, [mediaOpen]);
 
+  useEffect(() => {
+    if (!createOpen) {
+      return;
+    }
+    void refreshCreateWorktreeMode();
+  }, [createOpen, refreshCreateWorktreeMode]);
+
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const showHeaderStatus = connState !== "disconnected";
 
@@ -941,12 +1019,19 @@ export function App(): JSX.Element {
         createType={createType}
         createCwd={createCwd}
         createFullAccess={createFullAccess}
+        worktreeMode={createWorktreeMode}
+        worktreeLoading={createWorktreeLoading}
+        worktreeSaving={createWorktreeSaving}
+        worktreeError={createWorktreeError}
+        worktreeRepoRoot={createWorktreeRepoRoot}
         creating={creating}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
+        setWorktreeMode={(value) => void setAndPersistWorktreeMode(value)}
         setCreateFullAccess={setCreateFullAccess}
+        refreshWorktreeMode={refreshCreateWorktreeMode}
         onSubmit={handleCreateAgent}
       />
 
