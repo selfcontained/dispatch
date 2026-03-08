@@ -281,7 +281,6 @@ export function AgentSidebar({
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono />
-                          <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
                             <div className="inline-flex items-center gap-1.5 text-foreground">
@@ -297,6 +296,7 @@ export function AgentSidebar({
                               </span>
                             </div>
                           </div>
+                          <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
                               Full access
