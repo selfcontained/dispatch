@@ -9,6 +9,7 @@ type MediaSidebarProps = {
   mediaOpen: boolean;
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
+  selectedAgentName: string | null;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   setMediaOpen: (open: boolean) => void;
@@ -20,6 +21,7 @@ export function MediaSidebar({
   mediaOpen,
   mediaFiles,
   selectedAgentId,
+  selectedAgentName,
   animatingMediaKeys,
   mediaViewportRef,
   setMediaOpen,
@@ -32,8 +34,13 @@ export function MediaSidebar({
       style={{ width: mediaOpen ? 360 : 0 }}
     >
       <aside className="flex h-full min-h-0 w-[360px] flex-col bg-card">
-        <div className="flex h-14 items-center px-3">
-          <div className="text-sm font-semibold uppercase tracking-wide">Media Stream</div>
+        <div className="flex items-center px-3 py-2">
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-wide">Media Stream</div>
+            <div className="text-xs text-muted-foreground">
+              Viewing: {selectedAgentName ?? "none"}
+            </div>
+          </div>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-muted-foreground">{mediaFiles.length} items</span>
             <Button size="icon" variant="ghost" onClick={() => setMediaOpen(false)} title="Close media sidebar">

@@ -724,7 +724,7 @@ export function App(): JSX.Element {
       return "border-r-emerald-500";
     }
     if (state === "idle") {
-      return "border-r-sky-400";
+      return "border-r-zinc-400";
     }
     return "border-r-zinc-500";
   };
@@ -812,6 +812,7 @@ export function App(): JSX.Element {
           mediaOpen={mediaOpen}
           mediaFiles={mediaFiles}
           selectedAgentId={selectedAgentId}
+          selectedAgentName={selectedAgent?.name ?? null}
           animatingMediaKeys={animatingMediaKeys}
           mediaViewportRef={mediaViewportRef}
           setMediaOpen={setMediaOpen}

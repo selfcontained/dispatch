@@ -57,7 +57,7 @@ export function AgentSidebar({
       className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
       style={{ width: leftOpen ? 320 : 0 }}
     >
-      <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-sky-900/80 bg-sky-950 text-slate-50">
+      <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-border bg-card text-foreground">
         <div className="flex h-14 items-center px-3">
           <div className="text-lg font-semibold tracking-wide">Dispatch</div>
           <div className="ml-auto">
@@ -66,8 +66,8 @@ export function AgentSidebar({
             </Button>
           </div>
         </div>
-        <div className="mt-2 flex h-14 items-center border-b border-sky-900/80 px-3">
-          <div className="text-sm font-semibold uppercase tracking-wide text-sky-200/80">Agents</div>
+        <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+          <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
           <div className="ml-auto flex items-center">
             <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-1 h-3.5 w-3.5" /> Create
@@ -77,14 +77,14 @@ export function AgentSidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {agents.length === 0 ? (
-            <div className="p-4 text-sm text-sky-200/70">No agents yet.</div>
+            <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
           ) : (
             agents.map((agent) => {
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
               const isActive = state === "active";
-              const isExpanded = isActive || isSelected;
+              const isExpanded = isSelected;
               const fullAccessEnabled = isFullAccessEnabled(agent);
               const needsAttention = agent.status === "error";
 
@@ -93,27 +93,23 @@ export function AgentSidebar({
                   key={agent.id}
                   onClick={(event) => {
                     const target = event.target as HTMLElement;
-                    if (target.closest("[data-agent-control='true']") || isActive) {
+                    if (target.closest("[data-agent-control='true']")) {
                       return;
                     }
                     toggleAgentDetails(agent.id);
                   }}
                   className={cn(
-                    "border-b border-r-2 border-sky-900/70 px-2 py-2",
+                    "border-b border-r-2 border-border px-2 py-2",
                     borderForAgentState(state),
-                    isSelected && "bg-sky-900/50",
-                    !isActive && "cursor-pointer"
+                    isSelected && "bg-muted/60",
+                    "cursor-pointer"
                   )}
                 >
                   <div className="flex items-center gap-1.5">
                     <button
                       data-agent-control="true"
                       className="min-w-0 flex-1 truncate text-left text-sm font-semibold"
-                      onClick={() => {
-                        if (!isActive) {
-                          toggleAgentDetails(agent.id);
-                        }
-                      }}
+                      onClick={() => toggleAgentDetails(agent.id)}
                       title={agent.cwd}
                     >
                       {agent.name}
@@ -137,7 +133,7 @@ export function AgentSidebar({
                           ? "bg-emerald-500/15 text-emerald-300"
                           : isStopped
                             ? "bg-zinc-500/15 text-zinc-300"
-                            : "bg-sky-400/15 text-sky-300"
+                            : "bg-zinc-500/15 text-zinc-300"
                       )}
                     >
                       {isActive ? "Active" : agent.status === "running" ? "Detached" : agent.status}
@@ -203,7 +199,7 @@ export function AgentSidebar({
                       </Button>
 
                       {overflowAgentId === agent.id ? (
-                        <div className="absolute right-0 top-9 z-30 min-w-[180px] border-2 border-sky-800 bg-sky-950 p-1.5 shadow-lg">
+                        <div className="absolute right-0 top-9 z-30 min-w-[180px] border-2 border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
                           <button
                             data-agent-control="true"
                             className="w-full border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/50"
