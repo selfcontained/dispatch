@@ -1,6 +1,7 @@
 import { type Agent, type WorktreeMode } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type EditWorktreeModeDialogProps = {
   open: boolean;
@@ -38,16 +39,16 @@ export function EditWorktreeModeDialog({
         <div className="grid gap-3">
           <div className="grid gap-1">
             <label className="text-sm text-muted-foreground">Worktree mode</label>
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value as WorktreeMode)}
-              className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
-              disabled={loading || saving}
-            >
-              <option value="ask">On</option>
-              <option value="auto">Auto</option>
-              <option value="off">Off</option>
-            </select>
+            <Select value={mode} onValueChange={(value) => setMode(value as WorktreeMode)}>
+              <SelectTrigger disabled={loading || saving}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ask">On</SelectItem>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
               {error ?? "On: prompt each time. Auto: create automatically. Off: disable worktrees."}
             </p>

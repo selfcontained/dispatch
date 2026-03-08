@@ -4,6 +4,7 @@ import { Check, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { WorktreeMode } from "@/components/app/types";
 
@@ -70,14 +71,15 @@ export function CreateAgentDialog({
 
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Type</label>
-            <select
-              value={createType}
-              onChange={(event) => setCreateType(event.target.value)}
-              className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="codex">Codex</option>
-              <option value="claude">Claude</option>
-            </select>
+            <Select value={createType} onValueChange={setCreateType}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="codex">Codex</SelectItem>
+                <SelectItem value="claude">Claude</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1">
@@ -98,16 +100,16 @@ export function CreateAgentDialog({
                 Reload
               </Button>
             </div>
-            <select
-              value={worktreeMode}
-              onChange={(event) => setWorktreeMode(event.target.value as WorktreeMode)}
-              className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
-              disabled={worktreeLoading || worktreeSaving}
-            >
-              <option value="ask">On</option>
-              <option value="auto">Auto</option>
-              <option value="off">Off</option>
-            </select>
+            <Select value={worktreeMode} onValueChange={(value) => setWorktreeMode(value as WorktreeMode)}>
+              <SelectTrigger disabled={worktreeLoading || worktreeSaving}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ask">On</SelectItem>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="off">Off</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
               {worktreeError
                 ? worktreeError
