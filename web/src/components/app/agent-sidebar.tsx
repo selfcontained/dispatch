@@ -77,7 +77,7 @@ export function AgentSidebar({
       <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-border bg-card text-foreground">
         <div className="flex h-14 items-center px-3">
           <div className="flex items-center">
-            <img src="/brand-full-logo.png" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
+            <img src="/brand-full-logo.svg" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
           </div>
           <div className="ml-auto">
             <Button size="icon" variant="ghost" onClick={() => setLeftOpen(false)} title="Close sidebar">

@@ -1,4 +1,4 @@
-import { ChevronRight, Image as ImageIcon, Monitor, MonitorOff } from "lucide-react";
+import { Monitor, MonitorOff, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,9 +36,12 @@ export function AppHeader({
     <header className={cn("flex h-14 items-center border-b-2 bg-[#11120f] px-3", headerStatusBorderClass)}>
       <div className="flex min-w-0 items-center gap-2">
         {!leftOpen ? (
-          <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          <>
+            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
+              <PanelRightOpen className="h-4 w-4" />
+            </Button>
+            <img src="/brand-icon.svg" alt="Dispatch logo" className="h-6 w-auto object-contain" />
+          </>
         ) : null}
         {showHeaderStatus ? <span className="truncate text-sm">{statusText}</span> : null}
       </div>
@@ -74,7 +77,7 @@ export function AppHeader({
             onClick={() => setMediaOpen(true)}
             title="Open media sidebar"
           >
-            <ImageIcon className="h-4 w-4" />
+            <PanelLeftOpen className="h-4 w-4" />
             {unseenMediaCount > 0 ? (
               <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                 {unseenMediaCount}
