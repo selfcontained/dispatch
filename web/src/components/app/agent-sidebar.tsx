@@ -7,7 +7,8 @@ import {
   MonitorOff,
   Play,
   Plus,
-  Square
+  Square,
+  X
 } from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
@@ -18,12 +19,10 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-type AgentSidebarProps = {
-  leftOpen: boolean;
+type AgentSidebarSharedProps = {
   agents: Agent[];
   selectedAgentId: string | null;
   overflowAgentId: string | null;
-  setLeftOpen: (open: boolean) => void;
   onOpenCreateDialog: () => void;
   onOpenEditWorktreeDialog: (agent: Agent) => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
@@ -39,12 +38,21 @@ type AgentSidebarProps = {
   startAgent: (agent: Agent) => Promise<void>;
 };
 
-export function AgentSidebar({
-  leftOpen,
+type AgentSidebarProps = AgentSidebarSharedProps & {
+  leftOpen: boolean;
+  setLeftOpen: (open: boolean) => void;
+};
+
+type AgentSidebarContentProps = AgentSidebarSharedProps & {
+  onRequestClose?: () => void;
+  closeButtonIcon?: "chevron" | "x";
+  className?: string;
+};
+
+export function AgentSidebarContent({
   agents,
   selectedAgentId,
   overflowAgentId,
-  setLeftOpen,
   onOpenCreateDialog,
   onOpenEditWorktreeDialog,
   setOverflowAgentId,
@@ -57,8 +65,11 @@ export function AgentSidebar({
   detachTerminal,
   attachToAgent,
   stopAgent,
-  startAgent
-}: AgentSidebarProps): JSX.Element {
+  startAgent,
+  onRequestClose,
+  closeButtonIcon = "x",
+  className
+}: AgentSidebarContentProps): JSX.Element {
   const agentTypeLabel = (type?: string): string => {
     if (type === "claude") {
       return "Claude";
@@ -70,36 +81,34 @@ export function AgentSidebar({
   };
 
   return (
-    <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: leftOpen ? 320 : 0 }}
-    >
-      <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-border bg-card text-foreground">
-        <div className="flex h-14 items-center px-3">
-          <div className="flex items-center">
-            <img src="/brand-full-logo.svg" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
-          </div>
+    <aside className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
+      <div className="flex h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
+        <div className="flex items-center">
+          <img src="/brand-full-logo.svg" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
+        </div>
+        {onRequestClose ? (
           <div className="ml-auto">
-            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(false)} title="Close sidebar">
-              <ChevronLeft className="h-4 w-4" />
+            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close sidebar">
+              {closeButtonIcon === "chevron" ? <ChevronLeft className="h-4 w-4" /> : <X className="h-4 w-4" />}
             </Button>
           </div>
+        ) : null}
+      </div>
+      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
+        <div className="ml-auto flex items-center">
+          <Button size="sm" variant="primary" onClick={onOpenCreateDialog}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> Create
+          </Button>
         </div>
-        <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-          <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
-          <div className="ml-auto flex items-center">
-            <Button size="sm" variant="primary" onClick={onOpenCreateDialog}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> Create
-            </Button>
-          </div>
-        </div>
+      </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <TooltipProvider delayDuration={120}>
-            {agents.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
-            ) : (
-              agents.map((agent) => {
+      <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        <TooltipProvider delayDuration={120}>
+          {agents.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
+          ) : (
+            agents.map((agent) => {
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
@@ -158,7 +167,10 @@ export function AgentSidebar({
                             variant="ghost"
                             className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
                             data-agent-control="true"
-                            onClick={() => void startAgent(agent)}
+                            onClick={() => {
+                              onRequestClose?.();
+                              void startAgent(agent);
+                            }}
                           >
                             <Play className="h-3.5 w-3.5" />
                           </Button>
@@ -190,7 +202,10 @@ export function AgentSidebar({
                                 variant="ghost"
                                 className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
                                 data-agent-control="true"
-                                onClick={() => void attachToAgent(agent)}
+                                onClick={() => {
+                                  onRequestClose?.();
+                                  void attachToAgent(agent);
+                                }}
                               >
                                 <Monitor className="h-3.5 w-3.5" />
                               </Button>
@@ -321,11 +336,26 @@ export function AgentSidebar({
                   </div>
                 </div>
               );
-              })
-            )}
-          </TooltipProvider>
-        </div>
-      </aside>
+            })
+          )}
+        </TooltipProvider>
+      </div>
+    </aside>
+  );
+}
+
+export function AgentSidebar({ leftOpen, setLeftOpen, ...props }: AgentSidebarProps): JSX.Element {
+  return (
+    <div
+      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
+      style={{ width: leftOpen ? 320 : 0 }}
+    >
+      <AgentSidebarContent
+        {...props}
+        onRequestClose={() => setLeftOpen(false)}
+        closeButtonIcon="chevron"
+        className="w-[320px]"
+      />
     </div>
   );
 }
