@@ -10,6 +10,13 @@ export type Agent = {
   codexArgs: string[];
   lastError?: string | null;
   mediaDir: string | null;
+  gitContext?: {
+    repoRoot: string;
+    branch: string;
+    worktreePath: string;
+    worktreeName: string;
+    isWorktree: boolean;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -1186,8 +1186,6 @@ export function App(): JSX.Element {
           leftOpen={leftOpen}
           agents={agents}
           selectedAgentId={selectedAgentId}
-          selectedAgentWorktreeMode={selectedAgentWorktreeMode}
-          selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
           overflowAgentId={overflowAgentId}
           setLeftOpen={setLeftOpen}
           onOpenCreateDialog={openCreateDialog}

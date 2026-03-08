@@ -31,9 +31,21 @@ const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const terminalTokenStore = new TerminalTokenStore(60_000);
 
+type AgentGitContext = {
+  repoRoot: string;
+  branch: string;
+  worktreePath: string;
+  worktreeName: string;
+  isWorktree: boolean;
+};
+
+type AgentWithGitContext = AgentRecord & {
+  gitContext: AgentGitContext | null;
+};
+
 type UiEvent =
-  | { type: "snapshot"; agents: AgentRecord[] }
-  | { type: "agent.upsert"; agent: AgentRecord }
+  | { type: "snapshot"; agents: AgentWithGitContext[] }
+  | { type: "agent.upsert"; agent: AgentWithGitContext }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] };
@@ -53,7 +65,7 @@ class UiEventBroker {
     this.write(event);
   }
 
-  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
+  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentWithGitContext[]): void {
     this.write({ type: "snapshot", agents }, stream);
   }
 
@@ -77,6 +89,8 @@ class UiEventBroker {
 const uiEventBroker = new UiEventBroker();
 const mediaWatchers = new Map<string, FSWatcher>();
 const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
+const gitContextCache = new Map<string, { value: AgentGitContext | null; expiresAt: number }>();
+const GIT_CONTEXT_CACHE_TTL_MS = 15_000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,7 +118,7 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
-    return { agents };
+    return { agents: await enrichAgentsWithGitContext(agents) };
   });
 
   app.get("/api/v1/repo-config", async (request, reply) => {
@@ -154,7 +168,7 @@ async function registerRoutes() {
 
     try {
       const agents = await agentManager.listAgents();
-      uiEventBroker.sendSnapshot(stream, agents);
+      uiEventBroker.sendSnapshot(stream, await enrichAgentsWithGitContext(agents));
     } catch (error) {
       app.log.warn({ err: error }, "Failed to load SSE snapshot.");
     }
@@ -174,7 +188,7 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    return { agent };
+    return { agent: await enrichAgentWithGitContext(agent) };
   });
 
   app.get("/api/v1/agents/:id/media", async (request, reply) => {
@@ -291,10 +305,11 @@ async function registerRoutes() {
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });
+      const enriched = await enrichAgentWithGitContext(agent);
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-      uiEventBroker.publish({ type: "agent.upsert", agent });
+      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
 
-      return reply.code(201).send({ agent });
+      return reply.code(201).send({ agent: enriched });
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -306,9 +321,10 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.startAgent(id);
+      const enriched = await enrichAgentWithGitContext(agent);
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-      uiEventBroker.publish({ type: "agent.upsert", agent });
-      return { agent };
+      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
+      return { agent: enriched };
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -325,8 +341,9 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.stopAgent(id, { force: body?.force as boolean | undefined });
-      uiEventBroker.publish({ type: "agent.upsert", agent });
-      return { agent };
+      const enriched = await enrichAgentWithGitContext(agent);
+      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
+      return { agent: enriched };
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -373,7 +390,7 @@ async function registerRoutes() {
       // Keep UI state in sync when getTerminalSession corrected a stale running status.
       const refreshed = await agentManager.getAgent(id);
       if (refreshed) {
-        uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
+        uiEventBroker.publish({ type: "agent.upsert", agent: await enrichAgentWithGitContext(refreshed) });
       }
       return handleAgentError(reply, error);
     }
@@ -520,6 +537,165 @@ function handleRepoConfigError(reply: FastifyReply, error: unknown) {
 
   const message = error instanceof Error ? error.message : "Unknown error.";
   return reply.code(500).send({ error: message });
+}
+
+async function enrichAgentsWithGitContext(agents: AgentRecord[]): Promise<AgentWithGitContext[]> {
+  return await Promise.all(agents.map(async (agent) => await enrichAgentWithGitContext(agent)));
+}
+
+async function enrichAgentWithGitContext(agent: AgentRecord): Promise<AgentWithGitContext> {
+  return {
+    ...agent,
+    gitContext: await resolveGitContextCached(agent.cwd)
+  };
+}
+
+async function resolveGitContextCached(cwd: string): Promise<AgentGitContext | null> {
+  const key = normalizePath(cwd);
+  const cached = gitContextCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const value = await resolveGitContext(cwd);
+  gitContextCache.set(key, { value, expiresAt: now + GIT_CONTEXT_CACHE_TTL_MS });
+  return value;
+}
+
+async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
+  try {
+    const inside = await runCommand(
+      "git",
+      ["-C", cwd, "rev-parse", "--is-inside-work-tree"],
+      { allowedExitCodes: [0, 128] }
+    );
+    if (inside.exitCode !== 0 || inside.stdout !== "true") {
+      return null;
+    }
+
+    const repoRoot = await resolveRepoRoot(cwd);
+
+    let branch = (
+      await runCommand("git", ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"], {
+        allowedExitCodes: [0, 1]
+      })
+    ).stdout;
+    if (!branch) {
+      branch = (
+        await runCommand("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], {
+          allowedExitCodes: [0]
+        })
+      ).stdout;
+    }
+
+    const entries = parseWorktreeList(
+      (
+        await runCommand("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+          allowedExitCodes: [0]
+        })
+      ).stdout
+    );
+
+    const normalizedCwd = normalizePath(cwd);
+    const bestMatch = findBestWorktreeMatch(normalizedCwd, entries);
+    const worktreePath = bestMatch ? normalizePath(bestMatch.path) : repoRoot;
+
+    return {
+      repoRoot,
+      branch,
+      worktreePath,
+      worktreeName: path.basename(worktreePath),
+      isWorktree: worktreePath !== repoRoot
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveRepoRoot(cwd: string): Promise<string> {
+  const commonDirResult = await runCommand(
+    "git",
+    ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { allowedExitCodes: [0, 128] }
+  );
+
+  if (commonDirResult.exitCode === 0 && commonDirResult.stdout) {
+    const commonDir = normalizePath(commonDirResult.stdout);
+    if (path.basename(commonDir) === ".git") {
+      return normalizePath(path.dirname(commonDir));
+    }
+  }
+
+  const fallbackCommonDirResult = await runCommand(
+    "git",
+    ["-C", cwd, "rev-parse", "--git-common-dir"],
+    { allowedExitCodes: [0, 128] }
+  );
+  if (fallbackCommonDirResult.exitCode === 0 && fallbackCommonDirResult.stdout) {
+    const commonDir = fallbackCommonDirResult.stdout;
+    const absoluteCommonDir = normalizePath(
+      path.isAbsolute(commonDir) ? commonDir : path.resolve(cwd, commonDir)
+    );
+    if (path.basename(absoluteCommonDir) === ".git") {
+      return normalizePath(path.dirname(absoluteCommonDir));
+    }
+  }
+
+  return normalizePath(
+    (
+      await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        allowedExitCodes: [0]
+      })
+    ).stdout
+  );
+}
+
+function parseWorktreeList(output: string): Array<{ path: string }> {
+  const entries: Array<{ path: string }> = [];
+  for (const line of output.split("\n")) {
+    if (!line.startsWith("worktree ")) {
+      continue;
+    }
+    const parsed = line.slice("worktree ".length).trim();
+    if (!parsed) {
+      continue;
+    }
+    entries.push({ path: parsed });
+  }
+  return entries;
+}
+
+function findBestWorktreeMatch(
+  cwd: string,
+  entries: Array<{ path: string }>
+): { path: string } | null {
+  let best: string | null = null;
+
+  for (const entry of entries) {
+    const candidate = normalizePath(entry.path);
+    if (!isPathPrefix(cwd, candidate)) {
+      continue;
+    }
+    if (!best || candidate.length > best.length) {
+      best = candidate;
+    }
+  }
+
+  return best ? { path: best } : null;
+}
+
+function isPathPrefix(target: string, prefix: string): boolean {
+  if (target === prefix) {
+    return true;
+  }
+  return target.startsWith(prefix.endsWith(path.sep) ? prefix : `${prefix}${path.sep}`);
+}
+
+function normalizePath(value: string): string {
+  const resolved = path.resolve(value);
+  const trimmed = resolved.replace(/[\\/]+$/, "");
+  return trimmed.length > 0 ? trimmed : resolved;
 }
 
 function decodeClientMessage(

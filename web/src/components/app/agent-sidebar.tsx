@@ -1,8 +1,18 @@
-import { AlertTriangle, ChevronLeft, EllipsisVertical, Monitor, MonitorOff, Play, Plus, Square } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  EllipsisVertical,
+  FolderGit2,
+  Monitor,
+  MonitorOff,
+  Play,
+  Plus,
+  Square
+} from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { type Agent, type AgentVisualState, type WorktreeMode } from "@/components/app/types";
+import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,8 +22,6 @@ type AgentSidebarProps = {
   leftOpen: boolean;
   agents: Agent[];
   selectedAgentId: string | null;
-  selectedAgentWorktreeMode: WorktreeMode | null;
-  selectedAgentWorktreeLoading: boolean;
   overflowAgentId: string | null;
   setLeftOpen: (open: boolean) => void;
   onOpenCreateDialog: () => void;
@@ -35,8 +43,6 @@ export function AgentSidebar({
   leftOpen,
   agents,
   selectedAgentId,
-  selectedAgentWorktreeMode,
-  selectedAgentWorktreeLoading,
   overflowAgentId,
   setLeftOpen,
   onOpenCreateDialog,
@@ -53,16 +59,6 @@ export function AgentSidebar({
   stopAgent,
   startAgent
 }: AgentSidebarProps): JSX.Element {
-  const worktreeModeLabel = (mode: WorktreeMode): string => {
-    if (mode === "auto") {
-      return "Auto";
-    }
-    if (mode === "off") {
-      return "Off";
-    }
-    return "On";
-  };
-
   const agentTypeLabel = (type?: string): string => {
     if (type === "claude") {
       return "Claude";
@@ -286,16 +282,21 @@ export function AgentSidebar({
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono />
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
-                          <AgentMeta
-                            label="Worktree mode"
-                            value={
-                              isSelected
-                                ? selectedAgentWorktreeLoading
-                                  ? "Loading..."
-                                  : worktreeModeLabel(selectedAgentWorktreeMode ?? "off")
-                                : "Select agent"
-                            }
-                          />
+                          <div className="grid gap-1">
+                            <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
+                            <div className="inline-flex items-center gap-1.5 text-foreground">
+                              <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>
+                                {agent.gitContext
+                                  ? `${agent.gitContext.branch} • ${
+                                      agent.gitContext.isWorktree
+                                        ? `worktree: ${agent.gitContext.worktreeName}`
+                                        : "main repository"
+                                    }`
+                                  : "Not a git repository"}
+                              </span>
+                            </div>
+                          </div>
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
                               Full access
