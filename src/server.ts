@@ -544,10 +544,33 @@ async function enrichAgentsWithGitContext(agents: AgentRecord[]): Promise<AgentW
 }
 
 async function enrichAgentWithGitContext(agent: AgentRecord): Promise<AgentWithGitContext> {
+  const gitCwd = await resolveAgentGitCwd(agent);
   return {
     ...agent,
-    gitContext: await resolveGitContextCached(agent.cwd)
+    gitContext: await resolveGitContextCached(gitCwd)
   };
+}
+
+async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
+  const fallback = agent.cwd;
+  const session = agent.tmuxSession?.trim();
+  if (!session) {
+    return fallback;
+  }
+
+  if (agent.status !== "running" && agent.status !== "creating") {
+    return fallback;
+  }
+
+  const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
+    allowedExitCodes: [0, 1]
+  });
+  const cwd = result.stdout.trim();
+  if (result.exitCode !== 0 || !cwd) {
+    return fallback;
+  }
+
+  return cwd;
 }
 
 async function resolveGitContextCached(cwd: string): Promise<AgentGitContext | null> {
