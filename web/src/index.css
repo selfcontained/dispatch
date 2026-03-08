@@ -41,21 +41,6 @@ body {
   background-color: #090a08 !important;
 }
 
-.xterm .xterm-viewport {
-  overflow-y: hidden !important;
-  overflow-x: hidden !important;
-  scrollbar-width: none;
-}
-
-.xterm .xterm-viewport::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-.xterm .xterm-scroll-area {
-  display: none !important;
-}
-
 @keyframes media-in {
   from {
     opacity: 0;

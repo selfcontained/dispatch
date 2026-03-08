@@ -167,12 +167,18 @@ export class AgentManager {
 
   async deleteAgent(id: string, force = false): Promise<void> {
     const agent = await this.getRequiredAgent(id);
+    const sessionExists = agent.tmuxSession ? await this.tmuxHasSession(agent.tmuxSession) : false;
 
-    if (agent.status === "running" && !force) {
+    // If tmux is already gone, treat the agent as effectively stopped even if status is stale.
+    if (agent.status === "running" && sessionExists && !force) {
       throw new AgentError("Agent is running. Stop it first or use force delete.", 409);
     }
 
-    if (force && agent.tmuxSession && (await this.tmuxHasSession(agent.tmuxSession))) {
+    if (agent.status === "running" && !sessionExists) {
+      await this.setAgentStatus(id, "stopped", null, agent.tmuxSession ?? undefined);
+    }
+
+    if (force && agent.tmuxSession && sessionExists) {
       await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
     }
 

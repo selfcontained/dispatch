@@ -48,8 +48,12 @@ term.open(el.terminal);
 fitAddon.fit();
 
 async function api(path, options = {}) {
+  const hasBody = options.body !== undefined && options.body !== null;
   const response = await fetch(path, {
-    headers: { "content-type": "application/json" },
+    headers: {
+      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(options.headers ?? {})
+    },
     ...options
   });
 
