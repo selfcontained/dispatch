@@ -18,13 +18,13 @@ export function TerminalPane({
   terminalHostRef
 }: TerminalPaneProps): JSX.Element {
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-[#090a08]">
+    <div className="relative h-full min-h-0 overflow-hidden bg-[#141414]">
       <div className={cn("h-full w-full", !isAttached && connState !== "reconnecting" && "invisible")}>
         <div className="h-full" ref={terminalHostRef} />
       </div>
 
       {!isAttached ? (
-        <div className="absolute inset-0 z-20 grid place-items-center bg-[#090a08]">
+        <div className="absolute inset-0 z-20 grid place-items-center bg-[#141414]">
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
             <p className="text-sm">Select an agent and press Play to open a terminal connection.</p>

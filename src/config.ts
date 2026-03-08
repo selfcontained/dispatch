@@ -8,6 +8,7 @@ export type AppConfig = {
   authToken: string;
   mediaRoot: string;
   dispatchBinDir: string;
+  codexBin: string;
 };
 
 export function loadConfig(): AppConfig {
@@ -21,6 +22,11 @@ export function loadConfig(): AppConfig {
     dispatchBinDir:
       process.env.DISPATCH_BIN_DIR ??
       process.env.HOSTESS_BIN_DIR ??
-      path.resolve(process.cwd(), "bin")
+      path.resolve(process.cwd(), "bin"),
+    codexBin:
+      process.env.DISPATCH_CODEX_BIN ??
+      process.env.HOSTESS_CODEX_BIN ??
+      process.env.CODEX_BIN ??
+      "codex"
   };
 }

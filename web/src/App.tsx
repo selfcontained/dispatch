@@ -19,12 +19,21 @@ import {
 } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_CWD = "/Users/bharris/dev/apps/hostess";
+const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
 const FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
 const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
+const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+
+function readLastUsedCwd(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_CWD;
+  }
+  const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
+  return stored && stored.length > 0 ? stored : DEFAULT_CWD;
+}
 
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
@@ -50,7 +59,7 @@ export function App(): JSX.Element {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
-  const [createCwd, setCreateCwd] = useState(DEFAULT_CWD);
+  const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -113,6 +122,25 @@ export function App(): JSX.Element {
     () => agents.find((agent) => agent.id === connectedAgentId) ?? null,
     [agents, connectedAgentId]
   );
+
+  const resolveCreateDefaultCwd = useCallback((): string => {
+    const activeCwd = selectedAgent?.cwd?.trim() || connectedAgent?.cwd?.trim();
+    if (activeCwd) {
+      return activeCwd;
+    }
+
+    const latestAgentCwd = agents[0]?.cwd?.trim();
+    if (latestAgentCwd) {
+      return latestAgentCwd;
+    }
+
+    return readLastUsedCwd();
+  }, [agents, connectedAgent, selectedAgent]);
+
+  const openCreateDialog = useCallback(() => {
+    setCreateCwd(resolveCreateDefaultCwd());
+    setCreateOpen(true);
+  }, [resolveCreateDefaultCwd]);
 
   const api = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const hasBody = init?.body !== undefined && init?.body !== null;
@@ -294,18 +322,32 @@ export function App(): JSX.Element {
         if (payload.type === "output") {
           terminalRef.current?.write(payload.data);
         } else if (payload.type === "error") {
+          const normalized = payload.message.toLowerCase();
+          if (
+            normalized.includes("session no longer exists") ||
+            normalized.includes("attach failed") ||
+            normalized.includes("invalid or expired terminal token")
+          ) {
+            shouldKeepAttachedRef.current = false;
+          }
           setStatusMessage(`Terminal error: ${payload.message}`);
         } else if (payload.type === "exit") {
           setStatusMessage("Terminal session ended.");
         }
       });
 
-      ws.addEventListener("close", () => {
+      ws.addEventListener("close", (event) => {
         if (wsRef.current !== ws) {
           return;
         }
 
         wsRef.current = null;
+
+        if (event.code === 1008 || event.code === 1011) {
+          shouldKeepAttachedRef.current = false;
+          setConnState("disconnected");
+          return;
+        }
 
         if (!shouldKeepAttachedRef.current || attachNonce !== attachNonceRef.current) {
           setConnState("disconnected");
@@ -368,9 +410,11 @@ export function App(): JSX.Element {
         body: JSON.stringify({})
       });
       await refreshAgents();
-      setStatusMessage(`Started ${agent.name}.`);
+      await refreshMedia(agent.id);
+      await ensureTerminalConnected(true, true, agent.id);
+      setStatusMessage(`Started ${agent.name} and attached terminal.`);
     },
-    [api, refreshAgents]
+    [api, ensureTerminalConnected, refreshAgents, refreshMedia]
   );
 
   const stopAgent = useCallback(
@@ -440,6 +484,7 @@ export function App(): JSX.Element {
         setCreateOpen(false);
         setCreateName("");
         setCreateFullAccess(false);
+        window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         setSelectedAgentId(payload.agent.id);
         await refreshAgents();
         await refreshMedia(payload.agent.id);
@@ -464,7 +509,30 @@ export function App(): JSX.Element {
       fontFamily: "JetBrains Mono, Menlo, monospace",
       fontSize: 13,
       scrollback: 5000,
-      theme: { background: "#090a08", foreground: "#f8f8f2" }
+      theme: {
+        foreground: "#f8f8f2",
+        background: "#141414",
+        cursor: "#f8f8f0",
+        cursorAccent: "#141414",
+        selectionBackground: "#49483e",
+        selectionInactiveBackground: "#3e3d32",
+        black: "#141414",
+        red: "#f92672",
+        green: "#a6e22e",
+        yellow: "#f4bf75",
+        blue: "#66d9ef",
+        magenta: "#ae81ff",
+        cyan: "#a1efe4",
+        white: "#f8f8f2",
+        brightBlack: "#75715e",
+        brightRed: "#f92672",
+        brightGreen: "#a6e22e",
+        brightYellow: "#f4bf75",
+        brightBlue: "#66d9ef",
+        brightMagenta: "#ae81ff",
+        brightCyan: "#a1efe4",
+        brightWhite: "#f9f8f5"
+      }
     });
 
     const fit = new FitAddon();
@@ -698,6 +766,13 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    const lastUsedCwd = selectedAgent?.cwd?.trim() || connectedAgent?.cwd?.trim();
+    if (lastUsedCwd) {
+      window.localStorage.setItem(LAST_USED_CWD_KEY, lastUsedCwd);
+    }
+  }, [connectedAgent, selectedAgent]);
+
+  useEffect(() => {
     const value = String(leftOpen);
     window.localStorage.setItem(LEFT_SIDEBAR_KEY, value);
     window.localStorage.setItem(LEFT_SIDEBAR_LEGACY_KEY, value);
@@ -796,7 +871,7 @@ export function App(): JSX.Element {
           selectedAgentId={selectedAgentId}
           overflowAgentId={overflowAgentId}
           setLeftOpen={setLeftOpen}
-          setCreateOpen={setCreateOpen}
+          onOpenCreateDialog={openCreateDialog}
           setOverflowAgentId={setOverflowAgentId}
           setDeleteTarget={setDeleteTarget}
           setDeleteConfirmOpen={setDeleteConfirmOpen}

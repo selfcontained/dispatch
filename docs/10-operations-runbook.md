@@ -46,6 +46,10 @@ Install:
 2. Install + load launchd job:
    - `bin/install-launchd`
 
+Notes:
+- Installer captures the current `codex` binary path into `DISPATCH_CODEX_BIN` for launchd.
+- Re-run `bin/install-launchd` after changing where `codex` is installed.
+
 Uninstall:
 
 - `bin/uninstall-launchd`

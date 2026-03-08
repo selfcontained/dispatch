@@ -133,6 +133,12 @@ export class AgentManager {
       throw new AgentError("Agent is missing tmux session metadata.", 500);
     }
 
+    const hasSession = await this.tmuxHasSession(agent.tmuxSession);
+    if (!hasSession) {
+      await this.setAgentStatus(id, "stopped", "Agent tmux session is no longer running.", agent.tmuxSession);
+      throw new AgentError("Agent session is not available. Start the agent again.", 409);
+    }
+
     return agent.tmuxSession;
   }
 
@@ -209,6 +215,12 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const codexCommand = this.buildCodexCommand(codexArgs, mediaDir, sessionName);
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, codexCommand]);
+
+    // Detect fast-fail launches (for example, missing codex executable) so status
+    // is not left as "running" with no backing tmux session.
+    if (!(await this.tmuxHasSession(sessionName))) {
+      throw new Error("tmux session exited immediately after launch");
+    }
   }
 
   private async ensureNoExistingSession(sessionName: string): Promise<void> {
@@ -227,13 +239,12 @@ export class AgentManager {
   private buildCodexCommand(args: string[], mediaDir: string, sessionName: string): string {
     const agentId = sessionName.replace(/^(dispatch|hostess)_/, "");
     const launchGuidance =
-      "Dispatch startup instructions: Use dispatch-share for all Playwright or iOS simulator screenshots. " +
-      "For Playwright: dispatch-share <image-path>. For iOS Simulator capture: dispatch-share --sim [udid]. " +
-      "hostess-share also works as a compatibility alias. " +
-      "Always publish every screenshot you take, including self-initiated testing screenshots and screenshots not explicitly requested by the user. " +
-      "Do not leave screenshots only in local temp/artifact folders. " +
-      "Prefer this over manual cp so images always appear in the Dispatch Media panel. " +
-      "Default Playwright runs to headless mode unless the user explicitly asks for headed mode.";
+      "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
+      "If you validate any UI flow (Playwright or iOS Simulator), capture at least one screenshot of that flow; " +
+      "for multi-step UI changes, capture key states (before/after or critical transitions). " +
+      "Publish every screenshot you capture, including self-initiated testing screenshots, and never leave screenshots local-only. " +
+      "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator; hostess-share is an allowed alias. " +
+      "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const envPrefix = [
       `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
@@ -248,11 +259,11 @@ export class AgentManager {
     ].join(" ");
 
     if (args.length === 0) {
-      return `${envPrefix} codex ${this.shellEscape(launchGuidance)}`;
+      return `${envPrefix} ${this.shellEscape(this.config.codexBin)} ${this.shellEscape(launchGuidance)}`;
     }
 
     const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-    return `${envPrefix} codex ${escaped} ${this.shellEscape(launchGuidance)}`;
+    return `${envPrefix} ${this.shellEscape(this.config.codexBin)} ${escaped} ${this.shellEscape(launchGuidance)}`;
   }
 
   private shellEscape(value: string): string {

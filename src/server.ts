@@ -295,6 +295,11 @@ async function registerRoutes() {
         wsUrl: `/api/v1/agents/${id}/terminal/ws?token=${token}`
       };
     } catch (error) {
+      // Keep UI state in sync when getTerminalSession corrected a stale running status.
+      const refreshed = await agentManager.getAgent(id);
+      if (refreshed) {
+        uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
+      }
       return handleAgentError(reply, error);
     }
   });

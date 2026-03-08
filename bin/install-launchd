@@ -8,6 +8,8 @@ PORT="${DISPATCH_PORT:-8787}"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 
+CODEX_BIN="$(command -v codex || true)"
+
 if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "Port ${PORT} is already in use. Stop existing Dispatch process before install." >&2
   echo "Hint: ${ROOT_DIR}/bin/dispatch-server stop" >&2
@@ -31,6 +33,10 @@ NODE_BIN="$(nvm which current)"
 if [ ! -x "$NODE_BIN" ]; then
   echo "Unable to resolve Node binary from nvm" >&2
   exit 1
+fi
+
+if [ -n "$CODEX_BIN" ] && [ ! -x "$CODEX_BIN" ]; then
+  CODEX_BIN=""
 fi
 
 cat > "$PLIST_PATH" <<PLIST
@@ -59,6 +65,8 @@ cat > "$PLIST_PATH" <<PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>DISPATCH_CODEX_BIN</key>
+    <string>${CODEX_BIN:-codex}</string>
   </dict>
 </dict>
 </plist>

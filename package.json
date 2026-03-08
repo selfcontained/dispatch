@@ -12,6 +12,7 @@
     "build": "npm run build:web && tsc -p tsconfig.json",
     "build:web": "npm --prefix web run build",
     "check:web": "npm --prefix web run check",
+    "finalize:web": "npm run check:web && npm run build:web",
     "start": "node dist/server.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "check": "tsc --noEmit && npm run check:web"

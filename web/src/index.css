@@ -38,7 +38,7 @@ body {
 .xterm,
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
-  background-color: #090a08 !important;
+  background-color: #141414 !important;
 }
 
 @keyframes media-in {

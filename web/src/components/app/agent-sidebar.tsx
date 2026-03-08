@@ -20,7 +20,7 @@ type AgentSidebarProps = {
   selectedAgentId: string | null;
   overflowAgentId: string | null;
   setLeftOpen: (open: boolean) => void;
-  setCreateOpen: (open: boolean) => void;
+  onOpenCreateDialog: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
@@ -40,7 +40,7 @@ export function AgentSidebar({
   selectedAgentId,
   overflowAgentId,
   setLeftOpen,
-  setCreateOpen,
+  onOpenCreateDialog,
   setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
@@ -80,7 +80,7 @@ export function AgentSidebar({
         <div className="mt-2 flex h-14 items-center border-b border-border px-3">
           <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
           <div className="ml-auto flex items-center">
-            <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" variant="primary" onClick={onOpenCreateDialog}>
               <Plus className="mr-1 h-3.5 w-3.5" /> Create
             </Button>
           </div>
