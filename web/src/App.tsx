@@ -1158,6 +1158,7 @@ export function App(): JSX.Element {
 
             <TerminalPane
               isAttached={isAttached}
+              hasSelectedAgent={Boolean(selectedAgentId)}
               connState={connState}
               statusMessage={statusMessage}
               terminalHostRef={terminalHostRef}
