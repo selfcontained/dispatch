@@ -38,15 +38,17 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
 
 ## Docs
 
-- [Product Requirements](/Users/bharris/dev/apps/hostess/docs/01-product-requirements.md)
-- [System Architecture](/Users/bharris/dev/apps/hostess/docs/02-system-architecture.md)
-- [API Specification](/Users/bharris/dev/apps/hostess/docs/03-api-spec.md)
-- [Agent Lifecycle Model](/Users/bharris/dev/apps/hostess/docs/04-agent-lifecycle.md)
-- [Simulator Isolation Strategy](/Users/bharris/dev/apps/hostess/docs/05-simulator-strategy.md)
-- [Security Model](/Users/bharris/dev/apps/hostess/docs/06-security.md)
-- [Implementation Plan](/Users/bharris/dev/apps/hostess/docs/07-implementation-plan.md)
-- [Current State Handoff](/Users/bharris/dev/apps/hostess/docs/08-current-state-handoff.md)
-- [Agent Attention Phase 2 Plan](/Users/bharris/dev/apps/hostess/docs/09-agent-attention-phase-2.md)
+- [Product Requirements](/Users/bharris/dev/apps/dispatch/docs/01-product-requirements.md)
+- [System Architecture](/Users/bharris/dev/apps/dispatch/docs/02-system-architecture.md)
+- [API Specification](/Users/bharris/dev/apps/dispatch/docs/03-api-spec.md)
+- [Agent Lifecycle Model](/Users/bharris/dev/apps/dispatch/docs/04-agent-lifecycle.md)
+- [Simulator Isolation Strategy](/Users/bharris/dev/apps/dispatch/docs/05-simulator-strategy.md)
+- [Security Model](/Users/bharris/dev/apps/dispatch/docs/06-security.md)
+- [Implementation Plan](/Users/bharris/dev/apps/dispatch/docs/07-implementation-plan.md)
+- [Current State Handoff](/Users/bharris/dev/apps/dispatch/docs/08-current-state-handoff.md)
+- [Agent Attention Phase 2 Plan](/Users/bharris/dev/apps/dispatch/docs/09-agent-attention-phase-2.md)
+- [Operations Runbook](/Users/bharris/dev/apps/dispatch/docs/10-operations-runbook.md)
+- [Backend Compatibility Checklist](/Users/bharris/dev/apps/dispatch/docs/11-backend-compatibility-checklist.md)
 
 ## Proposed Tech Stack (MVP)
 
@@ -70,6 +72,13 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
 4. Verify:
    - UI: `http://127.0.0.1:8787`
    - Health: `http://127.0.0.1:8787/api/v1/health`
+
+## Operations Quick Commands
+
+- Install login/reboot autostart via launchd: `bin/install-launchd`
+- Default deploy flow (build + restart launchd + health): `bin/dispatch-deploy`
+- launchd status: `launchctl print gui/$(id -u)/local.dispatch.server`
+- Optional interactive debug mode in tmux: `bin/dispatch-server start|stop|status|logs|attach`
 
 ## Media Sharing
 

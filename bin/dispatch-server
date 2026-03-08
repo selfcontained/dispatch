@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SESSION_NAME="dispatch-server"
+DEFAULT_PORT="8787"
+
+usage() {
+  cat <<USAGE
+Usage: bin/dispatch-server <command>
+
+Commands:
+  start     Start Dispatch in a tmux session (production mode)
+  stop      Stop the tmux session
+  restart   Restart the tmux session
+  status    Show tmux/session/health status
+  attach    Attach to the tmux session
+  logs      Show recent tmux pane output
+  build     Run a fresh production build
+  update    Fresh build + restart + health check
+USAGE
+}
+
+load_nvm() {
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+  else
+    echo "nvm not found at $NVM_DIR/nvm.sh" >&2
+    exit 1
+  fi
+}
+
+node_in_tmux_command() {
+  cat <<CMD
+cd '$ROOT_DIR' && source "$HOME/.nvm/nvm.sh" && nvm use >/dev/null && npm run start
+CMD
+}
+
+is_running() {
+  tmux has-session -t "$SESSION_NAME" 2>/dev/null
+}
+
+health_check() {
+  local port="${DISPATCH_PORT:-$DEFAULT_PORT}"
+  curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
+}
+
+wait_for_health() {
+  local attempts="${1:-10}"
+  local delay="${2:-1}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if health_check >/tmp/dispatch-health.json 2>/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+cmd_start() {
+  if is_running; then
+    echo "dispatch-server session already running"
+    return
+  fi
+  tmux new-session -d -s "$SESSION_NAME" "$(node_in_tmux_command)"
+  echo "started tmux session: $SESSION_NAME"
+  if wait_for_health 15 1; then
+    cmd_status
+  else
+    echo "warning: server session started but health check is still down" >&2
+    cmd_logs | tail -n 40 >&2 || true
+    exit 1
+  fi
+}
+
+cmd_stop() {
+  if ! is_running; then
+    echo "dispatch-server session is not running"
+    return
+  fi
+  tmux kill-session -t "$SESSION_NAME"
+  echo "stopped tmux session: $SESSION_NAME"
+}
+
+cmd_restart() {
+  cmd_stop || true
+  cmd_start
+}
+
+cmd_status() {
+  if is_running; then
+    echo "tmux: running ($SESSION_NAME)"
+    tmux list-sessions | rg "^${SESSION_NAME}:" || true
+  else
+    echo "tmux: stopped ($SESSION_NAME)"
+  fi
+
+  if health_check >/tmp/dispatch-health.json 2>/dev/null; then
+    echo "health: up"
+    cat /tmp/dispatch-health.json
+    echo
+  else
+    echo "health: down"
+  fi
+}
+
+cmd_attach() {
+  if ! is_running; then
+    echo "dispatch-server session is not running"
+    exit 1
+  fi
+  exec tmux attach-session -t "$SESSION_NAME"
+}
+
+cmd_logs() {
+  if ! is_running; then
+    echo "dispatch-server session is not running"
+    exit 1
+  fi
+  tmux capture-pane -p -S -200 -t "$SESSION_NAME:0"
+}
+
+cmd_build() {
+  load_nvm
+  cd "$ROOT_DIR"
+  nvm use >/dev/null
+  npm run build
+}
+
+cmd_update() {
+  cmd_build
+  cmd_restart
+  if wait_for_health 15 1; then
+    echo "update complete: health check passed"
+    cat /tmp/dispatch-health.json
+    echo
+  else
+    echo "update complete: health check failed" >&2
+    exit 1
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    start) cmd_start ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart ;;
+    status) cmd_status ;;
+    attach) cmd_attach ;;
+    logs) cmd_logs ;;
+    build) cmd_build ;;
+    update) cmd_update ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "$@"
