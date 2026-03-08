@@ -2,38 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="local.dispatch.server"
-HEALTH_URL="${DISPATCH_HEALTH_URL:-http://127.0.0.1:8787/api/v1/health}"
 
-cd "$ROOT_DIR"
-
-if [ ! -x "$ROOT_DIR/bin/install-launchd" ]; then
-  echo "Missing installer: $ROOT_DIR/bin/install-launchd" >&2
-  exit 1
-fi
-
-if [ ! -f "$HOME/Library/LaunchAgents/${LABEL}.plist" ]; then
-  echo "launchd job not installed. Installing now..."
-  "$ROOT_DIR/bin/install-launchd"
-fi
-
-echo "Building Dispatch..."
-"$ROOT_DIR/bin/dispatch-server" build
-
-echo "Restarting launchd job..."
-launchctl kickstart -k "gui/$(id -u)/${LABEL}"
-
-echo "Waiting for health..."
-for _ in $(seq 1 15); do
-  if curl -fsS -m 3 "$HEALTH_URL" >/tmp/dispatch-health.json 2>/dev/null; then
-    echo "Deploy complete. Health:"
-    cat /tmp/dispatch-health.json
-    echo
-    exit 0
-  fi
-  sleep 1
-done
-
-echo "Deploy failed: health check did not pass in time." >&2
-echo "Inspect logs: /tmp/dispatch-launchd.out.log /tmp/dispatch-launchd.err.log" >&2
-exit 1
+echo "bin/dispatch-deploy now delegates to tmux release flow."
+exec "$ROOT_DIR/bin/dispatch-server" update

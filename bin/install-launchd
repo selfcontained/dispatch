@@ -1,81 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="local.dispatch.server"
-PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
-PORT="${DISPATCH_PORT:-8787}"
-
-mkdir -p "$HOME/Library/LaunchAgents"
-
-CODEX_BIN="$(command -v codex || true)"
-
-if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port ${PORT} is already in use. Stop existing Dispatch process before install." >&2
-  echo "Hint: ${ROOT_DIR}/bin/dispatch-server stop" >&2
-  exit 1
-fi
-
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-  echo "nvm not found at $NVM_DIR/nvm.sh" >&2
-  exit 1
-fi
-
-# shellcheck disable=SC1090
-. "$NVM_DIR/nvm.sh"
-
-cd "$ROOT_DIR"
-nvm install >/dev/null
-nvm use >/dev/null
-NODE_BIN="$(nvm which current)"
-
-if [ ! -x "$NODE_BIN" ]; then
-  echo "Unable to resolve Node binary from nvm" >&2
-  exit 1
-fi
-
-if [ -n "$CODEX_BIN" ] && [ ! -x "$CODEX_BIN" ]; then
-  CODEX_BIN=""
-fi
-
-cat > "$PLIST_PATH" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${NODE_BIN}</string>
-    <string>${ROOT_DIR}/dist/server.js</string>
-  </array>
-  <key>WorkingDirectory</key>
-  <string>${ROOT_DIR}</string>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>/tmp/dispatch-launchd.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/dispatch-launchd.err.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>DISPATCH_CODEX_BIN</key>
-    <string>${CODEX_BIN:-codex}</string>
-  </dict>
-</dict>
-</plist>
-PLIST
-
-launchctl unload "$PLIST_PATH" 2>/dev/null || true
-launchctl load "$PLIST_PATH"
-launchctl start "$LABEL" || true
-
-echo "Installed launchd job: $LABEL"
-echo "Plist: $PLIST_PATH"
-echo "Logs: /tmp/dispatch-launchd.out.log /tmp/dispatch-launchd.err.log"
+echo "launchd support has been removed from Dispatch." >&2
+echo "Use tmux runtime commands instead:" >&2
+echo "  - start: bin/dispatch-server start" >&2
+echo "  - release: bin/dispatch-server update" >&2
+exit 1

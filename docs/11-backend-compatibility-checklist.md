@@ -1,6 +1,6 @@
 # Backend Compatibility Checklist
 
-Use this checklist for backend changes when running a single always-on launchd backend.
+Use this checklist for backend changes when running a single always-on tmux backend.
 
 ## API Compatibility
 
@@ -28,8 +28,8 @@ Use this checklist for backend changes when running a single always-on launchd b
 1. Confirm boot path works in production mode:
    - `npm run build`
    - `node dist/server.js`
-2. Confirm launchd restart path works:
-   - `bin/dispatch-deploy`
+2. Confirm tmux restart path works:
+   - `bin/dispatch-server update`
 3. Confirm health endpoint remains stable:
    - `curl -sS http://127.0.0.1:8787/api/v1/health`
 
@@ -38,4 +38,4 @@ Use this checklist for backend changes when running a single always-on launchd b
 1. Can current UI/client behavior continue to function without code changes?
 2. Are migrations safe if the process restarts between deploy steps?
 3. Is there any endpoint/field removal? If yes, has deprecation/migration been documented?
-4. Has the deploy path been exercised with `bin/dispatch-deploy`?
+4. Has the deploy path been exercised with `bin/dispatch-server update`?

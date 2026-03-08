@@ -4,11 +4,10 @@ This runbook is for running Dispatch reliably across agent/session boundaries an
 
 ## Operating Policy
 
-Default mode for this repo is a single backend managed by launchd.
+Default mode for this repo is a single backend managed by `tmux`.
 
-- Use `launchd` for normal app usage and backend stress testing.
-- Use `tmux` mode only for short-lived interactive debugging.
-- Return to `launchd` mode after debugging to keep one canonical backend instance.
+- Use `bin/dispatch-server` for normal app usage and release updates.
+- launchd support is removed from this repo.
 
 ## Prerequisites
 
@@ -35,40 +34,6 @@ Notes:
 - Session name is fixed to `dispatch-server`.
 - `start` runs `npm run start` with Node resolved via `.nvmrc`.
 - Health endpoint checked by helpers: `http://127.0.0.1:8787/api/v1/health`
-- Do not run tmux mode and launchd mode at the same time (both will try to bind port `8787`).
-
-## Auto-Start on Login/Reboot (launchd)
-
-Install:
-
-1. Build once before enabling launchd:
-   - `bin/dispatch-server build`
-2. Install + load launchd job:
-   - `bin/install-launchd`
-
-Notes:
-- Installer captures the current `codex` binary path into `DISPATCH_CODEX_BIN` for launchd.
-- Re-run `bin/install-launchd` after changing where `codex` is installed.
-
-Uninstall:
-
-- `bin/uninstall-launchd`
-
-Start/stop/restart when launchd is installed:
-
-- Start now: `launchctl kickstart -k gui/$(id -u)/local.dispatch.server`
-- Stop now: `launchctl stop local.dispatch.server`
-- Restart now: `launchctl kickstart -k gui/$(id -u)/local.dispatch.server`
-
-Inspect:
-
-- Job label: `local.dispatch.server`
-- Plist path: `~/Library/LaunchAgents/local.dispatch.server.plist`
-- launchd logs:
-  - `/tmp/dispatch-launchd.out.log`
-  - `/tmp/dispatch-launchd.err.log`
-- Check launchctl state:
-  - `launchctl print gui/$(id -u)/local.dispatch.server`
 
 ## Recommended Update Flow
 
@@ -76,23 +41,11 @@ For routine updates:
 
 1. `git pull`
 2. `npm install`
-3. `bin/dispatch-deploy`
-
-For launchd-managed hosts:
-
-1. `git pull`
-2. `npm install`
-3. `bin/dispatch-deploy`
+3. `bin/dispatch-server update`
 
 ## Development Workflow with Single Backend
 
 1. Make backend changes.
 2. Deploy to the canonical backend:
-   - `bin/dispatch-deploy`
+   - `bin/dispatch-server update`
 3. Use the app normally against that same backend instance.
-4. For debugging only (optional):
-   - `launchctl stop local.dispatch.server`
-   - use `bin/dispatch-server start` and `bin/dispatch-server logs|attach`
-   - when done, stop tmux server and restore launchd:
-     - `bin/dispatch-server stop`
-     - `launchctl kickstart -k gui/$(id -u)/local.dispatch.server`

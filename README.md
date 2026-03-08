@@ -75,9 +75,8 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
 
 ## Operations Quick Commands
 
-- Install login/reboot autostart via launchd: `bin/install-launchd`
-- Default deploy flow (build + restart launchd + health): `bin/dispatch-deploy`
-- launchd status: `launchctl print gui/$(id -u)/local.dispatch.server`
+- Default release flow (no launchd, build + restart tmux + health): `bin/dispatch-server update`
+- Compatibility alias for release: `bin/dispatch-deploy` (delegates to tmux release flow)
 - Optional interactive debug mode in tmux: `bin/dispatch-server start|stop|status|logs|attach`
 
 ## Media Sharing

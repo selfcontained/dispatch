@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LABEL="local.dispatch.server"
-PLIST_PATH="$HOME/Library/LaunchAgents/${LABEL}.plist"
-
-launchctl stop "$LABEL" 2>/dev/null || true
-launchctl unload "$PLIST_PATH" 2>/dev/null || true
-rm -f "$PLIST_PATH"
-
-echo "Uninstalled launchd job: $LABEL"
+echo "launchd support has been removed from Dispatch." >&2
+echo "Nothing to uninstall. Use tmux runtime commands:" >&2
+echo "  - status: bin/dispatch-server status" >&2
+echo "  - stop: bin/dispatch-server stop" >&2
+exit 1

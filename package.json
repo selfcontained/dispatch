@@ -14,6 +14,7 @@
     "check:web": "npm --prefix web run check",
     "finalize:web": "npm run check:web && npm run build:web",
     "start": "node dist/server.js",
+    "release": "bin/dispatch-server update",
     "db:migrate": "tsx src/db/migrate.ts",
     "check": "tsc --noEmit && npm run check:web"
   },
