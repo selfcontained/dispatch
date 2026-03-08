@@ -276,7 +276,7 @@ export function App(): JSX.Element {
     }
 
     if (announce) {
-      setStatusMessage("Terminal disconnected.");
+      setStatusMessage("Session disconnected.");
       setConnState("disconnected");
     }
   }, []);
@@ -336,7 +336,7 @@ export function App(): JSX.Element {
       fitAddonRef.current?.fit();
       const attachNonce = ++attachNonceRef.current;
       setConnState("reconnecting");
-      setStatusMessage(`Connecting terminal to ${agent.name}...`);
+      setStatusMessage(`Connecting to session ${agent.name}...`);
 
       const token = await api<{ token: string; wsUrl: string }>(
         `/api/v1/agents/${agent.id}/terminal/token`,
@@ -354,7 +354,7 @@ export function App(): JSX.Element {
         reconnectAttemptsRef.current = 0;
         setConnState("connected");
         setConnectedAgentId(agent.id);
-        setStatusMessage(`Connected to agent ${agent.name}`);
+        setStatusMessage(`Connected to session ${agent.name}`);
         terminalRef.current?.focus();
       });
 
@@ -375,9 +375,9 @@ export function App(): JSX.Element {
           ) {
             shouldKeepAttachedRef.current = false;
           }
-          setStatusMessage(`Terminal error: ${payload.message}`);
+          setStatusMessage(`Session error: ${payload.message}`);
         } else if (payload.type === "exit") {
-          setStatusMessage("Terminal session ended.");
+          setStatusMessage("Session ended.");
         }
       });
 
@@ -402,7 +402,7 @@ export function App(): JSX.Element {
         reconnectAttemptsRef.current += 1;
         const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
         setConnState("reconnecting");
-        setStatusMessage("Terminal lost, reconnecting...");
+        setStatusMessage("Session disconnected, reconnecting...");
 
         reconnectTimerRef.current = window.setTimeout(() => {
           reconnectTimerRef.current = null;
@@ -428,7 +428,7 @@ export function App(): JSX.Element {
     clearReconnectTimer();
     closeSocket(false);
     setConnState("disconnected");
-    setStatusMessage("Terminal detached.");
+    setStatusMessage("Detached from session.");
   }, [clearReconnectTimer, closeSocket]);
 
   const toggleAgentDetails = useCallback(
@@ -459,7 +459,7 @@ export function App(): JSX.Element {
       await refreshAgents();
       await refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
-      setStatusMessage(`Started ${agent.name} and attached terminal.`);
+      setStatusMessage(`Started ${agent.name} and attached to session.`);
     },
     [api, ensureTerminalConnected, refreshAgents, refreshMedia]
   );
@@ -536,7 +536,7 @@ export function App(): JSX.Element {
         await refreshAgents();
         await refreshMedia(payload.agent.id);
         await ensureTerminalConnected(true, true, payload.agent.id);
-        setStatusMessage(`Created ${payload.agent.name} and attached terminal.`);
+        setStatusMessage(`Created ${payload.agent.name} and attached to session.`);
       } finally {
         setCreating(false);
       }
@@ -680,7 +680,7 @@ export function App(): JSX.Element {
     void (async () => {
       await Promise.all([pollHealth(), refreshAgents()]);
       setAgentsLoaded(true);
-      setStatusMessage("Select an agent to open a terminal connection.");
+      setStatusMessage("Select an agent to open a session.");
     })();
   }, [pollHealth, refreshAgents]);
 
@@ -699,7 +699,7 @@ export function App(): JSX.Element {
     setSelectedAgentId(restoreTarget.id);
     void refreshMedia(restoreTarget.id);
     void ensureTerminalConnected(true, true, restoreTarget.id);
-    setStatusMessage(`Restored terminal session for ${restoreTarget.name}.`);
+    setStatusMessage(`Restored session for ${restoreTarget.name}.`);
     setRestoreShellAgentId(null);
   }, [agents, agentsLoaded, ensureTerminalConnected, refreshMedia, restoreShellAgentId]);
 
@@ -1036,18 +1036,19 @@ export function App(): JSX.Element {
   }, [createOpen, refreshCreateWorktreeMode]);
 
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
+  const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
   const showHeaderStatus = connState !== "disconnected";
 
   const statusText = useMemo(() => {
     if (connState === "reconnecting") {
       if (connectedAgent) {
-        return `Reconnecting to agent ${connectedAgent.name}...`;
+        return `Reconnecting to session ${connectedAgent.name}...`;
       }
-      return "Reconnecting terminal session...";
+      return "Reconnecting session...";
     }
 
     if (connState === "connected" && connectedAgent) {
-      return `Connected to agent ${connectedAgent.name}`;
+      return `Connected to session ${connectedAgent.name}`;
     }
 
     if (apiState === "down") {
@@ -1055,11 +1056,18 @@ export function App(): JSX.Element {
     }
 
     if (selectedAgent) {
-      return `Ready to connect to agent ${selectedAgent.name}`;
+      return `Ready to attach to session ${selectedAgent.name}`;
     }
 
-    return "Select an agent to open a terminal connection.";
+    return "Select an agent to open a session.";
   }, [apiState, connectedAgent, connState, selectedAgent]);
+
+  const attachSelectedAgent = useCallback(() => {
+    if (!selectedAgent || selectedAgent.status !== "running") {
+      return;
+    }
+    void attachToAgent(selectedAgent);
+  }, [attachToAgent, selectedAgent]);
 
   const headerStatusBorderClass =
     connState === "connected"
@@ -1086,7 +1094,7 @@ export function App(): JSX.Element {
       return "border-r-emerald-500";
     }
     if (state === "idle") {
-      return "border-r-zinc-400";
+      return "border-r-sky-300";
     }
     return "border-r-zinc-500";
   };
@@ -1150,9 +1158,11 @@ export function App(): JSX.Element {
               statusText={statusText}
               headerStatusBorderClass={headerStatusBorderClass}
               isAttached={isAttached}
+              canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={setLeftOpen}
               setMediaOpen={setMediaOpen}
+              attachSelectedAgent={attachSelectedAgent}
               detachTerminal={detachTerminal}
             />
 

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 
 type MediaLightboxProps = {
@@ -11,6 +13,23 @@ export function MediaLightbox({
   lightboxCaption,
   setLightboxSrc
 }: MediaLightboxProps): JSX.Element | null {
+  useEffect(() => {
+    if (!lightboxSrc) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setLightboxSrc(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [lightboxSrc, setLightboxSrc]);
+
   if (!lightboxSrc) {
     return null;
   }

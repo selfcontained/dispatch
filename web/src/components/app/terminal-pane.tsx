@@ -52,7 +52,7 @@ export function TerminalPane({
         <div className="absolute inset-0 z-20 grid place-items-center bg-[#141414]">
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
-            <p className="text-sm">Select an agent and press Play to open a terminal connection.</p>
+            <p className="text-sm">Select an agent and press Play to start and attach to a session.</p>
           </div>
         </div>
       ) : null}

@@ -1,18 +1,11 @@
-import {
-  AlertTriangle,
-  ChevronLeft,
-  EllipsisVertical,
-  Pause,
-  Play,
-  Plus,
-  Square
-} from "lucide-react";
+import { AlertTriangle, ChevronLeft, EllipsisVertical, Monitor, MonitorOff, Play, Plus, Square } from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState, type WorktreeMode } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type AgentSidebarProps = {
@@ -104,10 +97,11 @@ export function AgentSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {agents.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
-          ) : (
-            agents.map((agent) => {
+          <TooltipProvider delayDuration={120}>
+            {agents.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
+            ) : (
+              agents.map((agent) => {
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
@@ -119,30 +113,35 @@ export function AgentSidebar({
               return (
                 <div
                   key={agent.id}
-                  onClick={(event) => {
-                    const target = event.target as HTMLElement;
-                    if (target.closest("[data-agent-control='true']")) {
-                      return;
-                    }
-                    toggleAgentDetails(agent.id);
-                  }}
                   className={cn(
                     "border-b border-r-2 border-border px-2 py-2",
                     borderForAgentState(state),
-                    isSelected && "bg-muted/60",
-                    "cursor-pointer"
+                    isSelected && "bg-muted/60"
                   )}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      data-agent-control="true"
-                      className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
-                      onClick={() => toggleAgentDetails(agent.id)}
-                      title={agent.cwd}
-                    >
-                      <AgentTypeIcon type={agent.type} />
-                      <span className="truncate">{agent.name}</span>
-                    </button>
+                  <div
+                    className="flex cursor-pointer items-center gap-1.5"
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (target.closest("[data-agent-control='true']")) {
+                        return;
+                      }
+                      toggleAgentDetails(agent.id);
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          data-agent-control="true"
+                          className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
+                          onClick={() => toggleAgentDetails(agent.id)}
+                        >
+                          <AgentTypeIcon type={agent.type} />
+                          <span className="truncate">{agent.name}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>{agent.cwd}</TooltipContent>
+                    </Tooltip>
 
                     {needsAttention ? (
                       <Badge
@@ -153,79 +152,88 @@ export function AgentSidebar({
                       </Badge>
                     ) : null}
 
-                    <button
-                      type="button"
-                      data-agent-control="true"
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        isActive
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : isStopped
-                            ? "bg-zinc-500/15 text-zinc-300"
-                            : "bg-zinc-500/15 text-zinc-300"
-                      )}
-                    >
-                      {isActive ? "Active" : agent.status === "running" ? "Detached" : agent.status}
-                    </button>
-
                     {isStopped ? (
-                      <Button
-                        size="icon"
-                        data-agent-control="true"
-                        onClick={() => void startAgent(agent)}
-                        title="Start agent"
-                      >
-                        <Play className="h-3.5 w-3.5" />
-                      </Button>
-                    ) : (
-                      <>
-                        {isActive ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
                           <Button
                             size="icon"
                             variant="ghost"
+                            className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
                             data-agent-control="true"
-                            onClick={detachTerminal}
-                            title="Pause (detach terminal)"
-                          >
-                            <Pause className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : (
-                          <Button
-                            size="icon"
-                            data-agent-control="true"
-                            onClick={() => void attachToAgent(agent)}
-                            title="Play (attach terminal)"
+                            onClick={() => void startAgent(agent)}
                           >
                             <Play className="h-3.5 w-3.5" />
                           </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Play (start session)</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        {isActive ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
+                                data-agent-control="true"
+                                onClick={detachTerminal}
+                              >
+                                <MonitorOff className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Detach from session</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
+                                data-agent-control="true"
+                                onClick={() => void attachToAgent(agent)}
+                              >
+                                <Monitor className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Attach to session</TooltipContent>
+                          </Tooltip>
                         )}
 
-                        {isActive ? (
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            data-agent-control="true"
-                            onClick={() => void stopAgent(agent)}
-                            title="Stop agent"
-                          >
-                            <Square className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : null}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-red-300 hover:bg-red-500/15 hover:text-red-200"
+                              data-agent-control="true"
+                              onClick={() => void stopAgent(agent)}
+                            >
+                              <Square className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Stop session</TooltipContent>
+                        </Tooltip>
                       </>
                     )}
 
                     <div className="relative ml-auto" data-overflow-root="true">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        data-agent-control="true"
-                        title="More actions"
-                        onClick={() =>
-                          setOverflowAgentId((current) => (current === agent.id ? null : agent.id))
-                        }
-                      >
-                        <EllipsisVertical className="h-4 w-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            data-agent-control="true"
+                            onClick={() =>
+                              setOverflowAgentId((current) => (current === agent.id ? null : agent.id))
+                            }
+                          >
+                            <EllipsisVertical className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>More actions</TooltipContent>
+                      </Tooltip>
 
                       {overflowAgentId === agent.id ? (
                         <div className="absolute right-0 top-9 z-30 min-w-[180px] rounded-md border-2 border-border bg-card p-1.5 text-foreground shadow-xl">
@@ -237,8 +245,20 @@ export function AgentSidebar({
                               onOpenEditWorktreeDialog(agent);
                             }}
                           >
-                            Edit worktree mode
+                            Worktree mode
                           </button>
+                          {!isStopped ? (
+                            <button
+                              data-agent-control="true"
+                              className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
+                              onClick={() => {
+                                setOverflowAgentId(null);
+                                void stopAgent(agent);
+                              }}
+                            >
+                              Stop session
+                            </button>
+                          ) : null}
                           <button
                             data-agent-control="true"
                             className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
@@ -298,8 +318,9 @@ export function AgentSidebar({
                   </div>
                 </div>
               );
-            })
-          )}
+              })
+            )}
+          </TooltipProvider>
         </div>
       </aside>
     </div>
