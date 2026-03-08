@@ -1,0 +1,35 @@
+{
+  "name": "hostess",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first control plane for remote Codex CLI agents with simulator media",
+  "type": "module",
+  "engines": {
+    "node": ">=25.8.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "npm run build:web && tsc -p tsconfig.json",
+    "build:web": "npm --prefix web run build",
+    "check:web": "npm --prefix web run check",
+    "start": "node dist/server.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "check": "tsc --noEmit && npm run check:web"
+  },
+  "dependencies": {
+    "@fastify/static": "^6.12.0",
+    "@fastify/websocket": "^8.3.1",
+    "dotenv": "^17.3.1",
+    "fastify": "^4.29.1",
+    "node-pty": "^1.0.0",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/pg": "^8.18.0",
+    "@types/ws": "^8.18.1",
+    "playwright": "^1.54.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 55 8% 6%;
+  --foreground: 60 30% 96%;
+  --card: 50 8% 9%;
+  --card-foreground: 60 30% 96%;
+  --primary: 32 98% 56%;
+  --primary-foreground: 30 20% 8%;
+  --muted: 42 8% 13%;
+  --muted-foreground: 36 10% 66%;
+  --destructive: 337 94% 57%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 40 10% 18%;
+  --input: 40 10% 18%;
+  --ring: 192 85% 64%;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+#root {
+  @apply h-screen;
+}
+
+.terminal-font {
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen {
+  background-color: #090a08 !important;
+}
+
+.xterm .xterm-viewport {
+  overflow-y: hidden !important;
+  overflow-x: hidden !important;
+  scrollbar-width: none;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.xterm .xterm-scroll-area {
+  display: none !important;
+}
+
+@keyframes media-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-media-in {
+  animation: media-in 260ms ease-out;
+}

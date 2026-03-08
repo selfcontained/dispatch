@@ -1,0 +1,10 @@
+node_modules
+web/node_modules
+npm-debug.log*
+.DS_Store
+dist
+web/dist
+.env
+.env.local
+data
+tmp-*.mjs
