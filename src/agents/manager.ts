@@ -226,6 +226,8 @@ export class AgentManager {
       "Dispatch startup instructions: Use dispatch-share for all Playwright or iOS simulator screenshots. " +
       "For Playwright: dispatch-share <image-path>. For iOS Simulator capture: dispatch-share --sim [udid]. " +
       "hostess-share also works as a compatibility alias. " +
+      "Always publish every screenshot you take, including self-initiated testing screenshots and screenshots not explicitly requested by the user. " +
+      "Do not leave screenshots only in local temp/artifact folders. " +
       "Prefer this over manual cp so images always appear in the Dispatch Media panel. " +
       "Default Playwright runs to headless mode unless the user explicitly asks for headed mode.";
 
