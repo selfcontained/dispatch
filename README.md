@@ -46,6 +46,7 @@ Hostess is a local-first control plane for running and managing multiple Codex C
 - [Security Model](/Users/bharris/dev/apps/hostess/docs/06-security.md)
 - [Implementation Plan](/Users/bharris/dev/apps/hostess/docs/07-implementation-plan.md)
 - [Current State Handoff](/Users/bharris/dev/apps/hostess/docs/08-current-state-handoff.md)
+- [Agent Attention Phase 2 Plan](/Users/bharris/dev/apps/hostess/docs/09-agent-attention-phase-2.md)
 
 ## Proposed Tech Stack (MVP)
 

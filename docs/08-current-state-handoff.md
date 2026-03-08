@@ -103,6 +103,7 @@ Main app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
 - Left panel:
   - collapsible rail, not fully hidden
   - list agents
+  - attention indicator for agents in backend-reported error state
   - open/start, stop, delete actions per agent
 - Center:
   - selected agent context
@@ -117,6 +118,7 @@ Main app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
 
 - No auth enforcement is wired into request handlers yet (`AUTH_TOKEN` exists in config only).
 - Media polling is interval-based (4s), not event-driven.
+- Agent attention is currently narrow: it only reflects backend-reported agent error state, not detached tmux activity or richer app-level response events.
 - Simulator orchestration is partially scaffolded but not end-to-end.
 - Some planned docs still describe endpoints/features not shipped yet.
 - Existing running agents may have old state from previous UI/runtime iterations.
@@ -157,4 +159,4 @@ For development:
 - React app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
 - UI primitives: `/Users/bharris/dev/apps/hostess/web/src/components/ui`
 - Main README: `/Users/bharris/dev/apps/hostess/README.md`
-
+- Attention follow-up plan: `/Users/bharris/dev/apps/hostess/docs/09-agent-attention-phase-2.md`

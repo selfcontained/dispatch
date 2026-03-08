@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ type Agent = {
   cwd: string;
   tmuxSession: string | null;
   codexArgs: string[];
+  lastError?: string | null;
   mediaDir: string | null;
   createdAt: string;
   updatedAt: string;
@@ -761,6 +763,7 @@ export function App(): JSX.Element {
                   const isStopped = state === "stopped";
                   const isActive = state === "active";
                   const fullAccessEnabled = isFullAccessEnabled(agent);
+                  const needsAttention = agent.status === "error";
 
                   return (
                     <div
@@ -784,6 +787,15 @@ export function App(): JSX.Element {
                           {agent.name}
                         </button>
 
+                        {needsAttention ? (
+                          <Badge
+                            className="border-red-400/45 bg-red-500/15 text-red-200"
+                            title={agent.lastError ?? "Agent entered an error state and may need attention."}
+                          >
+                            Attention
+                          </Badge>
+                        ) : null}
+
                         <button
                           type="button"
                           className={cn(
@@ -795,7 +807,7 @@ export function App(): JSX.Element {
                                 : "bg-sky-400/15 text-sky-300"
                           )}
                         >
-                          {isActive ? "Active" : agent.status === "running" ? "Paused" : agent.status}
+                          {isActive ? "Active" : agent.status === "running" ? "Detached" : agent.status}
                         </button>
 
                         {isStopped ? (
@@ -893,6 +905,7 @@ export function App(): JSX.Element {
                               <AgentMeta label="Working dir" value={agent.cwd} mono />
                               <AgentMeta label="Agent type" value="Codex" />
                               <AgentMeta label="Full access" value={fullAccessEnabled ? "Enabled" : "Disabled"} />
+                              {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
                             </div>
                           </div>
                         </div>
