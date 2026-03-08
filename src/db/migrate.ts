@@ -9,6 +9,7 @@ export async function runMigrations(): Promise<void> {
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'codex',
       status TEXT NOT NULL,
       cwd TEXT NOT NULL,
       tmux_session TEXT,
@@ -22,6 +23,9 @@ export async function runMigrations(): Promise<void> {
 
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS media_dir TEXT;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'codex';
 
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS codex_args JSONB NOT NULL DEFAULT '[]'::jsonb;

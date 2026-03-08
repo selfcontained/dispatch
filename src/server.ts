@@ -177,6 +177,7 @@ async function registerRoutes() {
   app.post("/api/v1/agents", async (request, reply) => {
     const body = request.body as {
       name?: unknown;
+      type?: unknown;
       cwd?: unknown;
       codexArgs?: unknown;
       fullAccess?: unknown;
@@ -194,6 +195,10 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "codexArgs must be an array of strings." });
     }
 
+    if (body.type !== undefined && body.type !== "codex" && body.type !== "claude") {
+      return reply.code(400).send({ error: "type must be either codex or claude when provided." });
+    }
+
     if (body.fullAccess !== undefined && typeof body.fullAccess !== "boolean") {
       return reply.code(400).send({ error: "fullAccess must be a boolean when provided." });
     }
@@ -207,6 +212,7 @@ async function registerRoutes() {
     try {
       const agent = await agentManager.createAgent({
         name: typeof body.name === "string" ? body.name : undefined,
+        type: body.type === "claude" ? "claude" : "codex",
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });

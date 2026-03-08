@@ -61,6 +61,7 @@ export function CreateAgentDialog({
               className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
             </select>
           </div>
 

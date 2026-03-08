@@ -10,10 +10,12 @@ import type { AppConfig } from "../config.js";
 import { runCommand } from "../lib/run-command.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
+type AgentType = "codex" | "claude";
 
 export type AgentRecord = {
   id: string;
   name: string;
+  type: AgentType;
   status: AgentStatus;
   cwd: string;
   tmuxSession: string | null;
@@ -27,6 +29,7 @@ export type AgentRecord = {
 
 type CreateAgentInput = {
   name?: string;
+  type?: AgentType;
   cwd: string;
   codexArgs?: string[];
 };
@@ -69,6 +72,7 @@ export class AgentManager {
     const cwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
     const tmuxSession = this.toSessionName(id);
+    const type: AgentType = input.type ?? "codex";
     const codexArgs = input.codexArgs ?? [];
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const mediaDir = path.join(this.config.mediaRoot, id);
@@ -76,10 +80,10 @@ export class AgentManager {
 
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, status, cwd, tmux_session, media_dir, codex_args, updated_at)
-      VALUES ($1, $2, 'creating', $3, $4, $5, $6::jsonb, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, NOW())
       `,
-      [id, name, cwd, tmuxSession, mediaDir, JSON.stringify(codexArgs)]
+      [id, name, type, cwd, tmuxSession, mediaDir, JSON.stringify(codexArgs)]
     );
 
     try {
@@ -306,6 +310,7 @@ export class AgentManager {
       SELECT
         id,
         name,
+        type,
         status,
         cwd,
         tmux_session AS "tmuxSession",

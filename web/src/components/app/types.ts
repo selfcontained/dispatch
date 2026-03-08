@@ -3,6 +3,7 @@ export type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "err
 export type Agent = {
   id: string;
   name: string;
+  type?: string;
   status: AgentStatus;
   cwd: string;
   tmuxSession: string | null;

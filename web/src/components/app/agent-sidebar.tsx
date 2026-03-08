@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,16 @@ export function AgentSidebar({
   stopAgent,
   startAgent
 }: AgentSidebarProps): JSX.Element {
+  const agentTypeLabel = (type?: string): string => {
+    if (type === "claude") {
+      return "Claude";
+    }
+    if (type === "codex" || !type) {
+      return "Codex";
+    }
+    return type;
+  };
+
   return (
     <div
       className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
@@ -108,11 +119,12 @@ export function AgentSidebar({
                   <div className="flex items-center gap-1.5">
                     <button
                       data-agent-control="true"
-                      className="min-w-0 flex-1 truncate text-left text-sm font-semibold"
+                      className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
                       onClick={() => toggleAgentDetails(agent.id)}
                       title={agent.cwd}
                     >
-                      {agent.name}
+                      <AgentTypeIcon type={agent.type} />
+                      <span className="truncate">{agent.name}</span>
                     </button>
 
                     {needsAttention ? (
@@ -199,10 +211,10 @@ export function AgentSidebar({
                       </Button>
 
                       {overflowAgentId === agent.id ? (
-                        <div className="absolute right-0 top-9 z-30 min-w-[180px] border-2 border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
+                        <div className="absolute right-0 top-9 z-30 min-w-[180px] rounded-md border-2 border-border bg-card p-1.5 text-foreground shadow-xl">
                           <button
                             data-agent-control="true"
-                            className="w-full border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/50"
+                            className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
                             onClick={() => {
                               setOverflowAgentId(null);
                               setDeleteTarget(agent);
@@ -226,7 +238,7 @@ export function AgentSidebar({
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono />
-                          <AgentMeta label="Agent type" value="Codex" />
+                          <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <AgentMeta label="Full access" value={fullAccessEnabled ? "Enabled" : "Disabled"} />
                           {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
                         </div>
