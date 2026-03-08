@@ -2,54 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal as XTerm } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
+import { AgentSidebar } from "@/components/app/agent-sidebar";
+import { AppHeader } from "@/components/app/app-header";
+import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
+import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
+import { MediaLightbox } from "@/components/app/media-lightbox";
+import { MediaSidebar } from "@/components/app/media-sidebar";
+import { StatusFooter } from "@/components/app/status-footer";
+import { TerminalPane } from "@/components/app/terminal-pane";
 import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  EllipsisVertical,
-  Image as ImageIcon,
-  Loader2,
-  Pause,
-  Play,
-  Plus,
-  Square,
-  TerminalSquare,
-  Wifi,
-  Database,
-  Server
-} from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+  type Agent,
+  type AgentVisualState,
+  type ConnState,
+  type MediaFile,
+  type ServiceState
+} from "@/components/app/types";
 import { cn } from "@/lib/utils";
-
-type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
-
-type Agent = {
-  id: string;
-  name: string;
-  status: AgentStatus;
-  cwd: string;
-  tmuxSession: string | null;
-  codexArgs: string[];
-  lastError?: string | null;
-  mediaDir: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type MediaFile = {
-  name: string;
-  size: number;
-  updatedAt: string;
-  url: string;
-};
-
-type ConnState = "connected" | "reconnecting" | "disconnected";
-type ServiceState = "ok" | "down" | "checking";
-type AgentVisualState = "stopped" | "idle" | "active";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/hostess";
 const FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -102,10 +70,10 @@ export function App(): JSX.Element {
   const [dbState, setDbState] = useState<ServiceState>("checking");
   const [mediaState, setMediaState] = useState<ServiceState>("checking");
 
-  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalHostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const mediaViewportRef = useRef<HTMLDivElement | null>(null);
+  const mediaViewportRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -372,6 +340,19 @@ export function App(): JSX.Element {
       await ensureTerminalConnected(true, true, agent.id);
     },
     [ensureTerminalConnected, refreshMedia]
+  );
+
+  const startAgent = useCallback(
+    async (agent: Agent) => {
+      setSelectedAgentId(agent.id);
+      await api(`/api/v1/agents/${agent.id}/start`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await refreshAgents();
+      setStatusMessage(`Started ${agent.name}.`);
+    },
+    [api, refreshAgents]
   );
 
   const stopAgent = useCallback(
@@ -761,514 +742,107 @@ export function App(): JSX.Element {
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        <div
-          className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-          style={{ width: leftOpen ? 320 : 0 }}
-        >
-          <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-sky-900/80 bg-sky-950 text-slate-50">
-            <div className="flex h-14 items-center px-3">
-              <div className="text-lg font-semibold tracking-wide">Hostess</div>
-              <div className="ml-auto">
-                <Button size="icon" variant="ghost" onClick={() => setLeftOpen(false)} title="Close sidebar">
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="mt-2 flex h-14 items-center border-b border-sky-900/80 px-3">
-              <div className="text-sm font-semibold uppercase tracking-wide text-sky-200/80">Agents</div>
-              <div className="ml-auto flex items-center">
-                <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)}>
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Create
-                </Button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {agents.length === 0 ? (
-                <div className="p-4 text-sm text-sky-200/70">No agents yet.</div>
-              ) : (
-                agents.map((agent) => {
-                  const state = agentVisualState(agent);
-                  const isSelected = selectedAgentId === agent.id;
-                  const isStopped = state === "stopped";
-                  const isActive = state === "active";
-                  const isExpanded = isActive || isSelected;
-                  const fullAccessEnabled = isFullAccessEnabled(agent);
-                  const needsAttention = agent.status === "error";
-
-                  return (
-                    <div
-                      key={agent.id}
-                      onClick={(event) => {
-                        const target = event.target as HTMLElement;
-                        if (target.closest("[data-agent-control='true']") || isActive) {
-                          return;
-                        }
-                        toggleAgentDetails(agent.id);
-                      }}
-                      className={cn(
-                        "border-b border-r-2 border-sky-900/70 px-2 py-2",
-                        borderForAgentState(state),
-                        isSelected && "bg-sky-900/50",
-                        !isActive && "cursor-pointer"
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          data-agent-control="true"
-                          className="min-w-0 flex-1 truncate text-left text-sm font-semibold"
-                          onClick={() => {
-                            if (!isActive) {
-                              toggleAgentDetails(agent.id);
-                            }
-                          }}
-                          title={agent.cwd}
-                        >
-                          {agent.name}
-                        </button>
-
-                        {needsAttention ? (
-                          <Badge
-                            className="border-red-400/45 bg-red-500/15 text-red-200"
-                            title={agent.lastError ?? "Agent entered an error state and may need attention."}
-                          >
-                            Attention
-                          </Badge>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          data-agent-control="true"
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                            isActive
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : isStopped
-                                ? "bg-zinc-500/15 text-zinc-300"
-                                : "bg-sky-400/15 text-sky-300"
-                          )}
-                        >
-                          {isActive ? "Active" : agent.status === "running" ? "Detached" : agent.status}
-                        </button>
-
-                        {isStopped ? (
-                          <Button
-                            size="icon"
-                            data-agent-control="true"
-                            onClick={async () => {
-                              setSelectedAgentId(agent.id);
-                              await api(`/api/v1/agents/${agent.id}/start`, {
-                                method: "POST",
-                                body: JSON.stringify({})
-                              });
-                              await refreshAgents();
-                              setStatusMessage(`Started ${agent.name}.`);
-                            }}
-                            title="Start agent"
-                          >
-                            <Play className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : (
-                          <>
-                            {isActive ? (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                data-agent-control="true"
-                                onClick={detachTerminal}
-                                title="Pause (detach terminal)"
-                              >
-                                <Pause className="h-3.5 w-3.5" />
-                              </Button>
-                            ) : (
-                              <Button
-                                size="icon"
-                                data-agent-control="true"
-                                onClick={() => void attachToAgent(agent)}
-                                title="Play (attach terminal)"
-                              >
-                                <Play className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-
-                            {isActive ? (
-                              <Button
-                                size="icon"
-                                variant="destructive"
-                                data-agent-control="true"
-                                onClick={() => void stopAgent(agent)}
-                                title="Stop agent"
-                              >
-                                <Square className="h-3.5 w-3.5" />
-                              </Button>
-                            ) : null}
-                          </>
-                        )}
-
-                        <div className="relative ml-auto" data-overflow-root="true">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            data-agent-control="true"
-                            title="More actions"
-                            onClick={() =>
-                              setOverflowAgentId((current) => (current === agent.id ? null : agent.id))
-                            }
-                          >
-                            <EllipsisVertical className="h-4 w-4" />
-                          </Button>
-
-                          {overflowAgentId === agent.id ? (
-                            <div className="absolute right-0 top-9 z-30 min-w-[180px] border-2 border-sky-800 bg-sky-950 p-1.5 shadow-lg">
-                              <button
-                                data-agent-control="true"
-                                className="w-full border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/50"
-                                onClick={() => {
-                                  setOverflowAgentId(null);
-                                  setDeleteTarget(agent);
-                                  setDeleteConfirmOpen(true);
-                                }}
-                              >
-                                Delete agent
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div
-                        className={cn(
-                          "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
-                          isExpanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"
-                        )}
-                      >
-                        <div className="min-h-0 overflow-hidden">
-                          <div className="px-3 pt-1">
-                            <div className="grid gap-2 text-xs text-muted-foreground">
-                              <AgentMeta label="Working dir" value={agent.cwd} mono />
-                              <AgentMeta label="Agent type" value="Codex" />
-                              <AgentMeta label="Full access" value={fullAccessEnabled ? "Enabled" : "Disabled"} />
-                              {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </aside>
-        </div>
+        <AgentSidebar
+          leftOpen={leftOpen}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          overflowAgentId={overflowAgentId}
+          setLeftOpen={setLeftOpen}
+          setCreateOpen={setCreateOpen}
+          setOverflowAgentId={setOverflowAgentId}
+          setDeleteTarget={setDeleteTarget}
+          setDeleteConfirmOpen={setDeleteConfirmOpen}
+          agentVisualState={agentVisualState}
+          borderForAgentState={borderForAgentState}
+          toggleAgentDetails={toggleAgentDetails}
+          isFullAccessEnabled={isFullAccessEnabled}
+          detachTerminal={detachTerminal}
+          attachToAgent={attachToAgent}
+          stopAgent={stopAgent}
+          startAgent={startAgent}
+        />
 
         <main
           className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && "border-r-2 border-border")}
         >
           <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto]">
-            <header className={cn("flex h-14 items-center border-b-2 bg-[#11120f] px-3", headerStatusBorderClass)}>
-              <div className="flex min-w-0 items-center gap-2">
-                {!leftOpen ? (
-                  <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                {showHeaderStatus ? <span className="truncate text-sm">{statusText}</span> : null}
-              </div>
+            <AppHeader
+              leftOpen={leftOpen}
+              mediaOpen={mediaOpen}
+              showHeaderStatus={showHeaderStatus}
+              statusText={statusText}
+              headerStatusBorderClass={headerStatusBorderClass}
+              isAttached={isAttached}
+              unseenMediaCount={unseenMediaCount}
+              setLeftOpen={setLeftOpen}
+              setMediaOpen={setMediaOpen}
+              detachTerminal={detachTerminal}
+            />
 
-              <div className="ml-auto flex items-center gap-2">
-                {isAttached ? (
-                  <Button size="sm" variant="ghost" onClick={detachTerminal}>
-                    <Pause className="mr-1 h-3.5 w-3.5" /> Pause
-                  </Button>
-                ) : null}
+            <TerminalPane
+              isAttached={isAttached}
+              connState={connState}
+              statusMessage={statusMessage}
+              terminalHostRef={terminalHostRef}
+            />
 
-                {!mediaOpen ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="relative"
-                    onClick={() => setMediaOpen(true)}
-                    title="Open media sidebar"
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    {unseenMediaCount > 0 ? (
-                      <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                        {unseenMediaCount}
-                      </span>
-                    ) : null}
-                  </Button>
-                ) : null}
-              </div>
-            </header>
-
-            <div className="relative h-full min-h-0 overflow-hidden bg-[#090a08]">
-              <div className={cn("h-full w-full", !isAttached && connState !== "reconnecting" && "invisible")}>
-                <div className="h-full" ref={terminalHostRef} />
-              </div>
-
-              {!isAttached ? (
-                <div className="absolute inset-0 z-20 grid place-items-center bg-[#090a08]">
-                  <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
-                    <TerminalSquare className="h-8 w-8" />
-                    <p className="text-sm">Select an agent and press Play to open a terminal connection.</p>
-                  </div>
-                </div>
-              ) : null}
-
-              {connState === "reconnecting" ? (
-                <div className="absolute inset-0 z-30 grid place-items-center bg-black/75">
-                  <div className="flex flex-col items-center gap-2 text-sm text-amber-200">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>{statusMessage}</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <footer className="grid h-11 grid-cols-4 items-center border-t-2 border-border bg-[#11120f] px-3 text-xs text-muted-foreground">
-              <ServiceStatus icon={<Wifi className="h-3.5 w-3.5" />} label="WS" value={connState} dotClass={serviceDotClass(connState === "connected" ? "ok" : connState === "reconnecting" ? "checking" : "down")} />
-              <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
-              <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="Database" value={dbState} dotClass={serviceDotClass(dbState)} />
-              <ServiceStatus icon={<ImageIcon className="h-3.5 w-3.5" />} label="Media" value={mediaState} dotClass={serviceDotClass(mediaState)} />
-            </footer>
+            <StatusFooter
+              connState={connState}
+              apiState={apiState}
+              dbState={dbState}
+              mediaState={mediaState}
+              serviceDotClass={serviceDotClass}
+            />
           </div>
         </main>
 
-        <div
-          className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-          style={{ width: mediaOpen ? 360 : 0 }}
-        >
-          <aside className="flex h-full min-h-0 w-[360px] flex-col bg-card">
-            <div className="flex h-14 items-center px-3">
-              <div className="text-sm font-semibold uppercase tracking-wide">Media Stream</div>
-              <div className="ml-auto flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{mediaFiles.length} items</span>
-                <Button size="icon" variant="ghost" onClick={() => setMediaOpen(false)} title="Close media sidebar">
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div ref={mediaViewportRef} className="min-h-0 flex-1 overflow-y-auto">
-              {mediaFiles.length === 0 ? (
-                <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
-                  {selectedAgent ? "No media yet." : "Select an agent to view media."}
-                </div>
-              ) : (
-                mediaFiles.map((file) => {
-                  const mediaKey = `${file.name}:${file.updatedAt}`;
-                  return (
-                    <article
-                      key={mediaKey}
-                      data-media-key={mediaKey}
-                      className={cn(
-                        "border-b-2 border-border px-3 py-3",
-                        animatingMediaKeys.has(mediaKey) && "animate-media-in"
-                      )}
-                    >
-                      <div className="mb-2 text-xs text-muted-foreground">
-                        {new Date(file.updatedAt).toLocaleString()}
-                      </div>
-                      <button
-                        className="block w-full overflow-hidden border-2 border-border bg-black/60"
-                        onClick={() => {
-                          setLightboxSrc(`${file.url}?t=${encodeURIComponent(file.updatedAt)}`);
-                          setLightboxCaption(file.name);
-                        }}
-                      >
-                        <img
-                          src={`${file.url}?t=${encodeURIComponent(file.updatedAt)}`}
-                          alt={file.name}
-                          className="max-h-[260px] w-full object-contain"
-                        />
-                      </button>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        <div>{mediaDescription(file.name)}</div>
-                        <div className="mt-1">{Math.max(1, Math.round(file.size / 1024))} KB</div>
-                      </div>
-                    </article>
-                  );
-                })
-              )}
-            </div>
-          </aside>
-        </div>
+        <MediaSidebar
+          mediaOpen={mediaOpen}
+          mediaFiles={mediaFiles}
+          selectedAgentId={selectedAgentId}
+          animatingMediaKeys={animatingMediaKeys}
+          mediaViewportRef={mediaViewportRef}
+          setMediaOpen={setMediaOpen}
+          mediaDescription={mediaDescription}
+          openLightbox={(src, caption) => {
+            setLightboxSrc(src);
+            setLightboxCaption(caption);
+          }}
+        />
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Agent</DialogTitle>
-            <DialogDescription>Name, type, and working directory for a new agent session.</DialogDescription>
-          </DialogHeader>
+      <CreateAgentDialog
+        open={createOpen}
+        createName={createName}
+        createType={createType}
+        createCwd={createCwd}
+        createFullAccess={createFullAccess}
+        creating={creating}
+        setOpen={setCreateOpen}
+        setCreateName={setCreateName}
+        setCreateType={setCreateType}
+        setCreateCwd={setCreateCwd}
+        setCreateFullAccess={setCreateFullAccess}
+        onSubmit={handleCreateAgent}
+      />
 
-          <form className="space-y-3" onSubmit={(event) => void handleCreateAgent(event)}>
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Name</label>
-              <Input
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-                placeholder="agent name (optional)"
-              />
-            </div>
+      <DeleteAgentDialog
+        open={deleteConfirmOpen}
+        deleteTarget={deleteTarget}
+        setOpen={setDeleteConfirmOpen}
+        setDeleteTarget={setDeleteTarget}
+        onDelete={deleteAgent}
+      />
 
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Type</label>
-              <select
-                value={createType}
-                onChange={(event) => setCreateType(event.target.value)}
-                className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="codex">Codex</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">Working directory</label>
-              <Input
-                value={createCwd}
-                onChange={(event) => setCreateCwd(event.target.value)}
-                placeholder="/absolute/path"
-                required
-              />
-            </div>
-
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={createFullAccess}
-                onClick={() => setCreateFullAccess((current) => !current)}
-                className={cn(
-                  "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
-                  createFullAccess ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
-                )}
-                title="Toggle full access"
-              >
-                {createFullAccess ? <Check className="h-3.5 w-3.5" /> : null}
-              </button>
-              <span className="space-y-1">
-                <span className="block text-sm font-medium text-foreground">Start in full access mode</span>
-                <span className="block text-xs text-muted-foreground">
-                  Starts Codex with sandboxing and approval prompts disabled.
-                </span>
-              </span>
-            </label>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary" disabled={creating}>
-                {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-                Create
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Agent</DialogTitle>
-            <DialogDescription>
-              {deleteTarget
-                ? `Delete \"${deleteTarget.name}\"? This permanently removes the agent record and all media files.`
-                : "Delete this agent?"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setDeleteConfirmOpen(false);
-                setDeleteTarget(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                if (!deleteTarget) {
-                  return;
-                }
-                await deleteAgent(deleteTarget);
-                setDeleteConfirmOpen(false);
-                setDeleteTarget(null);
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {lightboxSrc ? (
-        <div
-          className="fixed inset-0 z-[120] grid grid-rows-[auto_1fr_auto] gap-3 bg-black/90 p-4"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setLightboxSrc(null);
-            }
-          }}
-        >
-          <div className="flex justify-end">
-            <Button onClick={() => setLightboxSrc(null)}>Close</Button>
-          </div>
-          <div className="grid min-h-0 place-items-center">
-            <img
-              src={lightboxSrc}
-              alt={lightboxCaption}
-              className="max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain"
-            />
-          </div>
-          <div className="text-center text-sm text-muted-foreground">{lightboxCaption}</div>
-        </div>
-      ) : null}
+      <MediaLightbox
+        lightboxSrc={lightboxSrc}
+        lightboxCaption={lightboxCaption}
+        setLightboxSrc={setLightboxSrc}
+      />
 
       <div className="sr-only" aria-live="polite">
         {statusMessage}
       </div>
-    </div>
-  );
-}
-
-function ServiceStatus({
-  icon,
-  label,
-  value,
-  dotClass
-}: {
-  icon: JSX.Element;
-  label: string;
-  value: string;
-  dotClass: string;
-}): JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      {icon}
-      <span>{label}</span>
-      <span className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
-      <span className="truncate uppercase">{value}</span>
-    </div>
-  );
-}
-
-function AgentMeta({
-  label,
-  value,
-  mono = false
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}): JSX.Element {
-  return (
-    <div className="grid gap-1">
-      <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">{label}</div>
-      <div className={cn("break-all text-foreground", mono && "font-mono text-[11px]")}>{value}</div>
     </div>
   );
 }
