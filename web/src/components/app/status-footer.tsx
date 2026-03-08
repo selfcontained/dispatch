@@ -19,7 +19,7 @@ export function StatusFooter({
   serviceDotClass
 }: StatusFooterProps): JSX.Element {
   return (
-    <footer className="grid h-11 grid-cols-4 items-center border-t-2 border-border bg-[#11120f] px-3 text-xs text-muted-foreground">
+    <footer className="grid h-11 grid-cols-4 items-center border-t-2 border-border bg-[#11120f] px-3 pb-[env(safe-area-inset-bottom)] text-[10px] text-muted-foreground sm:text-xs">
       <ServiceStatus
         icon={<Wifi className="h-3.5 w-3.5" />}
         label="WS"
@@ -31,7 +31,7 @@ export function StatusFooter({
       <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
       <ServiceStatus
         icon={<Database className="h-3.5 w-3.5" />}
-        label="Database"
+        label="DB"
         value={dbState}
         dotClass={serviceDotClass(dbState)}
       />

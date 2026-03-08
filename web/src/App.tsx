@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal as XTerm } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
-import { AgentSidebar } from "@/components/app/agent-sidebar";
+import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import { EditWorktreeModeDialog } from "@/components/app/edit-worktree-mode-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
-import { MediaSidebar } from "@/components/app/media-sidebar";
+import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
 import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
@@ -19,6 +19,7 @@ import {
   type ServiceState,
   type WorktreeMode
 } from "@/components/app/types";
+import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
@@ -30,6 +31,9 @@ const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 const DEFAULT_WORKTREE_MODE: WorktreeMode = "ask";
+// Chrome Device Toolbar can emulate mobile with a wider layout viewport in some modes.
+// Treat coarse/non-hover input as mobile as well so drawer behavior stays consistent.
+const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px), (pointer: coarse), (hover: none)";
 
 function readLastUsedCwd(): string {
   if (typeof window === "undefined") {
@@ -122,6 +126,16 @@ export function App(): JSX.Element {
       window.localStorage.getItem(MEDIA_SIDEBAR_LEGACY_KEY);
     return stored === null ? false : stored === "true";
   });
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+  });
+  const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
+  const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
+  const leftPanelOpen = isMobile ? mobileLeftOpen : leftOpen;
+  const mediaPanelOpen = isMobile ? mobileMediaOpen : mediaOpen;
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
   const [selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
   const [selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
@@ -711,6 +725,16 @@ export function App(): JSX.Element {
   }, [sendResize]);
 
   useEffect(() => {
+    const query = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+    const onChange = () => setIsMobile(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => {
+      query.removeEventListener("change", onChange);
+    };
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       await Promise.all([pollHealth(), refreshAgents()]);
       setAgentsLoaded(true);
@@ -853,6 +877,9 @@ export function App(): JSX.Element {
   }, [connectedAgentId, ensureTerminalConnected, selectedAgentId]);
 
   useEffect(() => {
+    if (isMobile) {
+      return;
+    }
     const fitNow = () => {
       fitAddonRef.current?.fit();
       sendResize();
@@ -861,7 +888,7 @@ export function App(): JSX.Element {
     fitNow();
     const timer = window.setTimeout(fitNow, 340);
     return () => window.clearTimeout(timer);
-  }, [leftOpen, mediaOpen, sendResize]);
+  }, [isMobile, leftOpen, mediaOpen, sendResize]);
 
   useEffect(() => {
     setSeenMediaKeys(new Set());
@@ -994,7 +1021,7 @@ export function App(): JSX.Element {
   }, [mediaFiles]);
 
   useEffect(() => {
-    if (!mediaOpen) {
+    if (!mediaPanelOpen) {
       return;
     }
 
@@ -1041,19 +1068,19 @@ export function App(): JSX.Element {
     return () => {
       observer.disconnect();
     };
-  }, [markMediaSeen, mediaFiles, mediaOpen, selectedAgentId]);
+  }, [markMediaSeen, mediaFiles, mediaPanelOpen, selectedAgentId]);
 
   useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest("[data-overflow-root='true']")) {
         setOverflowAgentId(null);
       }
     };
 
-    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("pointerdown", handlePointerDown);
     return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, []);
 
@@ -1096,6 +1123,41 @@ export function App(): JSX.Element {
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
   const showHeaderStatus = connState !== "disconnected";
+
+  const handleSetLeftPanelOpen = useCallback(
+    (open: boolean) => {
+      if (isMobile) {
+        if (open) {
+          setMobileMediaOpen(false);
+        }
+        setMobileLeftOpen(open);
+        return;
+      }
+      setLeftOpen(open);
+    },
+    [isMobile]
+  );
+
+  const handleSetMediaPanelOpen = useCallback(
+    (open: boolean) => {
+      if (isMobile) {
+        if (open) {
+          setMobileLeftOpen(false);
+        }
+        setMobileMediaOpen(open);
+        return;
+      }
+      setMediaOpen(open);
+    },
+    [isMobile]
+  );
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileLeftOpen(false);
+      setMobileMediaOpen(false);
+    }
+  }, [isMobile]);
 
   const statusText = useMemo(() => {
     if (connState === "reconnecting") {
@@ -1182,44 +1244,47 @@ export function App(): JSX.Element {
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        <AgentSidebar
-          leftOpen={leftOpen}
-          agents={agents}
-          selectedAgentId={selectedAgentId}
-          selectedAgentWorktreeMode={selectedAgentWorktreeMode}
-          selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
-          overflowAgentId={overflowAgentId}
-          setLeftOpen={setLeftOpen}
-          onOpenCreateDialog={openCreateDialog}
-          onOpenEditWorktreeDialog={openEditWorktreeDialog}
-          setOverflowAgentId={setOverflowAgentId}
-          setDeleteTarget={setDeleteTarget}
-          setDeleteConfirmOpen={setDeleteConfirmOpen}
-          agentVisualState={agentVisualState}
-          borderForAgentState={borderForAgentState}
-          toggleAgentDetails={toggleAgentDetails}
-          isFullAccessEnabled={isFullAccessEnabled}
-          detachTerminal={detachTerminal}
-          attachToAgent={attachToAgent}
-          stopAgent={stopAgent}
-          startAgent={startAgent}
-        />
+        <div className="hidden md:block">
+          <AgentSidebar
+            leftOpen={leftOpen}
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            selectedAgentWorktreeMode={selectedAgentWorktreeMode}
+            selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
+            overflowAgentId={overflowAgentId}
+            setLeftOpen={setLeftOpen}
+            onOpenCreateDialog={openCreateDialog}
+            onOpenEditWorktreeDialog={openEditWorktreeDialog}
+            setOverflowAgentId={setOverflowAgentId}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            agentVisualState={agentVisualState}
+            borderForAgentState={borderForAgentState}
+            toggleAgentDetails={toggleAgentDetails}
+            isFullAccessEnabled={isFullAccessEnabled}
+            detachTerminal={detachTerminal}
+            attachToAgent={attachToAgent}
+            stopAgent={stopAgent}
+            startAgent={startAgent}
+          />
+        </div>
 
         <main
-          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && "border-r-2 border-border")}
+          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
         >
           <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto]">
             <AppHeader
-              leftOpen={leftOpen}
-              mediaOpen={mediaOpen}
+              leftOpen={leftPanelOpen}
+              mediaOpen={mediaPanelOpen}
+              isMobile={isMobile}
               showHeaderStatus={showHeaderStatus}
               statusText={statusText}
               headerStatusBorderClass={headerStatusBorderClass}
               isAttached={isAttached}
               canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
-              setLeftOpen={setLeftOpen}
-              setMediaOpen={setMediaOpen}
+              setLeftOpen={handleSetLeftPanelOpen}
+              setMediaOpen={handleSetMediaPanelOpen}
               attachSelectedAgent={attachSelectedAgent}
               detachTerminal={detachTerminal}
             />
@@ -1242,22 +1307,89 @@ export function App(): JSX.Element {
           </div>
         </main>
 
-        <MediaSidebar
-          mediaOpen={mediaOpen}
-          mediaFiles={mediaFiles}
-          selectedAgentId={selectedAgentId}
-          selectedAgentName={selectedAgent?.name ?? null}
-          animatingMediaKeys={animatingMediaKeys}
-          seenMediaKeys={seenMediaKeys}
-          mediaViewportRef={mediaViewportRef}
-          setMediaOpen={setMediaOpen}
-          mediaDescription={mediaDescription}
-          openLightbox={(src, caption) => {
-            setLightboxSrc(src);
-            setLightboxCaption(caption);
-          }}
-        />
+        <div className="hidden md:block">
+          <MediaSidebar
+            mediaOpen={mediaOpen}
+            mediaFiles={mediaFiles}
+            selectedAgentId={selectedAgentId}
+            selectedAgentName={selectedAgent?.name ?? null}
+            animatingMediaKeys={animatingMediaKeys}
+            seenMediaKeys={seenMediaKeys}
+            mediaViewportRef={mediaViewportRef}
+            setMediaOpen={setMediaOpen}
+            mediaDescription={mediaDescription}
+            openLightbox={(src, caption) => {
+              setLightboxSrc(src);
+              setLightboxCaption(caption);
+            }}
+          />
+        </div>
       </div>
+
+      {isMobile ? (
+        <MobileSlidePanel
+          open={mobileLeftOpen}
+          side="left"
+          label="Agent sidebar"
+          onOpenChange={(open) => {
+            if (open) {
+              setMobileMediaOpen(false);
+            }
+            setMobileLeftOpen(open);
+          }}
+        >
+          <AgentSidebarContent
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            selectedAgentWorktreeMode={selectedAgentWorktreeMode}
+            selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
+            overflowAgentId={overflowAgentId}
+            onOpenCreateDialog={openCreateDialog}
+            onOpenEditWorktreeDialog={openEditWorktreeDialog}
+            setOverflowAgentId={setOverflowAgentId}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            agentVisualState={agentVisualState}
+            borderForAgentState={borderForAgentState}
+            toggleAgentDetails={toggleAgentDetails}
+            isFullAccessEnabled={isFullAccessEnabled}
+            detachTerminal={detachTerminal}
+            attachToAgent={attachToAgent}
+            stopAgent={stopAgent}
+            startAgent={startAgent}
+            onRequestClose={() => setMobileLeftOpen(false)}
+          />
+        </MobileSlidePanel>
+      ) : null}
+
+      {isMobile ? (
+        <MobileSlidePanel
+          open={mobileMediaOpen}
+          side="right"
+          label="Media sidebar"
+          onOpenChange={(open) => {
+            if (open) {
+              setMobileLeftOpen(false);
+            }
+            setMobileMediaOpen(open);
+          }}
+        >
+            <MediaSidebarContent
+              mediaFiles={mediaFiles}
+              selectedAgentId={selectedAgentId}
+              selectedAgentName={selectedAgent?.name ?? null}
+              animatingMediaKeys={animatingMediaKeys}
+              seenMediaKeys={seenMediaKeys}
+              mediaViewportRef={mediaViewportRef}
+              mediaDescription={mediaDescription}
+              openLightbox={(src, caption) => {
+                setLightboxSrc(src);
+                setLightboxCaption(caption);
+              }}
+              onRequestClose={() => setMobileMediaOpen(false)}
+            />
+        </MobileSlidePanel>
+      ) : null}
 
       <CreateAgentDialog
         open={createOpen}

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 type AppHeaderProps = {
   leftOpen: boolean;
   mediaOpen: boolean;
+  isMobile: boolean;
   showHeaderStatus: boolean;
   statusText: string;
   headerStatusBorderClass: string;
@@ -21,6 +22,7 @@ type AppHeaderProps = {
 export function AppHeader({
   leftOpen,
   mediaOpen,
+  isMobile,
   showHeaderStatus,
   statusText,
   headerStatusBorderClass,
@@ -33,17 +35,22 @@ export function AppHeader({
   detachTerminal
 }: AppHeaderProps): JSX.Element {
   return (
-    <header className={cn("flex h-14 items-center border-b-2 bg-[#11120f] px-3", headerStatusBorderClass)}>
+    <header
+      className={cn(
+        "flex h-14 items-center border-b-2 bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]",
+        headerStatusBorderClass
+      )}
+    >
       <div className="flex min-w-0 items-center gap-2">
-        {!leftOpen ? (
+        {(!leftOpen || isMobile) ? (
           <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : null}
-        {showHeaderStatus ? <span className="truncate text-sm">{statusText}</span> : null}
+        {showHeaderStatus ? <span className="truncate text-xs sm:text-sm">{statusText}</span> : null}
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
         {isAttached ? (
           <Button
             size="sm"
@@ -52,7 +59,8 @@ export function AppHeader({
             onClick={detachTerminal}
             title="Detach from session"
           >
-            <MonitorOff className="mr-1 h-3.5 w-3.5" /> Detach
+            <MonitorOff className="mr-1 h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Detach</span>
           </Button>
         ) : canAttachSelected ? (
           <Button
@@ -62,11 +70,12 @@ export function AppHeader({
             onClick={attachSelectedAgent}
             title="Attach to session"
           >
-            <Monitor className="mr-1 h-3.5 w-3.5" /> Attach
+            <Monitor className="mr-1 h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Attach</span>
           </Button>
         ) : null}
 
-        {!mediaOpen ? (
+        {(!mediaOpen || isMobile) ? (
           <Button
             size="icon"
             variant="ghost"
