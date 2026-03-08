@@ -21,6 +21,10 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/hostess";
 const FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
+const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
+const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
+const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 
 function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {
   return agent.codexArgs.includes(FULL_ACCESS_ARG);
@@ -48,14 +52,18 @@ export function App(): JSX.Element {
     if (typeof window === "undefined") {
       return true;
     }
-    const stored = window.localStorage.getItem("hostess:leftSidebarOpen");
+    const stored =
+      window.localStorage.getItem(LEFT_SIDEBAR_KEY) ??
+      window.localStorage.getItem(LEFT_SIDEBAR_LEGACY_KEY);
     return stored === null ? true : stored === "true";
   });
   const [mediaOpen, setMediaOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") {
       return false;
     }
-    const stored = window.localStorage.getItem("hostess:mediaSidebarOpen");
+    const stored =
+      window.localStorage.getItem(MEDIA_SIDEBAR_KEY) ??
+      window.localStorage.getItem(MEDIA_SIDEBAR_LEGACY_KEY);
     return stored === null ? false : stored === "true";
   });
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
@@ -654,11 +662,15 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("hostess:leftSidebarOpen", String(leftOpen));
+    const value = String(leftOpen);
+    window.localStorage.setItem(LEFT_SIDEBAR_KEY, value);
+    window.localStorage.setItem(LEFT_SIDEBAR_LEGACY_KEY, value);
   }, [leftOpen]);
 
   useEffect(() => {
-    window.localStorage.setItem("hostess:mediaSidebarOpen", String(mediaOpen));
+    const value = String(mediaOpen);
+    window.localStorage.setItem(MEDIA_SIDEBAR_KEY, value);
+    window.localStorage.setItem(MEDIA_SIDEBAR_LEGACY_KEY, value);
   }, [mediaOpen]);
 
   const isAttached = connState === "connected" && Boolean(connectedAgentId);

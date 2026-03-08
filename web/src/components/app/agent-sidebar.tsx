@@ -59,7 +59,7 @@ export function AgentSidebar({
     >
       <aside className="flex h-full min-h-0 w-[320px] flex-col border-r-2 border-sky-900/80 bg-sky-950 text-slate-50">
         <div className="flex h-14 items-center px-3">
-          <div className="text-lg font-semibold tracking-wide">Hostess</div>
+          <div className="text-lg font-semibold tracking-wide">Dispatch</div>
           <div className="ml-auto">
             <Button size="icon" variant="ghost" onClick={() => setLeftOpen(false)} title="Close sidebar">
               <ChevronLeft className="h-4 w-4" />

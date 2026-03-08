@@ -400,7 +400,7 @@ async function deleteSelectedAgent() {
   }
 
   const confirmed = window.confirm(
-    `Delete agent \"${agent.name}\" (${agent.id})? This removes it from Hostess.`
+    `Delete agent \"${agent.name}\" (${agent.id})? This removes it from Dispatch.`
   );
   if (!confirmed) {
     return;

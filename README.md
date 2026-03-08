@@ -1,6 +1,6 @@
-# Hostess
+# Dispatch
 
-Hostess is a local-first control plane for running and managing multiple Codex CLI agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
+Dispatch is a local-first control plane for running and managing multiple Codex CLI agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
 
 ## Goals
 
@@ -34,7 +34,7 @@ Hostess is a local-first control plane for running and managing multiple Codex C
   - PTY-backed browser terminal over WebSocket (`tmux attach-session`)
   - detach/reattach terminal support while agent keeps running
   - per-agent media panel for image rendering
-  - images loaded from each agent media directory (`$HOSTESS_MEDIA_DIR`)
+  - images loaded from each agent media directory (`$DISPATCH_MEDIA_DIR`, with `HOSTESS_*` compatibility aliases)
 
 ## Docs
 
@@ -73,19 +73,19 @@ Hostess is a local-first control plane for running and managing multiple Codex C
 
 ## Media Sharing
 
-- Each newly created agent gets a media directory exposed as `HOSTESS_MEDIA_DIR` in its shell environment.
-- Each newly created agent also gets `hostess-share` in `PATH` for explicit media publishing.
-- `hostess-share` commands:
-  - `hostess-share <image-path> [name]`
-  - `hostess-share --sim [udid] [name]`
+- Each newly created agent gets a media directory exposed as `DISPATCH_MEDIA_DIR` in its shell environment.
+- Each newly created agent also gets `dispatch-share` in `PATH` for explicit media publishing.
+- `dispatch-share` commands:
+  - `dispatch-share <image-path> [name]`
+  - `dispatch-share --sim [udid] [name]`
 - Save `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp` files into that directory from within the agent session.
 - The browser Media panel auto-refreshes and renders those images.
-- For older agents created before media support, Hostess falls back to `/tmp/hostess-media/<agent-id>`.
+- For older agents created before media support, Dispatch falls back to `/tmp/hostess-media/<agent-id>`.
 
 ## Agent Guidance
 
-- Hostess launches new Codex agents with a startup guidance prompt instructing them to use `hostess-share` for Playwright and iOS Simulator screenshot sharing.
-- Hostess startup guidance also instructs agents to run Playwright in headless mode by default unless the user explicitly requests headed mode.
+- Dispatch launches new Codex agents with a startup guidance prompt instructing them to use `dispatch-share` for Playwright and iOS Simulator screenshot sharing.
+- Dispatch startup guidance also instructs agents to run Playwright in headless mode by default unless the user explicitly requests headed mode.
 
 ## Non-Goals (MVP)
 

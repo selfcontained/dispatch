@@ -221,19 +221,24 @@ export class AgentManager {
   }
 
   private buildCodexCommand(args: string[], mediaDir: string, sessionName: string): string {
-    const agentId = sessionName.replace("hostess_", "");
+    const agentId = sessionName.replace(/^(dispatch|hostess)_/, "");
     const launchGuidance =
-      "Hostess startup instructions: Use hostess-share for all Playwright or iOS simulator screenshots. " +
-      "For Playwright: hostess-share <image-path>. For iOS Simulator capture: hostess-share --sim [udid]. " +
-      "Prefer this over manual cp so images always appear in the Hostess Media panel. " +
+      "Dispatch startup instructions: Use dispatch-share for all Playwright or iOS simulator screenshots. " +
+      "For Playwright: dispatch-share <image-path>. For iOS Simulator capture: dispatch-share --sim [udid]. " +
+      "hostess-share also works as a compatibility alias. " +
+      "Prefer this over manual cp so images always appear in the Dispatch Media panel. " +
       "Default Playwright runs to headless mode unless the user explicitly asks for headed mode.";
 
     const envPrefix = [
+      `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
+      `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
+      // Compatibility alias for common typo to keep screenshot sharing reliable.
+      `DISPATCH_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `HOSTESS_AGENT_ID=${this.shellEscape(agentId)}`,
       `HOSTESS_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
-      `PATH=${this.shellEscape(this.config.hostessBinDir)}:$PATH`
+      `PATH=${this.shellEscape(this.config.dispatchBinDir)}:$PATH`
     ].join(" ");
 
     if (args.length === 0) {
@@ -317,7 +322,7 @@ export class AgentManager {
   }
 
   private toSessionName(agentId: string): string {
-    return `hostess_${agentId}`;
+    return `dispatch_${agentId}`;
   }
 
   private defaultMediaDir(agentId: string): string {

@@ -7,7 +7,7 @@ export type AppConfig = {
   databaseUrl: string;
   authToken: string;
   mediaRoot: string;
-  hostessBinDir: string;
+  dispatchBinDir: string;
 };
 
 export function loadConfig(): AppConfig {
@@ -18,6 +18,9 @@ export function loadConfig(): AppConfig {
       process.env.DATABASE_URL ?? "postgres://hostess:hostess@127.0.0.1:5432/hostess",
     authToken: process.env.AUTH_TOKEN ?? "dev-token",
     mediaRoot: process.env.MEDIA_ROOT ?? "/tmp/hostess-media",
-    hostessBinDir: process.env.HOSTESS_BIN_DIR ?? path.resolve(process.cwd(), "bin")
+    dispatchBinDir:
+      process.env.DISPATCH_BIN_DIR ??
+      process.env.HOSTESS_BIN_DIR ??
+      path.resolve(process.cwd(), "bin")
   };
 }

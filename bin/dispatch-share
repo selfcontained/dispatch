@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  dispatch-share <image-path> [name]
+  dispatch-share --sim [udid] [name]
+
+Examples:
+  dispatch-share ./artifacts/homepage.png
+  dispatch-share ./artifacts/homepage.png playwright-home.png
+  dispatch-share --sim
+  dispatch-share --sim booted ios-home.png
+USAGE
+}
+
+DEST_DIR="${DISPATCH_MEDIA_DIR:-${DISPATCH_MDEIA_DIR:-${HOSTESS_MEDIA_DIR:-${HOSTESS_MDEIA_DIR:-}}}}"
+if [[ -z "$DEST_DIR" ]]; then
+  echo "dispatch-share: DISPATCH_MEDIA_DIR is not set (HOSTESS_* fallback also empty)." >&2
+  exit 2
+fi
+
+mkdir -p "$DEST_DIR"
+
+timestamp="$(date +%Y%m%d-%H%M%S)"
+
+SOURCE_PATH=""
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "${1:-}" == "--sim" ]]; then
+  udid="${2:-booted}"
+  out_name="${3:-sim-${timestamp}.png}"
+  tmp="${TMPDIR:-/tmp}/${out_name}"
+  xcrun simctl io "$udid" screenshot --type=png "$tmp" >/dev/null
+  SOURCE_PATH="$tmp"
+else
+  SOURCE_PATH="$1"
+fi
+
+if [[ ! -f "$SOURCE_PATH" ]]; then
+  echo "dispatch-share: source file not found: $SOURCE_PATH" >&2
+  exit 3
+fi
+
+lower_name="$(basename "$SOURCE_PATH" | tr '[:upper:]' '[:lower:]')"
+if [[ ! "$lower_name" =~ \.(png|jpg|jpeg|gif|webp)$ ]]; then
+  echo "dispatch-share: unsupported file type. Use png/jpg/jpeg/gif/webp." >&2
+  exit 4
+fi
+
+if [[ "${1:-}" == "--sim" ]]; then
+  preferred_name="${3:-$(basename "$SOURCE_PATH")}"
+else
+  preferred_name="${2:-$(basename "$SOURCE_PATH")}"
+fi
+
+safe_name="$(echo "$preferred_name" | tr ' ' '-' | tr -cd '[:alnum:]._-')"
+if [[ -z "$safe_name" ]]; then
+  safe_name="shared-${timestamp}.png"
+fi
+
+ext="${safe_name##*.}"
+base="${safe_name%.*}"
+dest_file="${DEST_DIR}/${base}-${timestamp}.${ext}"
+cp "$SOURCE_PATH" "$dest_file"
+
+echo "$dest_file"
