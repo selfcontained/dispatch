@@ -337,63 +337,7 @@ export function App(): JSX.Element {
       const attachNonce = ++attachNonceRef.current;
       setConnState("reconnecting");
       setStatusMessage(`Connecting terminal to ${agent.name}...`);
-
-      const token = await api<{ token: string; wsUrl: string }>(
-        `/api/v1/agents/${agent.id}/terminal/token`,
-        { method: "POST", body: JSON.stringify({}) }
-      );
-
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const term = terminalRef.current;
-      const cols = term?.cols ?? 140;
-      const rows = term?.rows ?? 42;
-      const ws = new WebSocket(`${protocol}//${window.location.host}${token.wsUrl}&cols=${cols}&rows=${rows}`);
-      wsRef.current = ws;
-
-      ws.addEventListener("open", () => {
-        reconnectAttemptsRef.current = 0;
-        setConnState("connected");
-        setConnectedAgentId(agent.id);
-        setStatusMessage(`Connected to agent ${agent.name}`);
-        terminalRef.current?.focus();
-      });
-
-      ws.addEventListener("message", (event) => {
-        const payload = JSON.parse(String(event.data)) as
-          | { type: "output"; data: string }
-          | { type: "error"; message: string }
-          | { type: "exit" };
-
-        if (payload.type === "output") {
-          terminalRef.current?.write(payload.data);
-        } else if (payload.type === "error") {
-          const normalized = payload.message.toLowerCase();
-          if (
-            normalized.includes("session no longer exists") ||
-            normalized.includes("attach failed") ||
-            normalized.includes("invalid or expired terminal token")
-          ) {
-            shouldKeepAttachedRef.current = false;
-          }
-          setStatusMessage(`Terminal error: ${payload.message}`);
-        } else if (payload.type === "exit") {
-          setStatusMessage("Terminal session ended.");
-        }
-      });
-
-      ws.addEventListener("close", (event) => {
-        if (wsRef.current !== ws) {
-          return;
-        }
-
-        wsRef.current = null;
-
-        if (event.code === 1008 || event.code === 1011) {
-          shouldKeepAttachedRef.current = false;
-          setConnState("disconnected");
-          return;
-        }
-
+      const scheduleReconnect = (message: string) => {
         if (!shouldKeepAttachedRef.current || attachNonce !== attachNonceRef.current) {
           setConnState("disconnected");
           return;
@@ -402,13 +346,76 @@ export function App(): JSX.Element {
         reconnectAttemptsRef.current += 1;
         const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
         setConnState("reconnecting");
-        setStatusMessage("Terminal lost, reconnecting...");
+        setStatusMessage(message);
 
         reconnectTimerRef.current = window.setTimeout(() => {
           reconnectTimerRef.current = null;
           void ensureTerminalConnected(false, false, resolvedAgentId);
         }, delay);
-      });
+      };
+
+      try {
+        const token = await api<{ token: string; wsUrl: string }>(
+          `/api/v1/agents/${agent.id}/terminal/token`,
+          { method: "POST", body: JSON.stringify({}) }
+        );
+
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const term = terminalRef.current;
+        const cols = term?.cols ?? 140;
+        const rows = term?.rows ?? 42;
+        const ws = new WebSocket(`${protocol}//${window.location.host}${token.wsUrl}&cols=${cols}&rows=${rows}`);
+        wsRef.current = ws;
+
+        ws.addEventListener("open", () => {
+          reconnectAttemptsRef.current = 0;
+          setConnState("connected");
+          setConnectedAgentId(agent.id);
+          setStatusMessage(`Connected to agent ${agent.name}`);
+          terminalRef.current?.focus();
+        });
+
+        ws.addEventListener("message", (event) => {
+          const payload = JSON.parse(String(event.data)) as
+            | { type: "output"; data: string }
+            | { type: "error"; message: string }
+            | { type: "exit" };
+
+          if (payload.type === "output") {
+            terminalRef.current?.write(payload.data);
+          } else if (payload.type === "error") {
+            const normalized = payload.message.toLowerCase();
+            if (
+              normalized.includes("session no longer exists") ||
+              normalized.includes("attach failed") ||
+              normalized.includes("invalid or expired terminal token")
+            ) {
+              shouldKeepAttachedRef.current = false;
+            }
+            setStatusMessage(`Terminal error: ${payload.message}`);
+          } else if (payload.type === "exit") {
+            setStatusMessage("Terminal session ended.");
+          }
+        });
+
+        ws.addEventListener("close", (event) => {
+          if (wsRef.current !== ws) {
+            return;
+          }
+
+          wsRef.current = null;
+
+          if (event.code === 1008) {
+            shouldKeepAttachedRef.current = false;
+            setConnState("disconnected");
+            return;
+          }
+
+          scheduleReconnect("Terminal lost, reconnecting...");
+        });
+      } catch {
+        scheduleReconnect("Connection failed, retrying...");
+      }
     },
     [
       agents,

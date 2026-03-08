@@ -34,7 +34,7 @@ export function TerminalPane({
     return () => window.clearTimeout(timer);
   }, [connState]);
 
-  const showEmptyState = !isAttached && !showReconnectOverlay && !hasSelectedAgent;
+  const showEmptyState = connState === "disconnected" && !isAttached && !hasSelectedAgent;
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-[#141414]">
