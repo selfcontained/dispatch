@@ -28,6 +28,7 @@ const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 const DEFAULT_WORKTREE_MODE: WorktreeMode = "ask";
 
 function readLastUsedCwd(): string {
@@ -36,6 +37,25 @@ function readLastUsedCwd(): string {
   }
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
   return stored && stored.length > 0 ? stored : DEFAULT_CWD;
+}
+
+function readActiveShellAgentId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const stored = window.localStorage.getItem(ACTIVE_SHELL_AGENT_KEY)?.trim();
+  return stored && stored.length > 0 ? stored : null;
+}
+
+function persistActiveShellAgentId(agentId: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (agentId) {
+    window.localStorage.setItem(ACTIVE_SHELL_AGENT_KEY, agentId);
+    return;
+  }
+  window.localStorage.removeItem(ACTIVE_SHELL_AGENT_KEY);
 }
 
 type UiEvent =
@@ -55,6 +75,8 @@ function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {
 export function App(): JSX.Element {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [restoreShellAgentId, setRestoreShellAgentId] = useState<string | null>(() => readActiveShellAgentId());
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
@@ -401,6 +423,8 @@ export function App(): JSX.Element {
 
   const detachTerminal = useCallback(() => {
     shouldKeepAttachedRef.current = false;
+    persistActiveShellAgentId(null);
+    setRestoreShellAgentId(null);
     clearReconnectTimer();
     closeSocket(false);
     setConnState("disconnected");
@@ -655,9 +679,29 @@ export function App(): JSX.Element {
   useEffect(() => {
     void (async () => {
       await Promise.all([pollHealth(), refreshAgents()]);
+      setAgentsLoaded(true);
       setStatusMessage("Select an agent to open a terminal connection.");
     })();
   }, [pollHealth, refreshAgents]);
+
+  useEffect(() => {
+    if (!agentsLoaded || !restoreShellAgentId) {
+      return;
+    }
+
+    const restoreTarget = agents.find((agent) => agent.id === restoreShellAgentId);
+    if (!restoreTarget || restoreTarget.status !== "running") {
+      persistActiveShellAgentId(null);
+      setRestoreShellAgentId(null);
+      return;
+    }
+
+    setSelectedAgentId(restoreTarget.id);
+    void refreshMedia(restoreTarget.id);
+    void ensureTerminalConnected(true, true, restoreTarget.id);
+    setStatusMessage(`Restored terminal session for ${restoreTarget.name}.`);
+    setRestoreShellAgentId(null);
+  }, [agents, agentsLoaded, ensureTerminalConnected, refreshMedia, restoreShellAgentId]);
 
   useEffect(() => {
     void refreshMedia();
@@ -973,6 +1017,16 @@ export function App(): JSX.Element {
     window.localStorage.setItem(MEDIA_SIDEBAR_KEY, value);
     window.localStorage.setItem(MEDIA_SIDEBAR_LEGACY_KEY, value);
   }, [mediaOpen]);
+
+  useEffect(() => {
+    if (connState === "connected" && connectedAgentId) {
+      persistActiveShellAgentId(connectedAgentId);
+      return;
+    }
+    if (connState === "disconnected" && !restoreShellAgentId) {
+      persistActiveShellAgentId(null);
+    }
+  }, [connState, connectedAgentId, restoreShellAgentId]);
 
   useEffect(() => {
     if (!createOpen) {
