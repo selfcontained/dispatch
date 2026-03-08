@@ -1,4 +1,4 @@
-import { ChevronRight, Image as ImageIcon, Pause } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, Monitor, MonitorOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,9 +10,11 @@ type AppHeaderProps = {
   statusText: string;
   headerStatusBorderClass: string;
   isAttached: boolean;
+  canAttachSelected: boolean;
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
   setMediaOpen: (open: boolean) => void;
+  attachSelectedAgent: () => void;
   detachTerminal: () => void;
 };
 
@@ -23,9 +25,11 @@ export function AppHeader({
   statusText,
   headerStatusBorderClass,
   isAttached,
+  canAttachSelected,
   unseenMediaCount,
   setLeftOpen,
   setMediaOpen,
+  attachSelectedAgent,
   detachTerminal
 }: AppHeaderProps): JSX.Element {
   return (
@@ -41,8 +45,24 @@ export function AppHeader({
 
       <div className="ml-auto flex items-center gap-2">
         {isAttached ? (
-          <Button size="sm" variant="ghost" onClick={detachTerminal}>
-            <Pause className="mr-1 h-3.5 w-3.5" /> Pause
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
+            onClick={detachTerminal}
+            title="Detach from session"
+          >
+            <MonitorOff className="mr-1 h-3.5 w-3.5" /> Detach
+          </Button>
+        ) : canAttachSelected ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
+            onClick={attachSelectedAgent}
+            title="Attach to session"
+          >
+            <Monitor className="mr-1 h-3.5 w-3.5" /> Attach
           </Button>
         ) : null}
 
