@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, watch, type FSWatcher } from "node:fs";
 
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
@@ -11,6 +11,7 @@ import type WebSocket from "ws";
 import pty from "node-pty";
 
 import { AgentError, AgentManager } from "./agents/manager.js";
+import type { AgentRecord } from "./agents/manager.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
@@ -23,6 +24,52 @@ const app = Fastify({ logger: true });
 const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const terminalTokenStore = new TerminalTokenStore(60_000);
+
+type UiEvent =
+  | { type: "snapshot"; agents: AgentRecord[] }
+  | { type: "agent.upsert"; agent: AgentRecord }
+  | { type: "agent.deleted"; agentId: string }
+  | { type: "media.changed"; agentId: string };
+
+class UiEventBroker {
+  private clients = new Set<NodeJS.WritableStream>();
+  private nextId = 1;
+
+  subscribe(stream: NodeJS.WritableStream): () => void {
+    this.clients.add(stream);
+    return () => {
+      this.clients.delete(stream);
+    };
+  }
+
+  publish(event: UiEvent): void {
+    this.write(event);
+  }
+
+  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
+    this.write({ type: "snapshot", agents }, stream);
+  }
+
+  private write(event: UiEvent, target?: NodeJS.WritableStream): void {
+    const payload = `id: ${this.nextId++}\ndata: ${JSON.stringify(event)}\n\n`;
+    if (target) {
+      target.write(payload);
+      return;
+    }
+
+    for (const client of this.clients) {
+      try {
+        client.write(payload);
+      } catch {
+        this.clients.delete(client);
+      }
+    }
+  }
+}
+
+const uiEventBroker = new UiEventBroker();
+const mediaWatchers = new Map<string, FSWatcher>();
+const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +98,32 @@ async function registerRoutes() {
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
     return { agents };
+  });
+
+  app.get("/api/v1/events", async (_request, reply) => {
+    reply.raw.setHeader("Content-Type", "text/event-stream");
+    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+    reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.setHeader("X-Accel-Buffering", "no");
+    reply.hijack();
+
+    const stream = reply.raw;
+    const unsubscribe = uiEventBroker.subscribe(stream);
+    const heartbeat = setInterval(() => {
+      stream.write(": keepalive\n\n");
+    }, 20_000);
+
+    try {
+      const agents = await agentManager.listAgents();
+      uiEventBroker.sendSnapshot(stream, agents);
+    } catch (error) {
+      app.log.warn({ err: error }, "Failed to load SSE snapshot.");
+    }
+
+    stream.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
   });
 
   app.get("/api/v1/agents/:id", async (request, reply) => {
@@ -137,6 +210,8 @@ async function registerRoutes() {
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });
+      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
+      uiEventBroker.publish({ type: "agent.upsert", agent });
 
       return reply.code(201).send({ agent });
     } catch (error) {
@@ -150,6 +225,8 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.startAgent(id);
+      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
+      uiEventBroker.publish({ type: "agent.upsert", agent });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -167,6 +244,7 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.stopAgent(id, { force: body?.force as boolean | undefined });
+      uiEventBroker.publish({ type: "agent.upsert", agent });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -187,7 +265,12 @@ async function registerRoutes() {
     }
 
     try {
+      const existing = await agentManager.getAgent(params.id);
       await agentManager.deleteAgent(params.id, force);
+      if (existing) {
+        stopMediaWatch(existing.id);
+        uiEventBroker.publish({ type: "agent.deleted", agentId: existing.id });
+      }
       return reply.code(204).send();
     } catch (error) {
       return handleAgentError(reply, error);
@@ -310,6 +393,10 @@ async function registerRoutes() {
 async function start() {
   await runMigrations();
   await agentManager.reconcileAgents();
+  const agents = await agentManager.listAgents();
+  for (const agent of agents) {
+    ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
+  }
   await registerRoutes();
 
   await app.listen({
@@ -320,14 +407,15 @@ async function start() {
 
 start().catch(async (error) => {
   app.log.error(error);
-  await pool.end();
-  process.exit(1);
+  await shutdown(1);
 });
 
 process.on("SIGINT", async () => {
-  await pool.end();
-  await app.close();
-  process.exit(0);
+  await shutdown(0);
+});
+
+process.on("SIGTERM", async () => {
+  await shutdown(0);
 });
 
 function handleAgentError(reply: FastifyReply, error: unknown) {
@@ -441,4 +529,78 @@ function mimeType(name: string): string {
 
 function resolveMediaDir(agentId: string, mediaDir: string | null): string {
   return mediaDir ?? path.join(config.mediaRoot, agentId);
+}
+
+let shuttingDown = false;
+async function shutdown(code: number): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+
+  stopAllMediaWatches();
+  await pool.end().catch(() => null);
+  await app.close().catch(() => null);
+  process.exit(code);
+}
+
+function ensureMediaWatch(agentId: string, mediaDir: string): void {
+  if (mediaWatchers.has(agentId)) {
+    return;
+  }
+
+  mkdir(mediaDir, { recursive: true })
+    .then(() => {
+      if (mediaWatchers.has(agentId)) {
+        return;
+      }
+
+      const watcher = watch(mediaDir, () => {
+        scheduleMediaEvent(agentId);
+      });
+
+      watcher.on("error", (error) => {
+        app.log.warn({ err: error, agentId, mediaDir }, "Media watcher error.");
+        stopMediaWatch(agentId);
+      });
+
+      mediaWatchers.set(agentId, watcher);
+    })
+    .catch((error) => {
+      app.log.warn({ err: error, agentId, mediaDir }, "Unable to initialize media watch.");
+    });
+}
+
+function scheduleMediaEvent(agentId: string): void {
+  const existing = mediaDebounceTimers.get(agentId);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timer = setTimeout(() => {
+    mediaDebounceTimers.delete(agentId);
+    uiEventBroker.publish({ type: "media.changed", agentId });
+  }, 200);
+
+  mediaDebounceTimers.set(agentId, timer);
+}
+
+function stopMediaWatch(agentId: string): void {
+  const watcher = mediaWatchers.get(agentId);
+  if (watcher) {
+    watcher.close();
+    mediaWatchers.delete(agentId);
+  }
+
+  const timer = mediaDebounceTimers.get(agentId);
+  if (timer) {
+    clearTimeout(timer);
+    mediaDebounceTimers.delete(agentId);
+  }
+}
+
+function stopAllMediaWatches(): void {
+  for (const agentId of mediaWatchers.keys()) {
+    stopMediaWatch(agentId);
+  }
 }

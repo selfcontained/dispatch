@@ -26,6 +26,16 @@ const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 
+type UiEvent =
+  | { type: "snapshot"; agents: Agent[] }
+  | { type: "agent.upsert"; agent: Agent }
+  | { type: "agent.deleted"; agentId: string }
+  | { type: "media.changed"; agentId: string };
+
+function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
+  return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {
   return agent.codexArgs.includes(FULL_ACCESS_ARG);
 }
@@ -84,12 +94,12 @@ export function App(): JSX.Element {
   const mediaViewportRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const selectedAgentIdRef = useRef<string | null>(null);
   const shouldKeepAttachedRef = useRef(false);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const attachNonceRef = useRef(0);
-  const mediaPollTimerRef = useRef<number | null>(null);
-  const agentPollTimerRef = useRef<number | null>(null);
   const healthPollTimerRef = useRef<number | null>(null);
   const clearMediaAnimTimerRef = useRef<number | null>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
@@ -134,7 +144,7 @@ export function App(): JSX.Element {
 
   const refreshAgents = useCallback(async () => {
     const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
-    setAgents(payload.agents);
+    setAgents(sortAgentsByCreatedAtDesc(payload.agents));
 
     setSelectedAgentId((current) => {
       if (current && payload.agents.some((agent) => agent.id === current)) {
@@ -516,36 +526,62 @@ export function App(): JSX.Element {
   }, [pollHealth]);
 
   useEffect(() => {
-    if (agentPollTimerRef.current) {
-      window.clearInterval(agentPollTimerRef.current);
-    }
-    agentPollTimerRef.current = window.setInterval(() => {
-      void refreshAgents();
-    }, 4000);
-
-    return () => {
-      if (agentPollTimerRef.current) {
-        window.clearInterval(agentPollTimerRef.current);
-        agentPollTimerRef.current = null;
-      }
-    };
-  }, [refreshAgents]);
+    selectedAgentIdRef.current = selectedAgentId;
+  }, [selectedAgentId]);
 
   useEffect(() => {
-    if (mediaPollTimerRef.current) {
-      window.clearInterval(mediaPollTimerRef.current);
-    }
-    mediaPollTimerRef.current = window.setInterval(() => {
-      void refreshMedia();
-    }, 4000);
+    const source = new EventSource("/api/v1/events");
+    eventSourceRef.current = source;
+
+    source.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as UiEvent;
+
+        if (payload.type === "snapshot") {
+          setAgents(sortAgentsByCreatedAtDesc(payload.agents));
+          return;
+        }
+
+        if (payload.type === "agent.upsert") {
+          setAgents((current) => {
+            const index = current.findIndex((agent) => agent.id === payload.agent.id);
+            if (index === -1) {
+              return sortAgentsByCreatedAtDesc([payload.agent, ...current]);
+            }
+            const next = [...current];
+            next[index] = payload.agent;
+            return sortAgentsByCreatedAtDesc(next);
+          });
+          return;
+        }
+
+        if (payload.type === "agent.deleted") {
+          setAgents((current) => current.filter((agent) => agent.id !== payload.agentId));
+          return;
+        }
+
+        if (payload.type === "media.changed" && payload.agentId === selectedAgentIdRef.current) {
+          void refreshMedia(payload.agentId);
+        }
+      } catch {}
+    };
 
     return () => {
-      if (mediaPollTimerRef.current) {
-        window.clearInterval(mediaPollTimerRef.current);
-        mediaPollTimerRef.current = null;
+      source.close();
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null;
       }
     };
   }, [refreshMedia]);
+
+  useEffect(() => {
+    setSelectedAgentId((current) => {
+      if (current && agents.some((agent) => agent.id === current)) {
+        return current;
+      }
+      return null;
+    });
+  }, [agents]);
 
   useEffect(() => {
     const onVisible = () => {
