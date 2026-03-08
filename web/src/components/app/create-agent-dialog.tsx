@@ -104,8 +104,8 @@ export function CreateAgentDialog({
               className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm"
               disabled={worktreeLoading || worktreeSaving}
             >
-              <option value="ask">Ask each time</option>
-              <option value="auto">Auto-create worktrees</option>
+              <option value="ask">On</option>
+              <option value="auto">Auto</option>
               <option value="off">Off</option>
             </select>
             <p className="text-xs text-muted-foreground">

@@ -21,10 +21,10 @@ type AgentSidebarProps = {
   selectedAgentId: string | null;
   selectedAgentWorktreeMode: WorktreeMode | null;
   selectedAgentWorktreeLoading: boolean;
-  selectedAgentWorktreeError: string | null;
   overflowAgentId: string | null;
   setLeftOpen: (open: boolean) => void;
   onOpenCreateDialog: () => void;
+  onOpenEditWorktreeDialog: (agent: Agent) => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
@@ -44,10 +44,10 @@ export function AgentSidebar({
   selectedAgentId,
   selectedAgentWorktreeMode,
   selectedAgentWorktreeLoading,
-  selectedAgentWorktreeError,
   overflowAgentId,
   setLeftOpen,
   onOpenCreateDialog,
+  onOpenEditWorktreeDialog,
   setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
@@ -62,12 +62,12 @@ export function AgentSidebar({
 }: AgentSidebarProps): JSX.Element {
   const worktreeModeLabel = (mode: WorktreeMode): string => {
     if (mode === "auto") {
-      return "Auto-create";
+      return "Auto";
     }
     if (mode === "off") {
       return "Off";
     }
-    return "Ask";
+    return "On";
   };
 
   const agentTypeLabel = (type?: string): string => {
@@ -231,6 +231,16 @@ export function AgentSidebar({
                         <div className="absolute right-0 top-9 z-30 min-w-[180px] rounded-md border-2 border-border bg-card p-1.5 text-foreground shadow-xl">
                           <button
                             data-agent-control="true"
+                            className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm hover:border-border hover:bg-muted/70"
+                            onClick={() => {
+                              setOverflowAgentId(null);
+                              onOpenEditWorktreeDialog(agent);
+                            }}
+                          >
+                            Edit worktree mode
+                          </button>
+                          <button
+                            data-agent-control="true"
                             className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
                             onClick={() => {
                               setOverflowAgentId(null);
@@ -262,11 +272,7 @@ export function AgentSidebar({
                               isSelected
                                 ? selectedAgentWorktreeLoading
                                   ? "Loading..."
-                                  : selectedAgentWorktreeError
-                                    ? `Unavailable (${selectedAgentWorktreeError})`
-                                    : selectedAgentWorktreeMode
-                                      ? worktreeModeLabel(selectedAgentWorktreeMode)
-                                      : "Unavailable"
+                                  : worktreeModeLabel(selectedAgentWorktreeMode ?? "off")
                                 : "Select agent"
                             }
                           />

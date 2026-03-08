@@ -53,7 +53,7 @@ body {
 }
 
 .animate-media-in-slow {
-  animation: media-in-slow 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: media-in-slow 1600ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .media-thumb-unseen {
@@ -62,8 +62,8 @@ body {
     inset 0 0 0 1px rgba(251, 146, 60, 0.28),
     0 0 14px rgba(251, 146, 60, 0.2);
   transition:
-    border-color 700ms ease-out,
-    box-shadow 700ms ease-out;
+    border-color 1600ms ease-out,
+    box-shadow 1600ms ease-out;
 }
 
 .media-thumb-seen {
@@ -72,6 +72,6 @@ body {
     inset 0 0 0 1px rgba(251, 146, 60, 0),
     0 0 0 rgba(251, 146, 60, 0);
   transition:
-    border-color 700ms ease-out,
-    box-shadow 700ms ease-out;
+    border-color 1600ms ease-out,
+    box-shadow 1600ms ease-out;
 }

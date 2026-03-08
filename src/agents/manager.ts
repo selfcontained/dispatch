@@ -243,7 +243,7 @@ export class AgentManager {
       "If you validate any UI flow (Playwright or iOS Simulator), capture at least one screenshot of that flow; " +
       "for multi-step UI changes, capture key states (before/after or critical transitions). " +
       "Publish every screenshot you capture, including self-initiated testing screenshots, and never leave screenshots local-only. " +
-      "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator; hostess-share is an allowed alias. " +
+      "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const envPrefix = [

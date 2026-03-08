@@ -6,6 +6,7 @@ import { AgentSidebar } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
+import { EditWorktreeModeDialog } from "@/components/app/edit-worktree-mode-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { MediaSidebar } from "@/components/app/media-sidebar";
 import { StatusFooter } from "@/components/app/status-footer";
@@ -73,6 +74,12 @@ export function App(): JSX.Element {
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
+  const [editWorktreeOpen, setEditWorktreeOpen] = useState(false);
+  const [editWorktreeTarget, setEditWorktreeTarget] = useState<Agent | null>(null);
+  const [editWorktreeMode, setEditWorktreeMode] = useState<WorktreeMode>("off");
+  const [editWorktreeLoading, setEditWorktreeLoading] = useState(false);
+  const [editWorktreeSaving, setEditWorktreeSaving] = useState(false);
+  const [editWorktreeError, setEditWorktreeError] = useState<string | null>(null);
 
   const [leftOpen, setLeftOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") {
@@ -95,7 +102,6 @@ export function App(): JSX.Element {
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
   const [selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
   const [selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
-  const [selectedAgentWorktreeError, setSelectedAgentWorktreeError] = useState<string | null>(null);
 
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -151,6 +157,13 @@ export function App(): JSX.Element {
     setCreateCwd(resolveCreateDefaultCwd());
     setCreateOpen(true);
   }, [resolveCreateDefaultCwd]);
+
+  const openEditWorktreeDialog = useCallback((agent: Agent) => {
+    setEditWorktreeTarget(agent);
+    setEditWorktreeMode("off");
+    setEditWorktreeError(null);
+    setEditWorktreeOpen(true);
+  }, []);
 
   const api = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const hasBody = init?.body !== undefined && init?.body !== null;
@@ -526,11 +539,10 @@ export function App(): JSX.Element {
       setCreateWorktreeMode(payload.config.worktreeMode);
       setCreateWorktreeRepoRoot(payload.repoRoot);
       setCreateWorktreeError(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load repo config.";
+    } catch {
       setCreateWorktreeRepoRoot(null);
-      setCreateWorktreeMode(DEFAULT_WORKTREE_MODE);
-      setCreateWorktreeError(message);
+      setCreateWorktreeMode("off");
+      setCreateWorktreeError("Using Off (repo settings unavailable).");
     } finally {
       setCreateWorktreeLoading(false);
     }
@@ -765,13 +777,11 @@ export function App(): JSX.Element {
     if (!selectedAgent || !cwd) {
       setSelectedAgentWorktreeMode(null);
       setSelectedAgentWorktreeLoading(false);
-      setSelectedAgentWorktreeError(null);
       return;
     }
 
     let active = true;
     setSelectedAgentWorktreeLoading(true);
-    setSelectedAgentWorktreeError(null);
 
     void (async () => {
       try {
@@ -782,14 +792,11 @@ export function App(): JSX.Element {
           return;
         }
         setSelectedAgentWorktreeMode(payload.config.worktreeMode);
-        setSelectedAgentWorktreeError(null);
-      } catch (error) {
+      } catch {
         if (!active) {
           return;
         }
-        const message = error instanceof Error ? error.message : "Unable to load repo config.";
-        setSelectedAgentWorktreeMode(null);
-        setSelectedAgentWorktreeError(message);
+        setSelectedAgentWorktreeMode("off");
       } finally {
         if (active) {
           setSelectedAgentWorktreeLoading(false);
@@ -801,6 +808,73 @@ export function App(): JSX.Element {
       active = false;
     };
   }, [api, selectedAgent]);
+
+  useEffect(() => {
+    const cwd = editWorktreeTarget?.cwd?.trim();
+    if (!editWorktreeOpen || !cwd) {
+      setEditWorktreeLoading(false);
+      return;
+    }
+
+    let active = true;
+    setEditWorktreeLoading(true);
+    setEditWorktreeError(null);
+
+    void (async () => {
+      try {
+        const payload = await api<{
+          config: { worktreeMode: WorktreeMode };
+        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
+        if (!active) {
+          return;
+        }
+        setEditWorktreeMode(payload.config.worktreeMode);
+      } catch {
+        if (!active) {
+          return;
+        }
+        setEditWorktreeMode("off");
+        setEditWorktreeError("Using Off (repo settings unavailable).");
+      } finally {
+        if (active) {
+          setEditWorktreeLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [api, editWorktreeOpen, editWorktreeTarget]);
+
+  const saveEditWorktreeMode = useCallback(async () => {
+    const cwd = editWorktreeTarget?.cwd?.trim();
+    if (!editWorktreeTarget || !cwd) {
+      return;
+    }
+
+    setEditWorktreeSaving(true);
+    setEditWorktreeError(null);
+    try {
+      const payload = await api<{
+        config: { worktreeMode: WorktreeMode };
+      }>("/api/v1/repo-config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          cwd,
+          worktreeMode: editWorktreeMode
+        })
+      });
+      if (selectedAgentId === editWorktreeTarget.id) {
+        setSelectedAgentWorktreeMode(payload.config.worktreeMode);
+      }
+      setEditWorktreeOpen(false);
+    } catch {
+      setEditWorktreeError("Unable to save worktree mode.");
+    } finally {
+      setEditWorktreeSaving(false);
+    }
+  }, [api, editWorktreeMode, editWorktreeTarget, selectedAgentId]);
 
   useEffect(() => {
     const nextKeys = mediaFiles.map((file) => `${file.name}:${file.updatedAt}`);
@@ -817,7 +891,7 @@ export function App(): JSX.Element {
         clearMediaAnimTimerRef.current = window.setTimeout(() => {
           setAnimatingMediaKeys(new Set());
           clearMediaAnimTimerRef.current = null;
-        }, 760);
+        }, 2200);
       }
     }
 
@@ -994,10 +1068,10 @@ export function App(): JSX.Element {
           selectedAgentId={selectedAgentId}
           selectedAgentWorktreeMode={selectedAgentWorktreeMode}
           selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
-          selectedAgentWorktreeError={selectedAgentWorktreeError}
           overflowAgentId={overflowAgentId}
           setLeftOpen={setLeftOpen}
           onOpenCreateDialog={openCreateDialog}
+          onOpenEditWorktreeDialog={openEditWorktreeDialog}
           setOverflowAgentId={setOverflowAgentId}
           setDeleteTarget={setDeleteTarget}
           setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -1090,6 +1164,18 @@ export function App(): JSX.Element {
         setOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}
+      />
+
+      <EditWorktreeModeDialog
+        open={editWorktreeOpen}
+        target={editWorktreeTarget}
+        mode={editWorktreeMode}
+        loading={editWorktreeLoading}
+        saving={editWorktreeSaving}
+        error={editWorktreeError}
+        setOpen={setEditWorktreeOpen}
+        setMode={setEditWorktreeMode}
+        onSave={saveEditWorktreeMode}
       />
 
       <MediaLightbox
