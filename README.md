@@ -96,6 +96,14 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
 - Dispatch launches new Codex agents with a startup guidance prompt instructing them to use `dispatch-share` for Playwright and iOS Simulator screenshot sharing.
 - Dispatch startup guidance also instructs agents to run Playwright in headless mode by default unless the user explicitly requests headed mode.
 
+## Issue Tracking Reference
+
+- Linear routing for this repo is stored in `.dispatch/config.json` under the `linear` key.
+- Current target:
+  - team: `CrumbStream` (`CRU`)
+  - project: `Dispatch`
+  - project URL: `https://linear.app/crumbstream/project/dispatch-ad9a26f53856`
+
 ## Non-Goals (MVP)
 
 - Multi-tenant SaaS deployment

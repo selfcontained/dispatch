@@ -93,6 +93,9 @@ export function App(): JSX.Element {
     return stored === null ? false : stored === "true";
   });
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
+  const [selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
+  const [selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
+  const [selectedAgentWorktreeError, setSelectedAgentWorktreeError] = useState<string | null>(null);
 
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -758,6 +761,48 @@ export function App(): JSX.Element {
   }, [selectedAgentId]);
 
   useEffect(() => {
+    const cwd = selectedAgent?.cwd?.trim();
+    if (!selectedAgent || !cwd) {
+      setSelectedAgentWorktreeMode(null);
+      setSelectedAgentWorktreeLoading(false);
+      setSelectedAgentWorktreeError(null);
+      return;
+    }
+
+    let active = true;
+    setSelectedAgentWorktreeLoading(true);
+    setSelectedAgentWorktreeError(null);
+
+    void (async () => {
+      try {
+        const payload = await api<{
+          config: { worktreeMode: WorktreeMode };
+        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
+        if (!active) {
+          return;
+        }
+        setSelectedAgentWorktreeMode(payload.config.worktreeMode);
+        setSelectedAgentWorktreeError(null);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Unable to load repo config.";
+        setSelectedAgentWorktreeMode(null);
+        setSelectedAgentWorktreeError(message);
+      } finally {
+        if (active) {
+          setSelectedAgentWorktreeLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [api, selectedAgent]);
+
+  useEffect(() => {
     const nextKeys = mediaFiles.map((file) => `${file.name}:${file.updatedAt}`);
     const prevKeys = previousMediaKeysRef.current;
 
@@ -772,7 +817,7 @@ export function App(): JSX.Element {
         clearMediaAnimTimerRef.current = window.setTimeout(() => {
           setAnimatingMediaKeys(new Set());
           clearMediaAnimTimerRef.current = null;
-        }, 320);
+        }, 760);
       }
     }
 
@@ -947,6 +992,9 @@ export function App(): JSX.Element {
           leftOpen={leftOpen}
           agents={agents}
           selectedAgentId={selectedAgentId}
+          selectedAgentWorktreeMode={selectedAgentWorktreeMode}
+          selectedAgentWorktreeLoading={selectedAgentWorktreeLoading}
+          selectedAgentWorktreeError={selectedAgentWorktreeError}
           overflowAgentId={overflowAgentId}
           setLeftOpen={setLeftOpen}
           onOpenCreateDialog={openCreateDialog}
@@ -1003,6 +1051,7 @@ export function App(): JSX.Element {
           selectedAgentId={selectedAgentId}
           selectedAgentName={selectedAgent?.name ?? null}
           animatingMediaKeys={animatingMediaKeys}
+          seenMediaKeys={seenMediaKeys}
           mediaViewportRef={mediaViewportRef}
           setMediaOpen={setMediaOpen}
           mediaDescription={mediaDescription}

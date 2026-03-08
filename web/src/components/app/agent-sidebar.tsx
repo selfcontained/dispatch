@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ChevronLeft,
   EllipsisVertical,
   Pause,
@@ -9,7 +10,7 @@ import {
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { type Agent, type AgentVisualState } from "@/components/app/types";
+import { type Agent, type AgentVisualState, type WorktreeMode } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,9 @@ type AgentSidebarProps = {
   leftOpen: boolean;
   agents: Agent[];
   selectedAgentId: string | null;
+  selectedAgentWorktreeMode: WorktreeMode | null;
+  selectedAgentWorktreeLoading: boolean;
+  selectedAgentWorktreeError: string | null;
   overflowAgentId: string | null;
   setLeftOpen: (open: boolean) => void;
   onOpenCreateDialog: () => void;
@@ -38,6 +42,9 @@ export function AgentSidebar({
   leftOpen,
   agents,
   selectedAgentId,
+  selectedAgentWorktreeMode,
+  selectedAgentWorktreeLoading,
+  selectedAgentWorktreeError,
   overflowAgentId,
   setLeftOpen,
   onOpenCreateDialog,
@@ -53,6 +60,16 @@ export function AgentSidebar({
   stopAgent,
   startAgent
 }: AgentSidebarProps): JSX.Element {
+  const worktreeModeLabel = (mode: WorktreeMode): string => {
+    if (mode === "auto") {
+      return "Auto-create";
+    }
+    if (mode === "off") {
+      return "Off";
+    }
+    return "Ask";
+  };
+
   const agentTypeLabel = (type?: string): string => {
     if (type === "claude") {
       return "Claude";
@@ -239,7 +256,35 @@ export function AgentSidebar({
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono />
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
-                          <AgentMeta label="Full access" value={fullAccessEnabled ? "Enabled" : "Disabled"} />
+                          <AgentMeta
+                            label="Worktree mode"
+                            value={
+                              isSelected
+                                ? selectedAgentWorktreeLoading
+                                  ? "Loading..."
+                                  : selectedAgentWorktreeError
+                                    ? `Unavailable (${selectedAgentWorktreeError})`
+                                    : selectedAgentWorktreeMode
+                                      ? worktreeModeLabel(selectedAgentWorktreeMode)
+                                      : "Unavailable"
+                                : "Select agent"
+                            }
+                          />
+                          <div className="grid gap-1">
+                            <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                              Full access
+                            </div>
+                            <div
+                              className={cn(
+                                "inline-flex w-fit items-center gap-1.5 px-1.5 py-0.5 text-foreground",
+                                fullAccessEnabled &&
+                                  "border border-orange-400/45 bg-orange-500/15 text-orange-200"
+                              )}
+                            >
+                              {fullAccessEnabled ? <AlertTriangle className="h-3.5 w-3.5" /> : null}
+                              <span>{fullAccessEnabled ? "Enabled" : "Disabled"}</span>
+                            </div>
+                          </div>
                           {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
                         </div>
                       </div>

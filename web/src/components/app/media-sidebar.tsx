@@ -11,6 +11,7 @@ type MediaSidebarProps = {
   selectedAgentId: string | null;
   selectedAgentName: string | null;
   animatingMediaKeys: Set<string>;
+  seenMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   setMediaOpen: (open: boolean) => void;
   mediaDescription: (name: string) => string;
@@ -23,6 +24,7 @@ export function MediaSidebar({
   selectedAgentId,
   selectedAgentName,
   animatingMediaKeys,
+  seenMediaKeys,
   mediaViewportRef,
   setMediaOpen,
   mediaDescription,
@@ -58,6 +60,8 @@ export function MediaSidebar({
             mediaFiles.map((file) => {
               const mediaKey = `${file.name}:${file.updatedAt}`;
               const cacheBustUrl = `${file.url}?t=${encodeURIComponent(file.updatedAt)}`;
+              const animating = animatingMediaKeys.has(mediaKey);
+              const unseen = !seenMediaKeys.has(mediaKey);
 
               return (
                 <article
@@ -65,12 +69,15 @@ export function MediaSidebar({
                   data-media-key={mediaKey}
                   className={cn(
                     "border-b-2 border-border px-3 py-3",
-                    animatingMediaKeys.has(mediaKey) && "animate-media-in"
+                    animating && "animate-media-in-slow"
                   )}
                 >
                   <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
                   <button
-                    className="block w-full overflow-hidden border-2 border-border bg-black/60"
+                    className={cn(
+                      "block w-full overflow-hidden border-2 bg-black/60",
+                      unseen ? "media-thumb-unseen" : "media-thumb-seen"
+                    )}
                     onClick={() => openLightbox(cacheBustUrl, file.name)}
                   >
                     <img src={cacheBustUrl} alt={file.name} className="max-h-[260px] w-full object-contain" />
