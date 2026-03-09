@@ -80,9 +80,10 @@ const mediaWatchers = new Map<string, FSWatcher>();
 const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
-const PROBE_COMMAND_TIMEOUT_MS = 500;
-const GIT_CONTEXT_REFRESH_INTERVAL_MS = 15_000;
-const GIT_CONTEXT_REFRESH_CONCURRENCY = 2;
+const PROBE_COMMAND_TIMEOUT_MS = 800;
+const GIT_CONTEXT_REFRESH_INTERVAL_MS = 60_000;
+const GIT_CONTEXT_REFRESH_CONCURRENCY = 1;
+const GIT_CONTEXT_MIN_REQUEUE_MS = 20_000;
 const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 const pendingGitRefreshAgentIds = new Set<string>();
 const activeGitRefreshAgentIds = new Set<string>();
@@ -189,7 +190,6 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
-    queueGitContextRefresh(agents.map((agent) => agent.id));
     return { agents };
   });
 
@@ -211,7 +211,6 @@ async function registerRoutes() {
       id: agent.id,
       gitContext: agent.gitContext
     }));
-    queueGitContextRefresh(targets.map((agent) => agent.id));
 
     return { contexts };
   });
@@ -264,7 +263,6 @@ async function registerRoutes() {
     try {
       const agents = await agentManager.listAgents();
       uiEventBroker.sendSnapshot(stream, agents);
-      queueGitContextRefresh(agents.map((agent) => agent.id));
     } catch (error) {
       app.log.warn({ err: error }, "Failed to load SSE snapshot.");
     }
@@ -283,7 +281,6 @@ async function registerRoutes() {
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    queueGitContextRefresh([agent.id]);
     return { agent };
   });
 
@@ -762,16 +759,24 @@ function toIso(epochMs: number | null): string | null {
 }
 
 function queueGitContextRefresh(agentIds: string[]): void {
+  const now = Date.now();
   for (const agentId of agentIds) {
     if (!agentId) {
       continue;
     }
+    const existing = gitRefreshAgentDiagnostics.get(agentId);
+    const lastQueuedAt = existing?.lastQueuedAt ?? null;
     const wasPending = pendingGitRefreshAgentIds.has(agentId);
     const wasActive = activeGitRefreshAgentIds.has(agentId);
-    if (!wasPending && !wasActive) {
-      pendingGitRefreshEnqueuedAt.set(agentId, Date.now());
+    const queuedRecently =
+      lastQueuedAt !== null && now - lastQueuedAt < GIT_CONTEXT_MIN_REQUEUE_MS;
+    if (wasPending || wasActive || queuedRecently) {
+      continue;
     }
-    ensureGitRefreshAgentDiagnostics(agentId).lastQueuedAt = Date.now();
+    if (!wasPending && !wasActive) {
+      pendingGitRefreshEnqueuedAt.set(agentId, now);
+    }
+    ensureGitRefreshAgentDiagnostics(agentId).lastQueuedAt = now;
     pendingGitRefreshAgentIds.add(agentId);
     gitRefreshCounters.enqueued += 1;
   }
