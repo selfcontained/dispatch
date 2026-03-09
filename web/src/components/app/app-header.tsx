@@ -36,19 +36,24 @@ export function AppHeader({
 }: AppHeaderProps): JSX.Element {
   return (
     <header className={cn("relative flex h-14 items-center border-b-2 border-b-border bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {(!leftOpen || isMobile) ? (
-          <>
-            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
-              <PanelRightOpen className="h-4 w-4" />
-            </Button>
-            {!isMobile ? <img src="/brand-icon.svg" alt="Dispatch logo" className="h-6 w-auto object-contain" /> : null}
-          </>
+          <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
+            <PanelRightOpen className="h-4 w-4" />
+          </Button>
         ) : null}
-        {showHeaderStatus ? <span className="truncate text-xs sm:text-sm">{statusText}</span> : null}
+        {!isMobile ? <img src="/brand-icon.svg" alt="Dispatch logo" className="h-6 w-auto object-contain" /> : null}
       </div>
 
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+      {showHeaderStatus ? (
+        <div className="min-w-0 flex-1 px-1">
+          <span className="block truncate text-xs sm:text-sm">{statusText}</span>
+        </div>
+      ) : (
+        <div className="flex-1" />
+      )}
+
+      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
         {isAttached ? (
           <Button
             size="sm"
