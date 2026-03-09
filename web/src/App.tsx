@@ -9,6 +9,7 @@ import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import { EditWorktreeModeDialog } from "@/components/app/edit-worktree-mode-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
+import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
@@ -1219,6 +1220,15 @@ export function App(): JSX.Element {
     void attachToAgent(selectedAgent);
   }, [attachToAgent, selectedAgent]);
 
+  const sendTerminalInput = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    ws.send(JSON.stringify({ type: "input", data }));
+    terminalRef.current?.focus();
+  }, []);
+
   const agentVisualState = useCallback(
     (agent: Agent): AgentVisualState => {
       if (agent.status !== "running") {
@@ -1293,7 +1303,7 @@ export function App(): JSX.Element {
         <main
           className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
         >
-          <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto]">
+          <div className={cn("grid h-full min-h-0", isMobile ? "grid-rows-[auto_1fr_auto_auto]" : "grid-rows-[auto_1fr_auto]")}>
             <AppHeader
               leftOpen={leftPanelOpen}
               mediaOpen={mediaPanelOpen}
@@ -1317,6 +1327,8 @@ export function App(): JSX.Element {
               statusMessage={statusMessage}
               terminalHostRef={terminalHostRef}
             />
+
+            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} /> : null}
 
             <StatusFooter
               connState={connState}
