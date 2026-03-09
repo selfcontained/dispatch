@@ -157,8 +157,8 @@ export function App(): JSX.Element {
   const leftPanelOpen = isMobile ? mobileLeftOpen : leftOpen;
   const mediaPanelOpen = isMobile ? mobileMediaOpen : mediaOpen;
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
-  const [selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
-  const [selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
+  const [_selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
+  const [_selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
 
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -369,7 +369,15 @@ export function App(): JSX.Element {
         return;
       }
 
-      let agent = agents.find((item) => item.id === resolvedAgentId) ?? null;
+      // For user-initiated attaches the local cache is always fresh (current render).
+      // For timer/focus-driven reconnects the useCallback closure may be stale
+      // (e.g. after a server restart the SSE snapshot updates `agents` but the
+      // reconnect timer still holds an old closure showing "running").  Always
+      // hit the API for reconnects so we can detect a stopped agent and exit
+      // the loop instead of looping on 409s forever.
+      let agent: Agent | null = userInitiated
+        ? (agents.find((item) => item.id === resolvedAgentId) ?? null)
+        : null;
       if (!agent || agent.status !== "running") {
         const payload = await api<{ agent: Agent }>(
           `/api/v1/agents/${resolvedAgentId}?includeGitContext=false`
