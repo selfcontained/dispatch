@@ -83,6 +83,42 @@ export function AgentSidebarContent({
     return type;
   };
 
+  const latestEventLabel = (type: NonNullable<Agent["latestEvent"]>["type"]): string => {
+    if (type === "waiting_user") {
+      return "Waiting";
+    }
+    if (type === "working") {
+      return "Working";
+    }
+    if (type === "blocked") {
+      return "Blocked";
+    }
+    if (type === "done") {
+      return "Done";
+    }
+    return "Idle";
+  };
+
+  const formatRelativeTime = (value: string): string => {
+    const date = new Date(value);
+    const time = date.getTime();
+    if (!Number.isFinite(time)) {
+      return "";
+    }
+
+    const deltaSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (deltaSeconds < 60) {
+      return "just now";
+    }
+    if (deltaSeconds < 3600) {
+      return `${Math.floor(deltaSeconds / 60)}m ago`;
+    }
+    if (deltaSeconds < 86_400) {
+      return `${Math.floor(deltaSeconds / 3600)}h ago`;
+    }
+    return `${Math.floor(deltaSeconds / 86_400)}d ago`;
+  };
+
   return (
     <aside className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
       <div className="flex h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
@@ -294,6 +330,16 @@ export function AgentSidebarContent({
                       ) : null}
                     </div>
                   </div>
+
+                  {agent.latestEvent ? (
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground/80">{latestEventLabel(agent.latestEvent.type)}</span>
+                      <span className="mx-1.5 text-muted-foreground/70">•</span>
+                      <span>{agent.latestEvent.message}</span>
+                      <span className="mx-1.5 text-muted-foreground/70">•</span>
+                      <span>{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
+                    </div>
+                  ) : null}
 
                   <div
                     className={cn(

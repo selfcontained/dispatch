@@ -42,6 +42,9 @@ type AgentWithGitContext = AgentRecord & {
   gitContext: AgentGitContext | null;
 };
 
+const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
+type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
+
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentWithGitContext }
@@ -229,6 +232,46 @@ async function registerRoutes() {
     }
 
     return { agent: await enrichAgentWithGitContext(agent) };
+  });
+
+  app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as {
+      type?: unknown;
+      message?: unknown;
+      metadata?: unknown;
+    };
+    const id = params.id ?? "";
+    const type = body?.type;
+    const message = body?.message;
+    const metadata = body?.metadata;
+
+    if (!isAgentLatestEventType(type)) {
+      return reply.code(400).send({
+        error: `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
+      });
+    }
+
+    if (typeof message !== "string" || !message.trim()) {
+      return reply.code(400).send({ error: "message must be a non-empty string." });
+    }
+
+    if (
+      metadata !== undefined &&
+      (metadata === null || typeof metadata !== "object" || Array.isArray(metadata))
+    ) {
+      return reply.code(400).send({ error: "metadata must be an object when provided." });
+    }
+
+    const agent = await agentManager.upsertLatestEvent(id, {
+      type,
+      message: message.trim(),
+      metadata: metadata as Record<string, unknown> | undefined
+    });
+
+    const enriched = await enrichAgentWithGitContext(agent);
+    uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
+    return { agent: enriched };
   });
 
   app.get("/api/v1/agents/:id/media", async (request, reply) => {
@@ -961,6 +1004,10 @@ function stopMediaWatch(agentId: string): void {
     clearTimeout(timer);
     mediaDebounceTimers.delete(agentId);
   }
+}
+
+function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
+  return typeof value === "string" && AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType);
 }
 
 function stopAllMediaWatches(): void {

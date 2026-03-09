@@ -11,6 +11,14 @@ import { runCommand } from "../lib/run-command.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
 type AgentType = "codex" | "claude";
+type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
+
+type AgentLatestEvent = {
+  type: AgentLatestEventType;
+  message: string;
+  updatedAt: string;
+  metadata: Record<string, unknown> | null;
+};
 
 export type AgentRecord = {
   id: string;
@@ -23,6 +31,7 @@ export type AgentRecord = {
   mediaDir: string | null;
   codexArgs: string[];
   lastError: string | null;
+  latestEvent: AgentLatestEvent | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -36,6 +45,12 @@ type CreateAgentInput = {
 
 type StopAgentInput = {
   force?: boolean;
+};
+
+type AgentLatestEventInput = {
+  type: AgentLatestEventType;
+  message: string;
+  metadata?: Record<string, unknown>;
 };
 
 export class AgentError extends Error {
@@ -90,9 +105,18 @@ export class AgentManager {
       await this.ensureNoExistingSession(tmuxSession);
       await this.startTmuxSession(tmuxSession, cwd, mediaDir, codexArgs);
       await this.setAgentStatus(id, "running", null);
+      await this.setSystemLatestEvent(id, {
+        type: "working",
+        message: "Session started."
+      });
     } catch (error) {
       const message = this.errorMessage(error);
       await this.setAgentStatus(id, "error", message);
+      await this.setSystemLatestEvent(id, {
+        type: "blocked",
+        message: `Failed to create agent: ${message}`,
+        metadata: { source: "system", phase: "create" }
+      });
       throw new AgentError(`Failed to create agent: ${message}`, 500);
     }
 
@@ -106,6 +130,10 @@ export class AgentManager {
 
     if (hasSession) {
       await this.setAgentStatus(id, "running", null, tmuxSession);
+      await this.setSystemLatestEvent(id, {
+        type: "working",
+        message: "Session attached to existing tmux session."
+      });
       return (await this.getAgent(id)) as AgentRecord;
     }
 
@@ -114,9 +142,18 @@ export class AgentManager {
     try {
       await this.startTmuxSession(tmuxSession, agent.cwd, agent.mediaDir ?? this.defaultMediaDir(id), agent.codexArgs ?? []);
       await this.setAgentStatus(id, "running", null, tmuxSession);
+      await this.setSystemLatestEvent(id, {
+        type: "working",
+        message: "Session started."
+      });
     } catch (error) {
       const message = this.errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession);
+      await this.setSystemLatestEvent(id, {
+        type: "blocked",
+        message: `Failed to start agent: ${message}`,
+        metadata: { source: "system", phase: "start" }
+      });
       throw new AgentError(`Failed to start agent: ${message}`, 500);
     }
 
@@ -166,9 +203,18 @@ export class AgentManager {
       }
 
       await this.setAgentStatus(id, "stopped", null, tmuxSession ?? undefined);
+      await this.setSystemLatestEvent(id, {
+        type: "idle",
+        message: "Session stopped."
+      });
     } catch (error) {
       const message = this.errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession ?? undefined);
+      await this.setSystemLatestEvent(id, {
+        type: "blocked",
+        message: `Failed to stop agent: ${message}`,
+        metadata: { source: "system", phase: "stop" }
+      });
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
 
@@ -193,6 +239,32 @@ export class AgentManager {
     }
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
+  }
+
+  async upsertLatestEvent(id: string, input: AgentLatestEventInput): Promise<AgentRecord> {
+    const message = input.message.trim();
+    if (!message) {
+      throw new AgentError("Latest event message must be a non-empty string.", 400);
+    }
+
+    const result = await this.pool.query(
+      `
+      UPDATE agents
+      SET latest_event_type = $2,
+          latest_event_message = $3,
+          latest_event_metadata = $4::jsonb,
+          latest_event_updated_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1
+      `,
+      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
+    );
+
+    if (result.rowCount !== 1) {
+      throw new AgentError("Agent not found.", 404);
+    }
+
+    return (await this.getAgent(id)) as AgentRecord;
   }
 
   async reconcileAgents(): Promise<void> {
@@ -244,6 +316,7 @@ export class AgentManager {
       "for multi-step UI changes, capture key states (before/after or critical transitions). " +
       "Publish every screenshot you capture, including self-initiated testing screenshots, and never leave screenshots local-only. " +
       "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator. " +
+      "Use dispatch-event <working|blocked|waiting_user|done|idle> \"message\" to keep your latest status visible in Dispatch. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const envPrefix = [
@@ -253,6 +326,8 @@ export class AgentManager {
       `DISPATCH_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `HOSTESS_AGENT_ID=${this.shellEscape(agentId)}`,
       `HOSTESS_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
+      `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
+      `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `PATH=${this.shellEscape(this.config.dispatchBinDir)}:$PATH`
@@ -329,6 +404,19 @@ export class AgentManager {
         media_dir AS "mediaDir",
         codex_args AS "codexArgs",
         last_error AS "lastError",
+        CASE
+          WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL
+          ELSE json_build_object(
+            'type',
+            latest_event_type,
+            'message',
+            latest_event_message,
+            'updatedAt',
+            latest_event_updated_at,
+            'metadata',
+            COALESCE(latest_event_metadata, '{}'::jsonb)
+          )
+        END AS "latestEvent",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents
@@ -353,5 +441,19 @@ export class AgentManager {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async setSystemLatestEvent(id: string, input: AgentLatestEventInput): Promise<void> {
+    try {
+      await this.upsertLatestEvent(id, {
+        ...input,
+        metadata: {
+          ...(input.metadata ?? {}),
+          source: "system"
+        }
+      });
+    } catch (error) {
+      this.logger.warn({ err: error, id, eventType: input.type }, "Failed to upsert system latest event.");
+    }
   }
 }

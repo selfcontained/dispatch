@@ -18,3 +18,8 @@
 - For frontend development/validation, run the Vite dev server (`npm --prefix web run dev`) instead of the backend static server.
 - Do not pin a fixed Vite port unless explicitly requested; let Vite choose an open port automatically.
 - If multiple local Dispatch instances are running, always use the exact URL printed by the active Vite process for Playwright/manual checks.
+
+## Backend Testing Safety
+- Treat `127.0.0.1:8787` as production by default; do not stop or kill the existing production server for ad-hoc testing.
+- When backend changes need local validation, run a separate backend instance on a different port (for example `DISPATCH_PORT=8788 npm run dev`) and point validation tooling to that port.
+- Only operate on production (`:8787`) when explicitly requested by the user.

@@ -70,7 +70,27 @@ type UiEvent =
   | { type: "media.seen"; agentId: string; keys: string[] };
 
 function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
-  return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const eventPriority = (agent: Agent): number => {
+    if (agent.latestEvent?.type === "blocked") {
+      return 0;
+    }
+    if (agent.latestEvent?.type === "waiting_user") {
+      return 1;
+    }
+    return 2;
+  };
+
+  const latestActivityAt = (agent: Agent): string => {
+    return agent.latestEvent?.updatedAt ?? agent.updatedAt ?? agent.createdAt;
+  };
+
+  return [...items].sort((a, b) => {
+    const priorityDelta = eventPriority(a) - eventPriority(b);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return latestActivityAt(b).localeCompare(latestActivityAt(a));
+  });
 }
 
 function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {

@@ -33,6 +33,18 @@ export async function runMigrations(): Promise<void> {
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS last_error TEXT;
 
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS latest_event_type TEXT;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS latest_event_message TEXT;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS latest_event_metadata JSONB;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS latest_event_updated_at TIMESTAMPTZ;
+
     CREATE TABLE IF NOT EXISTS simulator_reservations (
       udid TEXT PRIMARY KEY,
       agent_id TEXT,

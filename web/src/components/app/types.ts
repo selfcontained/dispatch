@@ -9,6 +9,12 @@ export type Agent = {
   tmuxSession: string | null;
   codexArgs: string[];
   lastError?: string | null;
+  latestEvent?: {
+    type: "working" | "blocked" | "waiting_user" | "done" | "idle";
+    message: string;
+    updatedAt: string;
+    metadata?: Record<string, unknown> | null;
+  } | null;
   mediaDir: string | null;
   gitContext?: {
     repoRoot: string;
