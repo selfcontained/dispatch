@@ -393,7 +393,9 @@ export function App(): JSX.Element {
 
       let agent = agents.find((item) => item.id === resolvedAgentId) ?? null;
       if (!agent || agent.status !== "running") {
-        const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}`);
+        const payload = await api<{ agent: Agent }>(
+          `/api/v1/agents/${resolvedAgentId}?includeGitContext=false`
+        );
         agent = payload.agent;
       }
 

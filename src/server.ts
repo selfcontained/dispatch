@@ -211,11 +211,21 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: string };
+    const query = request.query as { includeGitContext?: unknown };
     const id = params.id ?? "";
     const agent = await agentManager.getAgent(id);
 
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const includeGitContext = !(
+      query.includeGitContext === "false" ||
+      query.includeGitContext === "0" ||
+      query.includeGitContext === false
+    );
+    if (!includeGitContext) {
+      return { agent };
     }
 
     return { agent: await enrichAgentWithGitContext(agent) };
@@ -410,7 +420,16 @@ async function registerRoutes() {
     const id = params.id ?? "";
 
     try {
-      await agentManager.getTerminalSession(id);
+      const agent = await agentManager.getAgent(id);
+      if (!agent) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      if (agent.status !== "running") {
+        return reply.code(409).send({ error: "Agent is not running." });
+      }
+      if (!agent.tmuxSession) {
+        return reply.code(500).send({ error: "Agent is missing tmux session metadata." });
+      }
       const token = terminalTokenStore.issue(id);
       return {
         token,
