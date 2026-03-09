@@ -126,7 +126,7 @@ export function MobileTerminalToolbar({ onSendInput }: MobileTerminalToolbarProp
       </div>
 
       <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
-        <DialogContent className="left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-3 overflow-hidden rounded-none border-0 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:left-1/2 sm:top-1/2 sm:h-auto sm:w-[min(560px,calc(100vw-2rem))] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-4">
+        <DialogContent className="left-0 top-0 box-border flex h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] translate-x-0 translate-y-0 flex-col gap-3 overflow-hidden rounded-none border-0 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:left-1/2 sm:top-1/2 sm:h-auto sm:w-[min(560px,calc(100vw-2rem))] sm:max-h-[calc(100dvh-2rem)] sm:max-w-[min(560px,calc(100vw-2rem))] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-4">
           <DialogHeader>
             <DialogTitle>Terminal Input</DialogTitle>
             <DialogDescription>Type or paste text, then send it to the active terminal session.</DialogDescription>
@@ -140,7 +140,7 @@ export function MobileTerminalToolbar({ onSendInput }: MobileTerminalToolbarProp
             autoFocus
           />
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Button type="button" variant="ghost" onClick={() => setComposerOpen(false)}>
               Cancel
             </Button>
