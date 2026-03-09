@@ -333,18 +333,12 @@ export class AgentManager {
 
   private buildAgentCommand(type: AgentType, args: string[], mediaDir: string, sessionName: string): string {
     const agentId = sessionName.replace(/^(dispatch|hostess)_/, "");
+    // Lean startup guidance shared by both agent types. Full behavioral specs live in
+    // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance =
       "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
-      "If you validate any UI flow (Playwright or iOS Simulator), capture at least one screenshot of that flow; " +
-      "for multi-step UI changes, capture key states (before/after or critical transitions). " +
-      "Publish every screenshot you capture, including self-initiated testing screenshots, and never leave screenshots local-only. " +
-      "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator. " +
-      "Use dispatch-event to report status at mandatory checkpoints: " +
-      "(1) first action of every turn: dispatch-event working \"<what you are starting>\"; " +
-      "(2) if blocked by an error or environment issue: dispatch-event blocked \"<reason>\"; " +
-      "(3) if you need user input before continuing: dispatch-event waiting_user \"<what is needed>\"; " +
-      "(4) last action before your final response: dispatch-event done \"<what was completed>\" on success, or dispatch-event idle \"<why>\" for informational/no-op turns. " +
-      "Never send a final response without first emitting done, waiting_user, blocked, or idle in the same turn. " +
+      "Capture at least one screenshot per UI validation flow; publish every screenshot with dispatch-share <image-path> for Playwright or dispatch-share --sim [udid] for iOS Simulator — never leave screenshots local-only. " +
+      "Call dispatch-event at the start of each turn (working), when blocked or waiting for input (blocked/waiting_user), and before your final response (done on success, idle for no-op turns). Never send a final response without a terminal status event. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
@@ -368,10 +362,22 @@ export class AgentManager {
     ].join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
 
+    if (type === "claude") {
+      // Elevate guidance to system prompt so it persists through long conversations
+      // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
+      // Claude Code and provides the full behavioral spec.
+      const systemFlag = `--append-system-prompt ${this.shellEscape(launchGuidance)}`;
+      if (args.length === 0) {
+        return `${envPrefix} ${this.shellEscape(cliBin)} ${systemFlag}`;
+      }
+      const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${systemFlag} ${escaped}`;
+    }
+
+    // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
     if (args.length === 0) {
       return `${envPrefix} ${this.shellEscape(cliBin)} ${this.shellEscape(launchGuidance)}`;
     }
-
     const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
     return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${this.shellEscape(launchGuidance)}`;
   }
