@@ -81,9 +81,9 @@ const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
 const PROBE_COMMAND_TIMEOUT_MS = 800;
-const GIT_CONTEXT_REFRESH_INTERVAL_MS = 60_000;
+const GIT_CONTEXT_REFRESH_INTERVAL_MS = 120_000;
 const GIT_CONTEXT_REFRESH_CONCURRENCY = 1;
-const GIT_CONTEXT_MIN_REQUEUE_MS = 20_000;
+const GIT_CONTEXT_MIN_REQUEUE_MS = 60_000;
 const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 const pendingGitRefreshAgentIds = new Set<string>();
 const activeGitRefreshAgentIds = new Set<string>();
@@ -319,7 +319,6 @@ async function registerRoutes() {
       metadata: metadata as Record<string, unknown> | undefined
     });
 
-    queueGitContextRefresh([agent.id]);
     uiEventBroker.publish({ type: "agent.upsert", agent });
     return { agent };
   });
