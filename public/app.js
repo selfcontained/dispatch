@@ -2,7 +2,6 @@ const state = {
   selectedAgentId: null,
   ws: null,
   agents: [],
-  mediaPollTimer: null,
   shouldKeepTerminalAttached: false,
   reconnectTimer: null,
   reconnectAttempts: 0,
@@ -518,15 +517,6 @@ function closeCreateModal() {
   el.createModal.hidden = true;
 }
 
-function ensureMediaPolling() {
-  if (state.mediaPollTimer) {
-    clearInterval(state.mediaPollTimer);
-  }
-  state.mediaPollTimer = setInterval(() => {
-    void refreshMedia();
-  }, 4000);
-}
-
 term.onData((data) => {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     return;
@@ -596,7 +586,6 @@ async function init() {
   setStatus(`API ${health.status}, DB ${health.db}`);
   await refreshAgents();
   await refreshMedia();
-  ensureMediaPolling();
   el.cwdInput.value = "/Users/bharris/dev/apps/hostess";
   setConnectionBadge("disconnected");
 }

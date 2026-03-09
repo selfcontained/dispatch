@@ -311,6 +311,7 @@ export function App(): JSX.Element {
   );
 
   const pollHealth = useCallback(async () => {
+    if (document.hidden) return;
     try {
       const health = await api<{ status: string; db: string }>("/api/v1/health");
       setApiState(health.status === "ok" ? "ok" : "down");
@@ -1049,6 +1050,13 @@ export function App(): JSX.Element {
     }
 
     previousMediaKeysRef.current = new Set(nextKeys);
+
+    return () => {
+      if (clearMediaAnimTimerRef.current) {
+        window.clearTimeout(clearMediaAnimTimerRef.current);
+        clearMediaAnimTimerRef.current = null;
+      }
+    };
   }, [mediaFiles]);
 
   useEffect(() => {
