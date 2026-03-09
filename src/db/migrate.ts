@@ -45,6 +45,15 @@ export async function runMigrations(): Promise<void> {
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS latest_event_updated_at TIMESTAMPTZ;
 
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS git_context JSONB;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS git_context_stale BOOLEAN NOT NULL DEFAULT true;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS git_context_updated_at TIMESTAMPTZ;
+
     CREATE TABLE IF NOT EXISTS simulator_reservations (
       udid TEXT PRIMARY KEY,
       agent_id TEXT,

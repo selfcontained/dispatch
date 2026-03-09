@@ -185,7 +185,6 @@ export function App(): JSX.Element {
   const healthPollTimerRef = useRef<number | null>(null);
   const clearMediaAnimTimerRef = useRef<number | null>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
-  const hydrateGitContextsNonceRef = useRef(0);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -262,47 +261,6 @@ export function App(): JSX.Element {
       return null;
     });
   }, [api]);
-
-  const hydrateGitContexts = useCallback(
-    async (agentsForHydration: Agent[]) => {
-      const ids = Array.from(
-        new Set(
-          agentsForHydration
-            .filter((agent) => agent.gitContext === undefined)
-            .map((agent) => agent.id)
-        )
-      );
-
-      if (ids.length === 0) {
-        return;
-      }
-
-      const nonce = ++hydrateGitContextsNonceRef.current;
-      try {
-        const payload = await api<{ contexts: Array<{ id: string; gitContext: Agent["gitContext"] | null }> }>(
-          `/api/v1/agents/git-context?ids=${encodeURIComponent(ids.join(","))}`
-        );
-
-        if (nonce !== hydrateGitContextsNonceRef.current) {
-          return;
-        }
-
-        const byId = new Map(payload.contexts.map((entry) => [entry.id, entry.gitContext]));
-        setAgents((current) =>
-          current.map((agent) => {
-            if (!byId.has(agent.id)) {
-              return agent;
-            }
-            return {
-              ...agent,
-              gitContext: byId.get(agent.id) ?? null
-            };
-          })
-        );
-      } catch {}
-    },
-    [api]
-  );
 
   const refreshMedia = useCallback(
     async (agentId?: string | null) => {
@@ -859,7 +817,6 @@ export function App(): JSX.Element {
 
         if (payload.type === "snapshot") {
           setAgents(sortAgentsByCreatedAtDesc(payload.agents));
-          void hydrateGitContexts(payload.agents);
           return;
         }
 
@@ -910,11 +867,7 @@ export function App(): JSX.Element {
         eventSourceRef.current = null;
       }
     };
-  }, [hydrateGitContexts, refreshMedia]);
-
-  useEffect(() => {
-    void hydrateGitContexts(agents);
-  }, [agents, hydrateGitContexts]);
+  }, [refreshMedia]);
 
   useEffect(() => {
     setSelectedAgentId((current) => {

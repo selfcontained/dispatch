@@ -11,7 +11,7 @@ import type WebSocket from "ws";
 import pty from "node-pty";
 
 import { AgentError, AgentManager } from "./agents/manager.js";
-import type { AgentRecord } from "./agents/manager.js";
+import type { AgentGitContext, AgentRecord } from "./agents/manager.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
@@ -30,24 +30,11 @@ const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const terminalTokenStore = new TerminalTokenStore(60_000);
 
-type AgentGitContext = {
-  repoRoot: string;
-  branch: string;
-  worktreePath: string;
-  worktreeName: string;
-  isWorktree: boolean;
-};
-
-type AgentWithGitContext = AgentRecord & {
-  gitContext: AgentGitContext | null;
-};
-
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
-
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
-  | { type: "agent.upsert"; agent: AgentWithGitContext }
+  | { type: "agent.upsert"; agent: AgentRecord }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] };
@@ -91,12 +78,39 @@ class UiEventBroker {
 const uiEventBroker = new UiEventBroker();
 const mediaWatchers = new Map<string, FSWatcher>();
 const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
-const gitContextCache = new Map<string, { value: AgentGitContext | null; expiresAt: number }>();
-const gitContextInFlight = new Map<string, Promise<AgentGitContext | null>>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
-const GIT_CONTEXT_CACHE_TTL_MS = 15_000;
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
-const PROBE_COMMAND_TIMEOUT_MS = 1_500;
+const PROBE_COMMAND_TIMEOUT_MS = 500;
+const GIT_CONTEXT_REFRESH_INTERVAL_MS = 15_000;
+const GIT_CONTEXT_REFRESH_CONCURRENCY = 2;
+const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
+const pendingGitRefreshAgentIds = new Set<string>();
+const activeGitRefreshAgentIds = new Set<string>();
+const pendingGitRefreshEnqueuedAt = new Map<string, number>();
+const gitRefreshDurationsMs: number[] = [];
+const gitRefreshAgentDiagnostics = new Map<
+  string,
+  {
+    lastQueuedAt: number | null;
+    lastStartedAt: number | null;
+    lastCompletedAt: number | null;
+    lastDurationMs: number | null;
+    lastResult: "updated" | "unchanged" | "probe_error" | "failed" | "skipped" | null;
+    lastError: string | null;
+  }
+>();
+const gitRefreshCounters = {
+  enqueued: 0,
+  started: 0,
+  completed: 0,
+  updated: 0,
+  unchanged: 0,
+  probeErrors: 0,
+  failed: 0,
+  timedOut: 0,
+  skipped: 0
+};
+let gitContextRefreshTimer: NodeJS.Timeout | null = null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,8 +136,60 @@ async function registerRoutes() {
     };
   });
 
+  app.get("/api/v1/diagnostics/git-context", async () => {
+    const now = Date.now();
+    const pendingAges = Array.from(pendingGitRefreshEnqueuedAt.values()).map((queuedAt) =>
+      Math.max(0, now - queuedAt)
+    );
+    const oldestPendingAgeMs = pendingAges.length > 0 ? Math.max(...pendingAges) : null;
+
+    const durations = [...gitRefreshDurationsMs].sort((a, b) => a - b);
+    const p50DurationMs = percentile(durations, 0.5);
+    const p95DurationMs = percentile(durations, 0.95);
+    const maxDurationMs = durations.length > 0 ? durations[durations.length - 1] : null;
+    const lastDurationMs =
+      gitRefreshDurationsMs.length > 0 ? gitRefreshDurationsMs[gitRefreshDurationsMs.length - 1] : null;
+
+    const agents = Array.from(gitRefreshAgentDiagnostics.entries())
+      .map(([agentId, diag]) => ({
+        agentId,
+        pending: pendingGitRefreshAgentIds.has(agentId),
+        active: activeGitRefreshAgentIds.has(agentId),
+        lastQueuedAt: toIso(diag.lastQueuedAt),
+        lastStartedAt: toIso(diag.lastStartedAt),
+        lastCompletedAt: toIso(diag.lastCompletedAt),
+        lastDurationMs: diag.lastDurationMs,
+        lastResult: diag.lastResult,
+        lastError: diag.lastError
+      }))
+      .sort((a, b) => a.agentId.localeCompare(b.agentId));
+
+    return {
+      config: {
+        intervalMs: GIT_CONTEXT_REFRESH_INTERVAL_MS,
+        concurrency: GIT_CONTEXT_REFRESH_CONCURRENCY,
+        probeTimeoutMs: PROBE_COMMAND_TIMEOUT_MS
+      },
+      queue: {
+        pending: pendingGitRefreshAgentIds.size,
+        active: activeGitRefreshAgentIds.size,
+        oldestPendingAgeMs
+      },
+      counters: gitRefreshCounters,
+      durationsMs: {
+        samples: durations.length,
+        p50: p50DurationMs,
+        p95: p95DurationMs,
+        max: maxDurationMs,
+        last: lastDurationMs
+      },
+      agents
+    };
+  });
+
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
+    queueGitContextRefresh(agents.map((agent) => agent.id));
     return { agents };
   });
 
@@ -141,15 +207,11 @@ async function registerRoutes() {
     const agents = await agentManager.listAgents();
     const targets = idFilter ? agents.filter((agent) => idFilter.has(agent.id)) : agents;
 
-    const contexts = await Promise.all(
-      targets.map(async (agent) => {
-        const gitCwd = await resolveAgentGitCwd(agent);
-        return {
-          id: agent.id,
-          gitContext: await resolveGitContextCached(gitCwd)
-        };
-      })
-    );
+    const contexts = targets.map((agent) => ({
+      id: agent.id,
+      gitContext: agent.gitContext
+    }));
+    queueGitContextRefresh(targets.map((agent) => agent.id));
 
     return { contexts };
   });
@@ -202,6 +264,7 @@ async function registerRoutes() {
     try {
       const agents = await agentManager.listAgents();
       uiEventBroker.sendSnapshot(stream, agents);
+      queueGitContextRefresh(agents.map((agent) => agent.id));
     } catch (error) {
       app.log.warn({ err: error }, "Failed to load SSE snapshot.");
     }
@@ -214,24 +277,14 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: string };
-    const query = request.query as { includeGitContext?: unknown };
     const id = params.id ?? "";
     const agent = await agentManager.getAgent(id);
 
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-
-    const includeGitContext = !(
-      query.includeGitContext === "false" ||
-      query.includeGitContext === "0" ||
-      query.includeGitContext === false
-    );
-    if (!includeGitContext) {
-      return { agent };
-    }
-
-    return { agent: await enrichAgentWithGitContext(agent) };
+    queueGitContextRefresh([agent.id]);
+    return { agent };
   });
 
   app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
@@ -269,9 +322,9 @@ async function registerRoutes() {
       metadata: metadata as Record<string, unknown> | undefined
     });
 
-    const enriched = await enrichAgentWithGitContext(agent);
-    uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
-    return { agent: enriched };
+    queueGitContextRefresh([agent.id]);
+    uiEventBroker.publish({ type: "agent.upsert", agent });
+    return { agent };
   });
 
   app.get("/api/v1/agents/:id/media", async (request, reply) => {
@@ -388,11 +441,10 @@ async function registerRoutes() {
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });
-      const enriched = await enrichAgentWithGitContext(agent);
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
-
-      return reply.code(201).send({ agent: enriched });
+      queueGitContextRefresh([agent.id]);
+      uiEventBroker.publish({ type: "agent.upsert", agent });
+      return reply.code(201).send({ agent });
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -404,10 +456,10 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.startAgent(id);
-      const enriched = await enrichAgentWithGitContext(agent);
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
-      return { agent: enriched };
+      queueGitContextRefresh([agent.id]);
+      uiEventBroker.publish({ type: "agent.upsert", agent });
+      return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -424,9 +476,9 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.stopAgent(id, { force: body?.force as boolean | undefined });
-      const enriched = await enrichAgentWithGitContext(agent);
-      uiEventBroker.publish({ type: "agent.upsert", agent: enriched });
-      return { agent: enriched };
+      queueGitContextRefresh([agent.id]);
+      uiEventBroker.publish({ type: "agent.upsert", agent });
+      return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -450,6 +502,10 @@ async function registerRoutes() {
       await agentManager.deleteAgent(params.id, force);
       if (existing) {
         stopMediaWatch(existing.id);
+        pendingGitRefreshAgentIds.delete(existing.id);
+        pendingGitRefreshEnqueuedAt.delete(existing.id);
+        activeGitRefreshAgentIds.delete(existing.id);
+        gitRefreshAgentDiagnostics.delete(existing.id);
         uiEventBroker.publish({ type: "agent.deleted", agentId: existing.id });
       }
       return reply.code(204).send();
@@ -482,7 +538,8 @@ async function registerRoutes() {
       // Keep UI state in sync when getTerminalSession corrected a stale running status.
       const refreshed = await agentManager.getAgent(id);
       if (refreshed) {
-        uiEventBroker.publish({ type: "agent.upsert", agent: await enrichAgentWithGitContext(refreshed) });
+        queueGitContextRefresh([refreshed.id]);
+        uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
       }
       return handleAgentError(reply, error);
     }
@@ -584,6 +641,8 @@ async function start() {
   for (const agent of agents) {
     ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
   }
+  queueGitContextRefresh(agents.map((agent) => agent.id));
+  startGitContextRefreshLoop();
   await registerRoutes();
 
   await app.listen({
@@ -623,16 +682,232 @@ function handleRepoConfigError(reply: FastifyReply, error: unknown) {
   return reply.code(500).send({ error: message });
 }
 
-async function enrichAgentsWithGitContext(agents: AgentRecord[]): Promise<AgentWithGitContext[]> {
-  return await Promise.all(agents.map(async (agent) => await enrichAgentWithGitContext(agent)));
+function ensureGitRefreshAgentDiagnostics(agentId: string): {
+  lastQueuedAt: number | null;
+  lastStartedAt: number | null;
+  lastCompletedAt: number | null;
+  lastDurationMs: number | null;
+  lastResult: "updated" | "unchanged" | "probe_error" | "failed" | "skipped" | null;
+  lastError: string | null;
+} {
+  const existing = gitRefreshAgentDiagnostics.get(agentId);
+  if (existing) {
+    return existing;
+  }
+  const created = {
+    lastQueuedAt: null,
+    lastStartedAt: null,
+    lastCompletedAt: null,
+    lastDurationMs: null,
+    lastResult: null,
+    lastError: null
+  };
+  gitRefreshAgentDiagnostics.set(agentId, created);
+  return created;
 }
 
-async function enrichAgentWithGitContext(agent: AgentRecord): Promise<AgentWithGitContext> {
-  const gitCwd = await resolveAgentGitCwd(agent);
-  return {
-    ...agent,
-    gitContext: await resolveGitContextCached(gitCwd)
-  };
+function recordGitRefreshCompletion(
+  agentId: string,
+  startedAt: number,
+  result: "updated" | "unchanged" | "probe_error" | "failed" | "skipped",
+  errorMessage: string | null
+): void {
+  const completedAt = Date.now();
+  const durationMs = Math.max(0, completedAt - startedAt);
+  gitRefreshCounters.completed += 1;
+  if (result === "updated") {
+    gitRefreshCounters.updated += 1;
+  } else if (result === "unchanged") {
+    gitRefreshCounters.unchanged += 1;
+  } else if (result === "probe_error") {
+    gitRefreshCounters.probeErrors += 1;
+  } else if (result === "failed") {
+    gitRefreshCounters.failed += 1;
+  } else if (result === "skipped") {
+    gitRefreshCounters.skipped += 1;
+  }
+
+  if (result === "failed" && errorMessage?.includes("Command timed out")) {
+    gitRefreshCounters.timedOut += 1;
+  }
+
+  gitRefreshDurationsMs.push(durationMs);
+  if (gitRefreshDurationsMs.length > GIT_DIAGNOSTICS_HISTORY_LIMIT) {
+    gitRefreshDurationsMs.shift();
+  }
+
+  const diag = ensureGitRefreshAgentDiagnostics(agentId);
+  diag.lastCompletedAt = completedAt;
+  diag.lastDurationMs = durationMs;
+  diag.lastResult = result;
+  diag.lastError = errorMessage;
+}
+
+function percentile(sortedValues: number[], quantile: number): number | null {
+  if (sortedValues.length === 0) {
+    return null;
+  }
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.floor((sortedValues.length - 1) * quantile))
+  );
+  return sortedValues[index] ?? null;
+}
+
+function toIso(epochMs: number | null): string | null {
+  if (epochMs === null) {
+    return null;
+  }
+  return new Date(epochMs).toISOString();
+}
+
+function queueGitContextRefresh(agentIds: string[]): void {
+  for (const agentId of agentIds) {
+    if (!agentId) {
+      continue;
+    }
+    const wasPending = pendingGitRefreshAgentIds.has(agentId);
+    const wasActive = activeGitRefreshAgentIds.has(agentId);
+    if (!wasPending && !wasActive) {
+      pendingGitRefreshEnqueuedAt.set(agentId, Date.now());
+    }
+    ensureGitRefreshAgentDiagnostics(agentId).lastQueuedAt = Date.now();
+    pendingGitRefreshAgentIds.add(agentId);
+    gitRefreshCounters.enqueued += 1;
+  }
+  void drainGitContextRefreshQueue();
+}
+
+function startGitContextRefreshLoop(): void {
+  if (gitContextRefreshTimer) {
+    return;
+  }
+  gitContextRefreshTimer = setInterval(() => {
+    void refreshAllAgentGitContexts();
+  }, GIT_CONTEXT_REFRESH_INTERVAL_MS);
+}
+
+function stopGitContextRefreshLoop(): void {
+  if (!gitContextRefreshTimer) {
+    return;
+  }
+  clearInterval(gitContextRefreshTimer);
+  gitContextRefreshTimer = null;
+}
+
+async function refreshAllAgentGitContexts(): Promise<void> {
+  try {
+    const agents = await agentManager.listAgents();
+    queueGitContextRefresh(agents.map((agent) => agent.id));
+  } catch (error) {
+    app.log.warn({ err: error }, "Failed to queue git context refresh.");
+  }
+}
+
+async function drainGitContextRefreshQueue(): Promise<void> {
+  while (
+    activeGitRefreshAgentIds.size < GIT_CONTEXT_REFRESH_CONCURRENCY &&
+    pendingGitRefreshAgentIds.size > 0
+  ) {
+    const nextAgentId = pendingGitRefreshAgentIds.values().next().value as string | undefined;
+    if (!nextAgentId) {
+      return;
+    }
+
+    pendingGitRefreshAgentIds.delete(nextAgentId);
+    pendingGitRefreshEnqueuedAt.delete(nextAgentId);
+    if (activeGitRefreshAgentIds.has(nextAgentId)) {
+      continue;
+    }
+
+    activeGitRefreshAgentIds.add(nextAgentId);
+    gitRefreshCounters.started += 1;
+    const startedAt = Date.now();
+    const diag = ensureGitRefreshAgentDiagnostics(nextAgentId);
+    diag.lastStartedAt = startedAt;
+    diag.lastError = null;
+    void refreshAgentGitContext(nextAgentId)
+      .then((result) => {
+        recordGitRefreshCompletion(nextAgentId, startedAt, result, null);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        recordGitRefreshCompletion(nextAgentId, startedAt, "failed", message);
+        app.log.warn({ err: error, agentId: nextAgentId }, "Git context refresh failed.");
+      })
+      .finally(() => {
+        activeGitRefreshAgentIds.delete(nextAgentId);
+        void drainGitContextRefreshQueue();
+      });
+  }
+}
+
+async function refreshAgentGitContext(
+  agentId: string
+): Promise<"updated" | "unchanged" | "probe_error" | "skipped"> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) {
+    return "skipped";
+  }
+
+  const cwd = await resolveAgentGitCwd(agent);
+  const probe = await probeGitContext(cwd);
+
+  if (probe.status === "error") {
+    await persistAgentGitContext(agentId, agent.gitContext, true);
+    return "probe_error";
+  }
+
+  const nextContext = probe.value;
+  const shouldPublish =
+    agent.gitContextStale || !areGitContextsEqual(agent.gitContext, nextContext);
+
+  await persistAgentGitContext(agentId, nextContext, false);
+  if (!shouldPublish) {
+    return "unchanged";
+  }
+
+  const refreshed = await agentManager.getAgent(agentId);
+  if (refreshed) {
+    uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
+  }
+  return "updated";
+}
+
+async function persistAgentGitContext(
+  agentId: string,
+  gitContext: AgentGitContext | null,
+  stale: boolean
+): Promise<void> {
+  await pool.query(
+    `
+    UPDATE agents
+    SET git_context = $2::jsonb,
+        git_context_stale = $3,
+        git_context_updated_at = NOW()
+    WHERE id = $1
+    `,
+    [agentId, gitContext ? JSON.stringify(gitContext) : null, stale]
+  );
+}
+
+function areGitContextsEqual(
+  left: AgentGitContext | null,
+  right: AgentGitContext | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.repoRoot === right.repoRoot &&
+    left.branch === right.branch &&
+    left.worktreePath === right.worktreePath &&
+    left.worktreeName === right.worktreeName &&
+    left.isWorktree === right.isWorktree
+  );
 }
 
 async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
@@ -669,33 +944,9 @@ async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
   }
 }
 
-async function resolveGitContextCached(cwd: string): Promise<AgentGitContext | null> {
-  const key = normalizePath(cwd);
-  const cached = gitContextCache.get(key);
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return cached.value;
-  }
-
-  const pending = gitContextInFlight.get(key);
-  if (pending) {
-    return await pending;
-  }
-
-  const task = resolveGitContext(cwd)
-    .then((value) => {
-      gitContextCache.set(key, { value, expiresAt: Date.now() + GIT_CONTEXT_CACHE_TTL_MS });
-      return value;
-    })
-    .finally(() => {
-      gitContextInFlight.delete(key);
-    });
-
-  gitContextInFlight.set(key, task);
-  return await task;
-}
-
-async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
+async function probeGitContext(
+  cwd: string
+): Promise<{ status: "ok"; value: AgentGitContext | null } | { status: "error" }> {
   try {
     const inside = await runCommand(
       "git",
@@ -703,7 +954,7 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
       { allowedExitCodes: [0, 128], timeoutMs: PROBE_COMMAND_TIMEOUT_MS }
     );
     if (inside.exitCode !== 0 || inside.stdout !== "true") {
-      return null;
+      return { status: "ok", value: null };
     }
 
     const repoRoot = await resolveRepoRoot(cwd);
@@ -732,14 +983,17 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
     }
 
     return {
-      repoRoot,
-      branch,
-      worktreePath: checkoutRoot,
-      worktreeName: path.basename(checkoutRoot),
-      isWorktree: checkoutRoot !== repoRoot
+      status: "ok",
+      value: {
+        repoRoot,
+        branch,
+        worktreePath: checkoutRoot,
+        worktreeName: path.basename(checkoutRoot),
+        isWorktree: checkoutRoot !== repoRoot
+      }
     };
   } catch {
-    return null;
+    return { status: "error" };
   }
 }
 
@@ -945,6 +1199,7 @@ async function shutdown(code: number): Promise<void> {
   }
   shuttingDown = true;
 
+  stopGitContextRefreshLoop();
   stopAllMediaWatches();
   await pool.end().catch(() => null);
   await app.close().catch(() => null);

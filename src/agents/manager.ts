@@ -20,6 +20,14 @@ type AgentLatestEvent = {
   metadata: Record<string, unknown> | null;
 };
 
+export type AgentGitContext = {
+  repoRoot: string;
+  branch: string;
+  worktreePath: string;
+  worktreeName: string;
+  isWorktree: boolean;
+};
+
 export type AgentRecord = {
   id: string;
   name: string;
@@ -32,6 +40,9 @@ export type AgentRecord = {
   codexArgs: string[];
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
+  gitContext: AgentGitContext | null;
+  gitContextStale: boolean;
+  gitContextUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -417,6 +428,9 @@ export class AgentManager {
             COALESCE(latest_event_metadata, '{}'::jsonb)
           )
         END AS "latestEvent",
+        git_context AS "gitContext",
+        git_context_stale AS "gitContextStale",
+        git_context_updated_at AS "gitContextUpdatedAt",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents
