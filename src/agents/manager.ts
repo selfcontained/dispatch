@@ -339,7 +339,12 @@ export class AgentManager {
       "for multi-step UI changes, capture key states (before/after or critical transitions). " +
       "Publish every screenshot you capture, including self-initiated testing screenshots, and never leave screenshots local-only. " +
       "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator. " +
-      "Use dispatch-event <working|blocked|waiting_user|done|idle> \"message\" to keep your latest status visible in Dispatch. " +
+      "Use dispatch-event to report status at mandatory checkpoints: " +
+      "(1) first action of every turn: dispatch-event working \"<what you are starting>\"; " +
+      "(2) if blocked by an error or environment issue: dispatch-event blocked \"<reason>\"; " +
+      "(3) if you need user input before continuing: dispatch-event waiting_user \"<what is needed>\"; " +
+      "(4) last action before your final response: dispatch-event done \"<what was completed>\" on success, or dispatch-event idle \"<why>\" for informational/no-op turns. " +
+      "Never send a final response without first emitting done, waiting_user, blocked, or idle in the same turn. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
