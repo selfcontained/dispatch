@@ -1,5 +1,22 @@
 # AGENTS Instructions
 
+## CRITICAL: Dispatch Status Events (Mandatory)
+- You MUST call `dispatch-event` for every task turn that involves analysis, tool use, or file changes.
+- Required checkpoints:
+  1. First action in the turn:
+     `dispatch-event working "<what you are starting>"`
+  2. If blocked by error/tool/env:
+     `dispatch-event blocked "<concise reason>"`
+  3. If waiting for user input/decision:
+     `dispatch-event waiting_user "<what is needed>"`
+  4. Final action before final response:
+     - Success: `dispatch-event done "<what was completed>"`
+     - No-op/informational turn: `dispatch-event idle "<why no actions were taken>"`
+- Hard requirements:
+  - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
+  - If `dispatch-event` fails, report that failure explicitly in the response.
+  - Include a `Status log` section in the final response with the exact stdout lines from each `dispatch-event` call.
+
 ## UI Validation
 - For any UI/layout/style interaction change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).

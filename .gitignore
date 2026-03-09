@@ -9,3 +9,4 @@ web/dist
 data
 tmp-*.mjs
 artifacts/
+.playwright-mcp/
