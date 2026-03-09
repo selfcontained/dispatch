@@ -1,17 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
-  <defs>
-    <linearGradient id="bg" x1="72" y1="72" x2="440" y2="440" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#111827"/>
-      <stop offset="1" stop-color="#1F2937"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="168" y1="112" x2="344" y2="400" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#06B6D4"/>
-      <stop offset="1" stop-color="#22C55E"/>
-    </linearGradient>
-  </defs>
-
-  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bg)"/>
-  <rect x="168" y="112" width="176" height="288" rx="32" fill="#0B1220" stroke="url(#accent)" stroke-width="20"/>
-  <circle cx="256" cy="356" r="18" fill="url(#accent)"/>
-  <path d="M221 175h70c36 0 58 20 58 51 0 31-22 51-58 51h-28v41h-42V175Zm67 69c13 0 21-6 21-18 0-11-8-17-21-17h-25v35h25Z" fill="url(#accent)"/>
+  <rect width="512" height="512" fill="#141414"/>
+  <image href="brand-icon.svg" x="94" y="106" width="324" height="300"/>
 </svg>
