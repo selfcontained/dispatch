@@ -1319,6 +1319,7 @@ export function App(): JSX.Element {
               isMobile={isMobile}
               showHeaderStatus={showHeaderStatus}
               statusText={statusText}
+              showReconnectIndicator={connState === "reconnecting"}
               isAttached={isAttached}
               canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
