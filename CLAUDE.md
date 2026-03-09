@@ -1,6 +1,6 @@
-# AGENTS Instructions
+# Claude Code Instructions
 
-<!-- Keep behavioral rules in sync with CLAUDE.md (used by Claude Code agents). -->
+<!-- Keep behavioral rules in sync with AGENTS.md (used by Codex agents). -->
 
 ## CRITICAL: Dispatch Status Events (Mandatory)
 - You MUST call `dispatch-event` for every task turn that involves analysis, tool use, or file changes.
