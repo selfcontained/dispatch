@@ -124,7 +124,7 @@ export function AgentSidebarContent({
                 <div
                   key={agent.id}
                   className={cn(
-                    "border-b border-r-2 border-border px-2 py-2",
+                    "border-b border-r-4 border-border px-2 py-2",
                     borderForAgentState(state),
                     isSelected && "bg-muted/60"
                   )}
