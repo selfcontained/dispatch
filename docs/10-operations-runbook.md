@@ -49,3 +49,24 @@ For routine updates:
 2. Deploy to the canonical backend:
    - `bin/dispatch-server update`
 3. Use the app normally against that same backend instance.
+
+## Git Context Refresh Diagnostics
+
+Dispatch now serves git metadata from DB cache and refreshes it in a background worker.
+
+- Diagnostics endpoint: `GET /api/v1/diagnostics/git-context`
+- Local URL: `http://127.0.0.1:8787/api/v1/diagnostics/git-context`
+
+Quick checks:
+
+1. `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq '.queue'`
+2. `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq '.counters'`
+3. `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq '.durationsMs'`
+4. `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq '.agents[] | select(.pending or .active or .lastResult==\"failed\" or .lastResult==\"probe_error\")'`
+
+What to look for:
+
+- `queue.pending` consistently above `0` and increasing: refresh loop is falling behind.
+- `queue.oldestPendingAgeMs` steadily increasing: queue starvation/backlog.
+- `counters.timedOut` increasing quickly: git/tmux probes are timing out.
+- many agents with `lastResult` of `probe_error` or `failed`: metadata may be stale.

@@ -78,6 +78,7 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
 - Default release flow (no launchd, build + restart tmux + health): `bin/dispatch-server update`
 - Compatibility alias for release: `bin/dispatch-deploy` (delegates to tmux release flow)
 - Optional interactive debug mode in tmux: `bin/dispatch-server start|stop|status|logs|attach`
+- Git context worker diagnostics: `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq`
 
 ## Media Sharing
 

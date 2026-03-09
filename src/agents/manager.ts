@@ -12,6 +12,14 @@ import { runCommand } from "../lib/run-command.js";
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
 type AgentType = "codex" | "claude";
 
+export type AgentGitContext = {
+  repoRoot: string;
+  branch: string;
+  worktreePath: string;
+  worktreeName: string;
+  isWorktree: boolean;
+};
+
 export type AgentRecord = {
   id: string;
   name: string;
@@ -23,6 +31,9 @@ export type AgentRecord = {
   mediaDir: string | null;
   codexArgs: string[];
   lastError: string | null;
+  gitContext: AgentGitContext | null;
+  gitContextStale: boolean;
+  gitContextUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -329,6 +340,9 @@ export class AgentManager {
         media_dir AS "mediaDir",
         codex_args AS "codexArgs",
         last_error AS "lastError",
+        git_context AS "gitContext",
+        git_context_stale AS "gitContextStale",
+        git_context_updated_at AS "gitContextUpdatedAt",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents
