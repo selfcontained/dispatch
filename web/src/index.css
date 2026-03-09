@@ -79,3 +79,24 @@ body {
     border-color 1600ms ease-out,
     box-shadow 1600ms ease-out;
 }
+
+@keyframes reconnect-scan {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+.dispatch-reconnect-scan {
+  animation: reconnect-scan 1350ms ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-reconnect-scan {
+    animation: none;
+    transform: translateX(140%);
+  }
+}

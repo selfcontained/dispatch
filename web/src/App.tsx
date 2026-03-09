@@ -1211,13 +1211,6 @@ export function App(): JSX.Element {
     void attachToAgent(selectedAgent);
   }, [attachToAgent, selectedAgent]);
 
-  const headerStatusBorderClass =
-    connState === "connected"
-      ? "border-b-emerald-500"
-      : connState === "reconnecting"
-        ? "border-b-amber-500"
-        : "border-b-border";
-
   const agentVisualState = useCallback(
     (agent: Agent): AgentVisualState => {
       if (agent.status !== "running") {
@@ -1299,7 +1292,7 @@ export function App(): JSX.Element {
               isMobile={isMobile}
               showHeaderStatus={showHeaderStatus}
               statusText={statusText}
-              headerStatusBorderClass={headerStatusBorderClass}
+              showReconnectIndicator={connState === "reconnecting"}
               isAttached={isAttached}
               canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
