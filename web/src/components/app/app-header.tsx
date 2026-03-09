@@ -9,7 +9,6 @@ type AppHeaderProps = {
   isMobile: boolean;
   showHeaderStatus: boolean;
   statusText: string;
-  headerStatusBorderClass: string;
   isAttached: boolean;
   canAttachSelected: boolean;
   unseenMediaCount: number;
@@ -25,7 +24,6 @@ export function AppHeader({
   isMobile,
   showHeaderStatus,
   statusText,
-  headerStatusBorderClass,
   isAttached,
   canAttachSelected,
   unseenMediaCount,
@@ -35,12 +33,7 @@ export function AppHeader({
   detachTerminal
 }: AppHeaderProps): JSX.Element {
   return (
-    <header
-      className={cn(
-        "flex h-14 items-center border-b-2 bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]",
-        headerStatusBorderClass
-      )}
-    >
+    <header className={cn("flex h-14 items-center border-b-2 bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
       <div className="flex min-w-0 items-center gap-2">
         {(!leftOpen || isMobile) ? (
           <>
