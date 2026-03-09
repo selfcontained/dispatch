@@ -46,6 +46,7 @@ type AgentSidebarProps = AgentSidebarSharedProps & {
 
 type AgentSidebarContentProps = AgentSidebarSharedProps & {
   onRequestClose?: () => void;
+  closeOnSessionAction?: boolean;
   closeButtonIcon?: "chevron" | "x";
   className?: string;
 };
@@ -68,6 +69,7 @@ export function AgentSidebarContent({
   stopAgent,
   startAgent,
   onRequestClose,
+  closeOnSessionAction = false,
   closeButtonIcon = "x",
   className
 }: AgentSidebarContentProps): JSX.Element {
@@ -169,7 +171,9 @@ export function AgentSidebarContent({
                             className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
                             data-agent-control="true"
                             onClick={() => {
-                              onRequestClose?.();
+                              if (closeOnSessionAction) {
+                                onRequestClose?.();
+                              }
                               void startAgent(agent);
                             }}
                           >
@@ -204,7 +208,9 @@ export function AgentSidebarContent({
                                 className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
                                 data-agent-control="true"
                                 onClick={() => {
-                                  onRequestClose?.();
+                                  if (closeOnSessionAction) {
+                                    onRequestClose?.();
+                                  }
                                   void attachToAgent(agent);
                                 }}
                               >
@@ -380,6 +386,7 @@ export function AgentSidebar({ leftOpen, setLeftOpen, ...props }: AgentSidebarPr
       <AgentSidebarContent
         {...props}
         onRequestClose={() => setLeftOpen(false)}
+        closeOnSessionAction={false}
         closeButtonIcon="chevron"
         className="w-[320px]"
       />

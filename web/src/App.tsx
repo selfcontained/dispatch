@@ -165,6 +165,7 @@ export function App(): JSX.Element {
   const healthPollTimerRef = useRef<number | null>(null);
   const clearMediaAnimTimerRef = useRef<number | null>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
+  const hydrateGitContextsNonceRef = useRef(0);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -241,6 +242,47 @@ export function App(): JSX.Element {
       return null;
     });
   }, [api]);
+
+  const hydrateGitContexts = useCallback(
+    async (agentsForHydration: Agent[]) => {
+      const ids = Array.from(
+        new Set(
+          agentsForHydration
+            .filter((agent) => agent.gitContext === undefined)
+            .map((agent) => agent.id)
+        )
+      );
+
+      if (ids.length === 0) {
+        return;
+      }
+
+      const nonce = ++hydrateGitContextsNonceRef.current;
+      try {
+        const payload = await api<{ contexts: Array<{ id: string; gitContext: Agent["gitContext"] | null }> }>(
+          `/api/v1/agents/git-context?ids=${encodeURIComponent(ids.join(","))}`
+        );
+
+        if (nonce !== hydrateGitContextsNonceRef.current) {
+          return;
+        }
+
+        const byId = new Map(payload.contexts.map((entry) => [entry.id, entry.gitContext]));
+        setAgents((current) =>
+          current.map((agent) => {
+            if (!byId.has(agent.id)) {
+              return agent;
+            }
+            return {
+              ...agent,
+              gitContext: byId.get(agent.id) ?? null
+            };
+          })
+        );
+      } catch {}
+    },
+    [api]
+  );
 
   const refreshMedia = useCallback(
     async (agentId?: string | null) => {
@@ -491,7 +533,7 @@ export function App(): JSX.Element {
   const attachToAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
-      await refreshMedia(agent.id);
+      void refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
     [ensureTerminalConnected, refreshMedia]
@@ -504,9 +546,9 @@ export function App(): JSX.Element {
         method: "POST",
         body: JSON.stringify({})
       });
-      await refreshAgents();
-      await refreshMedia(agent.id);
+      void refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
+      void refreshAgents();
       setStatusMessage(`Started ${agent.name} and attached to session.`);
     },
     [api, ensureTerminalConnected, refreshAgents, refreshMedia]
@@ -581,9 +623,9 @@ export function App(): JSX.Element {
         setCreateFullAccess(false);
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         setSelectedAgentId(payload.agent.id);
-        await refreshAgents();
-        await refreshMedia(payload.agent.id);
+        void refreshMedia(payload.agent.id);
         await ensureTerminalConnected(true, true, payload.agent.id);
+        void refreshAgents();
         setStatusMessage(`Created ${payload.agent.name} and attached to session.`);
       } finally {
         setCreating(false);
@@ -795,6 +837,7 @@ export function App(): JSX.Element {
 
         if (payload.type === "snapshot") {
           setAgents(sortAgentsByCreatedAtDesc(payload.agents));
+          void hydrateGitContexts(payload.agents);
           return;
         }
 
@@ -845,7 +888,11 @@ export function App(): JSX.Element {
         eventSourceRef.current = null;
       }
     };
-  }, [refreshMedia]);
+  }, [hydrateGitContexts, refreshMedia]);
+
+  useEffect(() => {
+    void hydrateGitContexts(agents);
+  }, [agents, hydrateGitContexts]);
 
   useEffect(() => {
     setSelectedAgentId((current) => {
@@ -1353,6 +1400,7 @@ export function App(): JSX.Element {
             attachToAgent={attachToAgent}
             stopAgent={stopAgent}
             startAgent={startAgent}
+            closeOnSessionAction={true}
             onRequestClose={() => setMobileLeftOpen(false)}
           />
         </MobileSlidePanel>

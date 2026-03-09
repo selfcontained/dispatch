@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 type RunCommandOptions = {
   cwd?: string;
   allowedExitCodes?: number[];
+  timeoutMs?: number;
 };
 
 export type RunCommandResult = {
@@ -22,8 +23,47 @@ export async function runCommand(
       stdio: ["ignore", "pipe", "pipe"]
     });
 
+    let settled = false;
     let stdout = "";
     let stderr = "";
+    let timeout: NodeJS.Timeout | null = null;
+
+    const fail = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      reject(error);
+    };
+
+    const succeed = (result: RunCommandResult): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      resolve(result);
+    };
+
+    if (typeof options.timeoutMs === "number" && options.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        try {
+          child.kill("SIGTERM");
+        } catch {}
+        fail(
+          new Error(
+            `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`
+          )
+        );
+      }, options.timeoutMs);
+    }
 
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
@@ -34,7 +74,7 @@ export async function runCommand(
     });
 
     child.on("error", (error) => {
-      reject(error);
+      fail(error);
     });
 
     child.on("close", (code) => {
@@ -42,7 +82,7 @@ export async function runCommand(
       const allowedExitCodes = options.allowedExitCodes ?? [0];
 
       if (!allowedExitCodes.includes(exitCode)) {
-        reject(
+        fail(
           new Error(
             `Command failed (${command} ${args.join(" ")}), exitCode=${exitCode}, stderr=${stderr.trim()}`
           )
@@ -50,7 +90,7 @@ export async function runCommand(
         return;
       }
 
-      resolve({
+      succeed({
         exitCode,
         stdout: stdout.trim(),
         stderr: stderr.trim()

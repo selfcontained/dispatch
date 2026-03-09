@@ -23,7 +23,6 @@ import {
   writeWorktreeMode
 } from "./repo-config.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
-import { TmuxTerminal } from "./terminal/tmux-terminal.js";
 
 const config = loadConfig();
 const app = Fastify({ logger: true });
@@ -44,7 +43,7 @@ type AgentWithGitContext = AgentRecord & {
 };
 
 type UiEvent =
-  | { type: "snapshot"; agents: AgentWithGitContext[] }
+  | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentWithGitContext }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
@@ -65,7 +64,7 @@ class UiEventBroker {
     this.write(event);
   }
 
-  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentWithGitContext[]): void {
+  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
     this.write({ type: "snapshot", agents }, stream);
   }
 
@@ -90,7 +89,11 @@ const uiEventBroker = new UiEventBroker();
 const mediaWatchers = new Map<string, FSWatcher>();
 const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const gitContextCache = new Map<string, { value: AgentGitContext | null; expiresAt: number }>();
+const gitContextInFlight = new Map<string, Promise<AgentGitContext | null>>();
+const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const GIT_CONTEXT_CACHE_TTL_MS = 15_000;
+const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
+const PROBE_COMMAND_TIMEOUT_MS = 400;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,7 +121,34 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
-    return { agents: await enrichAgentsWithGitContext(agents) };
+    return { agents };
+  });
+
+  app.get("/api/v1/agents/git-context", async (request, reply) => {
+    const query = request.query as { ids?: unknown };
+    const ids =
+      typeof query.ids === "string"
+        ? query.ids
+            .split(",")
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0)
+        : [];
+
+    const idFilter = ids.length > 0 ? new Set(ids) : null;
+    const agents = await agentManager.listAgents();
+    const targets = idFilter ? agents.filter((agent) => idFilter.has(agent.id)) : agents;
+
+    const contexts = await Promise.all(
+      targets.map(async (agent) => {
+        const gitCwd = await resolveAgentGitCwd(agent);
+        return {
+          id: agent.id,
+          gitContext: await resolveGitContextCached(gitCwd)
+        };
+      })
+    );
+
+    return { contexts };
   });
 
   app.get("/api/v1/repo-config", async (request, reply) => {
@@ -168,7 +198,7 @@ async function registerRoutes() {
 
     try {
       const agents = await agentManager.listAgents();
-      uiEventBroker.sendSnapshot(stream, await enrichAgentsWithGitContext(agents));
+      uiEventBroker.sendSnapshot(stream, agents);
     } catch (error) {
       app.log.warn({ err: error }, "Failed to load SSE snapshot.");
     }
@@ -425,14 +455,6 @@ async function registerRoutes() {
         return;
       }
 
-      const terminal = new TmuxTerminal(tmuxSession);
-      const exists = await terminal.hasSession();
-      if (!exists) {
-        socket.send(JSON.stringify({ type: "error", message: "Agent session no longer exists." }));
-        socket.close(1011, "session missing");
-        return;
-      }
-
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
       const ptyProcess = pty.spawn("tmux", ["attach-session", "-t", tmuxSession], {
@@ -562,15 +584,27 @@ async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
     return fallback;
   }
 
-  const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
-    allowedExitCodes: [0, 1]
-  });
-  const cwd = result.stdout.trim();
-  if (result.exitCode !== 0 || !cwd) {
-    return fallback;
+  const cacheKey = `${agent.id}:${session}`;
+  const cached = runtimeCwdCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
   }
 
-  return cwd;
+  try {
+    const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
+      allowedExitCodes: [0, 1],
+      timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+    });
+    const cwd = result.stdout.trim();
+    if (result.exitCode !== 0 || !cwd) {
+      return fallback;
+    }
+    runtimeCwdCache.set(cacheKey, { value: cwd, expiresAt: now + RUNTIME_CWD_CACHE_TTL_MS });
+    return cwd;
+  } catch {
+    return fallback;
+  }
 }
 
 async function resolveGitContextCached(cwd: string): Promise<AgentGitContext | null> {
@@ -581,9 +615,22 @@ async function resolveGitContextCached(cwd: string): Promise<AgentGitContext | n
     return cached.value;
   }
 
-  const value = await resolveGitContext(cwd);
-  gitContextCache.set(key, { value, expiresAt: now + GIT_CONTEXT_CACHE_TTL_MS });
-  return value;
+  const pending = gitContextInFlight.get(key);
+  if (pending) {
+    return await pending;
+  }
+
+  const task = resolveGitContext(cwd)
+    .then((value) => {
+      gitContextCache.set(key, { value, expiresAt: Date.now() + GIT_CONTEXT_CACHE_TTL_MS });
+      return value;
+    })
+    .finally(() => {
+      gitContextInFlight.delete(key);
+    });
+
+  gitContextInFlight.set(key, task);
+  return await task;
 }
 
 async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
@@ -591,7 +638,7 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
     const inside = await runCommand(
       "git",
       ["-C", cwd, "rev-parse", "--is-inside-work-tree"],
-      { allowedExitCodes: [0, 128] }
+      { allowedExitCodes: [0, 128], timeoutMs: PROBE_COMMAND_TIMEOUT_MS }
     );
     if (inside.exitCode !== 0 || inside.stdout !== "true") {
       return null;
@@ -601,13 +648,15 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
 
     let branch = (
       await runCommand("git", ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"], {
-        allowedExitCodes: [0, 1]
+        allowedExitCodes: [0, 1],
+        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
       })
     ).stdout;
     if (!branch) {
       branch = (
         await runCommand("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], {
-          allowedExitCodes: [0]
+          allowedExitCodes: [0],
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
         })
       ).stdout;
     }
@@ -615,7 +664,8 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
     const entries = parseWorktreeList(
       (
         await runCommand("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
-          allowedExitCodes: [0]
+          allowedExitCodes: [0],
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
         })
       ).stdout
     );
@@ -640,7 +690,7 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
   const commonDirResult = await runCommand(
     "git",
     ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { allowedExitCodes: [0, 128] }
+    { allowedExitCodes: [0, 128], timeoutMs: PROBE_COMMAND_TIMEOUT_MS }
   );
 
   if (commonDirResult.exitCode === 0 && commonDirResult.stdout) {
@@ -653,7 +703,7 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
   const fallbackCommonDirResult = await runCommand(
     "git",
     ["-C", cwd, "rev-parse", "--git-common-dir"],
-    { allowedExitCodes: [0, 128] }
+    { allowedExitCodes: [0, 128], timeoutMs: PROBE_COMMAND_TIMEOUT_MS }
   );
   if (fallbackCommonDirResult.exitCode === 0 && fallbackCommonDirResult.stdout) {
     const commonDir = fallbackCommonDirResult.stdout;
@@ -668,7 +718,8 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
   return normalizePath(
     (
       await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-        allowedExitCodes: [0]
+        allowedExitCodes: [0],
+        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
       })
     ).stdout
   );
