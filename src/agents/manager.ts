@@ -47,6 +47,11 @@ export type AgentRecord = {
   updatedAt: string;
 };
 
+const CLI_BY_AGENT_TYPE: Record<AgentType, keyof Pick<AppConfig, "codexBin" | "claudeBin">> = {
+  codex: "codexBin",
+  claude: "claudeBin"
+};
+
 type CreateAgentInput = {
   name?: string;
   type?: AgentType;
@@ -114,7 +119,7 @@ export class AgentManager {
 
     try {
       await this.ensureNoExistingSession(tmuxSession);
-      await this.startTmuxSession(tmuxSession, cwd, mediaDir, codexArgs);
+      await this.startTmuxSession(tmuxSession, cwd, mediaDir, type, codexArgs);
       await this.setAgentStatus(id, "running", null);
       await this.setSystemLatestEvent(id, {
         type: "working",
@@ -151,7 +156,13 @@ export class AgentManager {
     await this.setAgentStatus(id, "creating", null);
 
     try {
-      await this.startTmuxSession(tmuxSession, agent.cwd, agent.mediaDir ?? this.defaultMediaDir(id), agent.codexArgs ?? []);
+      await this.startTmuxSession(
+        tmuxSession,
+        agent.cwd,
+        agent.mediaDir ?? this.defaultMediaDir(id),
+        agent.type,
+        agent.codexArgs ?? []
+      );
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "working",
@@ -293,11 +304,12 @@ export class AgentManager {
     sessionName: string,
     cwd: string,
     mediaDir: string,
+    type: AgentType,
     codexArgs: string[]
   ): Promise<void> {
     await mkdir(mediaDir, { recursive: true });
-    const codexCommand = this.buildCodexCommand(codexArgs, mediaDir, sessionName);
-    await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, codexCommand]);
+    const agentCommand = this.buildAgentCommand(type, codexArgs, mediaDir, sessionName);
+    await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, agentCommand]);
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
@@ -319,7 +331,7 @@ export class AgentManager {
     return result.exitCode === 0;
   }
 
-  private buildCodexCommand(args: string[], mediaDir: string, sessionName: string): string {
+  private buildAgentCommand(type: AgentType, args: string[], mediaDir: string, sessionName: string): string {
     const agentId = sessionName.replace(/^(dispatch|hostess)_/, "");
     const launchGuidance =
       "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
@@ -329,6 +341,12 @@ export class AgentManager {
       "Use dispatch-share <image-path> for Playwright and dispatch-share --sim [udid] for iOS Simulator. " +
       "Use dispatch-event <working|blocked|waiting_user|done|idle> \"message\" to keep your latest status visible in Dispatch. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
+
+    const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
+    const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
+      (entry): entry is string => typeof entry === "string" && entry.length > 0
+    );
+    const launchPathPrefix = Array.from(new Set(launchPathEntries)).join(":");
 
     const envPrefix = [
       `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
@@ -341,15 +359,16 @@ export class AgentManager {
       `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
-      `PATH=${this.shellEscape(this.config.dispatchBinDir)}:$PATH`
+      `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`
     ].join(" ");
+    const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
 
     if (args.length === 0) {
-      return `${envPrefix} ${this.shellEscape(this.config.codexBin)} ${this.shellEscape(launchGuidance)}`;
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${this.shellEscape(launchGuidance)}`;
     }
 
     const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-    return `${envPrefix} ${this.shellEscape(this.config.codexBin)} ${escaped} ${this.shellEscape(launchGuidance)}`;
+    return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${this.shellEscape(launchGuidance)}`;
   }
 
   private shellEscape(value: string): string {

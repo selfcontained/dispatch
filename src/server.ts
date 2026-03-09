@@ -31,6 +31,8 @@ const agentManager = new AgentManager(pool, app.log, config);
 const terminalTokenStore = new TerminalTokenStore(60_000);
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
+const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
@@ -425,15 +427,17 @@ async function registerRoutes() {
     }
 
     const codexArgs = body.codexArgs as string[] | undefined;
+    const agentType = body.type === "claude" ? "claude" : "codex";
+    const fullAccessArg = agentType === "claude" ? CLAUDE_FULL_ACCESS_ARG : CODEX_FULL_ACCESS_ARG;
     const resolvedCodexArgs =
       body.fullAccess === true
-        ? Array.from(new Set([...(codexArgs ?? []), "--dangerously-bypass-approvals-and-sandbox"]))
+        ? Array.from(new Set([...(codexArgs ?? []), fullAccessArg]))
         : codexArgs;
 
     try {
       const agent = await agentManager.createAgent({
         name: typeof body.name === "string" ? body.name : undefined,
-        type: body.type === "claude" ? "claude" : "codex",
+        type: agentType,
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });

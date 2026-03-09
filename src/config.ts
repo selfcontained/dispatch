@@ -9,6 +9,7 @@ export type AppConfig = {
   mediaRoot: string;
   dispatchBinDir: string;
   codexBin: string;
+  claudeBin: string;
 };
 
 export function loadConfig(): AppConfig {
@@ -27,6 +28,11 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_CODEX_BIN ??
       process.env.HOSTESS_CODEX_BIN ??
       process.env.CODEX_BIN ??
-      "codex"
+      "codex",
+    claudeBin:
+      process.env.DISPATCH_CLAUDE_BIN ??
+      process.env.HOSTESS_CLAUDE_BIN ??
+      process.env.CLAUDE_BIN ??
+      "claude"
   };
 }
