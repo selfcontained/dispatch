@@ -93,7 +93,7 @@ const gitContextInFlight = new Map<string, Promise<AgentGitContext | null>>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const GIT_CONTEXT_CACHE_TTL_MS = 15_000;
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
-const PROBE_COMMAND_TIMEOUT_MS = 400;
+const PROBE_COMMAND_TIMEOUT_MS = 1_500;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -664,6 +664,14 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
     }
 
     const repoRoot = await resolveRepoRoot(cwd);
+    const checkoutRoot = normalizePath(
+      (
+        await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+          allowedExitCodes: [0],
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+        })
+      ).stdout
+    );
 
     let branch = (
       await runCommand("git", ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"], {
@@ -680,25 +688,12 @@ async function resolveGitContext(cwd: string): Promise<AgentGitContext | null> {
       ).stdout;
     }
 
-    const entries = parseWorktreeList(
-      (
-        await runCommand("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
-          allowedExitCodes: [0],
-          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
-        })
-      ).stdout
-    );
-
-    const normalizedCwd = normalizePath(cwd);
-    const bestMatch = findBestWorktreeMatch(normalizedCwd, entries);
-    const worktreePath = bestMatch ? normalizePath(bestMatch.path) : repoRoot;
-
     return {
       repoRoot,
       branch,
-      worktreePath,
-      worktreeName: path.basename(worktreePath),
-      isWorktree: worktreePath !== repoRoot
+      worktreePath: checkoutRoot,
+      worktreeName: path.basename(checkoutRoot),
+      isWorktree: checkoutRoot !== repoRoot
     };
   } catch {
     return null;
@@ -742,47 +737,6 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
       })
     ).stdout
   );
-}
-
-function parseWorktreeList(output: string): Array<{ path: string }> {
-  const entries: Array<{ path: string }> = [];
-  for (const line of output.split("\n")) {
-    if (!line.startsWith("worktree ")) {
-      continue;
-    }
-    const parsed = line.slice("worktree ".length).trim();
-    if (!parsed) {
-      continue;
-    }
-    entries.push({ path: parsed });
-  }
-  return entries;
-}
-
-function findBestWorktreeMatch(
-  cwd: string,
-  entries: Array<{ path: string }>
-): { path: string } | null {
-  let best: string | null = null;
-
-  for (const entry of entries) {
-    const candidate = normalizePath(entry.path);
-    if (!isPathPrefix(cwd, candidate)) {
-      continue;
-    }
-    if (!best || candidate.length > best.length) {
-      best = candidate;
-    }
-  }
-
-  return best ? { path: best } : null;
-}
-
-function isPathPrefix(target: string, prefix: string): boolean {
-  if (target === prefix) {
-    return true;
-  }
-  return target.startsWith(prefix.endsWith(path.sep) ? prefix : `${prefix}${path.sep}`);
 }
 
 function normalizePath(value: string): string {
