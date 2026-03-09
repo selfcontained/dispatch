@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",
@@ -26,13 +27,20 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
+    "typescript-eslint": "^8.56.1",
     "vite": "^5.4.10",
     "vite-plugin-pwa": "^1.2.0"
   }

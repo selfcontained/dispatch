@@ -24,7 +24,7 @@ export function DeleteAgentDialog({
           <DialogTitle>Delete Agent</DialogTitle>
           <DialogDescription>
             {deleteTarget
-              ? `Delete \"${deleteTarget.name}\"? This permanently removes the agent record and all media files.`
+              ? `Delete "${deleteTarget.name}"? This permanently removes the agent record and all media files.`
               : "Delete this agent?"}
           </DialogDescription>
         </DialogHeader>
