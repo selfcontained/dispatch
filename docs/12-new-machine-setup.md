@@ -15,20 +15,15 @@ The new machine needs:
 | **tmux** | Agent session management | `brew install tmux` |
 | **Git** | Source control | Included with Xcode CLI Tools |
 | **GitHub CLI** | Release automation | `brew install gh` |
-| **Tailscale** | Remote access (VPN mesh) | https://tailscale.com/download |
+| **Claude CLI** | Agent runtime (Claude agents) | `npm install -g @anthropic-ai/claude-code` |
+| **Codex CLI** | Agent runtime (Codex agents) | `npm install -g codex` |
 
-### Optional (for development)
+### Optional
 
 | Dependency | Purpose | Install |
 |---|---|---|
 | **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker` |
-
-### Optional (for iOS Simulator features)
-
-| Dependency | Purpose |
-|---|---|
-| **Xcode** (full) | iOS Simulator, `xcrun simctl` |
-| **Claude CLI** | Agent runtime (`brew install claude` or npm) |
+| **Xcode** (full) | iOS Simulator, `xcrun simctl` | App Store |
 
 ## Agent Setup Prompt
 
@@ -37,7 +32,7 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI.
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Claude CLI, Codex CLI.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
@@ -47,8 +42,7 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 8. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
 9. Install the launchd service: bin/install-launchd --port 6767
 10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
-11. Set up Tailscale if not already configured, and confirm the UI is reachable from another device.
-12. Run gh auth login to authenticate GitHub CLI for releases.
+11. Run gh auth login to authenticate GitHub CLI for releases.
 
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
@@ -169,20 +163,7 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 tail -20 ~/.dispatch/logs/dispatch.log
 ```
 
-### 7. Tailscale (remote access)
-
-```bash
-# Install and authenticate
-brew install --cask tailscale
-# Open Tailscale, sign in
-
-# Access from other machines:
-# http://<mac-studio-tailscale-ip>:6767
-```
-
-No special Dispatch configuration needed — it binds to `0.0.0.0` by default, so it's accessible on the Tailscale interface.
-
-### 8. GitHub CLI auth (for releases)
+### 7. GitHub CLI auth (for releases)
 
 ```bash
 gh auth login
@@ -190,17 +171,23 @@ gh auth login
 
 This is needed for `bin/dispatch-release` to trigger GitHub Actions workflows.
 
-### 9. Claude CLI setup (for agents)
+### 8. Agent CLIs
 
-Install Claude CLI so Dispatch can spawn Claude agents:
+Dispatch spawns agents via Claude CLI and/or Codex CLI:
 
 ```bash
-# Verify it's available
+# Claude CLI
+npm install -g @anthropic-ai/claude-code
 which claude
 claude --version
+
+# Codex CLI
+npm install -g codex
+which codex
+codex --version
 ```
 
-The `claudeBin` config defaults to `claude` on PATH. If it's installed elsewhere, set `DISPATCH_CLAUDE_BIN` in `.env`.
+The config defaults to `claude` and `codex` on PATH. To override, set `DISPATCH_CLAUDE_BIN` or `DISPATCH_CODEX_BIN` in `.env`.
 
 ## Post-Setup Verification Checklist
 
