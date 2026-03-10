@@ -53,20 +53,16 @@ resolve_port() {
 }
 
 reload_service() {
-  # When dispatch-deploy is spawned by the server (e.g. via the release UI),
-  # launchctl unload kills the server — our parent process. To survive this,
-  # we ignore HUP/TERM/PIPE during the reload window, and run the unload+load
-  # in a nohup subshell so launchctl load executes even if this script is killed.
+  # Ask launchd to kill and restart the server. Using launchctl kill
+  # instead of launchctl unload/load avoids tearing down the service
+  # definition, so KeepAlive automatically restarts the process.
+  # SIGKILL is used because the node server may catch SIGTERM and hang.
+  # This is safe for dispatch-deploy even when it's a child of the
+  # server (e.g. triggered via the release UI) — launchctl kill doesn't
+  # affect the caller's process group.
   echo "DISPATCH_RESTARTING"
-  sleep 1
-  trap '' HUP TERM PIPE
-  nohup bash -c "launchctl unload '$PLIST' 2>/dev/null || true; sleep 1; launchctl load '$PLIST'" \
-    </dev/null >/dev/null 2>&1 &
-  local reload_pid=$!
-  wait "$reload_pid" 2>/dev/null || true
-  trap - HUP TERM PIPE
-  # Give the new server a moment to bind its port
-  sleep 2
+  launchctl kill SIGKILL "gui/$(id -u)/com.dispatch.server"
+  sleep 3
 }
 
 health_check() {
