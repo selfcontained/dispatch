@@ -54,19 +54,42 @@ resolve_port() {
 
 reload_service() {
   # When dispatch-deploy is spawned by the server (e.g. via the release UI),
-  # launchctl unload kills the server — our parent process. To survive this,
-  # we ignore HUP/TERM/PIPE during the reload window, and run the unload+load
-  # in a nohup subshell so launchctl load executes even if this script is killed.
+  # launchctl unload kills the server — our parent process. The server's
+  # child processes share its process group, so they can all be killed.
+  #
+  # To survive: write a self-contained reload script to a temp file and
+  # launch it in a brand-new session (via perl setsid + double-fork) so
+  # it's completely independent of our process tree.
   echo "DISPATCH_RESTARTING"
-  sleep 1
+
+  local reload_script
+  reload_script=$(mktemp /tmp/dispatch-reload.XXXXXX.sh)
+  cat > "$reload_script" <<RELOAD
+#!/bin/bash
+trap '' HUP TERM PIPE
+launchctl unload '$PLIST' 2>/dev/null || true
+sleep 1
+launchctl load '$PLIST'
+rm -f '$reload_script'
+RELOAD
+  chmod +x "$reload_script"
+
+  # Double-fork + setsid: the reload runs in its own session, immune to
+  # any signals sent to our process group when the server dies.
+  perl -e '
+    use POSIX qw(setsid);
+    my $pid = fork();
+    if (!defined $pid) { die "fork failed: $!"; }
+    if ($pid) { exit 0; }   # parent returns
+    setsid();                # new session + process group
+    exec @ARGV;
+  ' -- "$reload_script" </dev/null >/dev/null 2>&1
+
+  # Protect ourselves from signals during the reload window
   trap '' HUP TERM PIPE
-  nohup bash -c "launchctl unload '$PLIST' 2>/dev/null || true; sleep 1; launchctl load '$PLIST'" \
-    </dev/null >/dev/null 2>&1 &
-  local reload_pid=$!
-  wait "$reload_pid" 2>/dev/null || true
+  # Give launchd time to unload old + load new
+  sleep 4
   trap - HUP TERM PIPE
-  # Give the new server a moment to bind its port
-  sleep 2
 }
 
 health_check() {
