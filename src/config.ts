@@ -1,5 +1,8 @@
 import "dotenv/config";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export type AppConfig = {
   host: string;
@@ -19,11 +22,8 @@ export function loadConfig(): AppConfig {
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
     authToken: process.env.AUTH_TOKEN ?? "dev-token",
-    mediaRoot: process.env.MEDIA_ROOT ?? "/tmp/dispatch-media",
-    dispatchBinDir:
-      process.env.DISPATCH_BIN_DIR ??
-      process.env.HOSTESS_BIN_DIR ??
-      path.resolve(process.cwd(), "bin"),
+    mediaRoot: process.env.MEDIA_ROOT ?? path.join(process.env.HOME ?? "/tmp", ".dispatch", "media"),
+    dispatchBinDir: path.resolve(__dirname, "..", "bin"),
     codexBin:
       process.env.DISPATCH_CODEX_BIN ??
       process.env.HOSTESS_CODEX_BIN ??

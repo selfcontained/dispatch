@@ -38,6 +38,11 @@
 - Do not pin a fixed Vite port unless explicitly requested; let Vite choose an open port automatically.
 - If multiple local Dispatch instances are running, always use the exact URL printed by the active Vite process for Playwright/manual checks.
 
+## Temporary Files
+- Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
+- Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
+- Playwright screenshots should be published via `dispatch-share`, not saved locally.
+
 ## Backend Testing Safety
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
 - When backend changes need local validation, run a separate backend instance on a different port (for example `DISPATCH_PORT=8788 npm run dev`) and point validation tooling to that port.

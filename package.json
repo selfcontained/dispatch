@@ -5,7 +5,7 @@
   "description": "Local-first control plane for remote Codex CLI agents with simulator media",
   "type": "module",
   "engines": {
-    "node": ">=25.8.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",

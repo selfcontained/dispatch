@@ -8,5 +8,10 @@ web/dist
 .env.local
 data
 tmp-*.mjs
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
 artifacts/
 .playwright-mcp/
