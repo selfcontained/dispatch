@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect } from "react";
-import { ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronRight, ExternalLink, MonitorPlay, X } from "lucide-react";
 
 import { type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -122,16 +122,27 @@ export function MediaSidebarContent({
             const animating = animatingMediaKeys.has(mediaKey);
             const unseen = !seenMediaKeys.has(mediaKey);
 
+            const isStream = file.source === "stream";
+
             return (
               <article
                 key={mediaKey}
                 data-media-key={mediaKey}
                 className={cn(
                   "border-b-2 border-border px-3 py-3",
+                  isStream && "border-l-2 border-l-red-500/60 bg-red-500/5",
                   animating && "animate-media-in-slow"
                 )}
               >
-                <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
+                {isStream ? (
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <MonitorPlay className="h-3.5 w-3.5 text-red-400" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-red-400">Stream recording</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</span>
+                  </div>
+                ) : (
+                  <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
+                )}
                 <button
                   className={cn(
                     "block w-full overflow-hidden border-2 bg-black/60",
@@ -142,8 +153,8 @@ export function MediaSidebarContent({
                   <img src={cacheBustUrl} alt={file.name} className="max-h-[260px] w-full object-contain" />
                 </button>
                 <div className="mt-2 text-xs text-muted-foreground">
-                  <div>{mediaSourceLabel(file)}</div>
-                  <div className="mt-1">{Math.max(1, Math.round(file.size / 1024))} KB</div>
+                  {isStream ? null : <div>{mediaSourceLabel(file)}</div>}
+                  <div className={isStream ? "" : "mt-1"}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
                 </div>
               </article>
             );
