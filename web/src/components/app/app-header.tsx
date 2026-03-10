@@ -36,26 +36,32 @@ export function AppHeader({
 }: AppHeaderProps): JSX.Element {
   return (
     <header className={cn("relative flex h-14 items-center border-b-2 border-b-border bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
-      <div className="flex shrink-0 items-center gap-2">
-        {(!leftOpen || isMobile) ? (
-          <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
-            <PanelRightOpen className="h-4 w-4" />
-          </Button>
-        ) : null}
-        {!isMobile ? (
+      <div className="flex shrink-0 items-center gap-1">
+        {isMobile ? (
+          !leftOpen ? (
+            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
+              <PanelRightOpen className="h-4 w-4" />
+            </Button>
+          ) : null
+        ) : (
           <div
             className={cn(
-              "overflow-hidden transition-[width,opacity] duration-300 ease-out",
-              leftOpen ? "w-0 opacity-0" : "w-7 opacity-100"
+              "flex items-center gap-1 transition-[opacity,transform] duration-300 ease-out",
+              leftOpen
+                ? "pointer-events-none -translate-x-3 opacity-0"
+                : "translate-x-0 opacity-100 delay-150"
             )}
           >
+            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
+              <PanelRightOpen className="h-4 w-4" />
+            </Button>
             <img
               src="/brand-icon.svg"
               alt="Dispatch logo"
               className="h-6 w-auto object-contain"
             />
           </div>
-        ) : null}
+        )}
       </div>
 
       {showHeaderStatus ? (
