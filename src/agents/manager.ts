@@ -312,6 +312,9 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, codexArgs, mediaDir, sessionName);
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, agentCommand]);
+    await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
+      allowedExitCodes: [0, 1]
+    });
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
