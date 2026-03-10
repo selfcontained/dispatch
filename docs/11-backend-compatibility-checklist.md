@@ -31,7 +31,7 @@ Use this checklist for backend changes when running a single always-on tmux back
 2. Confirm tmux restart path works:
    - `bin/dispatch-server update`
 3. Confirm health endpoint remains stable:
-   - `curl -sS http://127.0.0.1:8787/api/v1/health`
+   - `curl -sS http://127.0.0.1:6767/api/v1/health`
 
 ## Review Gate (Before Merge)
 

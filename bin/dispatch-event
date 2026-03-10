@@ -41,7 +41,7 @@ if [ -z "$AGENT_ID" ]; then
   exit 1
 fi
 
-PORT="${DISPATCH_PORT:-8787}"
+PORT="${DISPATCH_PORT:-6767}"
 API_BASE="${DISPATCH_API_BASE:-http://127.0.0.1:${PORT}}"
 
 if [ -n "$METADATA_RAW" ]; then
