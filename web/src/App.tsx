@@ -25,7 +25,8 @@ import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
-const FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
 const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
@@ -102,7 +103,7 @@ function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
 }
 
 function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {
-  return agent.codexArgs.includes(FULL_ACCESS_ARG);
+  return agent.codexArgs.includes(CODEX_FULL_ACCESS_ARG) || agent.codexArgs.includes(CLAUDE_FULL_ACCESS_ARG);
 }
 
 export function App(): JSX.Element {
