@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
-import { stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -261,6 +260,9 @@ export class AgentManager {
     }
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
+
+    const mediaDir = agent.mediaDir ?? path.join(this.config.mediaRoot, id);
+    await rm(mediaDir, { recursive: true, force: true }).catch(() => {});
   }
 
   async upsertLatestEvent(id: string, input: AgentLatestEventInput): Promise<AgentRecord> {
