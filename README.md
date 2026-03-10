@@ -70,15 +70,15 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
    - `npm install`
    - `npm run dev`
 4. Verify:
-   - UI: `http://127.0.0.1:8787`
-   - Health: `http://127.0.0.1:8787/api/v1/health`
+   - UI: `http://127.0.0.1:6767`
+   - Health: `http://127.0.0.1:6767/api/v1/health`
 
 ## Operations Quick Commands
 
 - Default release flow (no launchd, build + restart tmux + health): `bin/dispatch-server update`
 - Compatibility alias for release: `bin/dispatch-deploy` (delegates to tmux release flow)
 - Optional interactive debug mode in tmux: `bin/dispatch-server start|stop|status|logs|attach`
-- Git context worker diagnostics: `curl -s http://127.0.0.1:8787/api/v1/diagnostics/git-context | jq`
+- Git context worker diagnostics: `curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq`
 
 ## Media Sharing
 

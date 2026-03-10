@@ -119,7 +119,7 @@ PRs must pass CI before merge.
 To install Dispatch as a launchd service on a new machine:
 
 ```bash
-# Install on default port (8787)
+# Install on default port (6767)
 bin/install-launchd
 
 # Install on a custom port
@@ -149,7 +149,7 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `DISPATCH_PORT` | `8787` | HTTP port the server listens on |
+| `DISPATCH_PORT` | `6767` | HTTP port the server listens on |
 | `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
 | `MEDIA_ROOT` | `/tmp/dispatch-media` | File upload storage path |
 | `ANTHROPIC_API_KEY` | — | Required for Claude agents |

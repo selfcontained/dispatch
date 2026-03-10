@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
-DEFAULT_PORT="8787"
+DEFAULT_PORT="6767"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
 LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
 FAILURE_LOG="$HOME/.dispatch/logs/last-release-failure.log"

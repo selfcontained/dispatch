@@ -132,7 +132,7 @@ From `/Users/bharris/dev/apps/hostess`:
 3. `npm install`
 4. `npm run build`
 5. `npm run start`
-6. Open `http://127.0.0.1:8787`
+6. Open `http://127.0.0.1:6767`
 
 For development:
 - `npm run dev` (backend watch mode)
