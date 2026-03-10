@@ -35,8 +35,26 @@ load_nvm() {
   fi
 }
 
+resolve_port() {
+  # Read the port from the server's .env file (authoritative source),
+  # falling back to DEFAULT_PORT. We intentionally ignore the inherited
+  # DISPATCH_PORT env var because it may come from an agent shell that
+  # was spawned with a stale port value.
+  local env_file="$SERVER_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local env_port
+    env_port=$(grep -E '^DISPATCH_PORT=' "$env_file" | tail -1 | cut -d= -f2)
+    if [[ -n "$env_port" ]]; then
+      echo "$env_port"
+      return
+    fi
+  fi
+  echo "$DEFAULT_PORT"
+}
+
 health_check() {
-  local port="${DISPATCH_PORT:-$DEFAULT_PORT}"
+  local port
+  port=$(resolve_port)
   curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
 }
 
