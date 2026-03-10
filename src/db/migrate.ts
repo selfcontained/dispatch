@@ -1,3 +1,6 @@
+import path from "node:path";
+import { readdir, stat } from "node:fs/promises";
+
 import { loadConfig } from "../config.js";
 import { createPool } from "./client.js";
 
@@ -67,13 +70,74 @@ export async function runMigrations(): Promise<void> {
       seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (agent_id, media_key)
     );
+
+    CREATE TABLE IF NOT EXISTS media (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'screenshot',
+      size_bytes INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_agent_id ON media(agent_id);
   `;
 
   try {
     await pool.query(sql);
     console.log("Migrations completed.");
+    await migrateExistingMedia(pool, config.mediaRoot);
   } finally {
     await pool.end();
+  }
+}
+
+const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp)$/i;
+
+async function migrateExistingMedia(
+  pool: import("pg").Pool,
+  mediaRoot: string
+): Promise<void> {
+  const agents = await pool.query<{ id: string; media_dir: string | null }>(
+    "SELECT id, media_dir FROM agents"
+  );
+
+  let inserted = 0;
+  for (const agent of agents.rows) {
+    const mediaDir = agent.media_dir ?? path.join(mediaRoot, agent.id);
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await readdir(mediaDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !IMAGE_EXTENSIONS.test(entry.name)) {
+        continue;
+      }
+
+      const filePath = path.join(mediaDir, entry.name);
+      const fileStat = await stat(filePath).catch(() => null);
+      if (!fileStat) continue;
+
+      const exists = await pool.query(
+        "SELECT 1 FROM media WHERE agent_id = $1 AND file_name = $2",
+        [agent.id, entry.name]
+      );
+      if (exists.rowCount && exists.rowCount > 0) continue;
+
+      await pool.query(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+         VALUES ($1, $2, 'screenshot', $3, $4)`,
+        [agent.id, entry.name, fileStat.size, fileStat.mtime]
+      );
+      inserted++;
+    }
+  }
+
+  if (inserted > 0) {
+    console.log(`Data migration: inserted ${inserted} existing media records.`);
   }
 }
 

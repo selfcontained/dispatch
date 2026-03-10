@@ -5,6 +5,17 @@ import { type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+function mediaSourceLabel(file: MediaFile): string {
+  switch (file.source) {
+    case "stream":
+      return "Stream recording";
+    case "simulator":
+      return `Simulator: ${file.name}`;
+    default:
+      return `Shared: ${file.name}`;
+  }
+}
+
 type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
@@ -12,7 +23,6 @@ type MediaSidebarSharedProps = {
   animatingMediaKeys: Set<string>;
   seenMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
-  mediaDescription: (name: string) => string;
   openLightbox: (src: string, caption: string) => void;
 };
 
@@ -34,7 +44,6 @@ export function MediaSidebarContent({
   animatingMediaKeys,
   seenMediaKeys,
   mediaViewportRef,
-  mediaDescription,
   openLightbox,
   onRequestClose,
   closeButtonIcon = "x",
@@ -91,7 +100,7 @@ export function MediaSidebarContent({
                   <img src={cacheBustUrl} alt={file.name} className="max-h-[260px] w-full object-contain" />
                 </button>
                 <div className="mt-2 text-xs text-muted-foreground">
-                  <div>{mediaDescription(file.name)}</div>
+                  <div>{mediaSourceLabel(file)}</div>
                   <div className="mt-1">{Math.max(1, Math.round(file.size / 1024))} KB</div>
                 </div>
               </article>
