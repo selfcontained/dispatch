@@ -4,12 +4,13 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  dispatch-share <image-path> [name]
-  dispatch-share --sim [udid] [name]
+  dispatch-share <image-path> [name] [-d "description"]
+  dispatch-share --sim [udid] [name] [-d "description"]
 
 Examples:
   dispatch-share ./artifacts/homepage.png
   dispatch-share ./artifacts/homepage.png playwright-home.png
+  dispatch-share ./artifacts/homepage.png -d "Homepage after login flow"
   dispatch-share --sim
   dispatch-share --sim booted ios-home.png
 USAGE
@@ -24,6 +25,23 @@ if [[ -z "$AGENT_ID" ]]; then
 fi
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
+
+# Extract -d/--description from args
+DESCRIPTION=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--description)
+      DESCRIPTION="${2:-}"
+      shift 2
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${ARGS[@]}"
 
 SOURCE_PATH=""
 SOURCE_TYPE="screenshot"
@@ -69,9 +87,15 @@ ext="${safe_name##*.}"
 base="${safe_name%.*}"
 upload_name="${base}-${timestamp}.${ext}"
 
-response="$(curl -fsS -X POST \
-  -F "file=@${SOURCE_PATH};filename=${upload_name}" \
-  -F "source=${SOURCE_TYPE}" \
-  "${API_BASE}/api/v1/agents/${AGENT_ID}/media")"
+CURL_ARGS=(
+  -fsS -X POST
+  -F "source=${SOURCE_TYPE}"
+)
+if [[ -n "$DESCRIPTION" ]]; then
+  CURL_ARGS+=(-F "description=${DESCRIPTION}")
+fi
+CURL_ARGS+=(-F "file=@${SOURCE_PATH};filename=${upload_name}")
+
+response="$(curl "${CURL_ARGS[@]}" "${API_BASE}/api/v1/agents/${AGENT_ID}/media")"
 
 echo "$response"

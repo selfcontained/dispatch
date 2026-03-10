@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  dispatch-stream start --playwright <port>
+  dispatch-stream stop [-d "description"]
+
+Examples:
+  dispatch-stream start --playwright 62816
+  dispatch-stream stop
+  dispatch-stream stop -d "Browsing bradharris.dev homepage"
+USAGE
+}
+
+if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+ACTION="${1:-}"
+shift
+
+AGENT_ID="${DISPATCH_AGENT_ID:-${HOSTESS_AGENT_ID:-}}"
+if [ -z "$AGENT_ID" ]; then
+  echo "DISPATCH_AGENT_ID is not set. Run this command inside a Dispatch agent session." >&2
+  exit 1
+fi
+
+PORT="${DISPATCH_PORT:-8787}"
+API_BASE="${DISPATCH_API_BASE:-http://127.0.0.1:${PORT}}"
+
+case "$ACTION" in
+  start)
+    if [ "${1:-}" != "--playwright" ]; then
+      echo "Usage: dispatch-stream start --playwright <port>" >&2
+      exit 1
+    fi
+    CDP_PORT="${2:-}"
+    if [ -z "$CDP_PORT" ]; then
+      echo "Port is required for --playwright." >&2
+      exit 1
+    fi
+    PAYLOAD="{\"type\":\"playwright\",\"port\":${CDP_PORT}}"
+    ;;
+  stop)
+    DESCRIPTION=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -d|--description)
+          DESCRIPTION="${2:-}"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    if [ -n "$DESCRIPTION" ]; then
+      # Escape double quotes in description for JSON
+      ESCAPED="$(echo "$DESCRIPTION" | sed 's/"/\\"/g')"
+      PAYLOAD="{\"type\":\"stop\",\"description\":\"${ESCAPED}\"}"
+    else
+      PAYLOAD='{"type":"stop"}'
+    fi
+    ;;
+  *)
+    echo "Invalid action: $ACTION" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+curl -fsS \
+  -X POST \
+  -H "content-type: application/json" \
+  --data "$PAYLOAD" \
+  "${API_BASE}/api/v1/agents/${AGENT_ID}/stream" >/dev/null
+
+echo "Stream ${ACTION}: ${AGENT_ID}"

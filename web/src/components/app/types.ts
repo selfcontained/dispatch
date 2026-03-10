@@ -23,6 +23,7 @@ export type Agent = {
     worktreeName: string;
     isWorktree: boolean;
   } | null;
+  hasStream?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,6 +35,7 @@ export type MediaFile = {
   url: string;
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator";
+  description?: string | null;
 };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";

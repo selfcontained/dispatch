@@ -81,6 +81,9 @@ export async function runMigrations(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_media_agent_id ON media(agent_id);
+
+    ALTER TABLE media
+      ADD COLUMN IF NOT EXISTS description TEXT;
   `;
 
   try {
