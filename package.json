@@ -20,6 +20,7 @@
     "check": "tsc --noEmit && npm run check:web"
   },
   "dependencies": {
+    "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^6.12.0",
     "@fastify/websocket": "^8.3.1",
     "dotenv": "^17.3.1",

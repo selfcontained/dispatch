@@ -1280,14 +1280,6 @@ export function App(): JSX.Element {
     return "border-r-zinc-500";
   };
 
-  const mediaDescription = (name: string): string => {
-    const trimmed = name.replace(/\.[^/.]+$/, "").replace(/[_.-]+/g, " ").trim();
-    if (!trimmed) {
-      return "Shared media artifact.";
-    }
-    return `Shared: ${trimmed}`;
-  };
-
   const unseenMediaCount = useMemo(() => {
     return mediaFiles.filter((file) => !seenMediaKeys.has(`${file.name}:${file.updatedAt}`)).length;
   }, [mediaFiles, seenMediaKeys]);
@@ -1378,7 +1370,7 @@ export function App(): JSX.Element {
             seenMediaKeys={seenMediaKeys}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
-            mediaDescription={mediaDescription}
+
             openLightbox={(src, caption) => {
               setLightboxSrc(src);
               setLightboxCaption(caption);
@@ -1441,7 +1433,7 @@ export function App(): JSX.Element {
               animatingMediaKeys={animatingMediaKeys}
               seenMediaKeys={seenMediaKeys}
               mediaViewportRef={mediaViewportRef}
-              mediaDescription={mediaDescription}
+  
               openLightbox={(src, caption) => {
                 setLightboxSrc(src);
                 setLightboxCaption(caption);

@@ -1,8 +1,9 @@
 import path from "node:path";
-import { mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync } from "node:fs";
 
+import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
@@ -78,8 +79,6 @@ class UiEventBroker {
 }
 
 const uiEventBroker = new UiEventBroker();
-const mediaWatchers = new Map<string, FSWatcher>();
-const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
 const PROBE_COMMAND_TIMEOUT_MS = 800;
@@ -122,6 +121,7 @@ const legacyPublicDir = path.resolve(__dirname, "../public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 
 async function registerRoutes() {
+  await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
   await app.register(fastifyStatic, {
@@ -333,9 +333,7 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
-    await mkdir(mediaDir, { recursive: true });
-    const files = await listMediaFiles(id, mediaDir);
+    const files = await listMediaFiles(id);
     const seenKeys = await loadSeenMediaKeys(id, files.map(toMediaKey));
     return {
       files: files.map((file) => ({
@@ -365,6 +363,56 @@ async function registerRoutes() {
     }
 
     return reply.type(mimeType(file)).send(await readFile(filePath));
+  });
+
+  app.post("/api/v1/agents/:id/media", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ error: "A file field is required." });
+    }
+
+    const fileName = data.filename;
+    if (!isImageFile(fileName)) {
+      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp." });
+    }
+
+    const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? "screenshot";
+    const validSources = ["screenshot", "stream", "simulator"];
+    const source = validSources.includes(sourceField) ? sourceField : "screenshot";
+
+    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
+    await mkdir(mediaDir, { recursive: true });
+
+    const buffer = await data.toBuffer();
+    const filePath = path.join(mediaDir, fileName);
+    await writeFile(filePath, buffer);
+
+    const result = await pool.query<{ id: number; created_at: Date }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, created_at`,
+      [id, fileName, source, buffer.length]
+    );
+
+    const row = result.rows[0];
+    const mediaRecord = {
+      id: row.id,
+      fileName,
+      source,
+      sizeBytes: buffer.length,
+      createdAt: row.created_at.toISOString(),
+      url: `/api/v1/agents/${id}/media/${encodeURIComponent(fileName)}`
+    };
+
+    uiEventBroker.publish({ type: "media.changed", agentId: id });
+    return reply.code(201).send({ ok: true, media: mediaRecord });
   });
 
   app.post("/api/v1/agents/:id/media/seen", async (request, reply) => {
@@ -441,7 +489,6 @@ async function registerRoutes() {
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });
-      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent });
       return reply.code(201).send({ agent });
@@ -456,7 +503,6 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.startAgent(id);
-      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent });
       return { agent };
@@ -501,7 +547,6 @@ async function registerRoutes() {
       const existing = await agentManager.getAgent(params.id);
       await agentManager.deleteAgent(params.id, force);
       if (existing) {
-        stopMediaWatch(existing.id);
         pendingGitRefreshAgentIds.delete(existing.id);
         pendingGitRefreshEnqueuedAt.delete(existing.id);
         activeGitRefreshAgentIds.delete(existing.id);
@@ -638,9 +683,6 @@ async function start() {
   await runMigrations();
   await agentManager.reconcileAgents();
   const agents = await agentManager.listAgents();
-  for (const agent of agents) {
-    ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-  }
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
   await registerRoutes();
@@ -1090,40 +1132,27 @@ function decodeClientMessage(
 }
 
 async function listMediaFiles(
-  agentId: string,
-  mediaDir: string
-): Promise<Array<{ name: string; size: number; updatedAt: string; url: string }>> {
-  const dirEntries = await readdir(mediaDir, { withFileTypes: true }).catch(() => []);
-  const rows: Array<{ name: string; size: number; updatedAt: string; url: string; mtimeMs: number }> = [];
+  agentId: string
+): Promise<Array<{ name: string; source: string; size: number; updatedAt: string; url: string }>> {
+  const result = await pool.query<{
+    file_name: string;
+    source: string;
+    size_bytes: number;
+    created_at: Date;
+  }>(
+    `SELECT file_name, source, size_bytes, created_at
+     FROM media WHERE agent_id = $1
+     ORDER BY created_at DESC LIMIT 50`,
+    [agentId]
+  );
 
-  for (const entry of dirEntries) {
-    if (!entry.isFile()) {
-      continue;
-    }
-
-    if (!isImageFile(entry.name)) {
-      continue;
-    }
-
-    const absolutePath = path.join(mediaDir, entry.name);
-    const fileStat = await stat(absolutePath).catch(() => null);
-    if (!fileStat) {
-      continue;
-    }
-
-    rows.push({
-      name: entry.name,
-      size: fileStat.size,
-      updatedAt: fileStat.mtime.toISOString(),
-      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(entry.name)}`,
-      mtimeMs: fileStat.mtimeMs
-    });
-  }
-
-  return rows
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, 50)
-    .map(({ mtimeMs: _drop, ...rest }) => rest);
+  return result.rows.map((row) => ({
+    name: row.file_name,
+    source: row.source,
+    size: row.size_bytes,
+    updatedAt: row.created_at.toISOString(),
+    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`
+  }));
 }
 
 function toMediaKey(file: { name: string; updatedAt: string }): string {
@@ -1208,73 +1237,11 @@ async function shutdown(code: number): Promise<void> {
   shuttingDown = true;
 
   stopGitContextRefreshLoop();
-  stopAllMediaWatches();
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);
 }
 
-function ensureMediaWatch(agentId: string, mediaDir: string): void {
-  if (mediaWatchers.has(agentId)) {
-    return;
-  }
-
-  mkdir(mediaDir, { recursive: true })
-    .then(() => {
-      if (mediaWatchers.has(agentId)) {
-        return;
-      }
-
-      const watcher = watch(mediaDir, () => {
-        scheduleMediaEvent(agentId);
-      });
-
-      watcher.on("error", (error) => {
-        app.log.warn({ err: error, agentId, mediaDir }, "Media watcher error.");
-        stopMediaWatch(agentId);
-      });
-
-      mediaWatchers.set(agentId, watcher);
-    })
-    .catch((error) => {
-      app.log.warn({ err: error, agentId, mediaDir }, "Unable to initialize media watch.");
-    });
-}
-
-function scheduleMediaEvent(agentId: string): void {
-  const existing = mediaDebounceTimers.get(agentId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const timer = setTimeout(() => {
-    mediaDebounceTimers.delete(agentId);
-    uiEventBroker.publish({ type: "media.changed", agentId });
-  }, 200);
-
-  mediaDebounceTimers.set(agentId, timer);
-}
-
-function stopMediaWatch(agentId: string): void {
-  const watcher = mediaWatchers.get(agentId);
-  if (watcher) {
-    watcher.close();
-    mediaWatchers.delete(agentId);
-  }
-
-  const timer = mediaDebounceTimers.get(agentId);
-  if (timer) {
-    clearTimeout(timer);
-    mediaDebounceTimers.delete(agentId);
-  }
-}
-
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
   return typeof value === "string" && AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType);
-}
-
-function stopAllMediaWatches(): void {
-  for (const agentId of mediaWatchers.keys()) {
-    stopMediaWatch(agentId);
-  }
 }
