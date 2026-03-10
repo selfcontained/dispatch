@@ -1402,7 +1402,6 @@ export function App(): JSX.Element {
             seenMediaKeys={seenMediaKeys}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
-            mediaDescription={mediaDescription}
             hasStream={selectedAgentHasStream}
             streamUrl={selectedAgentStreamUrl}
             openLightbox={(src, caption) => {
@@ -1468,7 +1467,6 @@ export function App(): JSX.Element {
               animatingMediaKeys={animatingMediaKeys}
               seenMediaKeys={seenMediaKeys}
               mediaViewportRef={mediaViewportRef}
-              mediaDescription={mediaDescription}
               hasStream={selectedAgentHasStream}
               streamUrl={selectedAgentStreamUrl}
               openLightbox={(src, caption) => {

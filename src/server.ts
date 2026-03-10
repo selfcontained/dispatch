@@ -85,13 +85,34 @@ class UiEventBroker {
 }
 
 const uiEventBroker = new UiEventBroker();
-const streamManager = new StreamManager((agentId, event) => {
-  uiEventBroker.publish(
-    event === "started"
-      ? { type: "stream.started", agentId }
-      : { type: "stream.stopped", agentId }
-  );
-});
+const streamManager = new StreamManager(
+  (agentId, event) => {
+    uiEventBroker.publish(
+      event === "started"
+        ? { type: "stream.started", agentId }
+        : { type: "stream.stopped", agentId }
+    );
+  },
+  async (agentId, lastFrame) => {
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) return;
+
+    const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const fileName = `stream-capture-${timestamp}.jpg`;
+
+    await mkdir(mediaDir, { recursive: true });
+    await writeFile(path.join(mediaDir, fileName), lastFrame);
+
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, $2, 'stream', $3)`,
+      [agentId, fileName, lastFrame.length]
+    );
+
+    uiEventBroker.publish({ type: "media.changed", agentId });
+  }
+);
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
 const PROBE_COMMAND_TIMEOUT_MS = 800;

@@ -7,6 +7,7 @@ type StreamSession = {
 };
 
 type OnStateChange = (agentId: string, event: "started" | "stopped") => void;
+type OnStreamEnd = (agentId: string, lastFrame: Buffer) => void;
 
 const MJPEG_BOUNDARY = "frame";
 const FRAME_REFRESH_INTERVAL_MS = 1000;
@@ -14,9 +15,11 @@ const FRAME_REFRESH_INTERVAL_MS = 1000;
 export class StreamManager {
   private sessions = new Map<string, StreamSession>();
   private onStateChange: OnStateChange;
+  private onStreamEnd?: OnStreamEnd;
 
-  constructor(onStateChange: OnStateChange) {
+  constructor(onStateChange: OnStateChange, onStreamEnd?: OnStreamEnd) {
     this.onStateChange = onStateChange;
+    this.onStreamEnd = onStreamEnd;
   }
 
   async startStream(agentId: string, port: number): Promise<void> {
@@ -147,6 +150,15 @@ export class StreamManager {
     }
 
     session.viewers.clear();
+
+    if (session.lastFrame && this.onStreamEnd) {
+      try {
+        this.onStreamEnd(agentId, session.lastFrame);
+      } catch {
+        // Best-effort; don't block cleanup
+      }
+    }
+
     session.lastFrame = null;
     this.sessions.delete(agentId);
     this.onStateChange(agentId, "stopped");
