@@ -85,6 +85,16 @@ build_tag() {
   npm run build
 }
 
+write_release_record() {
+  local tag="$1"
+  local record_path="$HOME/.dispatch/release.json"
+  mkdir -p "$(dirname "$record_path")"
+  printf '{\n  "tag": "%s",\n  "deployedAt": "%s"\n}\n' \
+    "$tag" \
+    "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" \
+    > "$record_path"
+}
+
 write_failure_log() {
   local step="$1"
   local tag="$2"
@@ -165,10 +175,13 @@ main() {
   fi
 
   echo "==> reloading launchd service"
+  echo "DISPATCH_RESTARTING"
+  sleep 1
   launchctl unload "$PLIST"
   launchctl load "$PLIST"
 
   if wait_for_health; then
+    write_release_record "$tag"
     echo "==> deployed $tag successfully"
     cat /tmp/dispatch-health.json
     echo
