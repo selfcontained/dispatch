@@ -180,6 +180,7 @@ type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
   | { type: "log"; line: string }
   | { type: "log.replace"; line: string }
+  | { type: "log.rewind"; count: number }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string };
@@ -214,6 +215,19 @@ function replaceReleaseLog(job: ReleaseJob, line: string): void {
   broadcastReleaseEvent({ type: "log.replace", line });
 }
 
+function rewindReleaseLog(job: ReleaseJob, count: number): void {
+  const actual = Math.min(count, job.log.length);
+  if (actual > 0) {
+    job.log.splice(-actual);
+    broadcastReleaseEvent({ type: "log.rewind", count: actual });
+  }
+}
+
+/** Strip ANSI escape sequences for clean log display */
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+}
+
 function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
   job.phase = phase;
   broadcastReleaseEvent({ type: "phase", phase, error });
@@ -238,7 +252,16 @@ function streamProcess(
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      for (const line of lines) {
+      for (const rawLine of lines) {
+        // Detect ANSI cursor-up sequence (ESC[<N>A) used by tools like
+        // `gh run watch` to redraw multi-line output blocks in-place.
+        const cursorUpMatch = rawLine.match(/\x1b\[(\d+)A/);
+        if (cursorUpMatch) {
+          rewindReleaseLog(job, parseInt(cursorUpMatch[1], 10));
+        }
+
+        const line = stripAnsi(rawLine);
+
         // A line may contain \r-separated segments (in-place terminal updates).
         // Only the final segment matters; earlier ones were meant to be overwritten.
         const crParts = line.split("\r").filter(Boolean);
