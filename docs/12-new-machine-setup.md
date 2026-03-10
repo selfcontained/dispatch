@@ -17,6 +17,7 @@ The new machine needs:
 | **GitHub CLI** | Release automation | `brew install gh` |
 | **Claude CLI** | Agent runtime (Claude agents) | `npm install -g @anthropic-ai/claude-code` |
 | **Codex CLI** | Agent runtime (Codex agents) | `npm install -g codex` |
+| **Playwright browsers** | Headless Chrome for agent UI validation | `npx playwright install chromium` |
 
 ### Optional
 
@@ -32,7 +33,7 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Claude CLI, Codex CLI.
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Claude CLI, Codex CLI, Playwright browsers.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
@@ -188,6 +189,14 @@ codex --version
 ```
 
 The config defaults to `claude` and `codex` on PATH. To override, set `DISPATCH_CLAUDE_BIN` or `DISPATCH_CODEX_BIN` in `.env`.
+
+### 9. Playwright browsers
+
+Agents use Playwright for headless UI validation. Install the browser once — it's shared across all agents:
+
+```bash
+npx playwright install chromium
+```
 
 ## Post-Setup Verification Checklist
 
