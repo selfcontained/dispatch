@@ -381,10 +381,26 @@ export function App(): JSX.Element {
         ? (agents.find((item) => item.id === resolvedAgentId) ?? null)
         : null;
       if (!agent || agent.status !== "running") {
-        const payload = await api<{ agent: Agent }>(
-          `/api/v1/agents/${resolvedAgentId}?includeGitContext=false`
-        );
-        agent = payload.agent;
+        try {
+          const payload = await api<{ agent: Agent }>(
+            `/api/v1/agents/${resolvedAgentId}?includeGitContext=false`
+          );
+          agent = payload.agent;
+        } catch {
+          // Server is temporarily unreachable (e.g. mid-deploy). Schedule a
+          // retry so reconnection continues once the server is back up.
+          if (!shouldKeepAttachedRef.current) return;
+          clearReconnectTimer();
+          reconnectAttemptsRef.current += 1;
+          const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
+          setConnState("reconnecting");
+          setStatusMessage("Session disconnected, reconnecting...");
+          reconnectTimerRef.current = window.setTimeout(() => {
+            reconnectTimerRef.current = null;
+            void ensureTerminalConnected(false, false, resolvedAgentId);
+          }, delay);
+          return;
+        }
       }
 
       if (agent.status !== "running") {
