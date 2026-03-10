@@ -64,7 +64,13 @@ is needed, you can run: bin/dispatch-deploy --latest
 
 Report your findings via dispatch-event."
 
-  local port="${DISPATCH_PORT:-6767}"
+  local port="6767"
+  local env_file="$ROOT_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local env_port
+    env_port=$(grep -E '^DISPATCH_PORT=' "$env_file" | tail -1 | cut -d= -f2)
+    [[ -n "$env_port" ]] && port="$env_port"
+  fi
 
   echo "==> spawning diagnosis agent..."
   curl -fsS -X POST "http://127.0.0.1:${port}/api/v1/agents" \

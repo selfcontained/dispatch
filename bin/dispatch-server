@@ -42,8 +42,22 @@ is_running() {
   tmux has-session -t "$SESSION_NAME" 2>/dev/null
 }
 
+resolve_port() {
+  local env_file="$ROOT_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local env_port
+    env_port=$(grep -E '^DISPATCH_PORT=' "$env_file" | tail -1 | cut -d= -f2)
+    if [[ -n "$env_port" ]]; then
+      echo "$env_port"
+      return
+    fi
+  fi
+  echo "$DEFAULT_PORT"
+}
+
 health_check() {
-  local port="${DISPATCH_PORT:-$DEFAULT_PORT}"
+  local port
+  port=$(resolve_port)
   curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
 }
 
