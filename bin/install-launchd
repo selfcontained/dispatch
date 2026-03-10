@@ -1,8 +1,132 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "launchd support has been removed from Dispatch." >&2
-echo "Use tmux runtime commands instead:" >&2
-echo "  - start: bin/dispatch-server start" >&2
-echo "  - release: bin/dispatch-server update" >&2
-exit 1
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+LOG_DIR="$HOME/.dispatch/logs"
+LOG_FILE="$LOG_DIR/dispatch.log"
+WRAPPER="$SERVER_DIR/bin/dispatch-launchd-wrapper"
+PORT=""
+
+usage() {
+  cat <<USAGE
+Usage: bin/install-launchd [--port <port>]
+
+Installs Dispatch as a launchd service. Clones the repo to $SERVER_DIR,
+does an initial build, and loads the service.
+
+Options:
+  --port <port>   Port to listen on (default: 8787)
+
+Examples:
+  bin/install-launchd
+  bin/install-launchd --port 6767
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) PORT="$2"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+if [[ -f "$PLIST" ]]; then
+  echo "launchd service already installed at $PLIST"
+  echo "run bin/uninstall-launchd first to reinstall"
+  exit 1
+fi
+
+# Clone repo to server directory if not already present
+if [[ ! -d "$SERVER_DIR/.git" ]]; then
+  REMOTE_URL=$(git -C "$ROOT_DIR" remote get-url origin)
+  echo "==> cloning $REMOTE_URL to $SERVER_DIR"
+  git clone "$REMOTE_URL" "$SERVER_DIR"
+else
+  echo "==> server directory already exists at $SERVER_DIR"
+fi
+
+# Set up .env for the server directory
+SERVER_ENV="$SERVER_DIR/.env"
+if [[ ! -f "$SERVER_ENV" ]]; then
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    echo "==> copying .env from main repo"
+    cp "$ROOT_DIR/.env" "$SERVER_ENV"
+  elif [[ -f "$ROOT_DIR/.env.example" ]]; then
+    echo "==> copying .env.example as starting point — edit $SERVER_ENV before using"
+    cp "$ROOT_DIR/.env.example" "$SERVER_ENV"
+  else
+    echo "==> creating minimal .env"
+    touch "$SERVER_ENV"
+  fi
+fi
+
+# Set DISPATCH_PORT in server .env if specified
+if [[ -n "$PORT" ]]; then
+  if grep -q '^DISPATCH_PORT=' "$SERVER_ENV"; then
+    sed -i '' "s/^DISPATCH_PORT=.*/DISPATCH_PORT=$PORT/" "$SERVER_ENV"
+  else
+    echo "DISPATCH_PORT=$PORT" >> "$SERVER_ENV"
+  fi
+  echo "==> set DISPATCH_PORT=$PORT in $SERVER_ENV"
+fi
+
+# Initial build
+echo "==> installing dependencies"
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+# shellcheck disable=SC1090
+[[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
+cd "$SERVER_DIR"
+nvm use >/dev/null
+npm ci --silent
+npm --prefix web ci --silent
+
+echo "==> building"
+npm run build
+
+mkdir -p "$LOG_DIR"
+
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dispatch.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${WRAPPER}</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>${LOG_FILE}</string>
+
+    <key>StandardErrorPath</key>
+    <string>${LOG_FILE}</string>
+</dict>
+</plist>
+PLIST
+
+launchctl load "$PLIST"
+
+echo ""
+echo "installed and started Dispatch as a launchd service"
+echo "server directory: $SERVER_DIR"
+echo "port:             ${PORT:-8787}"
+echo "logs:             tail -f $LOG_FILE"
+echo ""
+echo "useful commands:"
+echo "  deploy:     bin/dispatch-deploy <tag>"
+echo "  status:     launchctl list com.dispatch.server"
+echo "  stop:       launchctl unload $PLIST"
+echo "  start:      launchctl load $PLIST"
+echo "  uninstall:  bin/uninstall-launchd"

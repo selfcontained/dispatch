@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.8.0"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install web dependencies
+        run: npm --prefix web ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Lint
+        run: npm run lint:web
+
+      - name: Build
+        run: npm run build
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and tag
+        id: version
+        run: |
+          NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
+          # Also bump web package to keep versions in sync
+          npm --prefix web version ${{ inputs.version }} --no-git-tag-version
+          git add package.json package-lock.json web/package.json web/package-lock.json
+          git commit -m "Release ${NEW_VERSION}"
+          git tag "${NEW_VERSION}"
+          git push origin main --follow-tags
+          echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        run: |
+          gh release create ${{ steps.version.outputs.tag }} \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes "Release ${{ steps.version.outputs.tag }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
