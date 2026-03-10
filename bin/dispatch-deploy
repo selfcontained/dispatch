@@ -172,7 +172,7 @@ spawn_diagnosis_agent() {
   # Generate agent ID and session name
   local agent_id="agt_$(openssl rand -hex 6)"
   local session_name="dispatch_${agent_id}"
-  local media_dir="/tmp/dispatch-media/${agent_id}"
+  local media_dir="$HOME/.dispatch/media/${agent_id}"
   mkdir -p "$media_dir"
 
   local port

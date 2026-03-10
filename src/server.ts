@@ -1211,7 +1211,21 @@ async function registerRoutes() {
 
 }
 
+async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      await pool.query("SELECT 1");
+      return;
+    } catch {
+      app.log.info(`Waiting for database (attempt ${i}/${maxAttempts})...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error("Database not available after retries");
+}
+
 async function start() {
+  await waitForDatabase();
   await runMigrations();
   await agentManager.reconcileAgents();
   const agents = await agentManager.listAgents();
