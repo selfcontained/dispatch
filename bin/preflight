@@ -85,7 +85,14 @@ fi
 if command -v claude &>/dev/null; then
   ok "claude ($(which claude))"
 else
-  warn "claude — needed to spawn Claude agents"
+  warn "claude — needed to spawn Claude agents: npm install -g @anthropic-ai/claude-code"
+fi
+
+# Codex CLI
+if command -v codex &>/dev/null; then
+  ok "codex ($(which codex))"
+else
+  warn "codex — needed to spawn Codex agents: npm install -g codex"
 fi
 
 # Xcode (full, for simulators)
@@ -106,12 +113,6 @@ else
   warn "docker — optional, for isolated dev databases: brew install --cask docker"
 fi
 
-# Tailscale
-if command -v tailscale &>/dev/null || [[ -d "/Applications/Tailscale.app" ]]; then
-  ok "tailscale"
-else
-  warn "tailscale — needed for remote access, install: brew install --cask tailscale"
-fi
 
 echo ""
 echo "---"
