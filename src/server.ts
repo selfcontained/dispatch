@@ -1,8 +1,11 @@
 import path from "node:path";
-import { mkdir, readFile, readdir, stat } from "node:fs/promises";
+import os from "node:os";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync } from "node:fs";
 
+import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
@@ -22,6 +25,7 @@ import {
   resolveRepoConfig,
   writeWorktreeMode
 } from "./repo-config.js";
+import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 
@@ -88,8 +92,6 @@ const streamManager = new StreamManager((agentId, event) => {
       : { type: "stream.stopped", agentId }
   );
 });
-const mediaWatchers = new Map<string, FSWatcher>();
-const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
 const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
 const PROBE_COMMAND_TIMEOUT_MS = 800;
@@ -135,13 +137,389 @@ function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boole
   return { ...agent, hasStream: streamManager.hasStream(agent.id) };
 }
 
+// ---------------------------------------------------------------------------
+// Release manager
+// ---------------------------------------------------------------------------
+
+const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
+type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
+type ReleasePhase = "preflight" | "triggering" | "watching" | "deploying" | "restarting" | "done" | "failed";
+
+type ReleaseJob = {
+  versionType: ReleaseVersionType;
+  phase: ReleasePhase;
+  startedAt: string;
+  log: string[];
+  runUrl: string | null;
+  tag: string | null;
+  error: string | null;
+};
+
+type ReleaseStreamEvent =
+  | { type: "snapshot"; job: ReleaseJob | null }
+  | { type: "log"; line: string }
+  | { type: "log.replace"; line: string }
+  | { type: "phase"; phase: ReleasePhase; error?: string }
+  | { type: "runUrl"; url: string }
+  | { type: "tag"; tag: string };
+
+let activeReleaseJob: ReleaseJob | null = null;
+const releaseStreamClients = new Set<NodeJS.WritableStream>();
+
+const serverDir = process.env.DISPATCH_SERVER_DIR ?? path.join(os.homedir(), ".dispatch", "server");
+
+function broadcastReleaseEvent(event: ReleaseStreamEvent): void {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of releaseStreamClients) {
+    try {
+      client.write(payload);
+    } catch {
+      releaseStreamClients.delete(client);
+    }
+  }
+}
+
+function appendReleaseLog(job: ReleaseJob, line: string): void {
+  job.log.push(line);
+  broadcastReleaseEvent({ type: "log", line });
+}
+
+function replaceReleaseLog(job: ReleaseJob, line: string): void {
+  if (job.log.length > 0) {
+    job.log[job.log.length - 1] = line;
+  } else {
+    job.log.push(line);
+  }
+  broadcastReleaseEvent({ type: "log.replace", line });
+}
+
+function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
+  job.phase = phase;
+  broadcastReleaseEvent({ type: "phase", phase, error });
+}
+
+function streamProcess(
+  command: string,
+  args: string[],
+  options: { cwd?: string },
+  job: ReleaseJob,
+  onLine?: (line: string) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let buffer = "";
+    let lastWasCR = false;
+    const processChunk = (chunk: Buffer): void => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        // A line may contain \r-separated segments (in-place terminal updates).
+        // Only the final segment matters; earlier ones were meant to be overwritten.
+        const crParts = line.split("\r").filter(Boolean);
+        if (crParts.length > 1 || lastWasCR) {
+          // Replace the previous log entry with the last \r segment
+          const final = crParts[crParts.length - 1] ?? "";
+          replaceReleaseLog(job, final);
+          onLine?.(final);
+        } else {
+          appendReleaseLog(job, crParts[0] ?? line);
+          onLine?.(crParts[0] ?? line);
+        }
+        lastWasCR = false;
+      }
+      // If the remaining buffer contains \r, the next output will overwrite
+      if (buffer.includes("\r")) {
+        const crParts = buffer.split("\r").filter(Boolean);
+        const final = crParts[crParts.length - 1] ?? "";
+        replaceReleaseLog(job, final);
+        onLine?.(final);
+        buffer = "";
+        lastWasCR = true;
+      }
+    };
+
+    child.stdout.on("data", processChunk);
+    child.stderr.on("data", processChunk);
+
+    child.on("error", (err) => reject(err));
+    child.on("close", (code) => {
+      if (buffer) {
+        appendReleaseLog(job, buffer);
+        onLine?.(buffer);
+      }
+      if (code !== 0) {
+        reject(new Error(`Process exited with code ${code}`));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function getGitHubRepo(): Promise<string> {
+  try {
+    const result = await runCommand("git", ["-C", serverDir, "remote", "get-url", "origin"]);
+    const url = result.stdout;
+    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
+    if (match?.[1]) {
+      return match[1];
+    }
+  } catch {
+    // fall through
+  }
+  return "selfcontained/dispatch";
+}
+
+async function runReleaseJob(job: ReleaseJob): Promise<void> {
+  try {
+    // Preflight: check gh CLI is available
+    setReleasePhase(job, "preflight");
+    try {
+      await runCommand("gh", ["--version"]);
+    } catch {
+      throw new Error("GitHub CLI (gh) is not available. Install it from https://cli.github.com");
+    }
+
+    const repo = await getGitHubRepo();
+
+    // Trigger workflow
+    setReleasePhase(job, "triggering");
+    appendReleaseLog(job, `==> triggering release workflow (version: ${job.versionType})`);
+
+    try {
+      await runCommand("gh", [
+        "workflow", "run", "release.yml",
+        "--repo", repo,
+        "--field", `version=${job.versionType}`
+      ]);
+    } catch (err) {
+      throw new Error(`Failed to trigger workflow: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Give GitHub a moment to register the run
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // Get the run ID
+    const runIdResult = await runCommand("gh", [
+      "run", "list",
+      "--repo", repo,
+      "--workflow", "release.yml",
+      "--limit", "1",
+      "--json", "databaseId",
+      "--jq", ".[0].databaseId"
+    ]);
+    const runId = runIdResult.stdout.trim();
+    if (!runId) {
+      throw new Error("Could not determine GitHub Actions run ID");
+    }
+
+    const runUrl = `https://github.com/${repo}/actions/runs/${runId}`;
+    job.runUrl = runUrl;
+    broadcastReleaseEvent({ type: "runUrl", url: runUrl });
+    appendReleaseLog(job, `==> watching run ${runId}`);
+    appendReleaseLog(job, `    ${runUrl}`);
+
+    // Watch the workflow
+    setReleasePhase(job, "watching");
+    try {
+      await streamProcess("gh", ["run", "watch", runId, "--repo", repo], {}, job);
+    } catch {
+      throw new Error(`GitHub Actions workflow failed. See ${runUrl}`);
+    }
+
+    // Fetch tags and find the latest
+    await runCommand("git", ["-C", serverDir, "fetch", "--tags", "--quiet"]);
+    const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
+    const tag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? "";
+    if (!tag) {
+      throw new Error("Could not determine release tag after workflow completed");
+    }
+
+    job.tag = tag;
+    broadcastReleaseEvent({ type: "tag", tag });
+    appendReleaseLog(job, `==> release workflow produced tag: ${tag}`);
+
+    // Deploy — build inline instead of shelling out to dispatch-deploy,
+    // because dispatch-deploy would be killed as part of the server's
+    // process group when launchd restarts the service.
+    setReleasePhase(job, "deploying");
+
+    appendReleaseLog(job, `==> checking out ${tag}`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    appendReleaseLog(job, "==> installing dependencies");
+    await streamProcess("npm", ["ci", "--silent"], { cwd: serverDir }, job);
+    await streamProcess("npm", ["--prefix", "web", "ci", "--silent"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> building");
+    await streamProcess("npm", ["run", "build"], { cwd: serverDir }, job);
+
+    // Write release record BEFORE the restart — after the restart our
+    // process is dead and can't write anything.
+    await writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
+    appendReleaseLog(job, `==> wrote release record for ${tag}`);
+
+    // Tell SSE clients we're about to restart
+    setReleasePhase(job, "restarting");
+    appendReleaseLog(job, "==> restarting service");
+
+    // Trigger the restart. launchctl kill sends SIGKILL to this process
+    // (and its process group). KeepAlive ensures launchd restarts it
+    // with the newly built code. The UI health-poll takes over from here.
+    const uid = process.getuid?.() ?? 501;
+    spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
+      detached: true,
+      stdio: "ignore"
+    }).unref();
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (activeReleaseJob) {
+      activeReleaseJob.error = error;
+    }
+    setReleasePhase(job, "failed", error);
+  }
+}
+
 async function registerRoutes() {
+  await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
   await app.register(fastifyStatic, {
     root: staticDir,
     prefix: "/"
   });
+
+  // --- Release routes ---
+
+  app.get("/api/v1/release/status", async () => {
+    const record = await readReleaseStore();
+    return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
+  });
+
+  app.get("/api/v1/release/info", async (_, reply) => {
+    try {
+      await runCommand("git", ["-C", serverDir, "fetch", "origin", "--quiet"]);
+
+      // Current deployed tag from store (fast)
+      const record = await readReleaseStore();
+      const currentTag = record?.tag ?? null;
+
+      if (!currentTag) {
+        return { currentTag: null, unreleasedCount: 0, commits: [] };
+      }
+
+      // Verify the ref exists locally (tags may not be present in dev checkouts)
+      const refCheck = await runCommand(
+        "git", ["-C", serverDir, "rev-parse", "--verify", currentTag],
+        { allowedExitCodes: [0, 128] }
+      );
+      if (refCheck.exitCode !== 0) {
+        return { currentTag, unreleasedCount: 0, commits: [], refMissing: true };
+      }
+
+      // Count and list commits between current tag and origin/main
+      const countResult = await runCommand("git", [
+        "-C", serverDir,
+        "rev-list", `${currentTag}..origin/main`, "--count"
+      ]);
+      const unreleasedCount = Number(countResult.stdout) || 0;
+
+      let commits: Array<{ sha: string; subject: string }> = [];
+      if (unreleasedCount > 0) {
+        const logResult = await runCommand("git", [
+          "-C", serverDir,
+          "log", `${currentTag}..origin/main`,
+          "--no-merges",
+          "--format=%H\t%s",
+          "--max-count=20"
+        ]);
+        commits = logResult.stdout
+          .split("\n")
+          .filter((l) => l.trim())
+          .map((line) => {
+            const tab = line.indexOf("\t");
+            return {
+              sha: line.slice(0, tab).slice(0, 7),
+              subject: line.slice(tab + 1)
+            };
+          });
+      }
+
+      return { currentTag, unreleasedCount, commits };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.post("/api/v1/release", async (request, reply) => {
+    const body = request.body as { versionType?: unknown } | undefined;
+
+    if (!body?.versionType || !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)) {
+      return reply.code(400).send({ error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}` });
+    }
+
+    const versionType = body.versionType as ReleaseVersionType;
+
+    // Only one release at a time
+    if (activeReleaseJob && activeReleaseJob.phase !== "done" && activeReleaseJob.phase !== "failed") {
+      return reply.code(409).send({ error: "A release is already in progress." });
+    }
+
+    // Quick pre-flight: check gh CLI before spawning the job
+    try {
+      await runCommand("gh", ["--version"]);
+    } catch {
+      return reply.code(422).send({ error: "GitHub CLI (gh) is not available. Install it from https://cli.github.com" });
+    }
+
+    const job: ReleaseJob = {
+      versionType,
+      phase: "preflight",
+      startedAt: new Date().toISOString(),
+      log: [],
+      runUrl: null,
+      tag: null,
+      error: null
+    };
+    activeReleaseJob = job;
+
+    // Run async — do not await
+    void runReleaseJob(job);
+
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.get("/api/v1/release/stream", async (_request, reply) => {
+    reply.raw.setHeader("Content-Type", "text/event-stream");
+    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+    reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.setHeader("X-Accel-Buffering", "no");
+    reply.hijack();
+
+    const stream = reply.raw;
+    releaseStreamClients.add(stream);
+
+    const heartbeat = setInterval(() => {
+      stream.write(": keepalive\n\n");
+    }, 20_000);
+
+    // Send current job snapshot
+    const snapshot: ReleaseStreamEvent = { type: "snapshot", job: activeReleaseJob };
+    stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+
+    stream.on("close", () => {
+      clearInterval(heartbeat);
+      releaseStreamClients.delete(stream);
+    });
+  });
+
+  // --- Health / existing routes ---
 
   app.get("/api/v1/health", async () => {
     const result = await pool.query("SELECT NOW() AS now");
@@ -347,9 +725,7 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
-    await mkdir(mediaDir, { recursive: true });
-    const files = await listMediaFiles(id, mediaDir);
+    const files = await listMediaFiles(id);
     const seenKeys = await loadSeenMediaKeys(id, files.map(toMediaKey));
     return {
       files: files.map((file) => ({
@@ -379,6 +755,56 @@ async function registerRoutes() {
     }
 
     return reply.type(mimeType(file)).send(await readFile(filePath));
+  });
+
+  app.post("/api/v1/agents/:id/media", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ error: "A file field is required." });
+    }
+
+    const fileName = data.filename;
+    if (!isImageFile(fileName)) {
+      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp." });
+    }
+
+    const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? "screenshot";
+    const validSources = ["screenshot", "stream", "simulator"];
+    const source = validSources.includes(sourceField) ? sourceField : "screenshot";
+
+    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
+    await mkdir(mediaDir, { recursive: true });
+
+    const buffer = await data.toBuffer();
+    const filePath = path.join(mediaDir, fileName);
+    await writeFile(filePath, buffer);
+
+    const result = await pool.query<{ id: number; created_at: Date }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, created_at`,
+      [id, fileName, source, buffer.length]
+    );
+
+    const row = result.rows[0];
+    const mediaRecord = {
+      id: row.id,
+      fileName,
+      source,
+      sizeBytes: buffer.length,
+      createdAt: row.created_at.toISOString(),
+      url: `/api/v1/agents/${id}/media/${encodeURIComponent(fileName)}`
+    };
+
+    uiEventBroker.publish({ type: "media.changed", agentId: id });
+    return reply.code(201).send({ ok: true, media: mediaRecord });
   });
 
   app.post("/api/v1/agents/:id/media/seen", async (request, reply) => {
@@ -548,7 +974,6 @@ async function registerRoutes() {
         cwd: body.cwd,
         codexArgs: resolvedCodexArgs
       });
-      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
       return reply.code(201).send({ agent });
@@ -563,7 +988,6 @@ async function registerRoutes() {
 
     try {
       const agent = await agentManager.startAgent(id);
-      ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
       return { agent };
@@ -609,7 +1033,6 @@ async function registerRoutes() {
       await agentManager.deleteAgent(params.id, force);
       if (existing) {
         streamManager.stopStream(existing.id);
-        stopMediaWatch(existing.id);
         pendingGitRefreshAgentIds.delete(existing.id);
         pendingGitRefreshEnqueuedAt.delete(existing.id);
         activeGitRefreshAgentIds.delete(existing.id);
@@ -746,9 +1169,6 @@ async function start() {
   await runMigrations();
   await agentManager.reconcileAgents();
   const agents = await agentManager.listAgents();
-  for (const agent of agents) {
-    ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
-  }
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
   await registerRoutes();
@@ -1198,40 +1618,27 @@ function decodeClientMessage(
 }
 
 async function listMediaFiles(
-  agentId: string,
-  mediaDir: string
-): Promise<Array<{ name: string; size: number; updatedAt: string; url: string }>> {
-  const dirEntries = await readdir(mediaDir, { withFileTypes: true }).catch(() => []);
-  const rows: Array<{ name: string; size: number; updatedAt: string; url: string; mtimeMs: number }> = [];
+  agentId: string
+): Promise<Array<{ name: string; source: string; size: number; updatedAt: string; url: string }>> {
+  const result = await pool.query<{
+    file_name: string;
+    source: string;
+    size_bytes: number;
+    created_at: Date;
+  }>(
+    `SELECT file_name, source, size_bytes, created_at
+     FROM media WHERE agent_id = $1
+     ORDER BY created_at DESC LIMIT 50`,
+    [agentId]
+  );
 
-  for (const entry of dirEntries) {
-    if (!entry.isFile()) {
-      continue;
-    }
-
-    if (!isImageFile(entry.name)) {
-      continue;
-    }
-
-    const absolutePath = path.join(mediaDir, entry.name);
-    const fileStat = await stat(absolutePath).catch(() => null);
-    if (!fileStat) {
-      continue;
-    }
-
-    rows.push({
-      name: entry.name,
-      size: fileStat.size,
-      updatedAt: fileStat.mtime.toISOString(),
-      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(entry.name)}`,
-      mtimeMs: fileStat.mtimeMs
-    });
-  }
-
-  return rows
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, 50)
-    .map(({ mtimeMs: _drop, ...rest }) => rest);
+  return result.rows.map((row) => ({
+    name: row.file_name,
+    source: row.source,
+    size: row.size_bytes,
+    updatedAt: row.created_at.toISOString(),
+    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`
+  }));
 }
 
 function toMediaKey(file: { name: string; updatedAt: string }): string {
@@ -1317,73 +1724,11 @@ async function shutdown(code: number): Promise<void> {
 
   streamManager.stopAll();
   stopGitContextRefreshLoop();
-  stopAllMediaWatches();
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);
 }
 
-function ensureMediaWatch(agentId: string, mediaDir: string): void {
-  if (mediaWatchers.has(agentId)) {
-    return;
-  }
-
-  mkdir(mediaDir, { recursive: true })
-    .then(() => {
-      if (mediaWatchers.has(agentId)) {
-        return;
-      }
-
-      const watcher = watch(mediaDir, () => {
-        scheduleMediaEvent(agentId);
-      });
-
-      watcher.on("error", (error) => {
-        app.log.warn({ err: error, agentId, mediaDir }, "Media watcher error.");
-        stopMediaWatch(agentId);
-      });
-
-      mediaWatchers.set(agentId, watcher);
-    })
-    .catch((error) => {
-      app.log.warn({ err: error, agentId, mediaDir }, "Unable to initialize media watch.");
-    });
-}
-
-function scheduleMediaEvent(agentId: string): void {
-  const existing = mediaDebounceTimers.get(agentId);
-  if (existing) {
-    clearTimeout(existing);
-  }
-
-  const timer = setTimeout(() => {
-    mediaDebounceTimers.delete(agentId);
-    uiEventBroker.publish({ type: "media.changed", agentId });
-  }, 200);
-
-  mediaDebounceTimers.set(agentId, timer);
-}
-
-function stopMediaWatch(agentId: string): void {
-  const watcher = mediaWatchers.get(agentId);
-  if (watcher) {
-    watcher.close();
-    mediaWatchers.delete(agentId);
-  }
-
-  const timer = mediaDebounceTimers.get(agentId);
-  if (timer) {
-    clearTimeout(timer);
-    mediaDebounceTimers.delete(agentId);
-  }
-}
-
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
   return typeof value === "string" && AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType);
-}
-
-function stopAllMediaWatches(): void {
-  for (const agentId of mediaWatchers.keys()) {
-    stopMediaWatch(agentId);
-  }
 }

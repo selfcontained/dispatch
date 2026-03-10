@@ -4,6 +4,7 @@ import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
+import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import { EditWorktreeModeDialog } from "@/components/app/edit-worktree-mode-dialog";
@@ -114,6 +115,7 @@ export function App(): JSX.Element {
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Starting...");
 
+  const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
@@ -1309,14 +1311,6 @@ export function App(): JSX.Element {
     return "border-r-zinc-500";
   };
 
-  const mediaDescription = (name: string): string => {
-    const trimmed = name.replace(/\.[^/.]+$/, "").replace(/[_.-]+/g, " ").trim();
-    if (!trimmed) {
-      return "Shared media artifact.";
-    }
-    return `Shared: ${trimmed}`;
-  };
-
   const unseenMediaCount = useMemo(() => {
     return mediaFiles.filter((file) => !seenMediaKeys.has(`${file.name}:${file.updatedAt}`)).length;
   }, [mediaFiles, seenMediaKeys]);
@@ -1343,6 +1337,7 @@ export function App(): JSX.Element {
             setLeftOpen={setLeftOpen}
             onOpenCreateDialog={openCreateDialog}
             onOpenEditWorktreeDialog={openEditWorktreeDialog}
+            onOpenSettings={() => setSettingsPaneOpen(true)}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -1436,6 +1431,7 @@ export function App(): JSX.Element {
             overflowAgentId={overflowAgentId}
             onOpenCreateDialog={openCreateDialog}
             onOpenEditWorktreeDialog={openEditWorktreeDialog}
+            onOpenSettings={() => setSettingsPaneOpen(true)}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -1525,6 +1521,8 @@ export function App(): JSX.Element {
         setMode={setEditWorktreeMode}
         onSave={saveEditWorktreeMode}
       />
+
+      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} />
 
       <MediaLightbox
         lightboxSrc={lightboxSrc}

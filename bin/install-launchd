@@ -17,7 +17,7 @@ Installs Dispatch as a launchd service. Clones the repo to $SERVER_DIR,
 does an initial build, and loads the service.
 
 Options:
-  --port <port>   Port to listen on (default: 8787)
+  --port <port>   Port to listen on (default: 6767)
 
 Examples:
   bin/install-launchd
@@ -121,7 +121,7 @@ launchctl load "$PLIST"
 echo ""
 echo "installed and started Dispatch as a launchd service"
 echo "server directory: $SERVER_DIR"
-echo "port:             ${PORT:-8787}"
+echo "port:             ${PORT:-6767}"
 echo "logs:             tail -f $LOG_FILE"
 echo ""
 echo "useful commands:"

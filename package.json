@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "0.1.1",
+  "version": "0.1.10",
   "private": true,
   "description": "Local-first control plane for remote Codex CLI agents with simulator media",
   "type": "module",
@@ -20,6 +20,7 @@
     "check": "tsc --noEmit && npm run check:web"
   },
   "dependencies": {
+    "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^6.12.0",
     "@fastify/websocket": "^8.3.1",
     "dotenv": "^17.3.1",

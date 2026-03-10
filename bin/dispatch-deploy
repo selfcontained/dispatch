@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
-DEFAULT_PORT="8787"
+DEFAULT_PORT="6767"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
 LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
 FAILURE_LOG="$HOME/.dispatch/logs/last-release-failure.log"
@@ -35,8 +35,39 @@ load_nvm() {
   fi
 }
 
+resolve_port() {
+  # Read the port from the server's .env file (authoritative source),
+  # falling back to DEFAULT_PORT. We intentionally ignore the inherited
+  # DISPATCH_PORT env var because it may come from an agent shell that
+  # was spawned with a stale port value.
+  local env_file="$SERVER_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local env_port
+    env_port=$(grep -E '^DISPATCH_PORT=' "$env_file" | tail -1 | cut -d= -f2)
+    if [[ -n "$env_port" ]]; then
+      echo "$env_port"
+      return
+    fi
+  fi
+  echo "$DEFAULT_PORT"
+}
+
+reload_service() {
+  # Ask launchd to kill and restart the server. Using launchctl kill
+  # instead of launchctl unload/load avoids tearing down the service
+  # definition, so KeepAlive automatically restarts the process.
+  # SIGKILL is used because the node server may catch SIGTERM and hang.
+  # This is safe for dispatch-deploy even when it's a child of the
+  # server (e.g. triggered via the release UI) — launchctl kill doesn't
+  # affect the caller's process group.
+  echo "DISPATCH_RESTARTING"
+  launchctl kill SIGKILL "gui/$(id -u)/com.dispatch.server"
+  sleep 3
+}
+
 health_check() {
-  local port="${DISPATCH_PORT:-$DEFAULT_PORT}"
+  local port
+  port=$(resolve_port)
   curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
 }
 
@@ -85,6 +116,16 @@ build_tag() {
   npm run build
 }
 
+write_release_record() {
+  local tag="$1"
+  local record_path="$HOME/.dispatch/release.json"
+  mkdir -p "$(dirname "$record_path")"
+  printf '{\n  "tag": "%s",\n  "deployedAt": "%s"\n}\n' \
+    "$tag" \
+    "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" \
+    > "$record_path"
+}
+
 write_failure_log() {
   local step="$1"
   local tag="$2"
@@ -121,6 +162,88 @@ write_failure_log() {
   } > "$FAILURE_LOG"
 
   echo "failure details written to $FAILURE_LOG" >&2
+}
+
+spawn_diagnosis_agent() {
+  local step="$1"
+  local tag="$2"
+  local previous_tag="${3:-unknown}"
+
+  # Generate agent ID and session name
+  local agent_id="agt_$(openssl rand -hex 6)"
+  local session_name="dispatch_${agent_id}"
+  local media_dir="/tmp/dispatch-media/${agent_id}"
+  mkdir -p "$media_dir"
+
+  local port
+  port=$(resolve_port)
+
+  # Read DISPATCH_BIN_DIR from server .env
+  local bin_dir=""
+  local env_file="$SERVER_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    bin_dir=$(grep -E '^DISPATCH_BIN_DIR=' "$env_file" | tail -1 | cut -d= -f2)
+  fi
+  if [[ -z "$bin_dir" ]]; then
+    bin_dir="$SERVER_DIR/bin"
+  fi
+
+  # Pre-register agent in PostgreSQL so reconcileAgents() picks it up
+  local db_url=""
+  if [[ -f "$env_file" ]]; then
+    db_url=$(grep -E '^DATABASE_URL=' "$env_file" | tail -1 | cut -d= -f2)
+  fi
+  if [[ -n "$db_url" ]] && command -v psql &>/dev/null; then
+    psql "$db_url" -c "
+      INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at)
+      VALUES ('$agent_id', 'deploy-diagnosis', 'claude', 'running', '$SERVER_DIR',
+              NOW(), NOW())
+      ON CONFLICT DO NOTHING;
+    " >/dev/null 2>&1 || true
+  fi
+
+  # Build failure context from the failure log
+  local failure_context=""
+  if [[ -f "$FAILURE_LOG" ]]; then
+    failure_context=$(cat "$FAILURE_LOG")
+  fi
+
+  local prompt="The Dispatch deploy pipeline failed and needs diagnosis.
+
+Failed step: $step
+Target tag: $tag
+Previous tag: $previous_tag
+
+Failure details:
+${failure_context:-No failure log available.}
+
+Please diagnose why the deploy/rollback failed:
+1. Check server logs: tail -100 $LOG_FILE
+2. Check if the server process is running
+3. Check launchd service status
+4. Inspect the build output and configuration
+5. Report findings via dispatch-event
+
+If you can fix the issue, do so and redeploy with: bin/dispatch-deploy $tag"
+
+  local user_local_bin="$HOME/.local/bin"
+  local path_prefix="${bin_dir}:${user_local_bin}"
+
+  echo "==> spawning diagnosis agent ($session_name)..."
+  tmux new-session -d -s "$session_name" -c "$SERVER_DIR" \
+    "DISPATCH_AGENT_ID='${agent_id}' \
+     DISPATCH_MEDIA_DIR='${media_dir}' \
+     DISPATCH_PORT='${port}' \
+     PATH='${path_prefix}':\"\$PATH\" \
+     claude --append-system-prompt 'You are a Dispatch deploy diagnosis agent. Call dispatch-event at start (working), when blocked (blocked), and before final response (done/idle).' \
+     -p '${prompt//\'/\'\\\'\'}'" \
+    2>/dev/null || {
+      echo "warning: could not spawn diagnosis agent (tmux unavailable?)" >&2
+      return
+    }
+
+  echo "  agent ID:    $agent_id"
+  echo "  tmux attach: tmux attach -t $session_name"
 }
 
 main() {
@@ -160,15 +283,16 @@ main() {
   echo "==> building $tag"
   if ! build_tag "$tag"; then
     write_failure_log "build" "$tag" "$previous_tag" "" "Build failed for $tag."
+    spawn_diagnosis_agent "build" "$tag" "$previous_tag"
     echo "error: build failed" >&2
     exit 1
   fi
 
   echo "==> reloading launchd service"
-  launchctl unload "$PLIST"
-  launchctl load "$PLIST"
+  reload_service
 
   if wait_for_health; then
+    write_release_record "$tag"
     echo "==> deployed $tag successfully"
     cat /tmp/dispatch-health.json
     echo
@@ -180,13 +304,14 @@ main() {
 
   if [[ "$previous_tag" == "$tag" || "$previous_tag" == "unknown" ]]; then
     write_failure_log "health check" "$tag" "" "" ""
+    spawn_diagnosis_agent "health check (no rollback available)" "$tag" "unknown"
     echo "error: cannot roll back (no previous tag available)" >&2
     exit 1
   fi
 
   echo "==> rolling back to $previous_tag"
   if build_tag "$previous_tag" && \
-     { launchctl unload "$PLIST"; launchctl load "$PLIST"; } && \
+     reload_service && \
      wait_for_health; then
     write_failure_log "health check" "$tag" "$previous_tag" "succeeded"
     echo "error: deploy of $tag failed — rolled back to $previous_tag" >&2
@@ -195,6 +320,7 @@ main() {
 
   write_failure_log "health check" "$tag" "$previous_tag" "failed" \
     "Rollback to $previous_tag also failed. Server may be down."
+  spawn_diagnosis_agent "health check (deploy + rollback failed)" "$tag" "$previous_tag"
   echo "error: deploy failed and rollback failed — server may be down" >&2
   echo "       check logs: tail -f $LOG_FILE" >&2
   exit 1
