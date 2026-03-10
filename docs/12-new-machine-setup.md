@@ -24,6 +24,28 @@ The new machine needs:
 | **Xcode** (full) | iOS Simulator, `xcrun simctl` |
 | **Claude CLI** | Agent runtime (`brew install claude` or npm) |
 
+## Agent Setup Prompt
+
+Copy and paste this prompt to a Claude agent on the new machine to kick off setup:
+
+```
+Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
+
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, Docker Desktop, GitHub CLI.
+2. Clone the repo to ~/dev/apps/dispatch.
+3. Run bin/preflight and fix any failures it reports.
+4. Start Docker Desktop if not running, then run: docker compose up -d postgres
+5. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
+6. Run: nvm use && npm ci && npm --prefix web ci && npm run build
+7. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
+8. Install the launchd service: bin/install-launchd --port 6767
+9. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
+10. Set up Tailscale if not already configured, and confirm the UI is reachable from another device.
+11. Run gh auth login to authenticate GitHub CLI for releases.
+
+Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
+```
+
 ## Preflight Check
 
 Run this first to see what's missing:
@@ -89,7 +111,7 @@ cd dispatch
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — the only value you must change is `AUTH_TOKEN`:
 
 ```
 HOST=0.0.0.0
@@ -97,10 +119,9 @@ DISPATCH_PORT=6767
 DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:5432/dispatch
 AUTH_TOKEN=<generate-a-real-token>
 MEDIA_ROOT=~/.dispatch/media
-DISPATCH_BIN_DIR=/Users/<you>/dev/apps/dispatch/bin
 ```
 
-**Important:** `DISPATCH_BIN_DIR` must be an absolute path to the `bin/` directory. This is how agents get `dispatch-share`, `dispatch-event`, and `dispatch-stream` on their PATH.
+Generate a token with `openssl rand -hex 32`.
 
 ### 5. Build & verify locally
 
@@ -184,7 +205,7 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 tmux -V
 
 # Node version correct
-node -v  # Should be v25.8.0+
+node -v  # Should be v22+
 
 # Create a test agent via API
 curl -s -X POST http://127.0.0.1:6767/api/v1/agents \
@@ -250,38 +271,12 @@ npm rebuild node-pty                  # Rebuild native module
 ```
 
 ### Agent can't find dispatch-share/dispatch-event
-Check that `DISPATCH_BIN_DIR` in `~/.dispatch/server/.env` is an absolute path pointing to the production checkout's `bin/` directory (typically `~/.dispatch/server/bin`).
+`dispatchBinDir` is derived automatically from the server's install location. Verify that `~/.dispatch/server/bin/` contains the dispatch helper scripts. If the production checkout is corrupt, re-run `bin/install-launchd`.
 
 ---
 
-## Friction Points & Improvement Opportunities
+## Design Decisions
 
-Issues identified during this review that could make setup smoother:
-
-### P1 — Should fix before new machine setup
-
-1. ~~**Node 25.8.0 is bleeding-edge.**~~ **FIXED** — switched to Node 22 LTS.
-
-2. **`DISPATCH_BIN_DIR` default is fragile.** The config falls back to `path.resolve(process.cwd(), "bin")` which works for dev but is error-prone in production. The `install-launchd` script doesn't explicitly set `DISPATCH_BIN_DIR` in the server `.env`, so it relies on the launchd wrapper's `cd` to make the relative path work. Should be explicitly set to an absolute path during install.
-
-3. **No `npm run db:migrate` in the install flow.** Migrations run inside the server on boot (`migrate.ts` is imported by `server.ts`), but this isn't documented. If the server fails to start, it's unclear whether the DB is the issue. An explicit migration step would help debugging.
-
-4. **Docker must be running before launchd starts the server.** There's no dependency ordering — if the Mac reboots and Docker Desktop hasn't started yet, the server will fail to connect to Postgres and crash-loop until Docker is ready. launchd's `KeepAlive: true` will eventually recover, but it's noisy.
-
-5. **The `.env.example` has `DISPATCH_BIN_DIR=/path/to/dispatch/bin`** — a placeholder that's easy to miss. Should either default to something sensible or be set automatically by `install-launchd`.
-
-### P2 — Nice to have
-
-6. **Two separate git checkouts (dev + production) is intentional.** The `install-launchd` flow clones a second copy to `~/.dispatch/server/`. This keeps the live service isolated from the dev checkout so local development doesn't disrupt running agents. Updates reach production via `bin/dispatch-deploy <tag>`.
-
-7. **Auth is not enforced.** `AUTH_TOKEN` exists in config but no middleware validates it. On a Tailscale network this is probably fine, but worth noting for the security-conscious.
-
-8. **No health check on Docker/Postgres in server startup.** The server tries to connect to Postgres immediately. If Docker is slow to start, the server errors out rather than retrying.
-
-9. **launchd log rotation.** `dispatch.log` grows forever. No logrotate or size cap.
-
-10. **`install-launchd` uses `launchctl load` (deprecated).** Apple recommends `launchctl bootstrap` for modern macOS. Still works, but may warn.
-
-11. **Media in `/tmp/` is ephemeral.** Default `MEDIA_ROOT=~/.dispatch/media` gets cleared on reboot. Fine for transient screenshots but surprising if you expect persistence. Should either document this clearly or default to `~/.dispatch/media/`.
-
-12. **Lots of `tmp-*.mjs` files and screenshots in repo root.** Not in `.gitignore`'s tracked patterns but showing as untracked. Could use a cleanup or a broader gitignore pattern.
+- **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production via `bin/dispatch-deploy <tag>`.
+- **Migrations run on boot**: No explicit `db:migrate` step needed. The server runs migrations automatically on startup.
+- **Database retry on boot**: Server retries the Postgres connection up to 15 times (30s) to handle Docker Desktop startup lag after reboot. `KeepAlive: true` in launchd provides additional resilience.
