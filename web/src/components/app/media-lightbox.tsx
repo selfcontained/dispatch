@@ -20,6 +20,8 @@ export function MediaLightbox({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         setLightboxSrc(null);
       }
     };
