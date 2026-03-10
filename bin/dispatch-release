@@ -146,8 +146,9 @@ main() {
 
   echo "==> release workflow produced tag: $tag"
 
-  # dispatch-deploy handles rollback and failure logging internally.
-  # We don't spawn a diagnosis agent here since Dispatch may be down.
+  # dispatch-deploy handles rollback, failure logging, and diagnosis agent
+  # spawning internally. It launches diagnosis agents via tmux+claude CLI
+  # directly, so it works even when the server is down.
   if ! "$ROOT_DIR/bin/dispatch-deploy" "$tag"; then
     echo "error: deploy failed — see $HOME/.dispatch/logs/last-release-failure.log" >&2
     exit 1
