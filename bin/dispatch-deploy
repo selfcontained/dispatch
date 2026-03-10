@@ -53,43 +53,16 @@ resolve_port() {
 }
 
 reload_service() {
-  # When dispatch-deploy is spawned by the server (e.g. via the release UI),
-  # launchctl unload kills the server — our parent process. The server's
-  # child processes share its process group, so they can all be killed.
-  #
-  # To survive: write a self-contained reload script to a temp file and
-  # launch it in a brand-new session (via perl setsid + double-fork) so
-  # it's completely independent of our process tree.
+  # Ask launchd to kill and restart the server. Using launchctl kill
+  # instead of launchctl unload/load avoids tearing down the service
+  # definition, so KeepAlive automatically restarts the process.
+  # SIGKILL is used because the node server may catch SIGTERM and hang.
+  # This is safe for dispatch-deploy even when it's a child of the
+  # server (e.g. triggered via the release UI) — launchctl kill doesn't
+  # affect the caller's process group.
   echo "DISPATCH_RESTARTING"
-
-  local reload_script
-  reload_script=$(mktemp /tmp/dispatch-reload.XXXXXX.sh)
-  cat > "$reload_script" <<RELOAD
-#!/bin/bash
-trap '' HUP TERM PIPE
-launchctl unload '$PLIST' 2>/dev/null || true
-sleep 1
-launchctl load '$PLIST'
-rm -f '$reload_script'
-RELOAD
-  chmod +x "$reload_script"
-
-  # Double-fork + setsid: the reload runs in its own session, immune to
-  # any signals sent to our process group when the server dies.
-  perl -e '
-    use POSIX qw(setsid);
-    my $pid = fork();
-    if (!defined $pid) { die "fork failed: $!"; }
-    if ($pid) { exit 0; }   # parent returns
-    setsid();                # new session + process group
-    exec @ARGV;
-  ' -- "$reload_script" </dev/null >/dev/null 2>&1
-
-  # Protect ourselves from signals during the reload window
-  trap '' HUP TERM PIPE
-  # Give launchd time to unload old + load new
-  sleep 4
-  trap - HUP TERM PIPE
+  launchctl kill SIGKILL "gui/$(id -u)/com.dispatch.server"
+  sleep 3
 }
 
 health_check() {
