@@ -11,11 +11,17 @@ The new machine needs:
 | **Xcode CLI Tools** | Build tools for native npm modules (node-pty) | `xcode-select --install` |
 | **Homebrew** | Package manager | https://brew.sh |
 | **NVM** | Node version manager (Dispatch requires Node 22 LTS+) | `brew install nvm` or https://github.com/nvm-sh/nvm |
-| **Docker Desktop** | PostgreSQL container | https://docker.com/products/docker-desktop/ |
+| **PostgreSQL 17** | Database (via Homebrew, native — no Docker needed) | `brew install postgresql@17` |
 | **tmux** | Agent session management | `brew install tmux` |
 | **Git** | Source control | Included with Xcode CLI Tools |
 | **GitHub CLI** | Release automation | `brew install gh` |
 | **Tailscale** | Remote access (VPN mesh) | https://tailscale.com/download |
+
+### Optional (for development)
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker` |
 
 ### Optional (for iOS Simulator features)
 
@@ -31,17 +37,18 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, Docker Desktop, GitHub CLI.
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
-4. Start Docker Desktop if not running, then run: docker compose up -d postgres
-5. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
-6. Run: nvm use && npm ci && npm --prefix web ci && npm run build
-7. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
-8. Install the launchd service: bin/install-launchd --port 6767
-9. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
-10. Set up Tailscale if not already configured, and confirm the UI is reachable from another device.
-11. Run gh auth login to authenticate GitHub CLI for releases.
+4. Start Postgres: brew services start postgresql@17
+5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch;"
+6. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
+7. Run: nvm use && npm ci && npm --prefix web ci && npm run build
+8. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
+9. Install the launchd service: bin/install-launchd --port 6767
+10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
+11. Set up Tailscale if not already configured, and confirm the UI is reachable from another device.
+12. Run gh auth login to authenticate GitHub CLI for releases.
 
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
@@ -68,7 +75,7 @@ xcode-select --install
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Core tools
-brew install tmux gh nvm
+brew install tmux gh nvm postgresql@17
 
 # Add NVM to shell profile (~/.zshrc)
 echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
@@ -80,21 +87,24 @@ nvm install 22
 nvm alias default 22
 ```
 
-### 2. Docker & PostgreSQL
+### 2. PostgreSQL
+
+Production uses Homebrew Postgres (native, no Docker VM overhead, starts at boot):
 
 ```bash
-# Install Docker Desktop (GUI or via brew)
-brew install --cask docker
+brew install postgresql@17
+brew services start postgresql@17
 
-# Start Docker Desktop, then verify
-docker info
-
-# Start Dispatch's Postgres (from repo root, after clone)
-docker compose up -d postgres
+# Create database and role
+createdb dispatch
+psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch;"
 
 # Verify
-docker exec dispatch-postgres pg_isready -U dispatch -d dispatch
+pg_isready
+psql dispatch -c "SELECT 1"
 ```
+
+For development, you can also use `docker compose up -d postgres` for isolated dev databases.
 
 ### 3. Clone the repo
 
@@ -195,8 +205,8 @@ The `claudeBin` config defaults to `claude` on PATH. If it's installed elsewhere
 ## Post-Setup Verification Checklist
 
 ```bash
-# Docker & Postgres running
-docker compose ps
+# Postgres running
+pg_isready
 
 # Server healthy
 curl -s http://127.0.0.1:6767/api/v1/health | jq
@@ -259,9 +269,9 @@ launchctl list com.dispatch.server   # Check exit code
 
 ### Database connection errors
 ```bash
-docker compose ps                    # Is postgres running?
-docker compose up -d postgres        # Start it
-docker compose logs postgres         # Check logs
+pg_isready                           # Is postgres running?
+brew services start postgresql@17    # Start it
+tail -20 /opt/homebrew/var/log/postgresql@17.log  # Check logs
 ```
 
 ### node-pty build failures
@@ -279,4 +289,5 @@ npm rebuild node-pty                  # Rebuild native module
 
 - **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production via `bin/dispatch-deploy <tag>`.
 - **Migrations run on boot**: No explicit `db:migrate` step needed. The server runs migrations automatically on startup.
-- **Database retry on boot**: Server retries the Postgres connection up to 15 times (30s) to handle Docker Desktop startup lag after reboot. `KeepAlive: true` in launchd provides additional resilience.
+- **Database retry on boot**: Server retries the Postgres connection up to 15 times (30s) on startup. With Homebrew Postgres (starts via launchd at boot), this is rarely needed but provides resilience.
+- **Homebrew Postgres for production, Docker for dev**: Production uses native Homebrew Postgres — no VM overhead, starts at boot via `brew services`, one fewer moving part. Docker Compose is available for isolated dev databases when needed.

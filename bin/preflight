@@ -49,15 +49,15 @@ else
   fail "nvm — install: brew install nvm (then add to ~/.zshrc)"
 fi
 
-# Docker
-if command -v docker &>/dev/null; then
-  if docker info &>/dev/null; then
-    ok "docker (running)"
+# PostgreSQL
+if command -v pg_isready &>/dev/null; then
+  if pg_isready &>/dev/null; then
+    ok "postgresql (running)"
   else
-    fail "docker installed but not running — start Docker Desktop"
+    fail "postgresql installed but not running — start: brew services start postgresql@17"
   fi
 else
-  fail "docker — install: brew install --cask docker"
+  fail "postgresql — install: brew install postgresql@17"
 fi
 
 # tmux
@@ -97,6 +97,13 @@ if xcode-select -p &>/dev/null; then
   fi
 else
   warn "xcode — install from App Store for iOS Simulator support"
+fi
+
+# Docker (for dev databases)
+if command -v docker &>/dev/null; then
+  ok "docker (for dev databases)"
+else
+  warn "docker — optional, for isolated dev databases: brew install --cask docker"
 fi
 
 # Tailscale
