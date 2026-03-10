@@ -142,6 +142,8 @@ export function ReleaseManager(): JSX.Element {
             setPostRestartPolling(false);
             setStatus(data);
             setJob((prev) => prev ? { ...prev, phase: "done", tag: data.tag } : prev);
+            // App is confirmed running on new version — reload to pick up new UI
+            setTimeout(() => window.location.reload(), 1500);
           }
         }
       } catch { /* server still down */ }
