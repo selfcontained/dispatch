@@ -52,6 +52,23 @@ resolve_port() {
   echo "$DEFAULT_PORT"
 }
 
+reload_service() {
+  # When dispatch-deploy is spawned by the server (e.g. via the release UI),
+  # launchctl unload kills the server — our parent process. To survive this,
+  # we ignore HUP/TERM/PIPE during the reload window, and run the unload+load
+  # in a nohup subshell so launchctl load executes even if this script is killed.
+  echo "DISPATCH_RESTARTING"
+  sleep 1
+  trap '' HUP TERM PIPE
+  nohup bash -c "launchctl unload '$PLIST' 2>/dev/null || true; sleep 1; launchctl load '$PLIST'" \
+    </dev/null >/dev/null 2>&1 &
+  local reload_pid=$!
+  wait "$reload_pid" 2>/dev/null || true
+  trap - HUP TERM PIPE
+  # Give the new server a moment to bind its port
+  sleep 2
+}
+
 health_check() {
   local port
   port=$(resolve_port)
@@ -276,10 +293,7 @@ main() {
   fi
 
   echo "==> reloading launchd service"
-  echo "DISPATCH_RESTARTING"
-  sleep 1
-  launchctl unload "$PLIST"
-  launchctl load "$PLIST"
+  reload_service
 
   if wait_for_health; then
     write_release_record "$tag"
@@ -301,7 +315,7 @@ main() {
 
   echo "==> rolling back to $previous_tag"
   if build_tag "$previous_tag" && \
-     { launchctl unload "$PLIST"; launchctl load "$PLIST"; } && \
+     reload_service && \
      wait_for_health; then
     write_failure_log "health check" "$tag" "$previous_tag" "succeeded"
     echo "error: deploy of $tag failed — rolled back to $previous_tag" >&2
