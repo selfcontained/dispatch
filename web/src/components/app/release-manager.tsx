@@ -32,6 +32,7 @@ type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
   | { type: "log"; line: string }
   | { type: "log.replace"; line: string }
+  | { type: "log.rewind"; count: number }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string };
@@ -164,6 +165,9 @@ export function ReleaseManager(): JSX.Element {
       setJob((prev) => {
         if (!prev) return prev;
         if (event.type === "log") return { ...prev, log: [...prev.log, event.line] };
+        if (event.type === "log.rewind") {
+          return { ...prev, log: prev.log.slice(0, -event.count) };
+        }
         if (event.type === "log.replace") {
           const updated = [...prev.log];
           if (updated.length > 0) {
@@ -370,7 +374,7 @@ export function ReleaseManager(): JSX.Element {
                       <div className={cn(
                         "h-2 w-2 rounded-full shrink-0",
                         done && "bg-green-500",
-                        current && !isFailed && "animate-pulse bg-primary",
+                        current && !isFailed && "animate-pulse bg-amber-500",
                         current && isFailed && "bg-destructive",
                         !done && !current && "bg-muted"
                       )} />
