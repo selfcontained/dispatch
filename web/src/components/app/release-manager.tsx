@@ -31,6 +31,7 @@ type ReleaseJob = {
 type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
   | { type: "log"; line: string }
+  | { type: "log.replace"; line: string }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string };
@@ -135,7 +136,7 @@ export function ReleaseManager(): JSX.Element {
         const res = await fetch("/api/v1/release/status");
         if (res.ok) {
           const data = (await res.json()) as ReleaseStatus;
-          if (data.tag && data.tag !== expectedTag) {
+          if (data.tag && data.tag === expectedTag) {
             clearInterval(healthPollRef.current!);
             healthPollRef.current = null;
             setPostRestartPolling(false);
@@ -161,6 +162,15 @@ export function ReleaseManager(): JSX.Element {
       setJob((prev) => {
         if (!prev) return prev;
         if (event.type === "log") return { ...prev, log: [...prev.log, event.line] };
+        if (event.type === "log.replace") {
+          const updated = [...prev.log];
+          if (updated.length > 0) {
+            updated[updated.length - 1] = event.line;
+          } else {
+            updated.push(event.line);
+          }
+          return { ...prev, log: updated };
+        }
         if (event.type === "phase") return { ...prev, phase: event.phase, error: event.error ?? prev.error };
         if (event.type === "runUrl") return { ...prev, runUrl: event.url };
         if (event.type === "tag") return { ...prev, tag: event.tag };

@@ -144,6 +144,7 @@ type ReleaseJob = {
 type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
   | { type: "log"; line: string }
+  | { type: "log.replace"; line: string }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string };
@@ -169,6 +170,15 @@ function appendReleaseLog(job: ReleaseJob, line: string): void {
   broadcastReleaseEvent({ type: "log", line });
 }
 
+function replaceReleaseLog(job: ReleaseJob, line: string): void {
+  if (job.log.length > 0) {
+    job.log[job.log.length - 1] = line;
+  } else {
+    job.log.push(line);
+  }
+  broadcastReleaseEvent({ type: "log.replace", line });
+}
+
 function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
   job.phase = phase;
   broadcastReleaseEvent({ type: "phase", phase, error });
@@ -188,13 +198,34 @@ function streamProcess(
     });
 
     let buffer = "";
+    let lastWasCR = false;
     const processChunk = (chunk: Buffer): void => {
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        appendReleaseLog(job, line);
-        onLine?.(line);
+        // A line may contain \r-separated segments (in-place terminal updates).
+        // Only the final segment matters; earlier ones were meant to be overwritten.
+        const crParts = line.split("\r").filter(Boolean);
+        if (crParts.length > 1 || lastWasCR) {
+          // Replace the previous log entry with the last \r segment
+          const final = crParts[crParts.length - 1] ?? "";
+          replaceReleaseLog(job, final);
+          onLine?.(final);
+        } else {
+          appendReleaseLog(job, crParts[0] ?? line);
+          onLine?.(crParts[0] ?? line);
+        }
+        lastWasCR = false;
+      }
+      // If the remaining buffer contains \r, the next output will overwrite
+      if (buffer.includes("\r")) {
+        const crParts = buffer.split("\r").filter(Boolean);
+        const final = crParts[crParts.length - 1] ?? "";
+        replaceReleaseLog(job, final);
+        onLine?.(final);
+        buffer = "";
+        lastWasCR = true;
       }
     };
 
@@ -299,23 +330,38 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
     broadcastReleaseEvent({ type: "tag", tag });
     appendReleaseLog(job, `==> release workflow produced tag: ${tag}`);
 
-    // Deploy
+    // Deploy — build inline instead of shelling out to dispatch-deploy,
+    // because dispatch-deploy would be killed as part of the server's
+    // process group when launchd restarts the service.
     setReleasePhase(job, "deploying");
-    const deployBin = path.join(serverDir, "bin", "dispatch-deploy");
 
-    // Watch for the DISPATCH_RESTARTING marker to send the restarting phase
-    // before launchctl kills this server process.
-    await streamProcess(deployBin, [tag], { cwd: serverDir }, job, (line) => {
-      if (line.trim() === "DISPATCH_RESTARTING") {
-        setReleasePhase(job, "restarting");
-      }
-    });
+    appendReleaseLog(job, `==> checking out ${tag}`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
 
-    // If we reach here the deploy succeeded without restarting (unusual),
-    // mark done and write the store ourselves.
-    job.phase = "done";
+    appendReleaseLog(job, "==> installing dependencies");
+    await streamProcess("npm", ["ci", "--silent"], { cwd: serverDir }, job);
+    await streamProcess("npm", ["--prefix", "web", "ci", "--silent"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> building");
+    await streamProcess("npm", ["run", "build"], { cwd: serverDir }, job);
+
+    // Write release record BEFORE the restart — after the restart our
+    // process is dead and can't write anything.
     await writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
-    broadcastReleaseEvent({ type: "phase", phase: "done" });
+    appendReleaseLog(job, `==> wrote release record for ${tag}`);
+
+    // Tell SSE clients we're about to restart
+    setReleasePhase(job, "restarting");
+    appendReleaseLog(job, "==> restarting service");
+
+    // Trigger the restart. launchctl kill sends SIGKILL to this process
+    // (and its process group). KeepAlive ensures launchd restarts it
+    // with the newly built code. The UI health-poll takes over from here.
+    const uid = process.getuid?.() ?? 501;
+    spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
+      detached: true,
+      stdio: "ignore"
+    }).unref();
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     if (activeReleaseJob) {
