@@ -24,6 +24,16 @@ The new machine needs:
 | **Xcode** (full) | iOS Simulator, `xcrun simctl` |
 | **Claude CLI** | Agent runtime (`brew install claude` or npm) |
 
+## Preflight Check
+
+Run this first to see what's missing:
+
+```bash
+bin/preflight
+```
+
+It checks for all required and optional dependencies and tells you exactly what to install.
+
 ## Step-by-step Setup
 
 ### 1. System dependencies
