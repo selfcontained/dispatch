@@ -23,6 +23,7 @@ export type Agent = {
     worktreeName: string;
     isWorktree: boolean;
   } | null;
+  hasStream?: boolean;
   createdAt: string;
   updatedAt: string;
 };

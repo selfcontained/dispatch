@@ -68,7 +68,9 @@ type UiEvent =
   | { type: "agent.upsert"; agent: Agent }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
-  | { type: "media.seen"; agentId: string; keys: string[] };
+  | { type: "media.seen"; agentId: string; keys: string[] }
+  | { type: "stream.started"; agentId: string }
+  | { type: "stream.stopped"; agentId: string };
 
 function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
   const eventPriority = (agent: Agent): number => {
@@ -170,6 +172,7 @@ export function App(): JSX.Element {
   const [lightboxCaption, setLightboxCaption] = useState("");
   const [seenMediaKeys, setSeenMediaKeys] = useState<Set<string>>(new Set());
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(new Set());
+  const [streamingAgentIds, setStreamingAgentIds] = useState<Set<string>>(new Set());
 
   const [apiState, setApiState] = useState<ServiceState>("checking");
   const [dbState, setDbState] = useState<ServiceState>("checking");
@@ -200,6 +203,9 @@ export function App(): JSX.Element {
     () => agents.find((agent) => agent.id === connectedAgentId) ?? null,
     [agents, connectedAgentId]
   );
+
+  const selectedAgentHasStream = selectedAgentId ? streamingAgentIds.has(selectedAgentId) : false;
+  const selectedAgentStreamUrl = selectedAgentId ? `/api/v1/agents/${selectedAgentId}/stream` : null;
 
   const resolveCreateDefaultCwd = useCallback((): string => {
     const activeCwd = selectedAgent?.cwd?.trim() || connectedAgent?.cwd?.trim();
@@ -847,6 +853,9 @@ export function App(): JSX.Element {
 
         if (payload.type === "snapshot") {
           setAgents(sortAgentsByCreatedAtDesc(payload.agents));
+          setStreamingAgentIds(
+            new Set(payload.agents.filter((a) => a.hasStream).map((a) => a.id))
+          );
           return;
         }
 
@@ -870,6 +879,26 @@ export function App(): JSX.Element {
 
         if (payload.type === "media.changed" && payload.agentId === selectedAgentIdRef.current) {
           void refreshMedia(payload.agentId);
+          return;
+        }
+
+        if (payload.type === "stream.started") {
+          setStreamingAgentIds((current) => {
+            if (current.has(payload.agentId)) return current;
+            const next = new Set(current);
+            next.add(payload.agentId);
+            return next;
+          });
+          return;
+        }
+
+        if (payload.type === "stream.stopped") {
+          setStreamingAgentIds((current) => {
+            if (!current.has(payload.agentId)) return current;
+            const next = new Set(current);
+            next.delete(payload.agentId);
+            return next;
+          });
           return;
         }
 
@@ -1379,6 +1408,8 @@ export function App(): JSX.Element {
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             mediaDescription={mediaDescription}
+            hasStream={selectedAgentHasStream}
+            streamUrl={selectedAgentStreamUrl}
             openLightbox={(src, caption) => {
               setLightboxSrc(src);
               setLightboxCaption(caption);
@@ -1442,6 +1473,8 @@ export function App(): JSX.Element {
               seenMediaKeys={seenMediaKeys}
               mediaViewportRef={mediaViewportRef}
               mediaDescription={mediaDescription}
+              hasStream={selectedAgentHasStream}
+              streamUrl={selectedAgentStreamUrl}
               openLightbox={(src, caption) => {
                 setLightboxSrc(src);
                 setLightboxCaption(caption);

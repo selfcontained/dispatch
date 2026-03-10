@@ -22,6 +22,7 @@ import {
   resolveRepoConfig,
   writeWorktreeMode
 } from "./repo-config.js";
+import { StreamManager } from "./stream-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 
 const config = loadConfig();
@@ -39,7 +40,9 @@ type UiEvent =
   | { type: "agent.upsert"; agent: AgentRecord }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
-  | { type: "media.seen"; agentId: string; keys: string[] };
+  | { type: "media.seen"; agentId: string; keys: string[] }
+  | { type: "stream.started"; agentId: string }
+  | { type: "stream.stopped"; agentId: string };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -78,6 +81,13 @@ class UiEventBroker {
 }
 
 const uiEventBroker = new UiEventBroker();
+const streamManager = new StreamManager((agentId, event) => {
+  uiEventBroker.publish(
+    event === "started"
+      ? { type: "stream.started", agentId }
+      : { type: "stream.stopped", agentId }
+  );
+});
 const mediaWatchers = new Map<string, FSWatcher>();
 const mediaDebounceTimers = new Map<string, NodeJS.Timeout>();
 const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
@@ -120,6 +130,10 @@ const __dirname = path.dirname(__filename);
 const webDistDir = path.resolve(__dirname, "../web/dist");
 const legacyPublicDir = path.resolve(__dirname, "../public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
+
+function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boolean } {
+  return { ...agent, hasStream: streamManager.hasStream(agent.id) };
+}
 
 async function registerRoutes() {
   await app.register(fastifyWebsocket);
@@ -192,7 +206,7 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
-    return { agents };
+    return { agents: agents.map(withStreamFlag) };
   });
 
   app.get("/api/v1/agents/git-context", async (request, reply) => {
@@ -264,7 +278,7 @@ async function registerRoutes() {
 
     try {
       const agents = await agentManager.listAgents();
-      uiEventBroker.sendSnapshot(stream, agents);
+      uiEventBroker.sendSnapshot(stream, agents.map(withStreamFlag));
     } catch (error) {
       app.log.warn({ err: error }, "Failed to load SSE snapshot.");
     }
@@ -283,7 +297,7 @@ async function registerRoutes() {
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    return { agent };
+    return { agent: withStreamFlag(agent) };
   });
 
   app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
@@ -321,7 +335,7 @@ async function registerRoutes() {
       metadata: metadata as Record<string, unknown> | undefined
     });
 
-    uiEventBroker.publish({ type: "agent.upsert", agent });
+    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
     return { agent };
   });
 
@@ -397,6 +411,99 @@ async function registerRoutes() {
     return { ok: true, updated: keys.length };
   });
 
+  app.post("/api/v1/agents/:id/stream", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const body = request.body as { type?: unknown; port?: unknown };
+    if (body?.type === "stop") {
+      streamManager.stopStream(id);
+      return { ok: true };
+    }
+
+    if (body?.type === "playwright") {
+      if (typeof body.port !== "number" || !Number.isFinite(body.port) || body.port < 1) {
+        return reply.code(400).send({ error: "port must be a positive number." });
+      }
+      if (streamManager.hasStream(id)) {
+        return reply.code(409).send({ error: "Stream already active for this agent." });
+      }
+      try {
+        await streamManager.startStream(id, body.port);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to start stream.";
+        return reply.code(502).send({ error: message });
+      }
+      return { ok: true };
+    }
+
+    return reply.code(400).send({ error: "type must be 'playwright' or 'stop'." });
+  });
+
+  app.get("/api/v1/agents/:id/stream", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    if (!streamManager.hasStream(id)) {
+      return reply.code(404).send({ error: "No active stream for this agent." });
+    }
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    raw.flushHeaders();
+    if (raw.socket) {
+      raw.socket.setNoDelay(true);
+    }
+
+    const unsubscribe = streamManager.addViewer(id, raw);
+    reply.raw.on("close", () => {
+      unsubscribe();
+    });
+  });
+
+  app.get("/api/v1/agents/:id/stream/viewer", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${agent.name} — Live Stream</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a0a;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
+  img{max-width:100%;max-height:100%;object-fit:contain}
+  .gone{display:flex;align-items:center;justify-content:center;height:100vh;color:#666;font-family:system-ui;font-size:14px}
+</style>
+</head><body>
+<img id="feed" src="/api/v1/agents/${id}/stream" alt="Live stream">
+<script>
+  const img = document.getElementById('feed');
+  img.onerror = () => {
+    document.body.innerHTML = '<div class="gone">Stream ended.</div>';
+  };
+</script>
+</body></html>`;
+    return reply.type("text/html").send(html);
+  });
+
   app.post("/api/v1/agents", async (request, reply) => {
     const body = request.body as {
       name?: unknown;
@@ -443,7 +550,7 @@ async function registerRoutes() {
       });
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent });
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
       return reply.code(201).send({ agent });
     } catch (error) {
       return handleAgentError(reply, error);
@@ -458,7 +565,7 @@ async function registerRoutes() {
       const agent = await agentManager.startAgent(id);
       ensureMediaWatch(agent.id, resolveMediaDir(agent.id, agent.mediaDir));
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent });
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -477,7 +584,7 @@ async function registerRoutes() {
     try {
       const agent = await agentManager.stopAgent(id, { force: body?.force as boolean | undefined });
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent });
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -501,6 +608,7 @@ async function registerRoutes() {
       const existing = await agentManager.getAgent(params.id);
       await agentManager.deleteAgent(params.id, force);
       if (existing) {
+        streamManager.stopStream(existing.id);
         stopMediaWatch(existing.id);
         pendingGitRefreshAgentIds.delete(existing.id);
         pendingGitRefreshEnqueuedAt.delete(existing.id);
@@ -539,7 +647,7 @@ async function registerRoutes() {
       const refreshed = await agentManager.getAgent(id);
       if (refreshed) {
         queueGitContextRefresh([refreshed.id]);
-        uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(refreshed) });
       }
       return handleAgentError(reply, error);
     }
@@ -877,7 +985,7 @@ async function refreshAgentGitContext(
 
   const refreshed = await agentManager.getAgent(agentId);
   if (refreshed) {
-    uiEventBroker.publish({ type: "agent.upsert", agent: refreshed });
+    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(refreshed) });
   }
   return "updated";
 }
@@ -1207,6 +1315,7 @@ async function shutdown(code: number): Promise<void> {
   }
   shuttingDown = true;
 
+  streamManager.stopAll();
   stopGitContextRefreshLoop();
   stopAllMediaWatches();
   await pool.end().catch(() => null);

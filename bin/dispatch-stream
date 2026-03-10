@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  dispatch-stream start --playwright <port>
+  dispatch-stream stop
+
+Examples:
+  dispatch-stream start --playwright 62816
+  dispatch-stream stop
+USAGE
+}
+
+if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+ACTION="${1:-}"
+
+AGENT_ID="${DISPATCH_AGENT_ID:-${HOSTESS_AGENT_ID:-}}"
+if [ -z "$AGENT_ID" ]; then
+  echo "DISPATCH_AGENT_ID is not set. Run this command inside a Dispatch agent session." >&2
+  exit 1
+fi
+
+PORT="${DISPATCH_PORT:-8787}"
+API_BASE="${DISPATCH_API_BASE:-http://127.0.0.1:${PORT}}"
+
+case "$ACTION" in
+  start)
+    if [ "${2:-}" != "--playwright" ]; then
+      echo "Usage: dispatch-stream start --playwright <port>" >&2
+      exit 1
+    fi
+    CDP_PORT="${3:-}"
+    if [ -z "$CDP_PORT" ]; then
+      echo "Port is required for --playwright." >&2
+      exit 1
+    fi
+    PAYLOAD="{\"type\":\"playwright\",\"port\":${CDP_PORT}}"
+    ;;
+  stop)
+    PAYLOAD='{"type":"stop"}'
+    ;;
+  *)
+    echo "Invalid action: $ACTION" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+curl -fsS \
+  -X POST \
+  -H "content-type: application/json" \
+  --data "$PAYLOAD" \
+  "${API_BASE}/api/v1/agents/${AGENT_ID}/stream" >/dev/null
+
+echo "Stream ${ACTION}: ${AGENT_ID}"
