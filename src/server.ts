@@ -1,4 +1,6 @@
 import path from "node:path";
+import os from "node:os";
+import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync, watch, type FSWatcher } from "node:fs";
@@ -22,6 +24,7 @@ import {
   resolveRepoConfig,
   writeWorktreeMode
 } from "./repo-config.js";
+import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 
 const config = loadConfig();
@@ -121,6 +124,208 @@ const webDistDir = path.resolve(__dirname, "../web/dist");
 const legacyPublicDir = path.resolve(__dirname, "../public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 
+// ---------------------------------------------------------------------------
+// Release manager
+// ---------------------------------------------------------------------------
+
+const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
+type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
+type ReleasePhase = "preflight" | "triggering" | "watching" | "deploying" | "restarting" | "done" | "failed";
+
+type ReleaseJob = {
+  versionType: ReleaseVersionType;
+  phase: ReleasePhase;
+  startedAt: string;
+  log: string[];
+  runUrl: string | null;
+  tag: string | null;
+  error: string | null;
+};
+
+type ReleaseStreamEvent =
+  | { type: "snapshot"; job: ReleaseJob | null }
+  | { type: "log"; line: string }
+  | { type: "phase"; phase: ReleasePhase; error?: string }
+  | { type: "runUrl"; url: string }
+  | { type: "tag"; tag: string };
+
+let activeReleaseJob: ReleaseJob | null = null;
+const releaseStreamClients = new Set<NodeJS.WritableStream>();
+
+const serverDir = process.env.DISPATCH_SERVER_DIR ?? path.join(os.homedir(), ".dispatch", "server");
+
+function broadcastReleaseEvent(event: ReleaseStreamEvent): void {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of releaseStreamClients) {
+    try {
+      client.write(payload);
+    } catch {
+      releaseStreamClients.delete(client);
+    }
+  }
+}
+
+function appendReleaseLog(job: ReleaseJob, line: string): void {
+  job.log.push(line);
+  broadcastReleaseEvent({ type: "log", line });
+}
+
+function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
+  job.phase = phase;
+  broadcastReleaseEvent({ type: "phase", phase, error });
+}
+
+function streamProcess(
+  command: string,
+  args: string[],
+  options: { cwd?: string },
+  job: ReleaseJob,
+  onLine?: (line: string) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    let buffer = "";
+    const processChunk = (chunk: Buffer): void => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        appendReleaseLog(job, line);
+        onLine?.(line);
+      }
+    };
+
+    child.stdout.on("data", processChunk);
+    child.stderr.on("data", processChunk);
+
+    child.on("error", (err) => reject(err));
+    child.on("close", (code) => {
+      if (buffer) {
+        appendReleaseLog(job, buffer);
+        onLine?.(buffer);
+      }
+      if (code !== 0) {
+        reject(new Error(`Process exited with code ${code}`));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+async function getGitHubRepo(): Promise<string> {
+  try {
+    const result = await runCommand("git", ["-C", serverDir, "remote", "get-url", "origin"]);
+    const url = result.stdout;
+    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
+    if (match?.[1]) {
+      return match[1];
+    }
+  } catch {
+    // fall through
+  }
+  return "selfcontained/dispatch";
+}
+
+async function runReleaseJob(job: ReleaseJob): Promise<void> {
+  try {
+    // Preflight: check gh CLI is available
+    setReleasePhase(job, "preflight");
+    try {
+      await runCommand("gh", ["--version"]);
+    } catch {
+      throw new Error("GitHub CLI (gh) is not available. Install it from https://cli.github.com");
+    }
+
+    const repo = await getGitHubRepo();
+
+    // Trigger workflow
+    setReleasePhase(job, "triggering");
+    appendReleaseLog(job, `==> triggering release workflow (version: ${job.versionType})`);
+
+    try {
+      await runCommand("gh", [
+        "workflow", "run", "release.yml",
+        "--repo", repo,
+        "--field", `version=${job.versionType}`
+      ]);
+    } catch (err) {
+      throw new Error(`Failed to trigger workflow: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // Give GitHub a moment to register the run
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // Get the run ID
+    const runIdResult = await runCommand("gh", [
+      "run", "list",
+      "--repo", repo,
+      "--workflow", "release.yml",
+      "--limit", "1",
+      "--json", "databaseId",
+      "--jq", ".[0].databaseId"
+    ]);
+    const runId = runIdResult.stdout.trim();
+    if (!runId) {
+      throw new Error("Could not determine GitHub Actions run ID");
+    }
+
+    const runUrl = `https://github.com/${repo}/actions/runs/${runId}`;
+    job.runUrl = runUrl;
+    broadcastReleaseEvent({ type: "runUrl", url: runUrl });
+    appendReleaseLog(job, `==> watching run ${runId}`);
+    appendReleaseLog(job, `    ${runUrl}`);
+
+    // Watch the workflow
+    setReleasePhase(job, "watching");
+    try {
+      await streamProcess("gh", ["run", "watch", runId, "--repo", repo], {}, job);
+    } catch {
+      throw new Error(`GitHub Actions workflow failed. See ${runUrl}`);
+    }
+
+    // Fetch tags and find the latest
+    await runCommand("git", ["-C", serverDir, "fetch", "--tags", "--quiet"]);
+    const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
+    const tag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? "";
+    if (!tag) {
+      throw new Error("Could not determine release tag after workflow completed");
+    }
+
+    job.tag = tag;
+    broadcastReleaseEvent({ type: "tag", tag });
+    appendReleaseLog(job, `==> release workflow produced tag: ${tag}`);
+
+    // Deploy
+    setReleasePhase(job, "deploying");
+    const deployBin = path.join(serverDir, "bin", "dispatch-deploy");
+
+    // Watch for the DISPATCH_RESTARTING marker to send the restarting phase
+    // before launchctl kills this server process.
+    await streamProcess(deployBin, [tag], { cwd: serverDir }, job, (line) => {
+      if (line.trim() === "DISPATCH_RESTARTING") {
+        setReleasePhase(job, "restarting");
+      }
+    });
+
+    // If we reach here the deploy succeeded without restarting (unusual),
+    // mark done and write the store ourselves.
+    job.phase = "done";
+    await writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
+    broadcastReleaseEvent({ type: "phase", phase: "done" });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (activeReleaseJob) {
+      activeReleaseJob.error = error;
+    }
+    setReleasePhase(job, "failed", error);
+  }
+}
+
 async function registerRoutes() {
   await app.register(fastifyWebsocket);
 
@@ -128,6 +333,133 @@ async function registerRoutes() {
     root: staticDir,
     prefix: "/"
   });
+
+  // --- Release routes ---
+
+  app.get("/api/v1/release/status", async () => {
+    const record = await readReleaseStore();
+    return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
+  });
+
+  app.get("/api/v1/release/info", async (_, reply) => {
+    try {
+      await runCommand("git", ["-C", serverDir, "fetch", "origin", "--quiet"]);
+
+      // Current deployed tag from store (fast)
+      const record = await readReleaseStore();
+      const currentTag = record?.tag ?? null;
+
+      if (!currentTag) {
+        return { currentTag: null, unreleasedCount: 0, commits: [] };
+      }
+
+      // Verify the ref exists locally (tags may not be present in dev checkouts)
+      const refCheck = await runCommand(
+        "git", ["-C", serverDir, "rev-parse", "--verify", currentTag],
+        { allowedExitCodes: [0, 128] }
+      );
+      if (refCheck.exitCode !== 0) {
+        return { currentTag, unreleasedCount: 0, commits: [], refMissing: true };
+      }
+
+      // Count and list commits between current tag and origin/main
+      const countResult = await runCommand("git", [
+        "-C", serverDir,
+        "rev-list", `${currentTag}..origin/main`, "--count"
+      ]);
+      const unreleasedCount = Number(countResult.stdout) || 0;
+
+      let commits: Array<{ sha: string; subject: string }> = [];
+      if (unreleasedCount > 0) {
+        const logResult = await runCommand("git", [
+          "-C", serverDir,
+          "log", `${currentTag}..origin/main`,
+          "--no-merges",
+          "--format=%H\t%s",
+          "--max-count=20"
+        ]);
+        commits = logResult.stdout
+          .split("\n")
+          .filter((l) => l.trim())
+          .map((line) => {
+            const tab = line.indexOf("\t");
+            return {
+              sha: line.slice(0, tab).slice(0, 7),
+              subject: line.slice(tab + 1)
+            };
+          });
+      }
+
+      return { currentTag, unreleasedCount, commits };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.post("/api/v1/release", async (request, reply) => {
+    const body = request.body as { versionType?: unknown } | undefined;
+
+    if (!body?.versionType || !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)) {
+      return reply.code(400).send({ error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}` });
+    }
+
+    const versionType = body.versionType as ReleaseVersionType;
+
+    // Only one release at a time
+    if (activeReleaseJob && activeReleaseJob.phase !== "done" && activeReleaseJob.phase !== "failed") {
+      return reply.code(409).send({ error: "A release is already in progress." });
+    }
+
+    // Quick pre-flight: check gh CLI before spawning the job
+    try {
+      await runCommand("gh", ["--version"]);
+    } catch {
+      return reply.code(422).send({ error: "GitHub CLI (gh) is not available. Install it from https://cli.github.com" });
+    }
+
+    const job: ReleaseJob = {
+      versionType,
+      phase: "preflight",
+      startedAt: new Date().toISOString(),
+      log: [],
+      runUrl: null,
+      tag: null,
+      error: null
+    };
+    activeReleaseJob = job;
+
+    // Run async — do not await
+    void runReleaseJob(job);
+
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.get("/api/v1/release/stream", async (_request, reply) => {
+    reply.raw.setHeader("Content-Type", "text/event-stream");
+    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+    reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.setHeader("X-Accel-Buffering", "no");
+    reply.hijack();
+
+    const stream = reply.raw;
+    releaseStreamClients.add(stream);
+
+    const heartbeat = setInterval(() => {
+      stream.write(": keepalive\n\n");
+    }, 20_000);
+
+    // Send current job snapshot
+    const snapshot: ReleaseStreamEvent = { type: "snapshot", job: activeReleaseJob };
+    stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+
+    stream.on("close", () => {
+      clearInterval(heartbeat);
+      releaseStreamClients.delete(stream);
+    });
+  });
+
+  // --- Health / existing routes ---
 
   app.get("/api/v1/health", async () => {
     const result = await pool.query("SELECT NOW() AS now");
