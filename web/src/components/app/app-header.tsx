@@ -42,7 +42,20 @@ export function AppHeader({
             <PanelRightOpen className="h-4 w-4" />
           </Button>
         ) : null}
-        {!isMobile ? <img src="/brand-icon.svg" alt="Dispatch logo" className="h-6 w-auto object-contain" /> : null}
+        {!isMobile ? (
+          <div
+            className={cn(
+              "overflow-hidden transition-[width,opacity] duration-300 ease-out",
+              leftOpen ? "w-0 opacity-0" : "w-7 opacity-100"
+            )}
+          >
+            <img
+              src="/brand-icon.svg"
+              alt="Dispatch logo"
+              className="h-6 w-auto object-contain"
+            />
+          </div>
+        ) : null}
       </div>
 
       {showHeaderStatus ? (
