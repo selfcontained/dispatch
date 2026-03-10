@@ -78,7 +78,11 @@ function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
     if (agent.latestEvent?.type === "waiting_user") {
       return 1;
     }
-    return 2;
+    // Agents with an active session (attachable) sort above stopped/errored ones.
+    if (agent.status === "running" || agent.status === "creating" || agent.status === "stopping") {
+      return 2;
+    }
+    return 3;
   };
 
   const latestActivityAt = (agent: Agent): string => {
