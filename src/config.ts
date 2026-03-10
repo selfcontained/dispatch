@@ -15,11 +15,11 @@ export type AppConfig = {
 export function loadConfig(): AppConfig {
   return {
     host: process.env.HOST ?? "0.0.0.0",
-    port: Number(process.env.PORT ?? 8787),
+    port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 8787),
     databaseUrl:
-      process.env.DATABASE_URL ?? "postgres://hostess:hostess@127.0.0.1:5432/hostess",
+      process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
     authToken: process.env.AUTH_TOKEN ?? "dev-token",
-    mediaRoot: process.env.MEDIA_ROOT ?? "/tmp/hostess-media",
+    mediaRoot: process.env.MEDIA_ROOT ?? "/tmp/dispatch-media",
     dispatchBinDir:
       process.env.DISPATCH_BIN_DIR ??
       process.env.HOSTESS_BIN_DIR ??

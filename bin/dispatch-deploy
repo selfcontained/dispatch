@@ -1,7 +1,203 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+DEFAULT_PORT="8787"
+PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
+FAILURE_LOG="$HOME/.dispatch/logs/last-release-failure.log"
 
-echo "bin/dispatch-deploy now delegates to tmux release flow."
-exec "$ROOT_DIR/bin/dispatch-server" update
+usage() {
+  cat <<USAGE
+Usage: bin/dispatch-deploy <tag>
+       bin/dispatch-deploy --latest
+
+Checks out a verified release tag in the server directory, builds, reloads
+the launchd service, and verifies Dispatch comes back up healthy.
+
+On failure, attempts automatic rollback to the previously deployed tag.
+
+Examples:
+  bin/dispatch-deploy v0.2.0    # deploy a specific tag
+  bin/dispatch-deploy --latest  # deploy the latest tag
+  bin/dispatch-deploy v0.1.0    # rollback to a previous tag
+USAGE
+}
+
+load_nvm() {
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+  else
+    echo "error: nvm not found at $NVM_DIR/nvm.sh" >&2
+    exit 1
+  fi
+}
+
+health_check() {
+  local port="${DISPATCH_PORT:-$DEFAULT_PORT}"
+  curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
+}
+
+wait_for_health() {
+  local attempts=20
+  local delay=2
+  local i
+  echo "==> waiting for health check..."
+  for ((i = 1; i <= attempts; i++)); do
+    if health_check >/tmp/dispatch-health.json 2>/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+current_tag() {
+  git -C "$SERVER_DIR" describe --tags --exact-match HEAD 2>/dev/null \
+    || git -C "$SERVER_DIR" rev-parse --short HEAD 2>/dev/null \
+    || echo "unknown"
+}
+
+resolve_tag() {
+  local tag="$1"
+  if [[ "$tag" == "--latest" ]]; then
+    git -C "$SERVER_DIR" fetch --tags --quiet
+    tag=$(git -C "$SERVER_DIR" tag --sort=-version:refname | grep '^v' | head -1)
+    if [[ -z "$tag" ]]; then
+      echo "error: no release tags found" >&2
+      exit 1
+    fi
+    echo "resolved latest tag: $tag" >&2
+  fi
+  echo "$tag"
+}
+
+build_tag() {
+  local tag="$1"
+  git -C "$SERVER_DIR" checkout "$tag"
+  load_nvm
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  npm ci --silent
+  npm --prefix web ci --silent
+  npm run build
+}
+
+write_failure_log() {
+  local step="$1"
+  local tag="$2"
+  local rollback_tag="${3:-}"
+  local rollback_status="${4:-}"
+  local extra="${5:-}"
+
+  mkdir -p "$(dirname "$FAILURE_LOG")"
+  {
+    echo "=== Dispatch Release Failure ==="
+    echo "Time:        $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "Deploying:   $tag"
+    echo "Failed at:   $step"
+    if [[ -n "$rollback_tag" ]]; then
+      echo "Rollback:    attempted $rollback_tag → $rollback_status"
+    fi
+    if [[ -n "$extra" ]]; then
+      echo ""
+      echo "$extra"
+    fi
+    echo ""
+    echo "--- Last 50 lines of server log ---"
+    tail -50 "$LOG_FILE" 2>/dev/null || echo "(log not available)"
+    echo ""
+    echo "--- Recovery ---"
+    if [[ "$rollback_status" == "succeeded" ]]; then
+      echo "Server is running $rollback_tag (rollback succeeded)"
+    else
+      echo "Server may be down. Manual intervention required."
+    fi
+    echo "To retry:          bin/dispatch-deploy $tag"
+    echo "To deploy another: bin/dispatch-deploy <tag>"
+    echo "Available tags:    git -C $SERVER_DIR tag --sort=-version:refname"
+  } > "$FAILURE_LOG"
+
+  echo "failure details written to $FAILURE_LOG" >&2
+}
+
+main() {
+  local tag="${1:-}"
+  if [[ -z "$tag" ]]; then
+    usage
+    exit 1
+  fi
+
+  if [[ ! -d "$SERVER_DIR/.git" ]]; then
+    echo "error: server directory not found at $SERVER_DIR" >&2
+    echo "       run bin/install-launchd to set up the service first" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "$PLIST" ]]; then
+    echo "error: launchd plist not found at $PLIST" >&2
+    echo "       run bin/install-launchd to set up the service first" >&2
+    exit 1
+  fi
+
+  echo "==> fetching tags"
+  git -C "$SERVER_DIR" fetch --tags --quiet
+
+  tag=$(resolve_tag "$tag")
+
+  if ! git -C "$SERVER_DIR" rev-parse "$tag" >/dev/null 2>&1; then
+    echo "error: tag '$tag' not found" >&2
+    exit 1
+  fi
+
+  # Record what's currently deployed so we can roll back if needed
+  local previous_tag
+  previous_tag=$(current_tag)
+  echo "==> deploying $tag (replacing $previous_tag)"
+
+  echo "==> building $tag"
+  if ! build_tag "$tag"; then
+    write_failure_log "build" "$tag" "$previous_tag" "" "Build failed for $tag."
+    echo "error: build failed" >&2
+    exit 1
+  fi
+
+  echo "==> reloading launchd service"
+  launchctl unload "$PLIST"
+  launchctl load "$PLIST"
+
+  if wait_for_health; then
+    echo "==> deployed $tag successfully"
+    cat /tmp/dispatch-health.json
+    echo
+    return 0
+  fi
+
+  # Health check failed — attempt rollback
+  echo "error: health check failed after deploying $tag" >&2
+
+  if [[ "$previous_tag" == "$tag" || "$previous_tag" == "unknown" ]]; then
+    write_failure_log "health check" "$tag" "" "" ""
+    echo "error: cannot roll back (no previous tag available)" >&2
+    exit 1
+  fi
+
+  echo "==> rolling back to $previous_tag"
+  if build_tag "$previous_tag" && \
+     { launchctl unload "$PLIST"; launchctl load "$PLIST"; } && \
+     wait_for_health; then
+    write_failure_log "health check" "$tag" "$previous_tag" "succeeded"
+    echo "error: deploy of $tag failed — rolled back to $previous_tag" >&2
+    exit 1
+  fi
+
+  write_failure_log "health check" "$tag" "$previous_tag" "failed" \
+    "Rollback to $previous_tag also failed. Server may be down."
+  echo "error: deploy failed and rollback failed — server may be down" >&2
+  echo "       check logs: tail -f $LOG_FILE" >&2
+  exit 1
+}
+
+main "$@"

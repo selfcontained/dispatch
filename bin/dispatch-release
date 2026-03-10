@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="selfcontained/dispatch"
+
+usage() {
+  cat <<USAGE
+Usage: bin/dispatch-release <patch|minor|major>
+
+Triggers the GitHub Actions release workflow to create a verified,
+tagged release, then deploys that tag locally.
+
+On workflow failure, spawns a Dispatch agent with the failure context for diagnosis.
+On deploy failure, dispatch-deploy handles rollback and writes a failure log.
+
+Examples:
+  bin/dispatch-release patch
+  bin/dispatch-release minor
+  bin/dispatch-release major
+USAGE
+}
+
+require_gh() {
+  if ! command -v gh &>/dev/null; then
+    echo "error: GitHub CLI (gh) is required" >&2
+    echo "       https://cli.github.com" >&2
+    exit 1
+  fi
+}
+
+require_clean_main() {
+  local branch
+  branch=$(git -C "$ROOT_DIR" branch --show-current)
+  if [[ "$branch" != "main" ]]; then
+    echo "error: must be on main branch (currently on '$branch')" >&2
+    exit 1
+  fi
+  if ! git -C "$ROOT_DIR" diff --quiet || ! git -C "$ROOT_DIR" diff --cached --quiet; then
+    echo "error: working directory has uncommitted changes" >&2
+    exit 1
+  fi
+  git -C "$ROOT_DIR" fetch origin --quiet
+  if ! git -C "$ROOT_DIR" diff --quiet main origin/main; then
+    echo "error: local main is not up to date with origin/main" >&2
+    exit 1
+  fi
+}
+
+spawn_diagnosis_agent() {
+  local step="$1"
+  local context="$2"
+  local run_url="${3:-}"
+
+  local prompt="The Dispatch release failed at step: $step
+
+Context:
+$context
+${run_url:+
+GitHub Actions run: $run_url}
+
+Please diagnose the failure. If it's fixable, describe the fix. If a rollback
+is needed, you can run: bin/dispatch-deploy --latest
+
+Report your findings via dispatch-event."
+
+  local port="${DISPATCH_PORT:-8787}"
+
+  echo "==> spawning diagnosis agent..."
+  curl -fsS -X POST "http://127.0.0.1:${port}/api/v1/agents" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n \
+      --arg name "release-diagnosis" \
+      --arg cwd "$ROOT_DIR" \
+      --arg prompt "$prompt" \
+      '{name: $name, type: "claude", cwd: $cwd, codexArgs: [$prompt]}')" \
+    >/dev/null 2>&1 || echo "warning: could not spawn diagnosis agent" >&2
+}
+
+main() {
+  local version="${1:-}"
+  if [[ -z "$version" ]]; then
+    usage
+    exit 1
+  fi
+
+  case "$version" in
+    patch|minor|major) ;;
+    *) echo "error: version must be patch, minor, or major" >&2; exit 1 ;;
+  esac
+
+  require_gh
+  require_clean_main
+
+  echo "==> triggering release workflow (version: $version)"
+  gh workflow run release.yml \
+    --repo "$REPO" \
+    --field "version=$version"
+
+  # Give GitHub a moment to register the run
+  sleep 3
+
+  # Get the run ID that was just triggered
+  local run_id
+  run_id=$(gh run list \
+    --repo "$REPO" \
+    --workflow release.yml \
+    --limit 1 \
+    --json databaseId \
+    --jq '.[0].databaseId')
+
+  local run_url="https://github.com/$REPO/actions/runs/$run_id"
+  echo "==> watching run $run_id ($run_url)"
+
+  if ! gh run watch "$run_id" --repo "$REPO"; then
+    local logs
+    logs=$(gh run view "$run_id" --repo "$REPO" --log-failed 2>&1 | tail -50)
+    spawn_diagnosis_agent "GitHub Actions release workflow" "$logs" "$run_url"
+    echo "error: release workflow failed — diagnosis agent spawned" >&2
+    echo "       $run_url" >&2
+    exit 1
+  fi
+
+  # Read the tag produced by the workflow
+  local tag
+  tag=$(gh run view "$run_id" \
+    --repo "$REPO" \
+    --json jobs \
+    --jq '.jobs[0].steps[] | select(.name == "Bump version and tag") | .conclusion' 2>/dev/null || true)
+
+  # Fall back to reading the tag from the latest git tag on origin
+  git -C "$ROOT_DIR" fetch --tags --quiet
+  tag=$(git -C "$ROOT_DIR" tag --sort=-version:refname | grep '^v' | head -1)
+
+  if [[ -z "$tag" ]]; then
+    spawn_diagnosis_agent "reading release tag" "Could not determine the tag produced by the release workflow." "$run_url"
+    echo "error: could not determine release tag — diagnosis agent spawned" >&2
+    exit 1
+  fi
+
+  echo "==> release workflow produced tag: $tag"
+
+  # dispatch-deploy handles rollback and failure logging internally.
+  # We don't spawn a diagnosis agent here since Dispatch may be down.
+  if ! "$ROOT_DIR/bin/dispatch-deploy" "$tag"; then
+    echo "error: deploy failed — see $HOME/.dispatch/logs/last-release-failure.log" >&2
+    exit 1
+  fi
+}
+
+main "$@"
