@@ -404,7 +404,7 @@ export function AgentSidebarContent({
                               className={cn(
                                 "inline-flex w-fit items-center gap-1.5 px-1.5 py-0.5 text-foreground",
                                 fullAccessEnabled &&
-                                  "border border-orange-400/45 bg-orange-500/15 text-orange-200"
+                                  "border border-emerald-400/45 bg-emerald-500/15 text-emerald-200"
                               )}
                             >
                               {fullAccessEnabled ? <AlertTriangle className="h-3.5 w-3.5" /> : null}
