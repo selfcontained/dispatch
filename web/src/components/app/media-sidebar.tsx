@@ -154,7 +154,8 @@ export function MediaSidebarContent({
                 </button>
                 <div className="mt-2 text-xs text-muted-foreground">
                   {isStream ? null : <div>{mediaSourceLabel(file)}</div>}
-                  <div className={isStream ? "" : "mt-1"}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
+                  {file.description ? <div className={isStream ? "" : "mt-1"}>{file.description}</div> : null}
+                  <div className={file.description || !isStream ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
                 </div>
               </article>
             );

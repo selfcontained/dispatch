@@ -35,6 +35,7 @@ export type MediaFile = {
   url: string;
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator";
+  description?: string | null;
 };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";

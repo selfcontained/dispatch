@@ -7,7 +7,7 @@ type StreamSession = {
 };
 
 type OnStateChange = (agentId: string, event: "started" | "stopped") => void;
-type OnStreamEnd = (agentId: string, lastFrame: Buffer) => void;
+type OnStreamEnd = (agentId: string, lastFrame: Buffer, description: string | null) => void;
 
 const MJPEG_BOUNDARY = "frame";
 const FRAME_REFRESH_INTERVAL_MS = 1000;
@@ -117,7 +117,7 @@ export class StreamManager {
     });
   }
 
-  stopStream(agentId: string): void {
+  stopStream(agentId: string, description?: string | null): void {
     const session = this.sessions.get(agentId);
     if (!session) {
       return;
@@ -153,7 +153,7 @@ export class StreamManager {
 
     if (session.lastFrame && this.onStreamEnd) {
       try {
-        this.onStreamEnd(agentId, session.lastFrame);
+        this.onStreamEnd(agentId, session.lastFrame, description ?? null);
       } catch {
         // Best-effort; don't block cleanup
       }

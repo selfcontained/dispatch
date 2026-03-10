@@ -93,7 +93,7 @@ const streamManager = new StreamManager(
         : { type: "stream.stopped", agentId }
     );
   },
-  async (agentId, lastFrame) => {
+  async (agentId, lastFrame, description) => {
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return;
 
@@ -105,9 +105,9 @@ const streamManager = new StreamManager(
     await writeFile(path.join(mediaDir, fileName), lastFrame);
 
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
-       VALUES ($1, $2, 'stream', $3)`,
-      [agentId, fileName, lastFrame.length]
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+       VALUES ($1, $2, 'stream', $3, $4)`,
+      [agentId, fileName, lastFrame.length, description]
     );
 
     uiEventBroker.publish({ type: "media.changed", agentId });
@@ -799,6 +799,7 @@ async function registerRoutes() {
     const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? "screenshot";
     const validSources = ["screenshot", "stream", "simulator"];
     const source = validSources.includes(sourceField) ? sourceField : "screenshot";
+    const description = (data.fields.description as { value?: string } | undefined)?.value ?? null;
 
     const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
     await mkdir(mediaDir, { recursive: true });
@@ -808,10 +809,10 @@ async function registerRoutes() {
     await writeFile(filePath, buffer);
 
     const result = await pool.query<{ id: number; created_at: Date }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, created_at`,
-      [id, fileName, source, buffer.length]
+      [id, fileName, source, buffer.length, description]
     );
 
     const row = result.rows[0];
@@ -866,9 +867,10 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const body = request.body as { type?: unknown; port?: unknown };
+    const body = request.body as { type?: unknown; port?: unknown; description?: unknown };
     if (body?.type === "stop") {
-      streamManager.stopStream(id);
+      const description = typeof body.description === "string" ? body.description : null;
+      streamManager.stopStream(id, description);
       return { ok: true };
     }
 
@@ -1640,14 +1642,15 @@ function decodeClientMessage(
 
 async function listMediaFiles(
   agentId: string
-): Promise<Array<{ name: string; source: string; size: number; updatedAt: string; url: string }>> {
+): Promise<Array<{ name: string; source: string; size: number; updatedAt: string; url: string; description: string | null }>> {
   const result = await pool.query<{
     file_name: string;
     source: string;
     size_bytes: number;
     created_at: Date;
+    description: string | null;
   }>(
-    `SELECT file_name, source, size_bytes, created_at
+    `SELECT file_name, source, size_bytes, created_at, description
      FROM media WHERE agent_id = $1
      ORDER BY created_at DESC LIMIT 50`,
     [agentId]
@@ -1658,7 +1661,8 @@ async function listMediaFiles(
     source: row.source,
     size: row.size_bytes,
     updatedAt: row.created_at.toISOString(),
-    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`
+    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`,
+    description: row.description ?? null
   }));
 }
 
