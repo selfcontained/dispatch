@@ -93,8 +93,12 @@ type UiEvent =
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string };
 
-function sortAgentsByCreatedAtDesc(items: Agent[]): Agent[] {
+function sortAgentsByCreatedAtDesc(items: Agent[], activeAgentId?: string | null): Agent[] {
   const eventPriority = (agent: Agent): number => {
+    // The actively connected agent always sorts first.
+    if (activeAgentId && agent.id === activeAgentId) {
+      return -1;
+    }
     if (agent.latestEvent?.type === "blocked") {
       return 0;
     }
@@ -133,6 +137,14 @@ export function App(): JSX.Element {
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
+  const connectedAgentIdRef = useRef<string | null>(null);
+  connectedAgentIdRef.current = connectedAgentId;
+
+  // Re-sort agents when the connected agent changes so it floats to the top.
+  useEffect(() => {
+    setAgents((current) => sortAgentsByCreatedAtDesc(current, connectedAgentId));
+  }, [connectedAgentId]);
+
   const [statusMessage, setStatusMessage] = useState("Starting...");
 
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
@@ -286,7 +298,7 @@ export function App(): JSX.Element {
 
   const refreshAgents = useCallback(async () => {
     const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
-    setAgents(sortAgentsByCreatedAtDesc(payload.agents));
+    setAgents(sortAgentsByCreatedAtDesc(payload.agents, connectedAgentIdRef.current));
 
     setSelectedAgentId((current) => {
       if (current && payload.agents.some((agent) => agent.id === current)) {
@@ -1008,7 +1020,7 @@ export function App(): JSX.Element {
         const payload = JSON.parse(event.data) as UiEvent;
 
         if (payload.type === "snapshot") {
-          setAgents(sortAgentsByCreatedAtDesc(payload.agents));
+          setAgents(sortAgentsByCreatedAtDesc(payload.agents, connectedAgentIdRef.current));
           setStreamingAgentIds(
             new Set(payload.agents.filter((a) => a.hasStream).map((a) => a.id))
           );
@@ -1019,11 +1031,11 @@ export function App(): JSX.Element {
           setAgents((current) => {
             const index = current.findIndex((agent) => agent.id === payload.agent.id);
             if (index === -1) {
-              return sortAgentsByCreatedAtDesc([payload.agent, ...current]);
+              return sortAgentsByCreatedAtDesc([payload.agent, ...current], connectedAgentIdRef.current);
             }
             const next = [...current];
             next[index] = payload.agent;
-            return sortAgentsByCreatedAtDesc(next);
+            return sortAgentsByCreatedAtDesc(next, connectedAgentIdRef.current);
           });
           return;
         }
