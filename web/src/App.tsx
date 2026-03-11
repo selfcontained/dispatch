@@ -1429,12 +1429,12 @@ export function App(): JSX.Element {
             agents={agents}
             selectedAgentId={selectedAgentId}
             overflowAgentId={overflowAgentId}
-            onOpenCreateDialog={openCreateDialog}
-            onOpenEditWorktreeDialog={openEditWorktreeDialog}
-            onOpenSettings={() => setSettingsPaneOpen(true)}
+            onOpenCreateDialog={() => { setMobileLeftOpen(false); openCreateDialog(); }}
+            onOpenEditWorktreeDialog={(agent) => { setMobileLeftOpen(false); openEditWorktreeDialog(agent); }}
+            onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
-            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
             agentVisualState={agentVisualState}
             borderForAgentState={borderForAgentState}
             toggleAgentDetails={toggleAgentDetails}
