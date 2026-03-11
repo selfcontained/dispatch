@@ -15,7 +15,7 @@ export function ServiceStatus({ icon, label, value, dotClass }: ServiceStatusPro
       {icon}
       <span>{label}</span>
       <span data-testid={`service-dot-${label.toLowerCase()}`} className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
-      <span className="truncate uppercase">{value}</span>
+      <span className="hidden truncate uppercase sm:inline">{value}</span>
     </div>
   );
 }

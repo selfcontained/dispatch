@@ -203,6 +203,7 @@ export function App(): JSX.Element {
   const terminalHostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const ctrlPendingRef = useRef(false);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -878,9 +879,17 @@ export function App(): JSX.Element {
 
     const disposable = term.onData((data) => {
       const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "input", data }));
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (ctrlPendingRef.current && data.length === 1) {
+        const code = data.toUpperCase().charCodeAt(0);
+        if (code >= 65 && code <= 90) {
+          ctrlPendingRef.current = false;
+          window.dispatchEvent(new Event("ctrl-consumed"));
+          ws.send(JSON.stringify({ type: "input", data: String.fromCharCode(code - 64) }));
+          return;
+        }
       }
+      ws.send(JSON.stringify({ type: "input", data }));
     });
 
     const onResize = () => {
@@ -1555,13 +1564,12 @@ export function App(): JSX.Element {
               terminalHostRef={terminalHostRef}
             />
 
-            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} /> : null}
+            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
             <StatusFooter
               connState={connState}
               apiState={apiState}
               dbState={dbState}
-              mediaState={mediaState}
               serviceDotClass={serviceDotClass}
             />
           </div>
