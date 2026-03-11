@@ -198,7 +198,7 @@ export function App(): JSX.Element {
 
   const [apiState, setApiState] = useState<ServiceState>("checking");
   const [dbState, setDbState] = useState<ServiceState>("checking");
-  const [mediaState, setMediaState] = useState<ServiceState>("checking");
+  const [_mediaState, setMediaState] = useState<ServiceState>("checking");
 
   const terminalHostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
