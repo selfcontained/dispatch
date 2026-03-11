@@ -22,6 +22,10 @@ export type AppConfig = {
   tls: TlsConfig | null;
 };
 
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? path.join(process.env.HOME ?? "/tmp", p.slice(2)) : p;
+}
+
 function loadTls(): TlsConfig | null {
   const certPath = process.env.TLS_CERT;
   const keyPath = process.env.TLS_KEY;
@@ -30,8 +34,8 @@ function loadTls(): TlsConfig | null {
     throw new Error("Both TLS_CERT and TLS_KEY must be set to enable TLS");
   }
   return {
-    cert: readFileSync(certPath),
-    key: readFileSync(keyPath),
+    cert: readFileSync(expandHome(certPath)),
+    key: readFileSync(expandHome(keyPath)),
   };
 }
 
