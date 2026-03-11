@@ -249,9 +249,9 @@ export function ReleaseManager(): JSX.Element {
   const phaseIndex = job ? PHASES_ORDER.indexOf(job.phase) : -1;
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Left column — controls */}
-      <div className="flex w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-r border-border p-6">
+      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-border p-4 md:p-6">
 
         {/* Current version */}
         <div>
@@ -428,7 +428,7 @@ export function ReleaseManager(): JSX.Element {
       </div>
 
       {/* Right column — log */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
         {showLog ? (
           <div
             ref={logRef}
