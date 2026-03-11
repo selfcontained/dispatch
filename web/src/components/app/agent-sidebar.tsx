@@ -19,6 +19,7 @@ import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { LayoutGroup, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 type AgentSidebarSharedProps = {
@@ -150,7 +151,8 @@ export function AgentSidebarContent({
           {agents.length === 0 ? (
             <div data-testid="no-agents-message" className="p-4 text-sm text-muted-foreground">No agents yet.</div>
           ) : (
-            agents.map((agent) => {
+            <LayoutGroup>
+            {agents.map((agent) => {
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
@@ -160,12 +162,16 @@ export function AgentSidebarContent({
               const needsAttention = agent.status === "error";
 
               return (
-                <div
+                <motion.div
                   key={agent.id}
+                  layout
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
                   data-testid={`agent-card-${agent.id}`}
                   className={cn(
-                    "border-b border-r-4 border-border px-2 py-2",
+                    "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
                     borderForAgentState(state),
+                    isActive && "bg-emerald-500/10",
+                    isStopped && "opacity-60",
                     isSelected && "bg-muted/60"
                   )}
                 >
@@ -417,9 +423,10 @@ export function AgentSidebarContent({
                       </div>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               );
-            })
+            })}
+            </LayoutGroup>
           )}
         </TooltipProvider>
       </div>
