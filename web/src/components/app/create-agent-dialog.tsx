@@ -59,13 +59,14 @@ export function CreateAgentDialog({
           <DialogDescription>Name, type, and working directory for a new agent session.</DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
+        <form data-testid="create-agent-form" className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Name</label>
             <Input
               value={createName}
               onChange={(event) => setCreateName(event.target.value)}
               placeholder="agent name (optional)"
+              data-testid="create-agent-name"
             />
           </div>
 
@@ -90,6 +91,7 @@ export function CreateAgentDialog({
               onBlur={() => void refreshWorktreeMode()}
               placeholder="/absolute/path"
               required
+              data-testid="create-agent-cwd"
             />
           </div>
 
@@ -142,10 +144,10 @@ export function CreateAgentDialog({
           </label>
 
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)} data-testid="create-agent-cancel">
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={creating}>
+            <Button type="submit" variant="primary" disabled={creating} data-testid="create-agent-submit">
               {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
               Create
             </Button>

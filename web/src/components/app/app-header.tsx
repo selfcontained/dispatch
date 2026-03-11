@@ -35,7 +35,7 @@ export function AppHeader({
   detachTerminal
 }: AppHeaderProps): JSX.Element {
   return (
-    <header className={cn("relative flex h-14 items-center border-b-2 border-b-border bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
+    <header data-testid="app-header" className={cn("relative flex h-14 items-center border-b-2 border-b-border bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
       <div className="flex shrink-0 items-center gap-1">
         {isMobile ? (
           !leftOpen ? (
@@ -80,6 +80,7 @@ export function AppHeader({
             className="text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
             onClick={detachTerminal}
             title="Detach from session"
+            data-testid="detach-button"
           >
             <MonitorOff className="mr-1 h-3.5 w-3.5" />
             <span className="hidden sm:inline">Detach</span>
@@ -91,6 +92,7 @@ export function AppHeader({
             className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
             onClick={attachSelectedAgent}
             title="Attach to session"
+            data-testid="attach-button"
           >
             <Monitor className="mr-1 h-3.5 w-3.5" />
             <span className="hidden sm:inline">Attach</span>
@@ -104,6 +106,7 @@ export function AppHeader({
             className="relative"
             onClick={() => setMediaOpen(true)}
             title="Open media sidebar"
+            data-testid="toggle-media-sidebar"
           >
             <PanelLeftOpen className="h-4 w-4" />
             {unseenMediaCount > 0 ? (

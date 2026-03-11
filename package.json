@@ -19,7 +19,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "check": "tsc --noEmit && npm run check:web",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "npx playwright test"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",
@@ -31,6 +32,7 @@
     "pg": "^8.20.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",

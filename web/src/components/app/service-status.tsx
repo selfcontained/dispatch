@@ -11,10 +11,10 @@ type ServiceStatusProps = {
 
 export function ServiceStatus({ icon, label, value, dotClass }: ServiceStatusProps): JSX.Element {
   return (
-    <div className="flex items-center gap-2">
+    <div data-testid={`service-status-${label.toLowerCase()}`} className="flex items-center gap-2">
       {icon}
       <span>{label}</span>
-      <span className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
+      <span data-testid={`service-dot-${label.toLowerCase()}`} className={cn("h-2.5 w-2.5 rounded-full", dotClass)} />
       <span className="truncate uppercase">{value}</span>
     </div>
   );
