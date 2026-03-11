@@ -17,7 +17,9 @@
     "start": "node dist/server.js",
     "release": "bin/dispatch-server update",
     "db:migrate": "tsx src/db/migrate.ts",
-    "check": "tsc --noEmit && npm run check:web"
+    "check": "tsc --noEmit && npm run check:web",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",
@@ -34,6 +36,7 @@
     "@types/ws": "^8.18.1",
     "playwright": "^1.54.2",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }
