@@ -88,7 +88,7 @@ export function MediaSidebarContent({
   className
 }: MediaSidebarContentProps): JSX.Element {
   return (
-    <aside className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
+    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
       <div className="flex items-center px-3 py-2 pt-[env(safe-area-inset-top)]">
         <div>
           <div className="text-sm font-semibold uppercase tracking-wide">Media Stream</div>

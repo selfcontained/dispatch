@@ -37,7 +37,7 @@ export function TerminalPane({
   const showEmptyState = connState === "disconnected" && !isAttached && !hasSelectedAgent;
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden bg-[#141414]">
+    <div data-testid="terminal-pane" className="relative h-full min-h-0 overflow-hidden bg-[#141414]">
       <div
         className={cn(
           "h-full w-full",
@@ -49,7 +49,7 @@ export function TerminalPane({
       </div>
 
       {showEmptyState ? (
-        <div className="absolute inset-0 z-20 grid place-items-center bg-[#141414]">
+        <div data-testid="terminal-empty-state" className="absolute inset-0 z-20 grid place-items-center bg-[#141414]">
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
             <p className="text-sm">Select an agent and press Play to start and attach to a session.</p>

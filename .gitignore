@@ -15,3 +15,5 @@ tmp-*.mjs
 *.webp
 artifacts/
 .playwright-mcp/
+test-results/
+playwright-report/

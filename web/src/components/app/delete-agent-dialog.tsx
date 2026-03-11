@@ -31,6 +31,7 @@ export function DeleteAgentDialog({
         <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
+            data-testid="delete-agent-cancel"
             onClick={() => {
               setOpen(false);
               setDeleteTarget(null);
@@ -40,6 +41,7 @@ export function DeleteAgentDialog({
           </Button>
           <Button
             variant="destructive"
+            data-testid="delete-agent-confirm"
             onClick={async () => {
               if (!deleteTarget) {
                 return;

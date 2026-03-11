@@ -123,7 +123,7 @@ export function AgentSidebarContent({
   };
 
   return (
-    <aside className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
+    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
       <div className="flex h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center">
           <img src="/brand-full-logo.svg" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
@@ -139,7 +139,7 @@ export function AgentSidebarContent({
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
-          <Button size="sm" variant="primary" onClick={onOpenCreateDialog}>
+          <Button size="sm" variant="primary" onClick={onOpenCreateDialog} data-testid="create-agent-button">
             <Plus className="mr-1 h-3.5 w-3.5" /> Create
           </Button>
         </div>
@@ -148,7 +148,7 @@ export function AgentSidebarContent({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <TooltipProvider delayDuration={120}>
           {agents.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">No agents yet.</div>
+            <div data-testid="no-agents-message" className="p-4 text-sm text-muted-foreground">No agents yet.</div>
           ) : (
             agents.map((agent) => {
               const state = agentVisualState(agent);
@@ -162,6 +162,7 @@ export function AgentSidebarContent({
               return (
                 <div
                   key={agent.id}
+                  data-testid={`agent-card-${agent.id}`}
                   className={cn(
                     "border-b border-r-4 border-border px-2 py-2",
                     borderForAgentState(state),
@@ -425,6 +426,7 @@ export function AgentSidebarContent({
       <div className="border-t border-border px-3 pb-[env(safe-area-inset-bottom)]">
         <button
           onClick={onOpenSettings}
+          data-testid="settings-button"
           className="flex w-full items-center gap-2 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <Settings className="h-3.5 w-3.5" />
