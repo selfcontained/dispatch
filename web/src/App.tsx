@@ -1442,6 +1442,9 @@ export function App(): JSX.Element {
     }
 
     if (connState === "connected" && connectedAgent) {
+      if (connectedAgent.latestEvent?.message) {
+        return connectedAgent.latestEvent.message;
+      }
       return `Connected to session ${connectedAgent.name}`;
     }
 
