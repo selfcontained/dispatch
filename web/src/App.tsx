@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Terminal as XTerm } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
-import "xterm/css/xterm.css";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { SettingsPane } from "@/components/app/settings-pane";
@@ -46,6 +47,15 @@ const DEFAULT_WORKTREE_MODE: WorktreeMode = "ask";
 // Chrome Device Toolbar can emulate mobile with a wider layout viewport in some modes.
 // Treat coarse/non-hover input as mobile as well so drawer behavior stays consistent.
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px), (pointer: coarse), (hover: none)";
+
+/** Strip terminal line-wrap artifacts from copied text. */
+function cleanCopiedText(text: string): string {
+  const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
+  if (/^https?:\/\//.test(joined) || (/\S/.test(joined) && !joined.includes(" "))) {
+    return joined;
+  }
+  return text;
+}
 
 function readLastUsedCwd(): string {
   if (typeof window === "undefined") {
@@ -188,11 +198,12 @@ export function App(): JSX.Element {
 
   const [apiState, setApiState] = useState<ServiceState>("checking");
   const [dbState, setDbState] = useState<ServiceState>("checking");
-  const [mediaState, setMediaState] = useState<ServiceState>("checking");
+  const [_mediaState, setMediaState] = useState<ServiceState>("checking");
 
   const terminalHostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const ctrlPendingRef = useRef(false);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -742,12 +753,16 @@ export function App(): JSX.Element {
       return;
     }
 
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+
     const term = new XTerm({
       convertEol: false,
       cursorBlink: true,
       fontFamily: "JetBrains Mono, Menlo, monospace",
       fontSize: 13,
       scrollback: 5000,
+      macOptionClickForcesSelection: true,
+      screenReaderMode: isTouchDevice,
       theme: {
         foreground: "#f8f8f2",
         background: "#141414",
@@ -779,14 +794,102 @@ export function App(): JSX.Element {
     terminalRef.current = term;
     fitAddonRef.current = fit;
     term.loadAddon(fit);
+    try { term.loadAddon(new ClipboardAddon()); } catch (e) { console.warn("ClipboardAddon failed:", e); }
     term.open(host);
     fit.fit();
 
+    // Intercept copy event to clean terminal line-wrap artifacts
+    const handleCopy = (e: ClipboardEvent) => {
+      if (term.hasSelection()) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.clipboardData?.setData("text/plain", cleanCopiedText(term.getSelection()));
+      }
+    };
+    host.addEventListener("copy", handleCopy, true);
+
+    // Touch scroll: .xterm sets touch-action:none which prevents native
+    // scrolling on mobile. Convert finger drags into synthetic WheelEvents
+    // so tmux enters copy-mode and scrolls its scrollback buffer.
+    const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
+    let touchY = 0;
+    let touchAccum = 0;
+    const SCROLL_SENSITIVITY = 30; // px per wheel tick
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        touchY = e.touches[0].clientY;
+        touchAccum = 0;
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || !screenEl) return;
+      const currentY = e.touches[0].clientY;
+      const delta = touchY - currentY; // positive = finger up = scroll down
+      touchY = currentY;
+      touchAccum += delta;
+      while (Math.abs(touchAccum) >= SCROLL_SENSITIVITY) {
+        const direction = touchAccum > 0 ? 1 : -1;
+        touchAccum -= direction * SCROLL_SENSITIVITY;
+        screenEl.dispatchEvent(new WheelEvent("wheel", {
+          deltaY: direction * 100,
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+        }));
+      }
+    };
+    host.addEventListener("touchstart", onTouchStart, { passive: true });
+    host.addEventListener("touchmove", onTouchMove, { passive: true });
+
+    // Enable text selection: intercept mousedown on the terminal screen
+    // and re-dispatch with modifier keys that tell xterm.js to handle
+    // selection locally instead of forwarding mouse events to tmux.
+    // xterm.js shouldForceSelection() checks:
+    //   Mac:     event.altKey && macOptionClickForcesSelection
+    //   Non-Mac: event.shiftKey
+    // We inject both so it works on all platforms.
+    // Wheel events are unaffected — tmux scrollback scrolling still works.
+    let dispatchingMouseDown = false;
+    const onMouseDown = (e: MouseEvent) => {
+      if (dispatchingMouseDown) return;
+      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.stopPropagation();
+      e.preventDefault();
+      dispatchingMouseDown = true;
+      (e.target as HTMLElement).dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        detail: e.detail,
+        screenX: e.screenX,
+        screenY: e.screenY,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        button: e.button,
+        buttons: e.buttons,
+        relatedTarget: e.relatedTarget,
+        shiftKey: true,
+        altKey: true,
+      }));
+      dispatchingMouseDown = false;
+    };
+    if (screenEl) {
+      screenEl.addEventListener("mousedown", onMouseDown, true);
+    }
+
     const disposable = term.onData((data) => {
       const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "input", data }));
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (ctrlPendingRef.current && data.length === 1) {
+        const code = data.toUpperCase().charCodeAt(0);
+        if (code >= 65 && code <= 90) {
+          ctrlPendingRef.current = false;
+          window.dispatchEvent(new Event("ctrl-consumed"));
+          ws.send(JSON.stringify({ type: "input", data: String.fromCharCode(code - 64) }));
+          return;
+        }
       }
+      ws.send(JSON.stringify({ type: "input", data }));
     });
 
     const onResize = () => {
@@ -798,6 +901,10 @@ export function App(): JSX.Element {
 
     return () => {
       disposable.dispose();
+      host.removeEventListener("copy", handleCopy, true);
+      host.removeEventListener("touchstart", onTouchStart);
+      host.removeEventListener("touchmove", onTouchMove);
+      if (screenEl) screenEl.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("resize", onResize);
       term.dispose();
       terminalRef.current = null;
@@ -1335,6 +1442,9 @@ export function App(): JSX.Element {
     }
 
     if (connState === "connected" && connectedAgent) {
+      if (connectedAgent.latestEvent?.message) {
+        return connectedAgent.latestEvent.message;
+      }
       return `Connected to session ${connectedAgent.name}`;
     }
 
@@ -1457,13 +1567,12 @@ export function App(): JSX.Element {
               terminalHostRef={terminalHostRef}
             />
 
-            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} /> : null}
+            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
             <StatusFooter
               connState={connState}
               apiState={apiState}
               dbState={dbState}
-              mediaState={mediaState}
               serviceDotClass={serviceDotClass}
             />
           </div>

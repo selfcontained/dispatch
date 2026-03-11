@@ -26,6 +26,13 @@
   @apply border-border;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -33,6 +40,7 @@ body {
 
 #root {
   @apply h-dvh;
+  overflow: hidden;
 }
 
 .terminal-font {
@@ -43,6 +51,18 @@ body {
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
   background-color: #141414 !important;
+}
+
+/* Mobile: enable native long-press text selection via the xterm
+   accessibility tree, which contains invisible positioned text over
+   the canvas.  pointer-events:auto lets long-press reach that text;
+   user-select is already "text" in xterm's own CSS.  The accessibility
+   layer sits above the canvas so it receives the touch, while our
+   custom touchstart/touchmove handlers still drive scrolling. */
+@media (pointer: coarse) {
+  .xterm .xterm-accessibility {
+    pointer-events: auto !important;
+  }
 }
 
 @keyframes media-in-slow {
