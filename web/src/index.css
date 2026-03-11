@@ -26,6 +26,13 @@
   @apply border-border;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   @apply bg-background text-foreground antialiased;
   font-family: "JetBrains Mono", Menlo, monospace;
@@ -33,6 +40,7 @@ body {
 
 #root {
   @apply h-dvh;
+  overflow: hidden;
 }
 
 .terminal-font {
