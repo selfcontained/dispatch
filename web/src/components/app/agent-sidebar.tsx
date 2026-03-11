@@ -423,13 +423,13 @@ export function AgentSidebarContent({
           )}
         </TooltipProvider>
       </div>
-      <div className="border-t border-border px-3 pb-[env(safe-area-inset-bottom)]">
+      <div className="border-t border-border px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <button
           onClick={onOpenSettings}
           data-testid="settings-button"
-          className="flex w-full items-center gap-2 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex w-full items-center gap-2 py-4 md:py-2.5 text-sm md:text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <Settings className="h-3.5 w-3.5" />
+          <Settings className="h-4 w-4 md:h-3.5 md:w-3.5" />
           Settings
         </button>
       </div>
