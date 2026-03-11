@@ -752,6 +752,8 @@ export function App(): JSX.Element {
       return;
     }
 
+    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+
     const term = new XTerm({
       convertEol: false,
       cursorBlink: true,
@@ -759,6 +761,7 @@ export function App(): JSX.Element {
       fontSize: 13,
       scrollback: 5000,
       macOptionClickForcesSelection: true,
+      screenReaderMode: isTouchDevice,
       theme: {
         foreground: "#f8f8f2",
         background: "#141414",
