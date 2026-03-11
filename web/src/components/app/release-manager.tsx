@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, ShieldCheck, Sparkles, Zap, XCircle } from "lucide-react";
+import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 
 import { cn } from "@/lib/utils";
 
@@ -133,6 +134,8 @@ export function ReleaseManager(): JSX.Element {
     if (healthPollRef.current) clearInterval(healthPollRef.current);
 
     healthPollRef.current = setInterval(async () => {
+      if (document.hidden) return; // skip polls while hidden
+      recordReleaseManagerPollFire();
       try {
         const res = await fetch("/api/v1/release/status");
         if (res.ok) {

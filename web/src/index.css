@@ -100,3 +100,12 @@ body {
     transform: translateX(140%);
   }
 }
+
+/* Pause GPU-composited animations when the page is hidden to reduce energy */
+html[data-hidden] .dispatch-reconnect-scan {
+  animation-play-state: paused;
+  will-change: auto;
+}
+html[data-hidden] .animate-spin {
+  animation-play-state: paused;
+}
