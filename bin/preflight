@@ -95,6 +95,14 @@ else
   warn "codex — needed to spawn Codex agents: npm install -g codex"
 fi
 
+# Playwright browsers
+PW_CHROMIUM_DIR="$HOME/Library/Caches/ms-playwright"
+if [[ -d "$PW_CHROMIUM_DIR" ]] && ls "$PW_CHROMIUM_DIR"/chromium-* &>/dev/null 2>&1; then
+  ok "playwright chromium"
+else
+  warn "playwright chromium — needed for UI validation: npx playwright install chromium"
+fi
+
 # Xcode (full, for simulators)
 if xcode-select -p &>/dev/null; then
   if xcrun simctl list devices &>/dev/null 2>&1; then
