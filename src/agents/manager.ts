@@ -292,14 +292,34 @@ export class AgentManager {
   }
 
   async reconcileAgents(): Promise<void> {
+    await this.reconcileAgentStatuses();
+  }
+
+  async reconcileAgentStatuses(): Promise<AgentRecord[]> {
     const result = await this.pool.query(
-      "SELECT id, tmux_session AS \"tmuxSession\" FROM agents WHERE status IN ('running', 'creating', 'unknown')"
+      "SELECT id, tmux_session AS \"tmuxSession\", status FROM agents WHERE status IN ('running', 'stopping', 'creating')"
     );
 
-    for (const row of result.rows as Array<{ id: string; tmuxSession: string | null }>) {
+    const reconciled: AgentRecord[] = [];
+
+    for (const row of result.rows as Array<{ id: string; tmuxSession: string | null; status: string }>) {
       const exists = row.tmuxSession ? await this.tmuxHasSession(row.tmuxSession) : false;
-      await this.setAgentStatus(row.id, exists ? "running" : "stopped", null, row.tmuxSession ?? undefined);
+
+      if (!exists) {
+        await this.setAgentStatus(row.id, "stopped", null, row.tmuxSession ?? undefined);
+        await this.setSystemLatestEvent(row.id, {
+          type: "idle",
+          message: "Session ended unexpectedly.",
+          metadata: { source: "system" }
+        });
+        const agent = await this.getAgent(row.id);
+        if (agent) {
+          reconciled.push(agent);
+        }
+      }
     }
+
+    return reconciled;
   }
 
   private async startTmuxSession(

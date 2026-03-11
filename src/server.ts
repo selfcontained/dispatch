@@ -151,6 +151,9 @@ const gitRefreshCounters = {
 };
 let gitContextRefreshTimer: NodeJS.Timeout | null = null;
 
+const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
+let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDistDir = path.resolve(__dirname, "../web/dist");
@@ -1234,6 +1237,7 @@ async function start() {
   const agents = await agentManager.listAgents();
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
+  startAgentStatusReconcileLoop();
   await registerRoutes();
 
   const protocol = config.tls ? "https" : "http";
@@ -1394,6 +1398,35 @@ function stopGitContextRefreshLoop(): void {
   }
   clearInterval(gitContextRefreshTimer);
   gitContextRefreshTimer = null;
+}
+
+function startAgentStatusReconcileLoop(): void {
+  if (agentStatusReconcileTimer) {
+    return;
+  }
+  agentStatusReconcileTimer = setInterval(() => {
+    void runAgentStatusReconciliation();
+  }, AGENT_STATUS_RECONCILE_INTERVAL_MS);
+}
+
+function stopAgentStatusReconcileLoop(): void {
+  if (!agentStatusReconcileTimer) {
+    return;
+  }
+  clearInterval(agentStatusReconcileTimer);
+  agentStatusReconcileTimer = null;
+}
+
+async function runAgentStatusReconciliation(): Promise<void> {
+  try {
+    const reconciled = await agentManager.reconcileAgentStatuses();
+    for (const agent of reconciled) {
+      console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+    }
+  } catch (error) {
+    app.log.warn({ err: error }, "Agent status reconciliation failed.");
+  }
 }
 
 async function refreshAllAgentGitContexts(): Promise<void> {
@@ -1791,6 +1824,7 @@ async function shutdown(code: number): Promise<void> {
 
   streamManager.stopAll();
   stopGitContextRefreshLoop();
+  stopAgentStatusReconcileLoop();
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);
