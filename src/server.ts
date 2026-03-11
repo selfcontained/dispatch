@@ -581,6 +581,17 @@ async function registerRoutes() {
     };
   });
 
+  // --- Energy metrics beacon (PWA diagnostics) ---
+  app.post("/api/v1/energy-report", async (request, reply) => {
+    try {
+      const metrics = request.body;
+      app.log.info({ energyMetrics: metrics }, "PWA energy metrics report");
+    } catch {
+      // Beacon payloads are fire-and-forget; don't fail loudly
+    }
+    return reply.status(204).send();
+  });
+
   app.get("/api/v1/diagnostics/git-context", async () => {
     const now = Date.now();
     const pendingAges = Array.from(pendingGitRefreshEnqueuedAt.values()).map((queuedAt) =>

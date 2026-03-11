@@ -23,6 +23,16 @@ import {
 } from "@/components/app/types";
 import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
+import {
+  initEnergyMetrics,
+  recordSSEEvent,
+  recordSSEReconnect,
+  recordWSReconnect,
+  recordHTTPRequest,
+  recordHealthPollFire,
+  recordHealthPollSkip,
+  recordError as recordEnergyError,
+} from "@/lib/energy-metrics";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -324,7 +334,12 @@ export function App(): JSX.Element {
   );
 
   const pollHealth = useCallback(async () => {
-    if (document.hidden) return;
+    if (document.hidden) {
+      recordHealthPollSkip();
+      return;
+    }
+    recordHealthPollFire();
+    recordHTTPRequest();
     try {
       const health = await api<{ status: string; db: string }>("/api/v1/health");
       setApiState(health.status === "ok" ? "ok" : "down");
@@ -405,11 +420,14 @@ export function App(): JSX.Element {
           if (!shouldKeepAttachedRef.current) return;
           clearReconnectTimer();
           reconnectAttemptsRef.current += 1;
+          recordWSReconnect();
           const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
           setConnState("reconnecting");
           setStatusMessage("Session disconnected, reconnecting...");
           reconnectTimerRef.current = window.setTimeout(() => {
             reconnectTimerRef.current = null;
+            // Don't reconnect while hidden — will resume on visibility change
+            if (document.hidden) return;
             void ensureTerminalConnected(false, false, resolvedAgentId);
           }, delay);
           return;
@@ -446,12 +464,15 @@ export function App(): JSX.Element {
         }
 
         reconnectAttemptsRef.current += 1;
+        recordWSReconnect();
         const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
         setConnState("reconnecting");
         setStatusMessage(message);
 
         reconnectTimerRef.current = window.setTimeout(() => {
           reconnectTimerRef.current = null;
+          // Don't reconnect while hidden — will resume on visibility change
+          if (document.hidden) return;
           void ensureTerminalConnected(false, false, resolvedAgentId);
         }, delay);
       };
@@ -803,6 +824,11 @@ export function App(): JSX.Element {
     })();
   }, [pollHealth, refreshAgents]);
 
+  // Energy metrics tracker — persists to localStorage and beacons to backend
+  useEffect(() => {
+    return initEnergyMetrics();
+  }, []);
+
   useEffect(() => {
     if (!agentsLoaded || !restoreShellAgentId) {
       return;
@@ -827,18 +853,41 @@ export function App(): JSX.Element {
   }, [refreshMedia]);
 
   useEffect(() => {
-    if (healthPollTimerRef.current) {
-      window.clearInterval(healthPollTimerRef.current);
-    }
-    healthPollTimerRef.current = window.setInterval(() => {
-      void pollHealth();
-    }, 8000);
+    const startPoll = () => {
+      if (healthPollTimerRef.current) {
+        window.clearInterval(healthPollTimerRef.current);
+      }
+      healthPollTimerRef.current = window.setInterval(() => {
+        void pollHealth();
+      }, 8000);
+    };
 
-    return () => {
+    const stopPoll = () => {
       if (healthPollTimerRef.current) {
         window.clearInterval(healthPollTimerRef.current);
         healthPollTimerRef.current = null;
       }
+    };
+
+    // Start polling only when visible
+    if (!document.hidden) {
+      startPoll();
+    }
+
+    const onVisChange = () => {
+      if (document.hidden) {
+        stopPoll();
+      } else {
+        void pollHealth(); // immediate check on resume
+        startPoll();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      stopPoll();
     };
   }, [pollHealth]);
 
@@ -847,11 +896,9 @@ export function App(): JSX.Element {
   }, [selectedAgentId]);
 
   useEffect(() => {
-    const source = new EventSource("/api/v1/events");
-    eventSourceRef.current = source;
-
-    source.onmessage = (event) => {
+    const handleSSEMessage = (event: MessageEvent) => {
       try {
+        recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
 
         if (payload.type === "snapshot") {
@@ -923,11 +970,41 @@ export function App(): JSX.Element {
       } catch {}
     };
 
-    return () => {
-      source.close();
-      if (eventSourceRef.current === source) {
+    const openSSE = () => {
+      if (eventSourceRef.current) return;
+      const source = new EventSource("/api/v1/events");
+      eventSourceRef.current = source;
+      source.onmessage = handleSSEMessage;
+      source.onerror = () => {
+        recordSSEReconnect();
+      };
+    };
+
+    const closeSSE = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
+    };
+
+    // Only connect when visible
+    if (!document.hidden) {
+      openSSE();
+    }
+
+    const onVisChange = () => {
+      if (document.hidden) {
+        closeSSE();
+      } else {
+        openSSE();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisChange);
+      closeSSE();
     };
   }, [refreshMedia]);
 
