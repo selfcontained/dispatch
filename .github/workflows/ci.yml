@@ -68,11 +68,17 @@ jobs:
           docker exec ${{ steps.postgres.outputs.container }} \
             psql -U dispatch -d postgres -c "CREATE DATABASE dispatch_ci;"
 
+      - name: Pick E2E port
+        id: e2e
+        run: |
+          PORT=$((RANDOM % 10000 + 20000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+
       - name: E2E tests
         run: npx playwright test
         env:
           CI: "true"
-          E2E_PORT: "8799"
+          E2E_PORT: "${{ steps.e2e.outputs.port }}"
           DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/dispatch_ci
 
       - name: Upload Playwright report
