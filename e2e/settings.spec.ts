@@ -10,12 +10,13 @@ test.describe("Settings pane", () => {
 
     // Settings overlay should appear with a "Settings" heading and "Release" nav item
     await expect(page.getByText("Settings").first()).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByText("Release", { exact: true })).toBeVisible();
+    const releaseNav = page.getByRole("navigation").getByText("Release");
+    await expect(releaseNav).toBeVisible();
 
     // Close it via the X button (sr-only "Close")
     await page.getByRole("button", { name: "Close" }).click();
 
     // The Release nav item should no longer be visible (pane is closed)
-    await expect(page.getByText("Release", { exact: true })).not.toBeVisible({ timeout: 3_000 });
+    await expect(releaseNav).not.toBeVisible({ timeout: 3_000 });
   });
 });
