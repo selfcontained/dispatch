@@ -19,6 +19,7 @@ import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { cn } from "@/lib/utils";
 
 type AgentSidebarSharedProps = {
@@ -76,6 +77,8 @@ export function AgentSidebarContent({
   closeButtonIcon = "x",
   className
 }: AgentSidebarContentProps): JSX.Element {
+  const [animateRef] = useAutoAnimate();
+
   const agentTypeLabel = (type?: string): string => {
     if (type === "claude") {
       return "Claude";
@@ -150,7 +153,8 @@ export function AgentSidebarContent({
           {agents.length === 0 ? (
             <div data-testid="no-agents-message" className="p-4 text-sm text-muted-foreground">No agents yet.</div>
           ) : (
-            agents.map((agent) => {
+            <div ref={animateRef}>
+            {agents.map((agent) => {
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
@@ -419,7 +423,8 @@ export function AgentSidebarContent({
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </TooltipProvider>
       </div>
