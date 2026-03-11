@@ -14,25 +14,10 @@ on:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     permissions:
       contents: write
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: dispatch
-          POSTGRES_PASSWORD: dispatch
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U dispatch"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +31,27 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             web/package-lock.json
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          CONTAINER="dispatch-ci-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          # Pick a random port in 10000-20000 range
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          # Wait for Postgres to be ready
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
 
       - name: Install dependencies
         run: npm ci
@@ -62,10 +68,14 @@ jobs:
       - name: Test
         run: npm test
         env:
-          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:5432/postgres
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Build
         run: npm run build
+
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
 
       - name: Configure git
         run: |
