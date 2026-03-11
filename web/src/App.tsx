@@ -31,7 +31,6 @@ import {
   recordHTTPRequest,
   recordHealthPollFire,
   recordHealthPollSkip,
-  recordError as recordEnergyError,
 } from "@/lib/energy-metrics";
 
 const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
