@@ -16,7 +16,7 @@ Examples:
 USAGE
 }
 
-API_BASE="${DISPATCH_API_BASE:-http://127.0.0.1:${DISPATCH_PORT:-8787}}"
+API_BASE="${DISPATCH_API_BASE:-${DISPATCH_SCHEME:-http}://127.0.0.1:${DISPATCH_PORT:-8787}}"
 AGENT_ID="${DISPATCH_AGENT_ID:-}"
 
 if [[ -z "$AGENT_ID" ]]; then
@@ -88,7 +88,7 @@ base="${safe_name%.*}"
 upload_name="${base}-${timestamp}.${ext}"
 
 CURL_ARGS=(
-  -fsS -X POST
+  -fsS -k -X POST
   -F "source=${SOURCE_TYPE}"
 )
 if [[ -n "$DESCRIPTION" ]]; then

@@ -30,7 +30,10 @@ import { StreamManager } from "./stream-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 
 const config = loadConfig();
-const app = Fastify({ logger: true });
+const app = Fastify({
+  logger: true,
+  ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
+});
 const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const terminalTokenStore = new TerminalTokenStore(60_000);
@@ -1233,10 +1236,12 @@ async function start() {
   startGitContextRefreshLoop();
   await registerRoutes();
 
+  const protocol = config.tls ? "https" : "http";
   await app.listen({
     host: config.host,
     port: config.port
   });
+  app.log.info(`Dispatch listening on ${protocol}://${config.host}:${config.port}`);
 }
 
 start().catch(async (error) => {
