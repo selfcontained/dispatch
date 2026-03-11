@@ -29,7 +29,7 @@ if [ -z "$AGENT_ID" ]; then
 fi
 
 PORT="${DISPATCH_PORT:-8787}"
-API_BASE="${DISPATCH_API_BASE:-http://127.0.0.1:${PORT}}"
+API_BASE="${DISPATCH_API_BASE:-${DISPATCH_SCHEME:-http}://127.0.0.1:${PORT}}"
 
 case "$ACTION" in
   start)
@@ -72,7 +72,7 @@ case "$ACTION" in
     ;;
 esac
 
-curl -fsS \
+curl -fsS -k \
   -X POST \
   -H "content-type: application/json" \
   --data "$PAYLOAD" \

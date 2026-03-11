@@ -65,10 +65,25 @@ reload_service() {
   sleep 3
 }
 
+resolve_scheme() {
+  local env_file="$SERVER_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local tls_cert tls_key
+    tls_cert=$(grep -E '^TLS_CERT=' "$env_file" | tail -1 | cut -d= -f2)
+    tls_key=$(grep -E '^TLS_KEY=' "$env_file" | tail -1 | cut -d= -f2)
+    if [[ -n "$tls_cert" && -n "$tls_key" ]]; then
+      echo "https"
+      return
+    fi
+  fi
+  echo "http"
+}
+
 health_check() {
-  local port
+  local port scheme
   port=$(resolve_port)
-  curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
+  scheme=$(resolve_scheme)
+  curl -fsS -k -m 3 "${scheme}://127.0.0.1:${port}/api/v1/health"
 }
 
 wait_for_health() {
@@ -234,6 +249,7 @@ If you can fix the issue, do so and redeploy with: bin/dispatch-deploy $tag"
     "DISPATCH_AGENT_ID='${agent_id}' \
      DISPATCH_MEDIA_DIR='${media_dir}' \
      DISPATCH_PORT='${port}' \
+     DISPATCH_SCHEME='$(resolve_scheme)' \
      PATH='${path_prefix}':\"\$PATH\" \
      claude --append-system-prompt 'You are a Dispatch deploy diagnosis agent. Call dispatch-event at start (working), when blocked (blocked), and before final response (done/idle).' \
      -p '${prompt//\'/\'\\\'\'}'" \

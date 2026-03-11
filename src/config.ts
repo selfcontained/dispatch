@@ -1,8 +1,14 @@
 import "dotenv/config";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export type TlsConfig = {
+  cert: Buffer;
+  key: Buffer;
+};
 
 export type AppConfig = {
   host: string;
@@ -13,7 +19,21 @@ export type AppConfig = {
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
+  tls: TlsConfig | null;
 };
+
+function loadTls(): TlsConfig | null {
+  const certPath = process.env.TLS_CERT;
+  const keyPath = process.env.TLS_KEY;
+  if (!certPath && !keyPath) return null;
+  if (!certPath || !keyPath) {
+    throw new Error("Both TLS_CERT and TLS_KEY must be set to enable TLS");
+  }
+  return {
+    cert: readFileSync(certPath),
+    key: readFileSync(keyPath),
+  };
+}
 
 export function loadConfig(): AppConfig {
   return {
@@ -33,6 +53,7 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_CLAUDE_BIN ??
       process.env.HOSTESS_CLAUDE_BIN ??
       process.env.CLAUDE_BIN ??
-      "claude"
+      "claude",
+    tls: loadTls(),
   };
 }

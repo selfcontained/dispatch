@@ -58,7 +58,9 @@ resolve_port() {
 health_check() {
   local port
   port=$(resolve_port)
-  curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
+  # Try HTTPS first (TLS-enabled), fall back to HTTP
+  curl -fsS -k -m 3 "https://127.0.0.1:${port}/api/v1/health" 2>/dev/null \
+    || curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
 }
 
 wait_for_health() {

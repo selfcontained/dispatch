@@ -360,6 +360,7 @@ export class AgentManager {
       `HOSTESS_AGENT_ID=${this.shellEscape(agentId)}`,
       `HOSTESS_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
+      `DISPATCH_SCHEME=${this.config.tls ? "https" : "http"}`,
       `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,

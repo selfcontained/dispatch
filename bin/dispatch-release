@@ -72,8 +72,16 @@ Report your findings via dispatch-event."
     [[ -n "$env_port" ]] && port="$env_port"
   fi
 
+  local scheme="http"
+  if [[ -f "$env_file" ]]; then
+    local tls_cert tls_key
+    tls_cert=$(grep -E '^TLS_CERT=' "$env_file" | tail -1 | cut -d= -f2)
+    tls_key=$(grep -E '^TLS_KEY=' "$env_file" | tail -1 | cut -d= -f2)
+    [[ -n "$tls_cert" && -n "$tls_key" ]] && scheme="https"
+  fi
+
   echo "==> spawning diagnosis agent..."
-  curl -fsS -X POST "http://127.0.0.1:${port}/api/v1/agents" \
+  curl -fsS -k -X POST "${scheme}://127.0.0.1:${port}/api/v1/agents" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
       --arg name "release-diagnosis" \
