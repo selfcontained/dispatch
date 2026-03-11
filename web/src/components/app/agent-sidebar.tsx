@@ -168,8 +168,11 @@ export function AgentSidebarContent({
                   key={agent.id}
                   data-testid={`agent-card-${agent.id}`}
                   className={cn(
-                    "border-b border-r-4 border-border px-2 py-2",
+                    "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
                     borderForAgentState(state),
+                    isActive && "bg-emerald-500/10",
+                    !isActive && !isStopped && "bg-sky-500/[0.06]",
+                    isStopped && "opacity-60",
                     isSelected && "bg-muted/60"
                   )}
                 >
