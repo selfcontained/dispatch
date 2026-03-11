@@ -29,6 +29,15 @@
 - Prefer shadcn/ui components over hand-rolled UI when an equivalent shadcn option exists.
 - Only hand-roll when there is no suitable shadcn primitive or composition path.
 
+## Pre-Completion Checks (Mandatory)
+Before marking any task as done, run the following checks and fix any failures:
+1. **Type checking**: `npm run check` (runs `tsc --noEmit` for backend + web).
+2. **Web finalization**: If any files under `web/` changed, run `npm run finalize:web` (type check + production build).
+3. **E2E tests**: `npm run test:e2e` (Playwright). Use `E2E_PORT=<port>` if a dev server is already running.
+4. **Unit tests**: `npm test` (Vitest) if backend logic changed.
+- Do not consider a task complete until all applicable checks pass.
+- If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
+
 ## Web Finalization
 - If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
 - After running `npm run finalize:web`, verify the served app once (not only Vite dev server) when the task affects UI/theme/rendering behavior.
