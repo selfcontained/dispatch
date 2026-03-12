@@ -840,6 +840,9 @@ async function registerRoutes() {
     const validSources = ["screenshot", "stream", "simulator"];
     const source = validSources.includes(sourceField) ? sourceField : "screenshot";
     const description = (data.fields.description as { value?: string } | undefined)?.value ?? null;
+    if (!description) {
+      return reply.code(400).send({ error: "A description field is required." });
+    }
 
     const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
     await mkdir(mediaDir, { recursive: true });

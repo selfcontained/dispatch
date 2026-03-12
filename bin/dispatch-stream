@@ -5,12 +5,13 @@ usage() {
   cat <<'USAGE'
 Usage:
   dispatch-stream start --playwright <port>
-  dispatch-stream stop [-d "description"]
+  dispatch-stream stop "description"
+
+A short description is required when stopping a stream.
 
 Examples:
   dispatch-stream start --playwright 62816
-  dispatch-stream stop
-  dispatch-stream stop -d "Browsing bradharris.dev homepage"
+  dispatch-stream stop "Browsing bradharris.dev homepage"
 USAGE
 }
 
@@ -45,25 +46,15 @@ case "$ACTION" in
     PAYLOAD="{\"type\":\"playwright\",\"port\":${CDP_PORT}}"
     ;;
   stop)
-    DESCRIPTION=""
-    while [[ $# -gt 0 ]]; do
-      case "$1" in
-        -d|--description)
-          DESCRIPTION="${2:-}"
-          shift 2
-          ;;
-        *)
-          shift
-          ;;
-      esac
-    done
-    if [ -n "$DESCRIPTION" ]; then
-      # Escape double quotes in description for JSON
-      ESCAPED="$(echo "$DESCRIPTION" | sed 's/"/\\"/g')"
-      PAYLOAD="{\"type\":\"stop\",\"description\":\"${ESCAPED}\"}"
-    else
-      PAYLOAD='{"type":"stop"}'
+    DESCRIPTION="${1:-}"
+    if [ -z "$DESCRIPTION" ]; then
+      echo "dispatch-stream: description is required when stopping a stream." >&2
+      usage
+      exit 1
     fi
+    # Escape double quotes in description for JSON
+    ESCAPED="$(echo "$DESCRIPTION" | sed 's/"/\\"/g')"
+    PAYLOAD="{\"type\":\"stop\",\"description\":\"${ESCAPED}\"}"
     ;;
   *)
     echo "Invalid action: $ACTION" >&2
