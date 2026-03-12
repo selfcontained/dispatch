@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -306,11 +306,15 @@ export class AgentManager {
       const exists = row.tmuxSession ? await this.tmuxHasSession(row.tmuxSession) : false;
 
       if (!exists) {
+        const exitInfo = row.tmuxSession ? await this.readExitFile(row.tmuxSession) : null;
+        if (exitInfo !== null) {
+          this.logger.info({ id: row.id, exitCode: exitInfo }, "Agent process exited with code %d", exitInfo);
+        }
         await this.setAgentStatus(row.id, "stopped", null, row.tmuxSession ?? undefined);
         await this.setSystemLatestEvent(row.id, {
           type: "idle",
-          message: "Session ended unexpectedly.",
-          metadata: { source: "system" }
+          message: exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.",
+          metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}) }
         });
         const agent = await this.getAgent(row.id);
         if (agent) {
@@ -331,7 +335,9 @@ export class AgentManager {
   ): Promise<void> {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, codexArgs, mediaDir, sessionName);
-    await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, agentCommand]);
+    const exitFile = `/tmp/dispatch_${sessionName}.exit`;
+    const wrappedCommand = `bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
+    await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
       allowedExitCodes: [0, 1]
     });
@@ -507,6 +513,16 @@ export class AgentManager {
 
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Unknown error";
+  }
+
+  private async readExitFile(sessionName: string): Promise<number | null> {
+    try {
+      const content = await readFile(`/tmp/dispatch_${sessionName}.exit`, "utf-8");
+      const match = content.trim().match(/^EXIT:(\d+)$/);
+      return match ? Number(match[1]) : null;
+    } catch {
+      return null;
+    }
   }
 
   private async sleep(ms: number): Promise<void> {
