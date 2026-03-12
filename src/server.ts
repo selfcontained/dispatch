@@ -1067,6 +1067,8 @@ async function registerRoutes() {
     const body = request.body as { force?: unknown } | undefined;
     const id = params.id ?? "";
 
+    app.log.info({ agentId: id, force: body?.force ?? false }, "Stop agent requested");
+
     if (body?.force !== undefined && typeof body.force !== "boolean") {
       return reply.code(400).send({ error: "force must be a boolean when provided." });
     }
