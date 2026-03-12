@@ -20,8 +20,9 @@
   - Include a `Status log` section in the final response with the exact stdout lines from each `dispatch-event` call.
 
 ## UI Validation
-- For any UI/layout/style interaction change, validate behavior in Playwright before marking the task complete.
+- For any UI/layout/style/feature change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).
+- Capture at least one screenshot per validation flow and publish it with `dispatch-share <image-path> "description"`. Never leave screenshots local-only.
 - For pages with SSE/WebSocket activity, do not use Playwright `waitUntil: "networkidle"` for readiness checks.
 - Use `waitUntil: "domcontentloaded"` (or `"load"`) and wait for concrete UI-ready signals (visible control/text/state) instead.
 

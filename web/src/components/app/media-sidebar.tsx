@@ -5,17 +5,6 @@ import { type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-function mediaSourceLabel(file: MediaFile): string {
-  switch (file.source) {
-    case "stream":
-      return "Stream recording";
-    case "simulator":
-      return `Simulator: ${file.name}`;
-    default:
-      return `Shared: ${file.name}`;
-  }
-}
-
 type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
@@ -148,14 +137,13 @@ export function MediaSidebarContent({
                     "block w-full overflow-hidden border-2 bg-black/60",
                     unseen ? "media-thumb-unseen" : "media-thumb-seen"
                   )}
-                  onClick={() => openLightbox(cacheBustUrl, file.name)}
+                  onClick={() => openLightbox(cacheBustUrl, file.description || "")}
                 >
-                  <img src={cacheBustUrl} alt={file.name} className="max-h-[260px] w-full object-contain" />
+                  <img src={cacheBustUrl} alt={file.description || ""} className="max-h-[260px] w-full object-contain" />
                 </button>
                 <div className="mt-2 text-xs text-muted-foreground">
-                  {isStream ? null : <div>{mediaSourceLabel(file)}</div>}
-                  {file.description ? <div className={isStream ? "" : "mt-1"}>{file.description}</div> : null}
-                  <div className={file.description || !isStream ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
+                  {file.description ? <div>{file.description}</div> : null}
+                  <div className={file.description ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
                 </div>
               </article>
             );

@@ -4,15 +4,17 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  dispatch-share <image-path> [name] [-d "description"]
-  dispatch-share --sim [udid] [name] [-d "description"]
+  dispatch-share <image-path> "description"
+  dispatch-share <image-path> "description" [name]
+  dispatch-share --sim "description" [udid] [name]
+
+A short description of the shared media is required.
 
 Examples:
-  dispatch-share ./artifacts/homepage.png
-  dispatch-share ./artifacts/homepage.png playwright-home.png
-  dispatch-share ./artifacts/homepage.png -d "Homepage after login flow"
-  dispatch-share --sim
-  dispatch-share --sim booted ios-home.png
+  dispatch-share ./artifacts/homepage.png "Homepage after login flow"
+  dispatch-share ./artifacts/homepage.png "Login page screenshot" login.png
+  dispatch-share --sim "Current simulator state"
+  dispatch-share --sim "iOS home screen" booted ios-home.png
 USAGE
 }
 
@@ -26,23 +28,6 @@ fi
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 
-# Extract -d/--description from args
-DESCRIPTION=""
-ARGS=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -d|--description)
-      DESCRIPTION="${2:-}"
-      shift 2
-      ;;
-    *)
-      ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-set -- "${ARGS[@]}"
-
 SOURCE_PATH=""
 SOURCE_TYPE="screenshot"
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "" ]]; then
@@ -51,14 +36,26 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "" ]]; then
 fi
 
 if [[ "${1:-}" == "--sim" ]]; then
-  udid="${2:-booted}"
-  out_name="${3:-sim-${timestamp}.png}"
+  DESCRIPTION="${2:-}"
+  if [[ -z "$DESCRIPTION" ]]; then
+    echo "dispatch-share: description is required." >&2
+    usage
+    exit 1
+  fi
+  udid="${3:-booted}"
+  out_name="${4:-sim-${timestamp}.png}"
   tmp="${TMPDIR:-/tmp}/${out_name}"
   xcrun simctl io "$udid" screenshot --type=png "$tmp" >/dev/null
   SOURCE_PATH="$tmp"
   SOURCE_TYPE="simulator"
 else
   SOURCE_PATH="$1"
+  DESCRIPTION="${2:-}"
+  if [[ -z "$DESCRIPTION" ]]; then
+    echo "dispatch-share: description is required." >&2
+    usage
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$SOURCE_PATH" ]]; then
@@ -73,9 +70,9 @@ if [[ ! "$lower_name" =~ \.(png|jpg|jpeg|gif|webp)$ ]]; then
 fi
 
 if [[ "${1:-}" == "--sim" ]]; then
-  preferred_name="${3:-$(basename "$SOURCE_PATH")}"
+  preferred_name="${4:-$(basename "$SOURCE_PATH")}"
 else
-  preferred_name="${2:-$(basename "$SOURCE_PATH")}"
+  preferred_name="${3:-$(basename "$SOURCE_PATH")}"
 fi
 
 safe_name="$(echo "$preferred_name" | tr ' ' '-' | tr -cd '[:alnum:]._-')"
@@ -90,11 +87,9 @@ upload_name="${base}-${timestamp}.${ext}"
 CURL_ARGS=(
   -fsS -k -X POST
   -F "source=${SOURCE_TYPE}"
+  -F "description=${DESCRIPTION}"
+  -F "file=@${SOURCE_PATH};filename=${upload_name}"
 )
-if [[ -n "$DESCRIPTION" ]]; then
-  CURL_ARGS+=(-F "description=${DESCRIPTION}")
-fi
-CURL_ARGS+=(-F "file=@${SOURCE_PATH};filename=${upload_name}")
 
 response="$(curl "${CURL_ARGS[@]}" "${API_BASE}/api/v1/agents/${AGENT_ID}/media")"
 
