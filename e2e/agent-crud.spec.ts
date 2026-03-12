@@ -7,17 +7,23 @@ test.describe("Agent CRUD", () => {
   });
 
   test("displays 'No agents yet' when the list is empty", async ({ page, request }) => {
-    // Stop all agents first (running agents can't be deleted)
+    // Stop and delete only e2e-prefixed agents (never touch real agents)
     const listRes = await request.get("/api/v1/agents");
-    const { agents } = (await listRes.json()) as { agents: Array<{ id: string; status: string }> };
-    for (const agent of agents) {
+    const { agents } = (await listRes.json()) as { agents: Array<{ id: string; name: string; status: string }> };
+    const e2eAgents = agents.filter((a) => a.name.startsWith("e2e-agent-"));
+    for (const agent of e2eAgents) {
       if (agent.status !== "stopped") {
         await request.post(`/api/v1/agents/${agent.id}/stop`);
       }
     }
-    // Delete all agents
-    for (const agent of agents) {
+    for (const agent of e2eAgents) {
       await request.delete(`/api/v1/agents/${agent.id}`);
+    }
+
+    // Skip empty-state assertion if non-e2e agents remain
+    if (agents.length > e2eAgents.length) {
+      test.skip();
+      return;
     }
 
     // Load page fresh — SSE snapshot should now be empty

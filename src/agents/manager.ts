@@ -255,7 +255,7 @@ export class AgentManager {
       await this.setAgentStatus(id, "stopped", null, agent.tmuxSession ?? undefined);
     }
 
-    if (force && agent.tmuxSession && sessionExists) {
+    if (agent.tmuxSession && sessionExists) {
       await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
     }
 
@@ -293,16 +293,17 @@ export class AgentManager {
 
   async reconcileAgents(): Promise<void> {
     await this.reconcileAgentStatuses();
+    await this.cleanupOrphanedSessions();
   }
 
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
     const result = await this.pool.query(
-      "SELECT id, tmux_session AS \"tmuxSession\", status FROM agents WHERE status IN ('running', 'stopping', 'creating')"
+      "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE status IN ('running', 'stopping', 'creating')"
     );
 
     const reconciled: AgentRecord[] = [];
 
-    for (const row of result.rows as Array<{ id: string; tmuxSession: string | null; status: string }>) {
+    for (const row of result.rows as Array<{ id: string; tmuxSession: string | null; status: string; updatedAt: string }>) {
       const exists = row.tmuxSession ? await this.tmuxHasSession(row.tmuxSession) : false;
 
       if (!exists) {
@@ -316,10 +317,100 @@ export class AgentManager {
         if (agent) {
           reconciled.push(agent);
         }
+      } else if (row.status === "stopping") {
+        const STUCK_STOPPING_TIMEOUT_S = 60;
+        const stuckSeconds = (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
+        if (stuckSeconds > STUCK_STOPPING_TIMEOUT_S) {
+          this.logger.warn({ id: row.id, stuckSeconds }, "Agent stuck in stopping state, reverting to running");
+          await this.setAgentStatus(row.id, "running", null, row.tmuxSession ?? undefined);
+          await this.setSystemLatestEvent(row.id, {
+            type: "working",
+            message: "Stop timed out — agent reverted to running. Try force stop.",
+            metadata: { source: "system" }
+          });
+          const agent = await this.getAgent(row.id);
+          if (agent) {
+            reconciled.push(agent);
+          }
+        }
       }
     }
 
     return reconciled;
+  }
+
+  private async cleanupOrphanedSessions(): Promise<void> {
+    const SESSION_PREFIX = "dispatch_agt_";
+
+    let stdout: string | undefined;
+    try {
+      const result = await runCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], {
+        allowedExitCodes: [0, 1]
+      });
+      stdout = result.stdout;
+    } catch {
+      // tmux not running or no sessions
+      return;
+    }
+
+    if (!stdout?.trim()) return;
+
+    const sessions = stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const colonIdx = line.lastIndexOf(":");
+        const name = line.substring(0, colonIdx);
+        const createdStr = line.substring(colonIdx + 1);
+        return { name, createdAt: parseInt(createdStr, 10) };
+      })
+      .filter((s) => s.name.startsWith(SESSION_PREFIX));
+
+    if (sessions.length === 0) return;
+
+    // Extract agent IDs from session names
+    const agentIds = sessions.map((s) => s.name.replace(/^dispatch_/, ""));
+
+    // Query DB for these agent IDs
+    const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
+    const dbResult = await this.pool.query(
+      `SELECT id, status FROM agents WHERE id IN (${placeholders})`,
+      agentIds
+    );
+    const dbAgents = new Map<string, string>();
+    for (const row of dbResult.rows as Array<{ id: string; status: string }>) {
+      dbAgents.set(row.id, row.status);
+    }
+
+    const ORPHAN_AGE_THRESHOLD_S = 300;
+    const now = Math.floor(Date.now() / 1000);
+    const toKill: string[] = [];
+
+    for (const session of sessions) {
+      const agentId = session.name.replace(/^dispatch_/, "");
+      const status = dbAgents.get(agentId);
+
+      // Agent in terminal state — session is definitely orphaned
+      if (status === "stopped" || status === "error") {
+        this.logger.info({ session: session.name, agentId, status }, "Killing orphaned tmux session (agent in terminal state)");
+        toKill.push(session.name);
+        continue;
+      }
+
+      // No matching DB record — kill if session older than 5 minutes (avoids race with creation)
+      if (!status) {
+        const ageSeconds = now - session.createdAt;
+        if (ageSeconds > ORPHAN_AGE_THRESHOLD_S) {
+          this.logger.info({ session: session.name, agentId, ageSeconds }, "Killing orphaned tmux session (no DB record)");
+          toKill.push(session.name);
+        }
+      }
+    }
+
+    await Promise.all(
+      toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
+    );
   }
 
   private async startTmuxSession(
