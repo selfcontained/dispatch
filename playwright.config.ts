@@ -32,7 +32,7 @@ export default defineConfig({
       ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} npm run dev`
       : `npm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} npm run dev`,
     url: `${baseURL}/api/v1/health`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

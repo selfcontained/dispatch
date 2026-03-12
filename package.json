@@ -20,8 +20,7 @@
     "check": "tsc --noEmit && npm run check:web",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npx playwright test",
-    "test:e2e:isolated": "bash scripts/e2e-isolated.sh"
+    "test:e2e": "bash scripts/e2e-isolated.sh"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",

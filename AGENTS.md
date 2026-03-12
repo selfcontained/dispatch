@@ -33,7 +33,7 @@
 Before marking any task as done, run the following checks and fix any failures:
 1. **Type checking**: `npm run check` (runs `tsc --noEmit` for backend + web).
 2. **Web finalization**: If any files under `web/` changed, run `npm run finalize:web` (type check + production build).
-3. **E2E tests**: `npm run test:e2e` (Playwright). If a dev server is running via `dispatch-dev`, pass its port: `E2E_PORT=<port> npm run test:e2e`.
+3. **E2E tests**: `npm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
 4. **Unit tests**: `npm test` (Vitest) if backend logic changed.
 - Do not consider a task complete until all applicable checks pass.
 - If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
