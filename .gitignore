@@ -13,6 +13,7 @@ tmp-*.mjs
 *.jpeg
 *.gif
 *.webp
+.media
 artifacts/
 .playwright-mcp/
 test-results/
