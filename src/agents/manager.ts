@@ -325,7 +325,7 @@ export class AgentManager {
           await this.setAgentStatus(row.id, "running", null, row.tmuxSession ?? undefined);
           await this.setSystemLatestEvent(row.id, {
             type: "working",
-            message: "Recovered from stuck stopping state.",
+            message: "Stop timed out — agent reverted to running. Try force stop.",
             metadata: { source: "system" }
           });
           const agent = await this.getAgent(row.id);
@@ -360,7 +360,9 @@ export class AgentManager {
       .split("\n")
       .filter(Boolean)
       .map((line) => {
-        const [name, createdStr] = line.split(":");
+        const colonIdx = line.lastIndexOf(":");
+        const name = line.substring(0, colonIdx);
+        const createdStr = line.substring(colonIdx + 1);
         return { name, createdAt: parseInt(createdStr, 10) };
       })
       .filter((s) => s.name.startsWith(SESSION_PREFIX));
