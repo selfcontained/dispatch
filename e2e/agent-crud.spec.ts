@@ -10,18 +10,18 @@ test.describe("Agent CRUD", () => {
     // Stop and delete only e2e-prefixed agents (never touch real agents)
     const listRes = await request.get("/api/v1/agents");
     const { agents } = (await listRes.json()) as { agents: Array<{ id: string; name: string; status: string }> };
-    for (const agent of agents.filter((a) => a.name.startsWith("e2e-agent-"))) {
+    const e2eAgents = agents.filter((a) => a.name.startsWith("e2e-agent-"));
+    for (const agent of e2eAgents) {
       if (agent.status !== "stopped") {
         await request.post(`/api/v1/agents/${agent.id}/stop`);
       }
     }
-    for (const agent of agents.filter((a) => a.name.startsWith("e2e-agent-"))) {
+    for (const agent of e2eAgents) {
       await request.delete(`/api/v1/agents/${agent.id}`);
     }
 
     // Skip empty-state assertion if non-e2e agents remain
-    const remainingAgents = agents.filter((a) => !a.name.startsWith("e2e-agent-"));
-    if (remainingAgents.length > 0) {
+    if (agents.length > e2eAgents.length) {
       test.skip();
       return;
     }

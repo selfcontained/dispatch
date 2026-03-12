@@ -318,9 +318,9 @@ export class AgentManager {
           reconciled.push(agent);
         }
       } else if (row.status === "stopping") {
-        // If stuck in "stopping" for > 60s with a live tmux session, revert to running
+        const STUCK_STOPPING_TIMEOUT_S = 60;
         const stuckSeconds = (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
-        if (stuckSeconds > 60) {
+        if (stuckSeconds > STUCK_STOPPING_TIMEOUT_S) {
           this.logger.warn({ id: row.id, stuckSeconds }, "Agent stuck in stopping state, reverting to running");
           await this.setAgentStatus(row.id, "running", null, row.tmuxSession ?? undefined);
           await this.setSystemLatestEvent(row.id, {
@@ -381,7 +381,9 @@ export class AgentManager {
       dbAgents.set(row.id, row.status);
     }
 
+    const ORPHAN_AGE_THRESHOLD_S = 300;
     const now = Math.floor(Date.now() / 1000);
+    const toKill: string[] = [];
 
     for (const session of sessions) {
       const agentId = session.name.replace(/^dispatch_/, "");
@@ -390,19 +392,23 @@ export class AgentManager {
       // Agent in terminal state — session is definitely orphaned
       if (status === "stopped" || status === "error") {
         this.logger.info({ session: session.name, agentId, status }, "Killing orphaned tmux session (agent in terminal state)");
-        await runCommand("tmux", ["kill-session", "-t", session.name]).catch(() => {});
+        toKill.push(session.name);
         continue;
       }
 
       // No matching DB record — kill if session older than 5 minutes (avoids race with creation)
       if (!status) {
         const ageSeconds = now - session.createdAt;
-        if (ageSeconds > 300) {
+        if (ageSeconds > ORPHAN_AGE_THRESHOLD_S) {
           this.logger.info({ session: session.name, agentId, ageSeconds }, "Killing orphaned tmux session (no DB record)");
-          await runCommand("tmux", ["kill-session", "-t", session.name]).catch(() => {});
+          toKill.push(session.name);
         }
       }
     }
+
+    await Promise.all(
+      toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
+    );
   }
 
   private async startTmuxSession(
