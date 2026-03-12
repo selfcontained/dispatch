@@ -11,10 +11,21 @@ else
   exit 1
 fi
 
-# Generate unique identifiers based on PID to avoid collisions
+# Grab actually-free ports from the OS to avoid collisions between concurrent runs
+find_free_port() {
+  node -e '
+    const net = require("net");
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      console.log(srv.address().port);
+      srv.close();
+    });
+  '
+}
+
 RUN_ID="e2e-$$"
-DB_PORT=$((RANDOM % 10000 + 10000))
-API_PORT=$((RANDOM % 10000 + 20000))
+DB_PORT="$(find_free_port)"
+API_PORT="$(find_free_port)"
 
 export DISPATCH_DB_NAME="$RUN_ID"
 export DISPATCH_DB_PORT="$DB_PORT"
