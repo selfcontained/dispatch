@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -239,6 +239,8 @@ export class AgentManager {
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
 
+    await this.cleanupDevEnvironment(id);
+
     return (await this.getAgent(id)) as AgentRecord;
   }
 
@@ -258,6 +260,8 @@ export class AgentManager {
     if (agent.tmuxSession && sessionExists) {
       await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
     }
+
+    await this.cleanupDevEnvironment(id);
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
 
@@ -415,6 +419,26 @@ export class AgentManager {
     await Promise.all(
       toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
     );
+  }
+
+  /**
+   * Clean up any dev environment resources (Docker containers, state files)
+   * created by dispatch-dev for this agent.
+   */
+  private async cleanupDevEnvironment(agentId: string): Promise<void> {
+    const stateFile = `/tmp/dispatch-dev-${agentId}.env`;
+    try {
+      const content = await readFile(stateFile, "utf-8");
+      const dbNameMatch = content.match(/^DEV_DB_NAME=(.+)$/m);
+      if (dbNameMatch?.[1]) {
+        const containerName = `dispatch-postgres-${dbNameMatch[1]}`;
+        await runCommand("docker", ["rm", "-f", containerName], { allowedExitCodes: [0, 1] });
+        this.logger.info({ agentId, containerName }, "Cleaned up dev database container");
+      }
+      await unlink(stateFile).catch(() => {});
+    } catch {
+      // No state file means no dev environment was created — nothing to clean up.
+    }
   }
 
   private async startTmuxSession(

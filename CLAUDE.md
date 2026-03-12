@@ -34,32 +34,44 @@
 Before marking any task as done, run the following checks and fix any failures:
 1. **Type checking**: `npm run check` (runs `tsc --noEmit` for backend + web).
 2. **Web finalization**: If any files under `web/` changed, run `npm run finalize:web` (type check + production build).
-3. **E2E tests**: `npm run test:e2e` (Playwright). Use `E2E_PORT=<port>` if a dev server is already running.
+3. **E2E tests**: `npm run test:e2e` (Playwright). If a dev server is running via `dispatch-dev`, pass its port: `E2E_PORT=<port> npm run test:e2e`.
 4. **Unit tests**: `npm test` (Vitest) if backend logic changed.
 - Do not consider a task complete until all applicable checks pass.
 - If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
 
 ## Web Finalization
 - If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
-- After running `npm run finalize:web`, verify the served app once (not only Vite dev server) when the task affects UI/theme/rendering behavior.
-
-## Vite Dev Server
-- For frontend development/validation, run the Vite dev server (`npm --prefix web run dev`) instead of the backend static server.
-- Do not pin a fixed Vite port unless explicitly requested; let Vite choose an open port automatically.
-- If multiple local Dispatch instances are running, always use the exact URL printed by the active Vite process for Playwright/manual checks.
+- After running `npm run finalize:web`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
 
 ## Temporary Files
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
 - Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
 - Playwright screenshots should be published via `dispatch-share`, not saved locally.
 
+## Dev Server Management (CRITICAL)
+- **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
+- **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
+- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all tied to your agent session. Everything is automatically cleaned up when your session ends.
+  ```bash
+  dispatch-dev up                             # start isolated DB + API server
+  dispatch-dev up --vite                      # also start Vite frontend
+  dispatch-dev up --cwd /path/to/worktree     # start from a specific directory
+  dispatch-dev up --no-db                     # skip DB (use existing DATABASE_URL)
+  dispatch-dev down                           # tear down everything
+  dispatch-dev restart                        # restart the environment
+  dispatch-dev status                         # check what's running
+  dispatch-dev logs                           # API server logs
+  dispatch-dev logs --vite                    # Vite server logs
+  dispatch-dev url                            # print the API server URL
+  ```
+- `dispatch-dev up` auto-selects free ports and prints the URLs — just use the printed URLs.
+
 ## Backend Testing Safety
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
-- When backend changes need local validation, run a separate backend instance on a different port (for example `DISPATCH_PORT=8788 npm run dev`) and point validation tooling to that port.
+- When backend changes need local validation, use `dispatch-dev up` and point validation tooling to the printed URL.
 - Only operate on production (`:6767`) when explicitly requested by the user.
 
 ## Development Database
-- Production uses the `dispatch` database. Development and worktrees use `dispatch_dev`.
-- When running dev servers, set `DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:5432/dispatch_dev` to avoid touching production data.
-- Worktree `.env` files should already be configured with the dev database, dev port (8788), and a separate media root (`~/.dispatch/media-dev`).
-- Migrations run automatically on server start, so the dev database schema stays up to date.
+- Production uses the `dispatch` database. Never connect to it from dev servers.
+- `dispatch-dev up` creates an isolated Postgres container per agent with its own port — no manual DATABASE_URL setup needed.
+- Migrations run automatically on API server start.
