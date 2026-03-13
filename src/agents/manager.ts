@@ -410,13 +410,12 @@ export class AgentManager {
         continue;
       }
 
-      // No matching DB record — kill if session older than 5 minutes (avoids race with creation)
+      // No DB record — leave it alone. The session may belong to another
+      // server instance (e.g. a dispatch-dev API server running against
+      // its own isolated database). Only clean up sessions that *this*
+      // database definitively knows about.
       if (!status) {
-        const ageSeconds = now - session.createdAt;
-        if (ageSeconds > ORPHAN_AGE_THRESHOLD_S) {
-          this.logger.info({ session: session.name, agentId, ageSeconds }, "Killing orphaned tmux session (no DB record)");
-          toKill.push(session.name);
-        }
+        this.logger.debug({ session: session.name, agentId }, "Ignoring tmux session with no matching DB record");
       }
     }
 
