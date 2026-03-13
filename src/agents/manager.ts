@@ -72,6 +72,10 @@ type AgentLatestEventInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentTerminalAccess =
+  | { mode: "tmux"; sessionName: string }
+  | { mode: "inert"; message: string };
+
 export class AgentError extends Error {
   statusCode: number;
 
@@ -86,6 +90,7 @@ export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
+  private readonly runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
   private lastTmuxInventoryAt = 0;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
@@ -125,7 +130,7 @@ export class AgentManager {
 
     try {
       await this.ensureNoExistingSession(tmuxSession);
-      await this.startTmuxSession(tmuxSession, cwd, mediaDir, type, agentArgs, fullAccess);
+      await this.startAgentSession(tmuxSession, cwd, mediaDir, type, agentArgs, fullAccess);
       await this.setAgentStatus(id, "running", null);
       await this.setSystemLatestEvent(id, {
         type: "working",
@@ -148,7 +153,7 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     const tmuxSession = agent.tmuxSession ?? this.toSessionName(agent.id, agent.name);
-    const hasSession = await this.tmuxHasSession(tmuxSession);
+    const hasSession = await this.hasAgentSession(tmuxSession);
 
     if (hasSession) {
       await this.setAgentStatus(id, "running", null, tmuxSession);
@@ -162,7 +167,7 @@ export class AgentManager {
     await this.setAgentStatus(id, "creating", null);
 
     try {
-      await this.startTmuxSession(
+      await this.startAgentSession(
         tmuxSession,
         agent.cwd,
         agent.mediaDir ?? this.defaultMediaDir(id),
@@ -189,7 +194,7 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
-  async getTerminalSession(id: string): Promise<string> {
+  async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
     const agent = await this.getRequiredAgent(id);
     if (agent.status !== "running") {
       throw new AgentError("Agent is not running.", 409);
@@ -199,13 +204,20 @@ export class AgentManager {
       throw new AgentError("Agent is missing tmux session metadata.", 500);
     }
 
-    const hasSession = await this.tmuxHasSession(agent.tmuxSession);
+    if (this.config.agentRuntime === "inert") {
+      return {
+        mode: "inert",
+        message: "Agent is running in inert mode. No tmux session or CLI process is attached in this environment."
+      };
+    }
+
+    const hasSession = await this.hasAgentSession(agent.tmuxSession);
     if (!hasSession) {
       await this.setAgentStatus(id, "stopped", "Agent tmux session is no longer running.", agent.tmuxSession);
       throw new AgentError("Agent session is not available. Start the agent again.", 409);
     }
 
-    return agent.tmuxSession;
+    return { mode: "tmux", sessionName: agent.tmuxSession };
   }
 
   async stopAgent(id: string, input: StopAgentInput = {}): Promise<AgentRecord> {
@@ -220,15 +232,8 @@ export class AgentManager {
     await this.setAgentStatus(id, "stopping", null, tmuxSession ?? undefined);
 
     try {
-      if (tmuxSession && (await this.tmuxHasSession(tmuxSession))) {
-        if (!force) {
-          await runCommand("tmux", ["send-keys", "-t", tmuxSession, "C-c"]);
-          await this.sleep(1200);
-        }
-
-        if (await this.tmuxHasSession(tmuxSession)) {
-          await runCommand("tmux", ["kill-session", "-t", tmuxSession]);
-        }
+      if (tmuxSession && (await this.hasAgentSession(tmuxSession))) {
+        await this.stopAgentSession(tmuxSession, force);
       }
 
       await this.setAgentStatus(id, "stopped", null, tmuxSession ?? undefined);
@@ -252,7 +257,7 @@ export class AgentManager {
 
   async deleteAgent(id: string, force = false): Promise<void> {
     const agent = await this.getRequiredAgent(id);
-    const sessionExists = agent.tmuxSession ? await this.tmuxHasSession(agent.tmuxSession) : false;
+    const sessionExists = agent.tmuxSession ? await this.hasAgentSession(agent.tmuxSession) : false;
 
     // If tmux is already gone, treat the agent as effectively stopped even if status is stale.
     if (agent.status === "running" && sessionExists && !force) {
@@ -264,7 +269,7 @@ export class AgentManager {
     }
 
     if (agent.tmuxSession && sessionExists) {
-      await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
+      await this.stopAgentSession(agent.tmuxSession, true);
     }
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
@@ -301,7 +306,9 @@ export class AgentManager {
 
   async reconcileAgents(): Promise<void> {
     await this.reconcileAgentStatuses();
-    await this.cleanupOrphanedSessions();
+    if (this.config.agentRuntime === "tmux") {
+      await this.cleanupOrphanedSessions();
+    }
   }
 
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
@@ -314,11 +321,13 @@ export class AgentManager {
     const reconciled: AgentRecord[] = [];
 
     for (const row of result.rows as Array<{ id: string; tmuxSession: string | null; status: string; updatedAt: string }>) {
-      const exists = row.tmuxSession ? await this.tmuxHasSession(row.tmuxSession) : false;
+      const exists = row.tmuxSession ? await this.hasAgentSession(row.tmuxSession) : false;
 
       if (!exists) {
-        const exitInfo = row.tmuxSession ? await this.readExitFile(row.tmuxSession) : null;
-        if (row.tmuxSession) {
+        const exitInfo = this.config.agentRuntime === "tmux" && row.tmuxSession
+          ? await this.readExitFile(row.tmuxSession)
+          : null;
+        if (this.config.agentRuntime === "tmux" && row.tmuxSession) {
           await this.captureMissingSessionIncident({
             agentId: row.id,
             tmuxSession: row.tmuxSession,
@@ -541,7 +550,41 @@ export class AgentManager {
     }
   }
 
-  private async startTmuxSession(
+  async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
+    const fallback = agent.cwd;
+    const session = agent.tmuxSession?.trim();
+    if (!session || this.config.agentRuntime !== "tmux") {
+      return fallback;
+    }
+
+    if (agent.status !== "running" && agent.status !== "creating") {
+      return fallback;
+    }
+
+    const cacheKey = `${agent.id}:${session}`;
+    const cached = this.runtimeCwdCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    try {
+      const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
+        allowedExitCodes: [0, 1],
+        timeoutMs: 800
+      });
+      const cwd = result.stdout.trim();
+      if (result.exitCode !== 0 || !cwd) {
+        return fallback;
+      }
+      this.runtimeCwdCache.set(cacheKey, { value: cwd, expiresAt: now + 10_000 });
+      return cwd;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async startAgentSession(
     sessionName: string,
     cwd: string,
     mediaDir: string,
@@ -549,6 +592,11 @@ export class AgentManager {
     agentArgs: string[],
     fullAccess: boolean
   ): Promise<void> {
+    if (this.config.agentRuntime === "inert") {
+      await mkdir(mediaDir, { recursive: true });
+      return;
+    }
+
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
@@ -560,22 +608,45 @@ export class AgentManager {
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
-    if (!(await this.tmuxHasSession(sessionName))) {
+    if (!(await this.hasAgentSession(sessionName))) {
       throw new Error("tmux session exited immediately after launch");
     }
   }
 
   private async ensureNoExistingSession(sessionName: string): Promise<void> {
-    if (await this.tmuxHasSession(sessionName)) {
+    if (this.config.agentRuntime !== "tmux") {
+      return;
+    }
+
+    if (await this.hasAgentSession(sessionName)) {
       await runCommand("tmux", ["kill-session", "-t", sessionName]);
     }
   }
 
-  private async tmuxHasSession(sessionName: string): Promise<boolean> {
+  private async hasAgentSession(sessionName: string): Promise<boolean> {
+    if (this.config.agentRuntime === "inert") {
+      return sessionName.trim().length > 0;
+    }
+
     const result = await runCommand("tmux", ["has-session", "-t", sessionName], {
       allowedExitCodes: [0, 1]
     });
     return result.exitCode === 0;
+  }
+
+  private async stopAgentSession(sessionName: string, force: boolean): Promise<void> {
+    if (this.config.agentRuntime === "inert") {
+      return;
+    }
+
+    if (!force) {
+      await runCommand("tmux", ["send-keys", "-t", sessionName, "C-c"]);
+      await this.sleep(1200);
+    }
+
+    if (await this.hasAgentSession(sessionName)) {
+      await runCommand("tmux", ["kill-session", "-t", sessionName]);
+    }
   }
 
   private buildAgentCommand(

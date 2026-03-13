@@ -31,8 +31,8 @@ export default defineConfig({
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD
-      ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} npm run dev`
-      : `npm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} npm run dev`,
+      ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} DISPATCH_AGENT_RUNTIME=inert npm run dev`
+      : `npm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} DISPATCH_AGENT_RUNTIME=inert npm run dev`,
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,

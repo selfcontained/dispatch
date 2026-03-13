@@ -20,6 +20,7 @@ export type AppConfig = {
   codexBin: string;
   claudeBin: string;
   opencodeBin: string;
+  agentRuntime: "tmux" | "inert";
   tls: TlsConfig | null;
 };
 
@@ -64,6 +65,7 @@ export function loadConfig(): AppConfig {
       process.env.HOSTESS_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
+    agentRuntime: process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert",
     tls: loadTls(),
   };
 }
