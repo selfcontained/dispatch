@@ -1527,7 +1527,7 @@ export function App(): JSX.Element {
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        <div className="hidden md:block">
+        <div className="hidden shrink-0 md:block">
           <AgentSidebar
             leftOpen={leftOpen}
             agents={agents}
@@ -1554,7 +1554,12 @@ export function App(): JSX.Element {
         <main
           className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
         >
-          <div className={cn("grid h-full min-h-0", isMobile ? "grid-rows-[auto_1fr_auto_auto]" : "grid-rows-[auto_1fr_auto]")}>
+          <div
+            className={cn(
+              "grid h-full min-h-0 min-w-0",
+              isMobile ? "grid-rows-[auto_1fr_auto_auto]" : "grid-rows-[auto_1fr_auto]"
+            )}
+          >
             <AppHeader
               leftOpen={leftPanelOpen}
               mediaOpen={mediaPanelOpen}
@@ -1590,7 +1595,7 @@ export function App(): JSX.Element {
           </div>
         </main>
 
-        <div className="hidden md:block">
+        <div className="hidden shrink-0 md:block">
           <MediaSidebar
             mediaOpen={mediaOpen}
             mediaFiles={mediaFiles}

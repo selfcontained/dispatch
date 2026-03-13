@@ -34,9 +34,22 @@ export function AppHeader({
   attachSelectedAgent,
   detachTerminal
 }: AppHeaderProps): JSX.Element {
+  const compactSessionAction = mediaOpen && !isMobile;
+
   return (
-    <header data-testid="app-header" className={cn("relative flex h-14 items-center border-b-2 border-b-border bg-[#11120f] px-3 pt-[env(safe-area-inset-top)]")}>
-      <div className="flex shrink-0 items-center gap-1">
+    <header
+      data-testid="app-header"
+      className={cn(
+        "relative flex min-h-14 min-w-0 items-center gap-2 border-b-2 border-b-border bg-[#11120f] px-3 py-2 pt-[env(safe-area-inset-top)]"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-out",
+          isMobile ? "shrink-0" : leftOpen ? "max-w-0 shrink opacity-0" : "max-w-24 shrink-0 opacity-100"
+        )}
+        aria-hidden={!isMobile && leftOpen}
+      >
         {isMobile ? (
           !leftOpen ? (
             <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
@@ -65,14 +78,25 @@ export function AppHeader({
       </div>
 
       {showHeaderStatus ? (
-        <div className="min-w-0 flex-1 px-1">
-          <span className="block truncate text-xs sm:text-sm">{statusText}</span>
+        <div className="min-w-0 flex-1 overflow-hidden px-1">
+          <span
+            data-testid="app-header-status"
+            title={statusText}
+            className="block overflow-hidden text-[11px] leading-tight text-ellipsis sm:text-xs"
+            style={{
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 2
+            }}
+          >
+            {statusText}
+          </span>
         </div>
       ) : (
         <div className="flex-1" />
       )}
 
-      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         {isAttached ? (
           <Button
             size="sm"
@@ -83,7 +107,7 @@ export function AppHeader({
             data-testid="detach-button"
           >
             <MonitorOff className="mr-1 h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Detach</span>
+            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Detach</span>
           </Button>
         ) : canAttachSelected ? (
           <Button
@@ -95,7 +119,7 @@ export function AppHeader({
             data-testid="attach-button"
           >
             <Monitor className="mr-1 h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Attach</span>
+            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Attach</span>
           </Button>
         ) : null}
 
