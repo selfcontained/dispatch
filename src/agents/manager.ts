@@ -10,7 +10,7 @@ import type { AppConfig } from "../config.js";
 import { runCommand } from "../lib/run-command.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
-type AgentType = "codex" | "claude";
+type AgentType = "codex" | "claude" | "opencode";
 type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
 
 type AgentLatestEvent = {
@@ -37,7 +37,8 @@ export type AgentRecord = {
   tmuxSession: string | null;
   simulatorUdid: string | null;
   mediaDir: string | null;
-  codexArgs: string[];
+  agentArgs: string[];
+  fullAccess: boolean;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
   gitContext: AgentGitContext | null;
@@ -47,16 +48,18 @@ export type AgentRecord = {
   updatedAt: string;
 };
 
-const CLI_BY_AGENT_TYPE: Record<AgentType, keyof Pick<AppConfig, "codexBin" | "claudeBin">> = {
+const CLI_BY_AGENT_TYPE: Record<AgentType, keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">> = {
   codex: "codexBin",
-  claude: "claudeBin"
+  claude: "claudeBin",
+  opencode: "opencodeBin"
 };
 
 type CreateAgentInput = {
   name?: string;
   type?: AgentType;
   cwd: string;
-  codexArgs?: string[];
+  agentArgs?: string[];
+  fullAccess?: boolean;
 };
 
 type StopAgentInput = {
@@ -105,7 +108,8 @@ export class AgentManager {
     const cwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
-    const codexArgs = input.codexArgs ?? [];
+    const agentArgs = input.agentArgs ?? [];
+    const fullAccess = input.fullAccess ?? false;
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const tmuxSession = this.toSessionName(id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
@@ -113,15 +117,15 @@ export class AgentManager {
 
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, NOW())
       `,
-      [id, name, type, cwd, tmuxSession, mediaDir, JSON.stringify(codexArgs)]
+      [id, name, type, cwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess]
     );
 
     try {
       await this.ensureNoExistingSession(tmuxSession);
-      await this.startTmuxSession(tmuxSession, cwd, mediaDir, type, codexArgs);
+      await this.startTmuxSession(tmuxSession, cwd, mediaDir, type, agentArgs, fullAccess);
       await this.setAgentStatus(id, "running", null);
       await this.setSystemLatestEvent(id, {
         type: "working",
@@ -163,7 +167,8 @@ export class AgentManager {
         agent.cwd,
         agent.mediaDir ?? this.defaultMediaDir(id),
         agent.type,
-        agent.codexArgs ?? []
+        agent.agentArgs ?? [],
+        agent.fullAccess ?? false
       );
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
@@ -541,10 +546,11 @@ export class AgentManager {
     cwd: string,
     mediaDir: string,
     type: AgentType,
-    codexArgs: string[]
+    agentArgs: string[],
+    fullAccess: boolean
   ): Promise<void> {
     await mkdir(mediaDir, { recursive: true });
-    const agentCommand = this.buildAgentCommand(type, codexArgs, mediaDir, sessionName);
+    const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const wrappedCommand = `bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
@@ -572,7 +578,13 @@ export class AgentManager {
     return result.exitCode === 0;
   }
 
-  private buildAgentCommand(type: AgentType, args: string[], mediaDir: string, sessionName: string): string {
+  private buildAgentCommand(
+    type: AgentType,
+    args: string[],
+    mediaDir: string,
+    sessionName: string,
+    fullAccess: boolean
+  ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
@@ -588,7 +600,7 @@ export class AgentManager {
     );
     const launchPathPrefix = Array.from(new Set(launchPathEntries)).join(":");
 
-    const envPrefix = [
+    const envPrefixParts = [
       `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
       `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
@@ -601,7 +613,33 @@ export class AgentManager {
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`
-    ].join(" ");
+    ];
+
+    if (type === "opencode" && fullAccess) {
+      envPrefixParts.push(
+        `OPENCODE_PERMISSION=${this.shellEscape(
+          JSON.stringify({
+            bash: { "*": "allow" },
+            edit: { "*": "allow" },
+            read: { "*": "allow" },
+            list: { "*": "allow" },
+            glob: { "*": "allow" },
+            grep: { "*": "allow" },
+            task: { "*": "allow" },
+            todowrite: { "*": "allow" },
+            todoread: { "*": "allow" },
+            webfetch: { "*": "allow" },
+            websearch: { "*": "allow" },
+            codesearch: { "*": "allow" },
+            lsp: { "*": "allow" },
+            skill: { "*": "allow" },
+            external_directory: { "*": "allow" }
+          })
+        )}`
+      );
+    }
+
+    const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
 
     if (type === "claude") {
@@ -614,6 +652,15 @@ export class AgentManager {
       }
       const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
       return `${envPrefix} ${this.shellEscape(cliBin)} ${systemFlag} ${escaped}`;
+    }
+
+    if (type === "opencode") {
+      const promptFlag = `--prompt ${this.shellEscape(launchGuidance)}`;
+      if (args.length === 0) {
+        return `${envPrefix} ${this.shellEscape(cliBin)} ${promptFlag}`;
+      }
+      const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${promptFlag}`;
     }
 
     // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
@@ -685,7 +732,8 @@ export class AgentManager {
         tmux_session AS "tmuxSession",
         simulator_udid AS "simulatorUdid",
         media_dir AS "mediaDir",
-        codex_args AS "codexArgs",
+        codex_args AS "agentArgs",
+        full_access AS "fullAccess",
         last_error AS "lastError",
         CASE
           WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL

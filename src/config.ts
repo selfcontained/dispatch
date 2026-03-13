@@ -19,6 +19,7 @@ export type AppConfig = {
   dispatchBinDir: string;
   codexBin: string;
   claudeBin: string;
+  opencodeBin: string;
   tls: TlsConfig | null;
 };
 
@@ -58,6 +59,11 @@ export function loadConfig(): AppConfig {
       process.env.HOSTESS_CLAUDE_BIN ??
       process.env.CLAUDE_BIN ??
       "claude",
+    opencodeBin:
+      process.env.DISPATCH_OPENCODE_BIN ??
+      process.env.HOSTESS_OPENCODE_BIN ??
+      process.env.OPENCODE_BIN ??
+      "opencode",
     tls: loadTls(),
   };
 }

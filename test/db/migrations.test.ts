@@ -44,7 +44,7 @@ describe("migrations", () => {
     const expected = [
       "id", "name", "type", "status", "cwd",
       "tmux_session", "simulator_udid", "media_dir",
-      "codex_args", "last_error", "created_at", "updated_at",
+      "codex_args", "full_access", "last_error", "created_at", "updated_at",
       "latest_event_type", "latest_event_message",
       "latest_event_metadata", "latest_event_updated_at",
       "git_context", "git_context_stale", "git_context_updated_at",

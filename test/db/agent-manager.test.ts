@@ -45,6 +45,7 @@ const testConfig = {
   dispatchBinDir: "/tmp",
   codexBin: "echo",
   claudeBin: "echo",
+  opencodeBin: "echo",
   tls: null,
 } satisfies import("../../src/config.js").AppConfig;
 
@@ -104,12 +105,25 @@ describe("AgentManager", () => {
       expect(agent.type).toBe("claude");
     });
 
-    it("should store codexArgs", async () => {
+    it("should support opencode agent type", async () => {
+      const agent = await manager.createAgent({ type: "opencode", cwd: "/tmp" });
+      expect(agent.type).toBe("opencode");
+    });
+
+    it("should store agentArgs", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
-        codexArgs: ["--model", "o3"],
+        agentArgs: ["--model", "o3"],
       });
-      expect(agent.codexArgs).toEqual(["--model", "o3"]);
+      expect(agent.agentArgs).toEqual(["--model", "o3"]);
+    });
+
+    it("should persist fullAccess", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        fullAccess: true,
+      });
+      expect(agent.fullAccess).toBe(true);
     });
 
     it("should reject non-absolute paths", async () => {

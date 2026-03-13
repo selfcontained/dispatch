@@ -581,6 +581,28 @@ async function registerRoutes() {
     };
   });
 
+  app.get("/api/v1/system/defaults", async () => {
+    return {
+      homeDir: os.homedir()
+    };
+  });
+
+  app.post("/api/v1/system/select-directory", async (request, reply) => {
+    const body = request.body as { currentPath?: unknown } | undefined;
+    const currentPath = typeof body?.currentPath === "string" ? body.currentPath.trim() : "";
+
+    try {
+      const selectedPath = await selectDirectory(currentPath || os.homedir());
+      if (!selectedPath) {
+        return { canceled: true };
+      }
+      return { canceled: false, path: selectedPath };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to open directory picker.";
+      return reply.code(500).send({ error: message });
+    }
+  });
+
   // --- Energy metrics beacon (PWA diagnostics) ---
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {
@@ -1001,6 +1023,7 @@ async function registerRoutes() {
       name?: unknown;
       type?: unknown;
       cwd?: unknown;
+      agentArgs?: unknown;
       codexArgs?: unknown;
       fullAccess?: unknown;
     };
@@ -1009,36 +1032,43 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Body must include cwd as a string." });
     }
 
-    const codexArgsValid =
-      body.codexArgs === undefined ||
-      (Array.isArray(body.codexArgs) && body.codexArgs.every((item) => typeof item === "string"));
+    const providedAgentArgs = body.agentArgs ?? body.codexArgs;
+    const agentArgsValid =
+      providedAgentArgs === undefined ||
+      (Array.isArray(providedAgentArgs) && providedAgentArgs.every((item) => typeof item === "string"));
 
-    if (!codexArgsValid) {
-      return reply.code(400).send({ error: "codexArgs must be an array of strings." });
+    if (!agentArgsValid) {
+      return reply.code(400).send({ error: "agentArgs must be an array of strings." });
     }
 
-    if (body.type !== undefined && body.type !== "codex" && body.type !== "claude") {
-      return reply.code(400).send({ error: "type must be either codex or claude when provided." });
+    if (body.type !== undefined && body.type !== "codex" && body.type !== "claude" && body.type !== "opencode") {
+      return reply.code(400).send({ error: "type must be codex, claude, or opencode when provided." });
     }
 
     if (body.fullAccess !== undefined && typeof body.fullAccess !== "boolean") {
       return reply.code(400).send({ error: "fullAccess must be a boolean when provided." });
     }
 
-    const codexArgs = body.codexArgs as string[] | undefined;
-    const agentType = body.type === "claude" ? "claude" : "codex";
-    const fullAccessArg = agentType === "claude" ? CLAUDE_FULL_ACCESS_ARG : CODEX_FULL_ACCESS_ARG;
-    const resolvedCodexArgs =
-      body.fullAccess === true
-        ? Array.from(new Set([...(codexArgs ?? []), fullAccessArg]))
-        : codexArgs;
+    const agentArgs = providedAgentArgs as string[] | undefined;
+    const agentType = body.type === "claude" ? "claude" : body.type === "opencode" ? "opencode" : "codex";
+    const fullAccessArg =
+      agentType === "claude"
+        ? CLAUDE_FULL_ACCESS_ARG
+        : agentType === "codex"
+          ? CODEX_FULL_ACCESS_ARG
+          : null;
+    const resolvedAgentArgs =
+      body.fullAccess === true && fullAccessArg
+        ? Array.from(new Set([...(agentArgs ?? []), fullAccessArg]))
+        : agentArgs;
 
     try {
       const agent = await agentManager.createAgent({
         name: typeof body.name === "string" ? body.name : undefined,
         type: agentType,
         cwd: body.cwd,
-        codexArgs: resolvedCodexArgs
+        agentArgs: resolvedAgentArgs,
+        fullAccess: body.fullAccess === true
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
@@ -1231,6 +1261,30 @@ async function registerRoutes() {
     }
   );
 
+}
+
+async function selectDirectory(initialPath: string): Promise<string | null> {
+  const fallbackPath = path.resolve(initialPath || os.homedir());
+  const script = [
+    `set startDir to POSIX file "${escapeAppleScriptString(fallbackPath)}"`,
+    'try',
+    'set chosenFolder to choose folder with prompt "Select working directory for new agent" default location startDir',
+    'return POSIX path of chosenFolder',
+    'on error number -128',
+    'return ""',
+    'end try'
+  ];
+  const args = script.flatMap((line) => ["-e", line]);
+  const result = await runCommand("osascript", args, { allowedExitCodes: [0] });
+  const selectedPath = result.stdout.trim();
+  if (!selectedPath) {
+    return null;
+  }
+  return selectedPath;
+}
+
+function escapeAppleScriptString(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {

@@ -64,6 +64,7 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
       simulator_udid TEXT,
       media_dir TEXT,
       codex_args JSONB NOT NULL DEFAULT '[]'::jsonb,
+      full_access BOOLEAN NOT NULL DEFAULT false,
       last_error TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -72,6 +73,7 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS media_dir TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'codex';
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS codex_args JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS full_access BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS last_error TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS latest_event_type TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS latest_event_message TEXT;

@@ -34,7 +34,6 @@ import {
   recordHealthPollSkip,
 } from "@/lib/energy-metrics";
 
-const DEFAULT_CWD = "/Users/bharris/dev/apps/dispatch";
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
@@ -59,10 +58,10 @@ function cleanCopiedText(text: string): string {
 
 function readLastUsedCwd(): string {
   if (typeof window === "undefined") {
-    return DEFAULT_CWD;
+    return "";
   }
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : DEFAULT_CWD;
+  return stored && stored.length > 0 ? stored : "";
 }
 
 function readActiveShellAgentId(): string | null {
@@ -125,8 +124,12 @@ function sortAgentsByCreatedAtDesc(items: Agent[], activeAgentId?: string | null
   });
 }
 
-function isFullAccessEnabled(agent: Pick<Agent, "codexArgs">): boolean {
-  return agent.codexArgs.includes(CODEX_FULL_ACCESS_ARG) || agent.codexArgs.includes(CLAUDE_FULL_ACCESS_ARG);
+function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): boolean {
+  return (
+    agent.fullAccess ||
+    agent.agentArgs.includes(CODEX_FULL_ACCESS_ARG) ||
+    agent.agentArgs.includes(CLAUDE_FULL_ACCESS_ARG)
+  );
 }
 
 export function App(): JSX.Element {
@@ -151,8 +154,10 @@ export function App(): JSX.Element {
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
+  const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
+  const [createDirectoryPicking, setCreateDirectoryPicking] = useState(false);
   const [createWorktreeMode, setCreateWorktreeMode] = useState<WorktreeMode>(DEFAULT_WORKTREE_MODE);
   const [createWorktreeRepoRoot, setCreateWorktreeRepoRoot] = useState<string | null>(null);
   const [createWorktreeLoading, setCreateWorktreeLoading] = useState(false);
@@ -695,6 +700,72 @@ export function App(): JSX.Element {
     },
     [api, createCwd, createFullAccess, createName, createType, ensureTerminalConnected, refreshAgents, refreshMedia]
   );
+
+  useEffect(() => {
+    if (createCwdInitialized) {
+      return;
+    }
+
+    let cancelled = false;
+    void api<{ homeDir: string }>("/api/v1/system/defaults")
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setCreateCwd(payload.homeDir);
+        setCreateCwdInitialized(true);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setCreateCwdInitialized(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, createCwdInitialized]);
+
+  const pickCreateDirectory = useCallback(async () => {
+    setCreateDirectoryPicking(true);
+
+    try {
+      const payload = await api<{ canceled: boolean; path?: string }>("/api/v1/system/select-directory", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPath: createCwd.trim()
+        })
+      });
+
+      if (payload.canceled || !payload.path) {
+        return;
+      }
+
+      setCreateCwd(payload.path);
+      setCreateCwdInitialized(true);
+      setCreateWorktreeLoading(true);
+      setCreateWorktreeError(null);
+
+      try {
+        const repoPayload = await api<{
+          repoRoot: string;
+          config: { worktreeMode: WorktreeMode };
+        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(payload.path)}`);
+        setCreateWorktreeMode(repoPayload.config.worktreeMode);
+        setCreateWorktreeRepoRoot(repoPayload.repoRoot);
+        setCreateWorktreeError(null);
+      } catch {
+        setCreateWorktreeRepoRoot(null);
+        setCreateWorktreeMode("off");
+        setCreateWorktreeError("Using Off (repo settings unavailable).");
+      } finally {
+        setCreateWorktreeLoading(false);
+      }
+    } finally {
+      setCreateDirectoryPicking(false);
+    }
+  }, [api, createCwd]);
 
   const refreshCreateWorktreeMode = useCallback(async () => {
     const cwd = createCwd.trim();
@@ -1686,6 +1757,7 @@ export function App(): JSX.Element {
         createName={createName}
         createType={createType}
         createCwd={createCwd}
+        createDirectoryPicking={createDirectoryPicking}
         createFullAccess={createFullAccess}
         worktreeMode={createWorktreeMode}
         worktreeLoading={createWorktreeLoading}
@@ -1697,6 +1769,7 @@ export function App(): JSX.Element {
         setCreateName={setCreateName}
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
+        onPickCreateDirectory={pickCreateDirectory}
         setWorktreeMode={(value) => void setAndPersistWorktreeMode(value)}
         setCreateFullAccess={setCreateFullAccess}
         refreshWorktreeMode={refreshCreateWorktreeMode}

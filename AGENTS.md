@@ -41,6 +41,8 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Web Finalization
 - If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
 - After running `npm run finalize:web`, verify the served app via an explicitly started local dev stack when the task affects UI/theme/rendering behavior.
+- After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
+- In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 
 ## Temporary Files
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
@@ -61,7 +63,7 @@ Before marking any task as done, run the following checks and fix any failures:
   npm --prefix web run dev -- --port "$DISPATCH_DEV_WEB_PORT"
   ```
 - If you need background services, start them deliberately and capture logs in `/tmp/`. Do not rely on wrappers to clean them up.
-- Stop services explicitly when you are done. Prefer targeted `docker compose stop/down` and tracked process IDs over broad kill commands.
+- If the stack was started for user-facing validation, do not stop it automatically at the end of the turn unless the user explicitly asks. Otherwise, stop services explicitly when you are done. Prefer targeted `docker compose stop/down` and tracked process IDs over broad kill commands.
 
 ## Backend Testing Safety
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.

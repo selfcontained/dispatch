@@ -35,7 +35,7 @@ type AgentSidebarSharedProps = {
   agentVisualState: (agent: Agent) => AgentVisualState;
   borderForAgentState: (state: AgentVisualState) => string;
   toggleAgentDetails: (agentId: string) => void;
-  isFullAccessEnabled: (agent: Pick<Agent, "codexArgs">) => boolean;
+  isFullAccessEnabled: (agent: Pick<Agent, "agentArgs" | "fullAccess">) => boolean;
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   stopAgent: (agent: Agent) => Promise<void>;
@@ -83,6 +83,9 @@ export function AgentSidebarContent({
     }
     if (type === "codex" || !type) {
       return "Codex";
+    }
+    if (type === "opencode") {
+      return "OpenCode";
     }
     return type;
   };
