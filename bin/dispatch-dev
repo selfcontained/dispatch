@@ -189,10 +189,11 @@ cmd_up() {
   local nvm_init
   nvm_init="$(nvm_init_snippet)"
 
-  # Build the env for the API server
-  local env_exports=""
+  # Build the env for the API server. Unset TLS so dev servers always
+  # run plain HTTP — the parent shell may have inherited production certs.
+  local env_exports="unset TLS_CERT TLS_KEY && "
   if [ -f "${cwd}/.env" ]; then
-    env_exports="set -a && source '${cwd}/.env' && set +a && "
+    env_exports="${env_exports}set -a && source '${cwd}/.env' && set +a && "
   fi
 
   # Override port and DATABASE_URL to point at our container
