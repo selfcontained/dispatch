@@ -116,8 +116,6 @@ const streamManager = new StreamManager(
     uiEventBroker.publish({ type: "media.changed", agentId });
   }
 );
-const runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
-const RUNTIME_CWD_CACHE_TTL_MS = 10_000;
 const PROBE_COMMAND_TIMEOUT_MS = 800;
 const GIT_CONTEXT_REFRESH_INTERVAL_MS = 120_000;
 const GIT_CONTEXT_REFRESH_CONCURRENCY = 1;
@@ -1148,23 +1146,21 @@ async function registerRoutes() {
     const id = params.id ?? "";
 
     try {
-      const agent = await agentManager.getAgent(id);
-      if (!agent) {
-        return reply.code(404).send({ error: "Agent not found." });
-      }
-      if (agent.status !== "running") {
-        return reply.code(409).send({ error: "Agent is not running." });
-      }
-      if (!agent.tmuxSession) {
-        return reply.code(500).send({ error: "Agent is missing tmux session metadata." });
+      const access = await agentManager.getTerminalAccess(id);
+      if (access.mode === "inert") {
+        return {
+          mode: "inert" as const,
+          message: access.message
+        };
       }
       const token = terminalTokenStore.issue(id);
       return {
+        mode: "tmux" as const,
         token,
         wsUrl: `/api/v1/agents/${id}/terminal/ws?token=${token}`
       };
     } catch (error) {
-      // Keep UI state in sync when getTerminalSession corrected a stale running status.
+      // Keep UI state in sync when terminal access lookup corrected a stale running status.
       const refreshed = await agentManager.getAgent(id);
       if (refreshed) {
         queueGitContextRefresh([refreshed.id]);
@@ -1192,7 +1188,11 @@ async function registerRoutes() {
 
       let tmuxSession: string;
       try {
-        tmuxSession = await agentManager.getTerminalSession(agentId);
+        const access = await agentManager.getTerminalAccess(agentId);
+        if (access.mode !== "tmux") {
+          throw new Error(access.message);
+        }
+        tmuxSession = access.sessionName;
         await runCommand("tmux", ["set-option", "-t", tmuxSession, "mouse", "on"], {
           allowedExitCodes: [0]
         });
@@ -1615,37 +1615,7 @@ function areGitContextsEqual(
 }
 
 async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
-  const fallback = agent.cwd;
-  const session = agent.tmuxSession?.trim();
-  if (!session) {
-    return fallback;
-  }
-
-  if (agent.status !== "running" && agent.status !== "creating") {
-    return fallback;
-  }
-
-  const cacheKey = `${agent.id}:${session}`;
-  const cached = runtimeCwdCache.get(cacheKey);
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return cached.value;
-  }
-
-  try {
-    const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
-      allowedExitCodes: [0, 1],
-      timeoutMs: PROBE_COMMAND_TIMEOUT_MS
-    });
-    const cwd = result.stdout.trim();
-    if (result.exitCode !== 0 || !cwd) {
-      return fallback;
-    }
-    runtimeCwdCache.set(cacheKey, { value: cwd, expiresAt: now + RUNTIME_CWD_CACHE_TTL_MS });
-    return cwd;
-  } catch {
-    return fallback;
-  }
+  return agentManager.resolveRuntimeCwd(agent);
 }
 
 async function probeGitContext(

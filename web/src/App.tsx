@@ -140,6 +140,8 @@ export function App(): JSX.Element {
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
+  const [terminalMode, setTerminalMode] = useState<"tmux" | "inert" | null>(null);
+  const [terminalPlaceholderMessage, setTerminalPlaceholderMessage] = useState<string | null>(null);
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
 
@@ -390,8 +392,10 @@ export function App(): JSX.Element {
         wsRef.current.close();
       } catch {}
       wsRef.current = null;
-      setConnectedAgentId(null);
     }
+    setConnectedAgentId(null);
+    setTerminalMode(null);
+    setTerminalPlaceholderMessage(null);
 
     if (announce) {
       setStatusMessage("Session disconnected.");
@@ -505,16 +509,33 @@ export function App(): JSX.Element {
       };
 
       try {
-        const token = await api<{ token: string; wsUrl: string }>(
+        const terminalSession = await api<
+          | { mode: "tmux"; token: string; wsUrl: string }
+          | { mode: "inert"; message: string }
+        >(
           `/api/v1/agents/${agent.id}/terminal/token`,
           { method: "POST", body: JSON.stringify({}) }
         );
+
+        if (terminalSession.mode === "inert") {
+          reconnectAttemptsRef.current = 0;
+          setConnState("connected");
+          setConnectedAgentId(agent.id);
+          setTerminalMode("inert");
+          setTerminalPlaceholderMessage(terminalSession.message);
+          setStatusMessage(terminalSession.message);
+          return;
+        }
 
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const term = terminalRef.current;
         const cols = term?.cols ?? 140;
         const rows = term?.rows ?? 42;
-        const ws = new WebSocket(`${protocol}//${window.location.host}${token.wsUrl}&cols=${cols}&rows=${rows}`);
+        setTerminalMode("tmux");
+        setTerminalPlaceholderMessage(null);
+        const ws = new WebSocket(
+          `${protocol}//${window.location.host}${terminalSession.wsUrl}&cols=${cols}&rows=${rows}`
+        );
         wsRef.current = ws;
 
         ws.addEventListener("open", () => {
@@ -1652,6 +1673,8 @@ export function App(): JSX.Element {
               hasSelectedAgent={Boolean(selectedAgentId)}
               connState={connState}
               statusMessage={statusMessage}
+              terminalMode={terminalMode}
+              terminalPlaceholderMessage={terminalPlaceholderMessage}
               terminalHostRef={terminalHostRef}
             />
 

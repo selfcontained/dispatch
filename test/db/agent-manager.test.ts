@@ -46,7 +46,13 @@ const testConfig = {
   codexBin: "echo",
   claudeBin: "echo",
   opencodeBin: "echo",
+  agentRuntime: "tmux",
   tls: null,
+} satisfies import("../../src/config.js").AppConfig;
+
+const inertTestConfig = {
+  ...testConfig,
+  agentRuntime: "inert",
 } satisfies import("../../src/config.js").AppConfig;
 
 let manager: InstanceType<typeof AgentManager>;
@@ -137,6 +143,17 @@ describe("AgentManager", () => {
         manager.createAgent({ cwd: "/nonexistent-dispatch-test-dir" })
       ).rejects.toThrow("does not exist");
     });
+
+    it("should create inert agents without invoking tmux", async () => {
+      const { runCommand } = await import("../../src/lib/run-command.js");
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      vi.mocked(runCommand).mockClear();
+
+      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+
+      expect(agent.status).toBe("running");
+      expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
+    });
   });
 
   describe("getAgent / listAgents", () => {
@@ -162,6 +179,18 @@ describe("AgentManager", () => {
       expect(fetched).not.toBeNull();
       expect(fetched!.id).toBe(created.id);
       expect(fetched!.name).toBe("fetch-me");
+    });
+  });
+
+  describe("getTerminalAccess", () => {
+    it("should return inert terminal metadata for inert runtime agents", async () => {
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+
+      const access = await inertManager.getTerminalAccess(agent.id);
+
+      expect(access.mode).toBe("inert");
+      expect(access.message).toContain("inert mode");
     });
   });
 
@@ -293,6 +322,18 @@ describe("AgentManager", () => {
 
       const result = await manager.stopAgent(agent.id);
       expect(result.status).toBe("stopped");
+    });
+
+    it("should stop inert agents without invoking tmux", async () => {
+      const { runCommand } = await import("../../src/lib/run-command.js");
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+      vi.mocked(runCommand).mockClear();
+
+      const stopped = await inertManager.stopAgent(agent.id, { force: true });
+
+      expect(stopped.status).toBe("stopped");
+      expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
     });
   });
 

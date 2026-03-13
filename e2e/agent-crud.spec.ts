@@ -59,6 +59,8 @@ test.describe("Agent CRUD", () => {
     // Agent should appear in the sidebar
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agentName)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-inert-state")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-inert-state")).toContainText("Agent running in inert mode");
   });
 
   test("cancel create dialog does not create an agent", async ({ page }) => {
