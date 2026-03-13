@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# dispatch-dev — bootstrap and manage a full dev environment for an agent.
+#
+# Starts an isolated Postgres DB, API server, and optionally a Vite frontend,
+# all running in tmux windows within the agent's session. Everything is
+# automatically cleaned up when the agent is stopped or deleted.
+#
+# Agents don't need to know about tmux, ports, or Docker — just:
+#   dispatch-dev up           # spin up everything
+#   dispatch-dev down         # tear it all down
+#   dispatch-dev logs [api|vite|db]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'USAGE'
+Usage: dispatch-dev <command> [options]
+
+Bootstrap a full isolated dev environment tied to the current agent session.
+
+Commands:
+  up        Start DB + API server (+ Vite with --vite)
+  down      Stop all dev services and remove the DB container
+  restart   Tear down and re-create the environment
+  status    Show which services are running
+  logs      Show recent output (default: api; use --vite or --db)
+  url       Print the dev server URL
+
+Aliases:
+  start     Alias for up
+  stop      Alias for down
+
+Options:
+  --cwd <path>    Working directory (default: current directory)
+  --vite          Also start the Vite frontend dev server
+  --db-only       Only start the database (skip API/Vite)
+  --no-db         Skip database (use existing DATABASE_URL from .env)
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+resolve_session() {
+  local agent_id="${DISPATCH_AGENT_ID:-${HOSTESS_AGENT_ID:-}}"
+  if [ -z "$agent_id" ]; then
+    echo "DISPATCH_AGENT_ID is not set. Run this inside a Dispatch agent session." >&2
+    exit 1
+  fi
+  # Session names may include a name slug (e.g. dispatch_agt_xxx_my-task).
+  # Match by agent ID prefix since we don't know the full session name.
+  local prefix="dispatch_${agent_id}"
+  local match
+  match="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${prefix}" | head -1)"
+  if [ -z "$match" ]; then
+    echo "$prefix"
+  else
+    echo "$match"
+  fi
+}
+
+resolve_agent_id() {
+  echo "${DISPATCH_AGENT_ID:-${HOSTESS_AGENT_ID:-}}"
+}
+
+has_window() {
+  local session="$1" name="$2"
+  tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null | grep -qx "$name"
+}
+
+# Grab a free port from the OS. Small TOCTOU window between probe and actual
+# bind, but acceptable for dev tooling — collisions are extremely unlikely.
+find_free_port() {
+  node -e '
+    const net = require("net");
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      console.log(srv.address().port);
+      srv.close();
+    });
+  '
+}
+
+nvm_init_snippet() {
+  if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+    echo "source '${NVM_DIR:-$HOME/.nvm}/nvm.sh' && nvm use >/dev/null 2>&1 && "
+  fi
+}
+
+# Derive a short, docker-safe container suffix from the agent ID.
+# The DB name inside the container is always "dispatch_dev" — isolation comes
+# from each agent getting its own container on its own port.
+db_container_suffix() {
+  local agent_id
+  agent_id="$(resolve_agent_id)"
+  echo "${agent_id#agt_}"
+}
+
+state_file() {
+  local agent_id
+  agent_id="$(resolve_agent_id)"
+  echo "/tmp/dispatch-dev-${agent_id}.env"
+}
+
+save_state() {
+  local file
+  file="$(state_file)"
+  cat > "$file" <<EOF
+DEV_DB_PORT=${DEV_DB_PORT:-}
+DEV_API_PORT=${DEV_API_PORT:-}
+DEV_VITE_PORT=${DEV_VITE_PORT:-}
+DEV_CONTAINER_SUFFIX=${DEV_CONTAINER_SUFFIX:-}
+DEV_CWD=${DEV_CWD:-}
+EOF
+}
+
+load_state() {
+  local file
+  file="$(state_file)"
+  if [ -f "$file" ]; then
+    # shellcheck disable=SC1090
+    source "$file"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_up() {
+  local session cwd
+  session="$(resolve_session)"
+  cwd="${OPT_CWD:-$(pwd)}"
+
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    echo "Agent tmux session '$session' not found." >&2
+    exit 1
+  fi
+
+  # --- Database ---
+  if [ "$OPT_NO_DB" != "1" ]; then
+    DEV_CONTAINER_SUFFIX="$(db_container_suffix)"
+    DEV_DB_PORT="$(find_free_port)"
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
+
+    echo "Starting database: ${container_name} on port ${DEV_DB_PORT}..."
+
+    # Stop any existing container with this name
+    docker rm -f "$container_name" 2>/dev/null || true
+
+    DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
+      docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "dispatch-dev-${DEV_CONTAINER_SUFFIX}" up -d 2>&1
+
+    # Wait for healthy
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+      if docker exec "$container_name" pg_isready -U dispatch -d "dispatch_${DEV_CONTAINER_SUFFIX}" >/dev/null 2>&1; then
+        echo "Database ready on port ${DEV_DB_PORT}"
+        break
+      fi
+      attempts=$((attempts + 1))
+      sleep 1
+    done
+    if [ $attempts -ge 30 ]; then
+      echo "Warning: database health check timed out" >&2
+    fi
+  fi
+
+  if [ "$OPT_DB_ONLY" = "1" ]; then
+    DEV_CWD="$cwd"
+    save_state
+    echo ""
+    echo "Database only mode. Set DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+    return
+  fi
+
+  # --- API Server ---
+  DEV_API_PORT="$(find_free_port)"
+  DEV_CWD="$cwd"
+
+  # Kill existing window if present
+  if has_window "$session" "dev-server"; then
+    tmux kill-window -t "${session}:dev-server" 2>/dev/null || true
+  fi
+
+  local nvm_init
+  nvm_init="$(nvm_init_snippet)"
+
+  # Build the env for the API server
+  local env_exports=""
+  if [ -f "${cwd}/.env" ]; then
+    env_exports="set -a && source '${cwd}/.env' && set +a && "
+  fi
+
+  # Override port and DATABASE_URL to point at our container
+  local db_url_override=""
+  if [ "$OPT_NO_DB" != "1" ]; then
+    db_url_override="DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX} "
+  fi
+
+  local api_cmd="${nvm_init}${env_exports}${db_url_override}DISPATCH_PORT=${DEV_API_PORT} npm run dev"
+  tmux new-window -t "$session" -n "dev-server" -c "$cwd" "$api_cmd"
+
+  echo "API server starting on port ${DEV_API_PORT}"
+
+  # --- Vite Frontend ---
+  if [ "$OPT_VITE" = "1" ]; then
+    DEV_VITE_PORT="$(find_free_port)"
+
+    if has_window "$session" "vite-dev"; then
+      tmux kill-window -t "${session}:vite-dev" 2>/dev/null || true
+    fi
+
+    local vite_cmd="${nvm_init}npm --prefix web run dev -- --port ${DEV_VITE_PORT}"
+    tmux new-window -t "$session" -n "vite-dev" -c "$cwd" "$vite_cmd"
+
+    echo "Vite dev server starting on port ${DEV_VITE_PORT}"
+  fi
+
+  save_state
+
+  echo ""
+  echo "Dev environment ready:"
+  if [ "$OPT_NO_DB" != "1" ]; then
+    echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+  fi
+  echo "  api: http://127.0.0.1:${DEV_API_PORT}"
+  if [ "$OPT_VITE" = "1" ]; then
+    echo "  web: http://127.0.0.1:${DEV_VITE_PORT}"
+  fi
+}
+
+cmd_down() {
+  local session
+  session="$(resolve_session)"
+
+  load_state
+
+  # Kill tmux windows
+  for name in dev-server vite-dev; do
+    if has_window "$session" "$name"; then
+      tmux kill-window -t "${session}:${name}" 2>/dev/null || true
+      echo "Stopped ${name}"
+    fi
+  done
+
+  # Stop the DB container
+  if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
+    if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
+      docker rm -f "$container_name" 2>/dev/null || true
+      echo "Removed database container: ${container_name}"
+    fi
+  fi
+
+  # Clean up state file
+  rm -f "$(state_file)"
+
+  echo "Dev environment torn down."
+}
+
+cmd_status() {
+  local session
+  session="$(resolve_session)"
+
+  load_state
+
+  # DB
+  if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
+    if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
+      echo "db:   running (${container_name}, port ${DEV_DB_PORT:-?})"
+    else
+      echo "db:   stopped"
+    fi
+  else
+    echo "db:   not managed"
+  fi
+
+  # API
+  if has_window "$session" "dev-server"; then
+    echo "api:  running (port ${DEV_API_PORT:-?})"
+  else
+    echo "api:  stopped"
+  fi
+
+  # Vite
+  if has_window "$session" "vite-dev"; then
+    echo "vite: running (port ${DEV_VITE_PORT:-?})"
+  else
+    echo "vite: stopped"
+  fi
+}
+
+cmd_url() {
+  load_state
+  if [ -n "${DEV_API_PORT:-}" ]; then
+    echo "http://127.0.0.1:${DEV_API_PORT}"
+  else
+    echo "Dev server is not running." >&2
+    exit 1
+  fi
+}
+
+cmd_logs() {
+  local session target_window
+  session="$(resolve_session)"
+
+  if [ "$OPT_VITE" = "1" ]; then
+    target_window="vite-dev"
+  elif [ "$OPT_DB_ONLY" = "1" ]; then
+    # Show docker logs for the DB container
+    load_state
+    if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+      docker logs --tail 100 "dispatch-postgres-${DEV_CONTAINER_SUFFIX}" 2>&1
+      return
+    fi
+    echo "No managed database found." >&2
+    exit 1
+  else
+    target_window="dev-server"
+  fi
+
+  if ! has_window "$session" "$target_window"; then
+    echo "No ${target_window} window found." >&2
+    exit 1
+  fi
+
+  tmux capture-pane -p -S -200 -t "${session}:${target_window}"
+}
+
+# ---------------------------------------------------------------------------
+# Parse args
+# ---------------------------------------------------------------------------
+
+OPT_CWD=""
+OPT_VITE="0"
+OPT_DB_ONLY="0"
+OPT_NO_DB="0"
+CMD=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    up|down|restart|status|logs|url)
+      CMD="$1"; shift ;;
+    # Keep backward compat with start/stop
+    start) CMD="up"; shift ;;
+    stop)  CMD="down"; shift ;;
+    --cwd)
+      OPT_CWD="${2:-}"; shift 2 ;;
+    --vite)
+      OPT_VITE="1"; shift ;;
+    --db-only|--db)
+      OPT_DB_ONLY="1"; shift ;;
+    --no-db)
+      OPT_NO_DB="1"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage; exit 1 ;;
+  esac
+done
+
+case "${CMD:-}" in
+  up)       cmd_up ;;
+  down)     cmd_down ;;
+  restart)  cmd_down 2>/dev/null; cmd_up ;;
+  status)   cmd_status ;;
+  logs)     cmd_logs ;;
+  url)      cmd_url ;;
+  *)        usage; exit 1 ;;
+esac
