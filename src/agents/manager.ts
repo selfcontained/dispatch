@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -78,9 +79,11 @@ export class AgentError extends Error {
 }
 
 export class AgentManager {
+  private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
+  private lastTmuxInventoryAt = 0;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -297,6 +300,8 @@ export class AgentManager {
   }
 
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
+    await this.maybeCaptureTmuxInventory();
+
     const result = await this.pool.query(
       "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE status IN ('running', 'stopping', 'creating')"
     );
@@ -308,6 +313,15 @@ export class AgentManager {
 
       if (!exists) {
         const exitInfo = row.tmuxSession ? await this.readExitFile(row.tmuxSession) : null;
+        if (row.tmuxSession) {
+          await this.captureMissingSessionIncident({
+            agentId: row.id,
+            tmuxSession: row.tmuxSession,
+            status: row.status,
+            updatedAt: row.updatedAt,
+            exitInfo
+          });
+        }
         if (exitInfo !== null) {
           this.logger.info({ id: row.id, exitCode: exitInfo }, "Agent process exited with code %d", exitInfo);
         }
@@ -413,6 +427,113 @@ export class AgentManager {
     await Promise.all(
       toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
     );
+  }
+
+  private diagnosticsRoot(): string {
+    return path.join(os.homedir(), ".dispatch", "diagnostics");
+  }
+
+  private async maybeCaptureTmuxInventory(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastTmuxInventoryAt < AgentManager.TMUX_INVENTORY_INTERVAL_MS) {
+      return;
+    }
+    this.lastTmuxInventoryAt = now;
+
+    try {
+      await mkdir(this.diagnosticsRoot(), { recursive: true });
+      const payload = {
+        capturedAt: new Date(now).toISOString(),
+        source: "reconcile",
+        tmux: {
+          serverPid: await this.detectTmuxServerPid(),
+          sessions: await this.captureCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], [0, 1]),
+          panes: await this.captureCommand(
+            "tmux",
+            ["list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}"],
+            [0, 1]
+          )
+        }
+      };
+      await appendFile(
+        path.join(this.diagnosticsRoot(), "tmux-inventory.jsonl"),
+        `${JSON.stringify(payload)}\n`,
+        "utf-8"
+      );
+    } catch (error) {
+      this.logger.warn({ err: error }, "Failed to capture tmux inventory.");
+    }
+  }
+
+  private async captureMissingSessionIncident(input: {
+    agentId: string;
+    tmuxSession: string;
+    status: string;
+    updatedAt: string;
+    exitInfo: number | null;
+  }): Promise<void> {
+    try {
+      await mkdir(this.diagnosticsRoot(), { recursive: true });
+      const capturedAt = new Date().toISOString();
+      const safeTs = capturedAt.replaceAll(":", "-");
+      const payload = {
+        capturedAt,
+        incident: "missing_tmux_session",
+        agent: input,
+        tmux: {
+          serverPid: await this.detectTmuxServerPid(),
+          sessions: await this.captureCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], [0, 1]),
+          panes: await this.captureCommand(
+            "tmux",
+            ["list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}"],
+            [0, 1]
+          )
+        },
+        processes: await this.captureCommand("ps", ["-axo", "pid,ppid,pgid,user,command"], [0]),
+        launchctl: await this.captureCommand(
+          "launchctl",
+          ["print", `gui/${process.getuid?.() ?? -1}/com.dispatch.server`],
+          [0, 113]
+        )
+      };
+      const fileName = `${safeTs}-missing-session-${input.agentId}.json`;
+      await writeFile(path.join(this.diagnosticsRoot(), fileName), JSON.stringify(payload, null, 2), "utf-8");
+    } catch (error) {
+      this.logger.warn({ err: error, agentId: input.agentId }, "Failed to capture missing tmux session incident.");
+    }
+  }
+
+  private async detectTmuxServerPid(): Promise<number | null> {
+    const processes = await this.captureCommand("ps", ["-axo", "pid=,comm="], [0]);
+    if (processes.exitCode !== 0) {
+      return null;
+    }
+    const pidLine = processes.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => /\btmux$/.test(line));
+    if (!pidLine) {
+      return null;
+    }
+    const [pidText] = pidLine.split(/\s+/, 1);
+    const pid = Number(pidText);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  }
+
+  private async captureCommand(
+    command: string,
+    args: string[],
+    allowedExitCodes: number[]
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    try {
+      return await runCommand(command, args, { allowedExitCodes });
+    } catch (error) {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: this.errorMessage(error)
+      };
+    }
   }
 
   private async startTmuxSession(

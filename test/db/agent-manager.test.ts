@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { Pool } from "pg";
 
@@ -61,6 +65,14 @@ beforeEach(async () => {
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM agents");
+
+  const { runCommand } = await import("../../src/lib/run-command.js");
+  vi.mocked(runCommand).mockImplementation(async (_cmd: string, args: string[]) => {
+    if (args[0] === "has-session") {
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    return { exitCode: 0, stdout: "", stderr: "" };
+  });
 });
 
 describe("AgentManager", () => {
@@ -277,9 +289,18 @@ describe("AgentManager", () => {
       // Now make tmux report no session
       const { runCommand } = await import("../../src/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
-      mockRunCommand.mockImplementationOnce(async (_cmd, args) => {
+      mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
           return { exitCode: 1, stdout: "", stderr: "" };
+        }
+        if (args[0] === "list-sessions" || args[0] === "list-panes") {
+          return { exitCode: 1, stdout: "", stderr: "no server running" };
+        }
+        if (_cmd === "ps") {
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (_cmd === "launchctl") {
+          return { exitCode: 113, stdout: "", stderr: "service not found" };
         }
         return { exitCode: 0, stdout: "", stderr: "" };
       });
@@ -288,6 +309,66 @@ describe("AgentManager", () => {
 
       const reconciled = await manager.getAgent(agent.id);
       expect(reconciled!.status).toBe("stopped");
+    });
+
+    it("should capture a missing-session diagnostic snapshot", async () => {
+      const tempHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-agent-manager-home-"));
+      const previousHome = process.env.HOME;
+      process.env.HOME = tempHome;
+
+      try {
+        const agent = await manager.createAgent({ cwd: "/tmp" });
+
+        const { runCommand } = await import("../../src/lib/run-command.js");
+        const mockRunCommand = vi.mocked(runCommand);
+        mockRunCommand.mockClear();
+        mockRunCommand.mockImplementation(async (_cmd, args) => {
+          if (args[0] === "has-session") {
+            return { exitCode: 1, stdout: "", stderr: "" };
+          }
+          if (args[0] === "list-sessions") {
+            return { exitCode: 1, stdout: "", stderr: "no server running" };
+          }
+          if (args[0] === "list-panes") {
+            return { exitCode: 1, stdout: "", stderr: "no server running" };
+          }
+          if (_cmd === "ps" && args[1] === "pid=,comm=") {
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          if (_cmd === "ps") {
+            return { exitCode: 0, stdout: "  PID  PPID  PGID USER COMMAND\n", stderr: "" };
+          }
+          if (_cmd === "launchctl") {
+            return { exitCode: 0, stdout: "launchctl snapshot", stderr: "" };
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        });
+
+        await manager.reconcileAgentStatuses();
+
+        const diagnosticsDir = path.join(tempHome, ".dispatch", "diagnostics");
+        const files = await readdir(diagnosticsDir);
+        const incidentFile = files.find((file) => file.includes(`missing-session-${agent.id}.json`));
+        expect(incidentFile).toBeTruthy();
+
+        const incidentRaw = await readFile(path.join(diagnosticsDir, incidentFile!), "utf-8");
+        const incident = JSON.parse(incidentRaw) as {
+          incident: string;
+          agent: { agentId: string; tmuxSession: string; exitInfo: number | null };
+          tmux: { sessions: { exitCode: number; stderr: string } };
+          launchctl: { stdout: string };
+        };
+
+        expect(incident.incident).toBe("missing_tmux_session");
+        expect(incident.agent.agentId).toBe(agent.id);
+        expect(incident.agent.tmuxSession).toBe(agent.tmuxSession);
+        expect(incident.agent.exitInfo).toBeNull();
+        expect(incident.tmux.sessions.exitCode).toBe(1);
+        expect(incident.launchctl.stdout).toContain("launchctl snapshot");
+      } finally {
+        process.env.HOME = previousHome;
+        await rm(tempHome, { recursive: true, force: true });
+      }
     });
   });
 });
