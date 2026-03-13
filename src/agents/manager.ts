@@ -101,10 +101,10 @@ export class AgentManager {
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
     const cwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
-    const tmuxSession = this.toSessionName(id);
     const type: AgentType = input.type ?? "codex";
     const codexArgs = input.codexArgs ?? [];
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
+    const tmuxSession = this.toSessionName(id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
 
@@ -140,7 +140,7 @@ export class AgentManager {
 
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
-    const tmuxSession = agent.tmuxSession ?? this.toSessionName(agent.id);
+    const tmuxSession = agent.tmuxSession ?? this.toSessionName(agent.id, agent.name);
     const hasSession = await this.tmuxHasSession(tmuxSession);
 
     if (hasSession) {
@@ -382,7 +382,7 @@ export class AgentManager {
     if (sessions.length === 0) return;
 
     // Extract agent IDs from session names
-    const agentIds = sessions.map((s) => s.name.replace(/^dispatch_/, ""));
+    const agentIds = sessions.map((s) => this.agentIdFromSessionName(s.name));
 
     // Query DB for these agent IDs
     const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
@@ -400,7 +400,7 @@ export class AgentManager {
     const toKill: string[] = [];
 
     for (const session of sessions) {
-      const agentId = session.name.replace(/^dispatch_/, "");
+      const agentId = this.agentIdFromSessionName(session.name);
       const status = dbAgents.get(agentId);
 
       // Agent in terminal state — session is definitely orphaned
@@ -482,7 +482,7 @@ export class AgentManager {
   }
 
   private buildAgentCommand(type: AgentType, args: string[], mediaDir: string, sessionName: string): string {
-    const agentId = sessionName.replace(/^(dispatch|hostess)_/, "");
+    const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance =
@@ -622,8 +622,25 @@ export class AgentManager {
     return `agt_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   }
 
-  private toSessionName(agentId: string): string {
-    return `dispatch_${agentId}`;
+  /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task". */
+  private agentIdFromSessionName(sessionName: string): string {
+    const match = sessionName.match(/(?:dispatch|hostess)_(agt_[a-f0-9]{12})/);
+    return match?.[1] ?? sessionName.replace(/^(dispatch|hostess)_/, "");
+  }
+
+  private toSessionName(agentId: string, agentName?: string): string {
+    if (!agentName) {
+      return `dispatch_${agentId}`;
+    }
+    // Sanitize: tmux disallows colons and periods in session names.
+    // Collapse whitespace/special chars to hyphens, truncate to keep it readable.
+    const slug = agentName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 30);
+    return `dispatch_${agentId}_${slug}`;
   }
 
   private defaultMediaDir(agentId: string): string {
