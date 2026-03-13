@@ -180,6 +180,108 @@ What to look for:
 - `counters.timedOut` increasing quickly: git probes are timing out
 - Many agents with `lastResult` of `probe_error` or `failed`: metadata may be stale
 
+### Sessions Disappeared
+
+If agents were `running` and then suddenly reconcile changed them to `stopped`, start here.
+
+Dispatch now writes host-side tmux diagnostics to:
+
+```bash
+~/.dispatch/diagnostics/tmux-inventory.jsonl
+~/.dispatch/diagnostics/*-missing-session-<agentId>.json
+```
+
+What these files mean:
+
+- `tmux-inventory.jsonl`: periodic snapshots taken during reconcile
+- `*-missing-session-<agentId>.json`: incident bundle written when reconcile expects a tmux session but `tmux has-session` fails
+
+Recommended incident workflow:
+
+1. Confirm what Dispatch observed.
+
+```bash
+tail -n 200 ~/.dispatch/logs/dispatch.log
+```
+
+Look for lines like:
+
+- `status corrected to stopped`
+- `Agent process exited with code ...`
+- repeated reconcile corrections across multiple agents in the same minute
+
+2. Inspect the most recent missing-session incident bundle.
+
+```bash
+ls -1t ~/.dispatch/diagnostics/*-missing-session-*.json | head
+jq . ~/.dispatch/diagnostics/<timestamp>-missing-session-<agentId>.json
+```
+
+Important fields:
+
+- `agent`: which agent was affected, what status it had, and whether an exit code file existed
+- `tmux.serverPid`: whether Dispatch could still find a tmux server process
+- `tmux.sessions` and `tmux.panes`: whether `tmux list-sessions` / `list-panes` still worked at incident time
+- `processes.stdout`: point-in-time process list
+- `launchctl.stdout`: current `com.dispatch.server` launchd state
+
+3. Check whether the tmux server disappeared entirely or just Dispatch sessions.
+
+```bash
+tail -n 20 ~/.dispatch/diagnostics/tmux-inventory.jsonl | jq .
+```
+
+What to look for:
+
+- `serverPid` changed or became `null`: tmux server likely exited or was killed
+- `sessions.exitCode` changed from `0` to `1`: tmux had no reachable server/socket
+- non-Dispatch sessions still present but Dispatch sessions gone: cleanup bug or targeted session removal
+- all sessions gone at once: host/session-level event is more likely than app logic
+
+4. Check launchd state for the server itself.
+
+```bash
+launchctl print gui/$(id -u)/com.dispatch.server
+```
+
+What to look for:
+
+- `last exit code`
+- `last terminating signal`
+- recent restart timing that lines up with the incident
+
+5. Pull macOS unified logs around the incident window.
+
+Use a tight window around when the sessions disappeared.
+
+```bash
+log show --style compact --start "2026-03-13 12:57:30" --end "2026-03-13 12:59:30" --predicate '(process == "tmux") || (process == "launchd") || (eventMessage CONTAINS[c] "com.dispatch.server") || (eventMessage CONTAINS[c] "logout") || (eventMessage CONTAINS[c] "Aqua")'
+```
+
+If needed, run narrower follow-ups:
+
+```bash
+log show --style compact --start "<start>" --end "<end>" --predicate '(process == "kernel") || (eventMessage CONTAINS[c] "SIGKILL") || (eventMessage CONTAINS[c] "killed") || (eventMessage CONTAINS[c] "jetsam")'
+log show --style compact --start "<start>" --end "<end>" --predicate '(process == "loginwindow") || (eventMessage CONTAINS[c] "logout") || (eventMessage CONTAINS[c] "user session")'
+```
+
+Interpretation:
+
+- Dispatch restarted but tmux stayed up: app restart only, agent sessions should have survived
+- Dispatch and tmux both disappeared: something outside Dispatch likely killed a broader user-scoped context
+- logout / Aqua / loginwindow activity: user session event likely killed tmux
+- `SIGKILL` or kernel kill messages near the same time: external kill or resource pressure
+
+6. Check for same-user interference.
+
+If self-hosted GitHub Actions runners or other automation run under the same macOS user, treat that as a suspect until proven otherwise. `tmux` and `launchd` state are user-scoped, so same-user automation has a much larger blast radius than automation running under a separate account.
+
+Known limits:
+
+- Dispatch can now tell you much more about what the host looked like when sessions vanished
+- Dispatch still cannot prove the killer if macOS did not log it or if the evidence aged out before inspection
+- If the host logged out, rebooted, or aggressively reaped processes, unified logs are still the source of truth
+
 ## File Locations
 
 | Path | Description |
@@ -188,4 +290,6 @@ What to look for:
 | `~/.dispatch/server/.env` | Server environment config |
 | `~/.dispatch/logs/dispatch.log` | Live server log |
 | `~/.dispatch/logs/last-release-failure.log` | Last deploy failure details |
+| `~/.dispatch/diagnostics/tmux-inventory.jsonl` | Periodic tmux inventory snapshots from reconcile |
+| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions |
 | `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition |
