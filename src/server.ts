@@ -19,6 +19,7 @@ import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { runCommand } from "./lib/run-command.js";
+import { handleMcpRequest } from "./mcp/server.js";
 import {
   RepoConfigError,
   isWorktreeMode,
@@ -440,6 +441,33 @@ async function registerRoutes() {
   await app.register(fastifyStatic, {
     root: staticDir,
     prefix: "/"
+  });
+
+  app.post("/api/mcp", async (request, reply) => {
+    reply.hijack();
+    await handleMcpRequest(request.raw, reply.raw, request.body);
+  });
+
+  app.get("/api/mcp", async (_, reply) => {
+    return reply.code(405).send({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed."
+      },
+      id: null
+    });
+  });
+
+  app.delete("/api/mcp", async (_, reply) => {
+    return reply.code(405).send({
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Method not allowed."
+      },
+      id: null
+    });
   });
 
   // --- Release routes ---

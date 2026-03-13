@@ -26,10 +26,12 @@
     "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^6.12.0",
     "@fastify/websocket": "^8.3.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "dotenv": "^17.3.1",
     "fastify": "^4.29.1",
     "node-pty": "^1.0.0",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
