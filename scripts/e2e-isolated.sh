@@ -45,17 +45,12 @@ mkdir -p "$MEDIA_ROOT"
 
 cleanup() {
   echo "==> Tearing down isolated environment"
-  # Kill tmux sessions for agents created by this test run.
-  # Query the test DB for agent IDs before tearing it down.
-  local agent_ids
-  agent_ids="$(psql -tA "$DATABASE_URL" -c "SELECT id FROM agents" 2>/dev/null || true)"
-  if [ -n "$agent_ids" ]; then
-    while read -r aid; do
-      tmux list-sessions -F '#{session_name}' 2>/dev/null \
-        | grep "^dispatch_${aid}" \
-        | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
-    done <<< "$agent_ids"
-  fi
+  # Kill tmux sessions created by e2e test agents. These are named like
+  # dispatch_agt_xxxx_e2e-agent-*, so we can match them by the e2e prefix
+  # without needing to query the (possibly empty) test database.
+  tmux list-sessions -F '#{session_name}' 2>/dev/null \
+    | grep '^dispatch_agt_.*e2e-agent' \
+    | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
   rm -rf "$MEDIA_ROOT"
 }

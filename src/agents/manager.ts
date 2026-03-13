@@ -239,10 +239,6 @@ export class AgentManager {
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
 
-    this.cleanupDevEnvironment(id).catch((err) =>
-      this.logger.warn({ err, id }, "Dev environment cleanup failed")
-    );
-
     return (await this.getAgent(id)) as AgentRecord;
   }
 
@@ -262,10 +258,6 @@ export class AgentManager {
     if (agent.tmuxSession && sessionExists) {
       await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
     }
-
-    this.cleanupDevEnvironment(id).catch((err) =>
-      this.logger.warn({ err, id }, "Dev environment cleanup failed")
-    );
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
 
@@ -411,9 +403,8 @@ export class AgentManager {
       }
 
       // No DB record — leave it alone. The session may belong to another
-      // server instance (e.g. a dispatch-dev API server running against
-      // its own isolated database). Only clean up sessions that *this*
-      // database definitively knows about.
+      // server instance using the same tmux namespace. Only clean up
+      // sessions that *this* database definitively knows about.
       if (!status) {
         this.logger.debug({ session: session.name, agentId }, "Ignoring tmux session with no matching DB record");
       }
@@ -422,26 +413,6 @@ export class AgentManager {
     await Promise.all(
       toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
     );
-  }
-
-  /**
-   * Clean up any dev environment resources (Docker containers, state files)
-   * created by dispatch-dev for this agent.
-   */
-  private async cleanupDevEnvironment(agentId: string): Promise<void> {
-    const stateFile = `/tmp/dispatch-dev-${agentId}.env`;
-    try {
-      const content = await readFile(stateFile, "utf-8");
-      const dbNameMatch = content.match(/^DEV_CONTAINER_SUFFIX=(.+)$/m);
-      if (dbNameMatch?.[1]) {
-        const containerName = `dispatch-postgres-${dbNameMatch[1]}`;
-        await runCommand("docker", ["rm", "-f", containerName], { allowedExitCodes: [0, 1], timeoutMs: 10_000 });
-        this.logger.info({ agentId, containerName }, "Cleaned up dev database container");
-      }
-      await unlink(stateFile).catch(() => {});
-    } catch {
-      // No state file means no dev environment was created — nothing to clean up.
-    }
   }
 
   private async startTmuxSession(
