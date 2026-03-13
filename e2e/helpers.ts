@@ -20,6 +20,16 @@ export async function createAgentViaAPI(
   return body.agent;
 }
 
+export async function setAgentLatestEventViaAPI(
+  request: APIRequestContext,
+  agentId: string,
+  event: { type: "working" | "blocked" | "waiting_user" | "done" | "idle"; message: string }
+): Promise<void> {
+  await request.post(`${API}/agents/${agentId}/latest-event`, {
+    data: event
+  });
+}
+
 /**
  * Delete an agent via the REST API.
  */
