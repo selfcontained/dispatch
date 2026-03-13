@@ -7,7 +7,8 @@ export type Agent = {
   status: AgentStatus;
   cwd: string;
   tmuxSession: string | null;
-  codexArgs: string[];
+  agentArgs: string[];
+  fullAccess: boolean;
   lastError?: string | null;
   latestEvent?: {
     type: "working" | "blocked" | "waiting_user" | "done" | "idle";

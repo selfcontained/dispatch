@@ -42,6 +42,8 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Web Finalization
 - If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
 - After running `npm run finalize:web`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
+- After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
+- In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 
 ## Temporary Files
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
@@ -52,6 +54,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
 - Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all tied to your agent session. Everything is automatically cleaned up when your session ends.
+- If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
   ```bash
   dispatch-dev up                             # start isolated DB + API server
   dispatch-dev up --vite                      # also start Vite frontend

@@ -2,6 +2,19 @@ import { test, expect } from "@playwright/test";
 import { loadApp } from "./helpers";
 
 test.describe("Create agent dialog", () => {
+  test("defaults the working directory and shows a browse button", async ({ page }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    const form = page.getByTestId("create-agent-form");
+    await expect(form).toBeVisible();
+
+    const cwdValue = await form.getByTestId("create-agent-cwd").inputValue();
+    expect(cwdValue.startsWith("/")).toBe(true);
+    expect(cwdValue.length).toBeGreaterThan(1);
+    await expect(form.getByTestId("create-agent-browse")).toBeVisible();
+  });
+
   test("agent type dropdown opens and allows selection", async ({ page }) => {
     await loadApp(page);
 
@@ -20,6 +33,7 @@ test.describe("Create agent dialog", () => {
     // The dropdown options should be visible
     const claudeOption = page.getByRole("option", { name: "Claude" });
     await expect(claudeOption).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible({ timeout: 3_000 });
 
     // Select "Claude"
     await claudeOption.click();
