@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+// Allow self-signed certs when running e2e against a TLS-enabled dev server.
+// e2e-isolated.sh unsets TLS_CERT so this only fires for manual TLS test runs.
 if (process.env.TLS_CERT) {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }

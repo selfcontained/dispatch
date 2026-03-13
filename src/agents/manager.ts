@@ -239,7 +239,9 @@ export class AgentManager {
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
 
-    this.cleanupDevEnvironment(id);
+    this.cleanupDevEnvironment(id).catch((err) =>
+      this.logger.warn({ err, id }, "Dev environment cleanup failed")
+    );
 
     return (await this.getAgent(id)) as AgentRecord;
   }
@@ -261,7 +263,9 @@ export class AgentManager {
       await runCommand("tmux", ["kill-session", "-t", agent.tmuxSession]);
     }
 
-    this.cleanupDevEnvironment(id);
+    this.cleanupDevEnvironment(id).catch((err) =>
+      this.logger.warn({ err, id }, "Dev environment cleanup failed")
+    );
 
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
 
@@ -429,7 +433,7 @@ export class AgentManager {
     const stateFile = `/tmp/dispatch-dev-${agentId}.env`;
     try {
       const content = await readFile(stateFile, "utf-8");
-      const dbNameMatch = content.match(/^DEV_DB_NAME=(.+)$/m);
+      const dbNameMatch = content.match(/^DEV_CONTAINER_SUFFIX=(.+)$/m);
       if (dbNameMatch?.[1]) {
         const containerName = `dispatch-postgres-${dbNameMatch[1]}`;
         await runCommand("docker", ["rm", "-f", containerName], { allowedExitCodes: [0, 1], timeoutMs: 10_000 });

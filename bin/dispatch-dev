@@ -28,6 +28,10 @@ Commands:
   logs      Show recent output (default: api; use --vite or --db)
   url       Print the dev server URL
 
+Aliases:
+  start     Alias for up
+  stop      Alias for down
+
 Options:
   --cwd <path>    Working directory (default: current directory)
   --vite          Also start the Vite frontend dev server
@@ -58,6 +62,8 @@ has_window() {
   tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null | grep -qx "$name"
 }
 
+# Grab a free port from the OS. Small TOCTOU window between probe and actual
+# bind, but acceptable for dev tooling — collisions are extremely unlikely.
 find_free_port() {
   node -e '
     const net = require("net");
@@ -97,7 +103,7 @@ save_state() {
 DEV_DB_PORT=${DEV_DB_PORT:-}
 DEV_API_PORT=${DEV_API_PORT:-}
 DEV_VITE_PORT=${DEV_VITE_PORT:-}
-DEV_DB_NAME=${DEV_DB_NAME:-}
+DEV_CONTAINER_SUFFIX=${DEV_CONTAINER_SUFFIX:-}
 DEV_CWD=${DEV_CWD:-}
 EOF
 }
@@ -127,22 +133,22 @@ cmd_up() {
 
   # --- Database ---
   if [ "$OPT_NO_DB" != "1" ]; then
-    DEV_DB_NAME="$(db_container_suffix)"
+    DEV_CONTAINER_SUFFIX="$(db_container_suffix)"
     DEV_DB_PORT="$(find_free_port)"
-    local container_name="dispatch-postgres-${DEV_DB_NAME}"
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
 
     echo "Starting database: ${container_name} on port ${DEV_DB_PORT}..."
 
     # Stop any existing container with this name
     docker rm -f "$container_name" 2>/dev/null || true
 
-    DISPATCH_DB_NAME="$DEV_DB_NAME" DISPATCH_DB_PORT="$DEV_DB_PORT" \
-      docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d 2>&1
+    DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
+      docker compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "dispatch-dev-${DEV_CONTAINER_SUFFIX}" up -d 2>&1
 
     # Wait for healthy
     local attempts=0
     while [ $attempts -lt 30 ]; do
-      if docker exec "$container_name" pg_isready -U dispatch -d "dispatch_${DEV_DB_NAME}" >/dev/null 2>&1; then
+      if docker exec "$container_name" pg_isready -U dispatch -d "dispatch_${DEV_CONTAINER_SUFFIX}" >/dev/null 2>&1; then
         echo "Database ready on port ${DEV_DB_PORT}"
         break
       fi
@@ -158,7 +164,7 @@ cmd_up() {
     DEV_CWD="$cwd"
     save_state
     echo ""
-    echo "Database only mode. Set DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_DB_NAME}"
+    echo "Database only mode. Set DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
     return
   fi
 
@@ -183,7 +189,7 @@ cmd_up() {
   # Override port and DATABASE_URL to point at our container
   local db_url_override=""
   if [ "$OPT_NO_DB" != "1" ]; then
-    db_url_override="DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_DB_NAME} "
+    db_url_override="DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX} "
   fi
 
   local api_cmd="${nvm_init}${env_exports}${db_url_override}DISPATCH_PORT=${DEV_API_PORT} npm run dev"
@@ -210,7 +216,7 @@ cmd_up() {
   echo ""
   echo "Dev environment ready:"
   if [ "$OPT_NO_DB" != "1" ]; then
-    echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_DB_NAME}"
+    echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
   fi
   echo "  api: http://127.0.0.1:${DEV_API_PORT}"
   if [ "$OPT_VITE" = "1" ]; then
@@ -233,8 +239,8 @@ cmd_down() {
   done
 
   # Stop the DB container
-  if [ -n "${DEV_DB_NAME:-}" ]; then
-    local container_name="dispatch-postgres-${DEV_DB_NAME}"
+  if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
     if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
       docker rm -f "$container_name" 2>/dev/null || true
       echo "Removed database container: ${container_name}"
@@ -254,8 +260,8 @@ cmd_status() {
   load_state
 
   # DB
-  if [ -n "${DEV_DB_NAME:-}" ]; then
-    local container_name="dispatch-postgres-${DEV_DB_NAME}"
+  if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
     if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
       echo "db:   running (${container_name}, port ${DEV_DB_PORT:-?})"
     else
@@ -299,8 +305,8 @@ cmd_logs() {
   elif [ "$OPT_DB_ONLY" = "1" ]; then
     # Show docker logs for the DB container
     load_state
-    if [ -n "${DEV_DB_NAME:-}" ]; then
-      docker logs --tail 100 "dispatch-postgres-${DEV_DB_NAME}" 2>&1
+    if [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+      docker logs --tail 100 "dispatch-postgres-${DEV_CONTAINER_SUFFIX}" 2>&1
       return
     fi
     echo "No managed database found." >&2

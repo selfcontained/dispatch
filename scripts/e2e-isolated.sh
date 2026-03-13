@@ -11,7 +11,9 @@ else
   exit 1
 fi
 
-# Grab actually-free ports from the OS to avoid collisions between concurrent runs
+# Grab a free port from the OS. There is a small TOCTOU window between closing
+# the probe socket and the actual service binding, but this is acceptable for
+# dev/test tooling — collisions are extremely unlikely in practice.
 find_free_port() {
   node -e '
     const net = require("net");
@@ -23,7 +25,8 @@ find_free_port() {
   '
 }
 
-RUN_ID="e2e-$$"
+# Include timestamp for uniqueness across CI parallel containers
+RUN_ID="e2e-$$-$(date +%s)"
 DB_PORT="$(find_free_port)"
 API_PORT="$(find_free_port)"
 
