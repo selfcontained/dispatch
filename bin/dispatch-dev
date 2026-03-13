@@ -50,7 +50,16 @@ resolve_session() {
     echo "DISPATCH_AGENT_ID is not set. Run this inside a Dispatch agent session." >&2
     exit 1
   fi
-  echo "dispatch_${agent_id}"
+  # Session names may include a name slug (e.g. dispatch_agt_xxx_my-task).
+  # Match by agent ID prefix since we don't know the full session name.
+  local prefix="dispatch_${agent_id}"
+  local match
+  match="$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${prefix}" | head -1)"
+  if [ -z "$match" ]; then
+    echo "$prefix"
+  else
+    echo "$match"
+  fi
 }
 
 resolve_agent_id() {
