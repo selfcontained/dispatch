@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { loadApp } from "./helpers";
 
 test.describe("Create agent dialog", () => {
-  test("defaults the working directory and shows a browse button", async ({ page }) => {
+  test("defaults the working directory to a non-empty value", async ({ page }) => {
     await loadApp(page);
 
     await page.getByTestId("create-agent-button").click();
@@ -10,9 +10,7 @@ test.describe("Create agent dialog", () => {
     await expect(form).toBeVisible();
 
     const cwdValue = await form.getByTestId("create-agent-cwd").inputValue();
-    expect(cwdValue.startsWith("/")).toBe(true);
-    expect(cwdValue.length).toBeGreaterThan(1);
-    await expect(form.getByTestId("create-agent-browse")).toBeVisible();
+    expect(cwdValue.length).toBeGreaterThan(0);
   });
 
   test("agent type dropdown opens and allows selection", async ({ page }) => {

@@ -1,34 +1,25 @@
-import { type FormEvent } from "react";
-import { Check, FolderOpen, Loader2, Plus } from "lucide-react";
+import { type FormEvent, useRef, useState } from "react";
+import { Check, ChevronDown, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { WorktreeMode } from "@/components/app/types";
 
 type CreateAgentDialogProps = {
   open: boolean;
   createName: string;
   createType: string;
   createCwd: string;
-  createDirectoryPicking: boolean;
   createFullAccess: boolean;
-  worktreeMode: WorktreeMode;
-  worktreeLoading: boolean;
-  worktreeSaving: boolean;
-  worktreeError: string | null;
-  worktreeRepoRoot: string | null;
   creating: boolean;
+  cwdHistory: string[];
   setOpen: (open: boolean) => void;
   setCreateName: (name: string) => void;
   setCreateType: (value: string) => void;
   setCreateCwd: (cwd: string) => void;
-  onPickCreateDirectory: () => Promise<void>;
-  setWorktreeMode: (value: WorktreeMode) => void;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
-  refreshWorktreeMode: () => Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
@@ -37,24 +28,23 @@ export function CreateAgentDialog({
   createName,
   createType,
   createCwd,
-  createDirectoryPicking,
   createFullAccess,
-  worktreeMode,
-  worktreeLoading,
-  worktreeSaving,
-  worktreeError,
-  worktreeRepoRoot,
   creating,
+  cwdHistory,
   setOpen,
   setCreateName,
   setCreateType,
   setCreateCwd,
-  onPickCreateDirectory,
-  setWorktreeMode,
   setCreateFullAccess,
-  refreshWorktreeMode,
   onSubmit
 }: CreateAgentDialogProps): JSX.Element {
+  const [cwdDropdownOpen, setCwdDropdownOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filteredHistory = cwdHistory.filter(
+    (dir) => !createCwd || dir.toLowerCase().includes(createCwd.toLowerCase())
+  );
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
@@ -88,58 +78,66 @@ export function CreateAgentDialog({
             </Select>
           </div>
 
-          <div className="space-y-1">
+          <div className="relative space-y-1">
             <label className="text-sm text-muted-foreground">Working directory</label>
-            <div className="flex items-center gap-2">
+            <div className="relative">
               <Input
+                ref={inputRef}
                 value={createCwd}
-                onChange={(event) => setCreateCwd(event.target.value)}
-                onBlur={() => void refreshWorktreeMode()}
-                placeholder="/absolute/path"
+                onChange={(event) => {
+                  setCreateCwd(event.target.value);
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
+                }}
+                onBlur={() => {
+                  // Delay closing so click on dropdown item registers first
+                  setTimeout(() => setCwdDropdownOpen(false), 150);
+                }}
+                placeholder="~/path/to/project"
                 required
                 data-testid="create-agent-cwd"
+                className="pr-8"
               />
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void onPickCreateDirectory()}
-                disabled={createDirectoryPicking}
-                data-testid="create-agent-browse"
-              >
-                {createDirectoryPicking ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderOpen className="mr-1.5 h-4 w-4" />
-                )}
-                Browse
-              </Button>
+              {cwdHistory.length > 0 ? (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setCwdDropdownOpen((prev) => !prev);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", cwdDropdownOpen && "rotate-180")} />
+                </button>
+              ) : null}
             </div>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-sm text-muted-foreground">Repo worktree mode</label>
-              <Button type="button" variant="ghost" size="sm" onClick={() => void refreshWorktreeMode()}>
-                Reload
-              </Button>
-            </div>
-            <Select value={worktreeMode} onValueChange={(value) => setWorktreeMode(value as WorktreeMode)}>
-              <SelectTrigger disabled={worktreeLoading || worktreeSaving}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ask">On</SelectItem>
-                <SelectItem value="auto">Auto</SelectItem>
-                <SelectItem value="off">Off</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {worktreeError
-                ? worktreeError
-                : worktreeRepoRoot
-                  ? `Saved in ${worktreeRepoRoot}/.dispatch/config.json`
-                  : "Enter a git working directory to persist this setting in the repo."}
-            </p>
+            {cwdDropdownOpen && filteredHistory.length > 0 ? (
+              <div className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-background shadow-md">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Recent directories</div>
+                {filteredHistory.map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    className="w-full truncate px-2 py-1.5 text-left font-mono text-xs text-foreground hover:bg-muted/70"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      setCreateCwd(dir);
+                      setCwdDropdownOpen(false);
+                    }}
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">

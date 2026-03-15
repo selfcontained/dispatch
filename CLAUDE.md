@@ -53,19 +53,17 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Dev Server Management (CRITICAL)
 - **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all on auto-selected free ports. The suffix is derived from `DISPATCH_AGENT_ID` automatically in agent sessions.
+- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and Vite frontend, all on auto-selected free ports. The suffix is derived from `DISPATCH_AGENT_ID` automatically in agent sessions.
+- **Prefer `dispatch-dev restart` over `down` + `up`** when you need to pick up code changes. Restart reuses the same ports and DB — no wasted time recreating containers. Only use `down` when the user asks or you're done for good.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
   ```bash
-  dispatch-dev up                             # start isolated DB + API server
-  dispatch-dev up --vite                      # also start Vite frontend
-  dispatch-dev up --cwd /path/to/worktree     # start from a specific directory
-  dispatch-dev up --no-db                     # skip DB (use existing DATABASE_URL)
-  dispatch-dev down                           # tear down everything
-  dispatch-dev restart                        # restart the environment
+  dispatch-dev up                             # first start: DB + API server + Vite
+  dispatch-dev restart                        # pick up code changes (reuses ports/DB)
   dispatch-dev status                         # check what's running
   dispatch-dev logs                           # API server logs
   dispatch-dev logs --vite                    # Vite server logs
   dispatch-dev url                            # print the API server URL
+  dispatch-dev down                           # full teardown (removes DB container)
   ```
 - `dispatch-dev up` auto-selects free ports and prints the URLs — just use the printed URLs.
 

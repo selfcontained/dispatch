@@ -8,7 +8,6 @@ import { AppHeader } from "@/components/app/app-header";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import { EditWorktreeModeDialog } from "@/components/app/edit-worktree-mode-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
@@ -19,8 +18,7 @@ import {
   type AgentVisualState,
   type ConnState,
   type MediaFile,
-  type ServiceState,
-  type WorktreeMode
+  type ServiceState
 } from "@/components/app/types";
 import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
@@ -41,8 +39,9 @@ const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const CWD_HISTORY_KEY = "dispatch:cwdHistory";
+const CWD_HISTORY_MAX = 20;
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
-const DEFAULT_WORKTREE_MODE: WorktreeMode = "ask";
 // Chrome Device Toolbar can emulate mobile with a wider layout viewport in some modes.
 // Treat coarse/non-hover input as mobile as well so drawer behavior stays consistent.
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px), (pointer: coarse), (hover: none)";
@@ -61,7 +60,34 @@ function readLastUsedCwd(): string {
     return "";
   }
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : "";
+  return stored && stored.length > 0 ? stored : "~/";
+}
+
+function readCwdHistory(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(CWD_HISTORY_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string" && v.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToCwdHistory(cwd: string): string[] {
+  const trimmed = cwd.trim();
+  if (!trimmed) {
+    return readCwdHistory();
+  }
+  const existing = readCwdHistory().filter((entry) => entry !== trimmed);
+  const updated = [trimmed, ...existing].slice(0, CWD_HISTORY_MAX);
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(updated));
+  return updated;
 }
 
 function readActiveShellAgentId(): string | null {
@@ -159,23 +185,11 @@ export function App(): JSX.Element {
   const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
-  const [createDirectoryPicking, setCreateDirectoryPicking] = useState(false);
-  const [createWorktreeMode, setCreateWorktreeMode] = useState<WorktreeMode>(DEFAULT_WORKTREE_MODE);
-  const [createWorktreeRepoRoot, setCreateWorktreeRepoRoot] = useState<string | null>(null);
-  const [createWorktreeLoading, setCreateWorktreeLoading] = useState(false);
-  const [createWorktreeSaving, setCreateWorktreeSaving] = useState(false);
-  const [createWorktreeError, setCreateWorktreeError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
-  const [editWorktreeOpen, setEditWorktreeOpen] = useState(false);
-  const [editWorktreeTarget, setEditWorktreeTarget] = useState<Agent | null>(null);
-  const [editWorktreeMode, setEditWorktreeMode] = useState<WorktreeMode>("off");
-  const [editWorktreeLoading, setEditWorktreeLoading] = useState(false);
-  const [editWorktreeSaving, setEditWorktreeSaving] = useState(false);
-  const [editWorktreeError, setEditWorktreeError] = useState<string | null>(null);
-
   const [leftOpen, setLeftOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") {
       return true;
@@ -205,9 +219,6 @@ export function App(): JSX.Element {
   const leftPanelOpen = isMobile ? mobileLeftOpen : leftOpen;
   const mediaPanelOpen = isMobile ? mobileMediaOpen : mediaOpen;
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
-  const [_selectedAgentWorktreeMode, setSelectedAgentWorktreeMode] = useState<WorktreeMode | null>(null);
-  const [_selectedAgentWorktreeLoading, setSelectedAgentWorktreeLoading] = useState(false);
-
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxCaption, setLightboxCaption] = useState("");
@@ -267,13 +278,6 @@ export function App(): JSX.Element {
     setCreateCwd(resolveCreateDefaultCwd());
     setCreateOpen(true);
   }, [resolveCreateDefaultCwd]);
-
-  const openEditWorktreeDialog = useCallback((agent: Agent) => {
-    setEditWorktreeTarget(agent);
-    setEditWorktreeMode("off");
-    setEditWorktreeError(null);
-    setEditWorktreeOpen(true);
-  }, []);
 
   const api = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const hasBody = init?.body !== undefined && init?.body !== null;
@@ -710,6 +714,7 @@ export function App(): JSX.Element {
         setCreateName("");
         setCreateFullAccess(false);
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
+        setCwdHistory(addToCwdHistory(payload.agent.cwd));
         setSelectedAgentId(payload.agent.id);
         void refreshMedia(payload.agent.id);
         await ensureTerminalConnected(true, true, payload.agent.id);
@@ -747,109 +752,6 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, [api, createCwdInitialized]);
-
-  const pickCreateDirectory = useCallback(async () => {
-    setCreateDirectoryPicking(true);
-
-    try {
-      const payload = await api<{ canceled: boolean; path?: string }>("/api/v1/system/select-directory", {
-        method: "POST",
-        body: JSON.stringify({
-          currentPath: createCwd.trim()
-        })
-      });
-
-      if (payload.canceled || !payload.path) {
-        return;
-      }
-
-      setCreateCwd(payload.path);
-      setCreateCwdInitialized(true);
-      setCreateWorktreeLoading(true);
-      setCreateWorktreeError(null);
-
-      try {
-        const repoPayload = await api<{
-          repoRoot: string;
-          config: { worktreeMode: WorktreeMode };
-        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(payload.path)}`);
-        setCreateWorktreeMode(repoPayload.config.worktreeMode);
-        setCreateWorktreeRepoRoot(repoPayload.repoRoot);
-        setCreateWorktreeError(null);
-      } catch {
-        setCreateWorktreeRepoRoot(null);
-        setCreateWorktreeMode("off");
-        setCreateWorktreeError("Using Off (repo settings unavailable).");
-      } finally {
-        setCreateWorktreeLoading(false);
-      }
-    } finally {
-      setCreateDirectoryPicking(false);
-    }
-  }, [api, createCwd]);
-
-  const refreshCreateWorktreeMode = useCallback(async () => {
-    const cwd = createCwd.trim();
-    if (!cwd) {
-      setCreateWorktreeRepoRoot(null);
-      setCreateWorktreeError("Enter a git working directory to load repo defaults.");
-      setCreateWorktreeMode(DEFAULT_WORKTREE_MODE);
-      return;
-    }
-
-    setCreateWorktreeLoading(true);
-    setCreateWorktreeError(null);
-    try {
-      const payload = await api<{
-        repoRoot: string;
-        config: { worktreeMode: WorktreeMode };
-      }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
-      setCreateWorktreeMode(payload.config.worktreeMode);
-      setCreateWorktreeRepoRoot(payload.repoRoot);
-      setCreateWorktreeError(null);
-    } catch {
-      setCreateWorktreeRepoRoot(null);
-      setCreateWorktreeMode("off");
-      setCreateWorktreeError("Using Off (repo settings unavailable).");
-    } finally {
-      setCreateWorktreeLoading(false);
-    }
-  }, [api, createCwd]);
-
-  const setAndPersistWorktreeMode = useCallback(
-    async (value: WorktreeMode) => {
-      setCreateWorktreeMode(value);
-      const cwd = createCwd.trim();
-      if (!cwd) {
-        setCreateWorktreeError("Enter a git working directory before saving.");
-        return;
-      }
-
-      setCreateWorktreeSaving(true);
-      setCreateWorktreeError(null);
-
-      try {
-        const payload = await api<{
-          repoRoot: string;
-          config: { worktreeMode: WorktreeMode };
-        }>("/api/v1/repo-config", {
-          method: "PATCH",
-          body: JSON.stringify({
-            cwd,
-            worktreeMode: value
-          })
-        });
-        setCreateWorktreeMode(payload.config.worktreeMode);
-        setCreateWorktreeRepoRoot(payload.repoRoot);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to save repo config.";
-        setCreateWorktreeError(message);
-      } finally {
-        setCreateWorktreeSaving(false);
-      }
-    },
-    [api, createCwd]
-  );
 
   useEffect(() => {
     const host = terminalHostRef.current;
@@ -1266,110 +1168,6 @@ export function App(): JSX.Element {
   }, [selectedAgentId]);
 
   useEffect(() => {
-    const cwd = selectedAgent?.cwd?.trim();
-    if (!selectedAgent || !cwd) {
-      setSelectedAgentWorktreeMode(null);
-      setSelectedAgentWorktreeLoading(false);
-      return;
-    }
-
-    let active = true;
-    setSelectedAgentWorktreeLoading(true);
-
-    void (async () => {
-      try {
-        const payload = await api<{
-          config: { worktreeMode: WorktreeMode };
-        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
-        if (!active) {
-          return;
-        }
-        setSelectedAgentWorktreeMode(payload.config.worktreeMode);
-      } catch {
-        if (!active) {
-          return;
-        }
-        setSelectedAgentWorktreeMode("off");
-      } finally {
-        if (active) {
-          setSelectedAgentWorktreeLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [api, selectedAgent]);
-
-  useEffect(() => {
-    const cwd = editWorktreeTarget?.cwd?.trim();
-    if (!editWorktreeOpen || !cwd) {
-      setEditWorktreeLoading(false);
-      return;
-    }
-
-    let active = true;
-    setEditWorktreeLoading(true);
-    setEditWorktreeError(null);
-
-    void (async () => {
-      try {
-        const payload = await api<{
-          config: { worktreeMode: WorktreeMode };
-        }>(`/api/v1/repo-config?cwd=${encodeURIComponent(cwd)}`);
-        if (!active) {
-          return;
-        }
-        setEditWorktreeMode(payload.config.worktreeMode);
-      } catch {
-        if (!active) {
-          return;
-        }
-        setEditWorktreeMode("off");
-        setEditWorktreeError("Using Off (repo settings unavailable).");
-      } finally {
-        if (active) {
-          setEditWorktreeLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [api, editWorktreeOpen, editWorktreeTarget]);
-
-  const saveEditWorktreeMode = useCallback(async () => {
-    const cwd = editWorktreeTarget?.cwd?.trim();
-    if (!editWorktreeTarget || !cwd) {
-      return;
-    }
-
-    setEditWorktreeSaving(true);
-    setEditWorktreeError(null);
-    try {
-      const payload = await api<{
-        config: { worktreeMode: WorktreeMode };
-      }>("/api/v1/repo-config", {
-        method: "PATCH",
-        body: JSON.stringify({
-          cwd,
-          worktreeMode: editWorktreeMode
-        })
-      });
-      if (selectedAgentId === editWorktreeTarget.id) {
-        setSelectedAgentWorktreeMode(payload.config.worktreeMode);
-      }
-      setEditWorktreeOpen(false);
-    } catch {
-      setEditWorktreeError("Unable to save worktree mode.");
-    } finally {
-      setEditWorktreeSaving(false);
-    }
-  }, [api, editWorktreeMode, editWorktreeTarget, selectedAgentId]);
-
-  useEffect(() => {
     const nextKeys = mediaFiles.map((file) => `${file.name}:${file.updatedAt}`);
     const prevKeys = previousMediaKeysRef.current;
 
@@ -1490,13 +1288,6 @@ export function App(): JSX.Element {
       persistActiveShellAgentId(null);
     }
   }, [connState, connectedAgentId, restoreShellAgentId]);
-
-  useEffect(() => {
-    if (!createOpen) {
-      return;
-    }
-    void refreshCreateWorktreeMode();
-  }, [createOpen, refreshCreateWorktreeMode]);
 
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
@@ -1627,8 +1418,7 @@ export function App(): JSX.Element {
             overflowAgentId={overflowAgentId}
             setLeftOpen={setLeftOpen}
             onOpenCreateDialog={openCreateDialog}
-            onOpenEditWorktreeDialog={openEditWorktreeDialog}
-            onOpenSettings={() => setSettingsPaneOpen(true)}
+                        onOpenSettings={() => setSettingsPaneOpen(true)}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -1726,7 +1516,6 @@ export function App(): JSX.Element {
             selectedAgentId={selectedAgentId}
             overflowAgentId={overflowAgentId}
             onOpenCreateDialog={() => { setMobileLeftOpen(false); openCreateDialog(); }}
-            onOpenEditWorktreeDialog={(agent) => { setMobileLeftOpen(false); openEditWorktreeDialog(agent); }}
             onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
@@ -1780,22 +1569,14 @@ export function App(): JSX.Element {
         createName={createName}
         createType={createType}
         createCwd={createCwd}
-        createDirectoryPicking={createDirectoryPicking}
         createFullAccess={createFullAccess}
-        worktreeMode={createWorktreeMode}
-        worktreeLoading={createWorktreeLoading}
-        worktreeSaving={createWorktreeSaving}
-        worktreeError={createWorktreeError}
-        worktreeRepoRoot={createWorktreeRepoRoot}
         creating={creating}
+        cwdHistory={cwdHistory}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
-        onPickCreateDirectory={pickCreateDirectory}
-        setWorktreeMode={(value) => void setAndPersistWorktreeMode(value)}
         setCreateFullAccess={setCreateFullAccess}
-        refreshWorktreeMode={refreshCreateWorktreeMode}
         onSubmit={handleCreateAgent}
       />
 
@@ -1805,18 +1586,6 @@ export function App(): JSX.Element {
         setOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}
-      />
-
-      <EditWorktreeModeDialog
-        open={editWorktreeOpen}
-        target={editWorktreeTarget}
-        mode={editWorktreeMode}
-        loading={editWorktreeLoading}
-        saving={editWorktreeSaving}
-        error={editWorktreeError}
-        setOpen={setEditWorktreeOpen}
-        setMode={setEditWorktreeMode}
-        onSave={saveEditWorktreeMode}
       />
 
       <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} />
