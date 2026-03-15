@@ -608,6 +608,7 @@ export class AgentManager {
       );
       const panePid = pidResult.stdout.trim();
       if (pidResult.exitCode !== 0 || !panePid) {
+        this.logger.debug({ session }, "resolveAgentProcessCwd: no pane_pid");
         return null;
       }
 
@@ -617,6 +618,7 @@ export class AgentManager {
         { allowedExitCodes: [0, 1], timeoutMs: 800 }
       );
       if (childrenResult.exitCode !== 0 || !childrenResult.stdout.trim()) {
+        this.logger.debug({ session, panePid }, "resolveAgentProcessCwd: no children");
         return null;
       }
 
@@ -638,6 +640,7 @@ export class AgentManager {
       }
 
       if (!agentPid) {
+        this.logger.debug({ session, panePid }, "resolveAgentProcessCwd: no agent CLI among children");
         return null;
       }
 
@@ -647,13 +650,16 @@ export class AgentManager {
         { allowedExitCodes: [0, 1], timeoutMs: 800 }
       );
       if (lsofResult.exitCode !== 0 || !lsofResult.stdout) {
+        this.logger.debug({ session, agentPid }, "resolveAgentProcessCwd: lsof failed");
         return null;
       }
 
       // lsof -Fn outputs lines like "p<pid>" and "n<path>". Extract the path.
       for (const line of lsofResult.stdout.split("\n")) {
         if (line.startsWith("n/")) {
-          return line.slice(1);
+          const cwd = line.slice(1);
+          this.logger.debug({ session, agentPid, cwd }, "resolveAgentProcessCwd: resolved");
+          return cwd;
         }
       }
 
