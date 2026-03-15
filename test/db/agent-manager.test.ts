@@ -154,6 +154,36 @@ describe("AgentManager", () => {
       expect(agent.status).toBe("running");
       expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
     });
+
+    it("should inject an agent-scoped MCP URL into Codex launches", async () => {
+      const { runCommand } = await import("../../src/lib/run-command.js");
+      vi.mocked(runCommand).mockClear();
+
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex" });
+
+      const newSessionCall = vi.mocked(runCommand).mock.calls.find(
+        ([command, args]) => command === "tmux" && args[0] === "new-session"
+      );
+      expect(newSessionCall).toBeTruthy();
+      const wrappedCommand = newSessionCall![1][newSessionCall![1].length - 1];
+      expect(wrappedCommand).toContain("mcp_servers.dispatch.url=");
+      expect(wrappedCommand).toContain(`/api/mcp/${agent.id}`);
+    });
+
+    it("should inject an agent-scoped MCP URL into Claude launches", async () => {
+      const { runCommand } = await import("../../src/lib/run-command.js");
+      vi.mocked(runCommand).mockClear();
+
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude" });
+
+      const newSessionCall = vi.mocked(runCommand).mock.calls.find(
+        ([command, args]) => command === "tmux" && args[0] === "new-session"
+      );
+      expect(newSessionCall).toBeTruthy();
+      const wrappedCommand = newSessionCall![1][newSessionCall![1].length - 1];
+      expect(wrappedCommand).toContain("--mcp-config");
+      expect(wrappedCommand).toContain(`/api/mcp/${agent.id}`);
+    });
   });
 
   describe("getAgent / listAgents", () => {

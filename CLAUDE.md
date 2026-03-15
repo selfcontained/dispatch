@@ -53,7 +53,7 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Dev Server Management (CRITICAL)
 - **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all tied to your agent session. Everything is automatically cleaned up when your session ends.
+- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all on auto-selected free ports. The suffix is derived from `DISPATCH_AGENT_ID` automatically in agent sessions.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
   ```bash
   dispatch-dev up                             # start isolated DB + API server
@@ -76,5 +76,5 @@ Before marking any task as done, run the following checks and fix any failures:
 
 ## Development Database
 - Production uses the `dispatch` database. Never connect to it from dev servers.
-- `dispatch-dev up` creates an isolated Postgres container per agent with its own port — no manual DATABASE_URL setup needed.
+- `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
 - Migrations run automatically on API server start.

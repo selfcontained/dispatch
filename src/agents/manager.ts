@@ -712,17 +712,27 @@ export class AgentManager {
 
     const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
+    const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
 
     if (type === "claude") {
+      const mcpConfig = this.shellEscape(JSON.stringify({
+        mcpServers: {
+          dispatch: {
+            type: "http",
+            url: dispatchMcpUrl
+          }
+        }
+      }));
+      const mcpFlag = `--mcp-config ${mcpConfig}`;
       // Elevate guidance to system prompt so it persists through long conversations
       // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
       // Claude Code and provides the full behavioral spec.
       const systemFlag = `--append-system-prompt ${this.shellEscape(launchGuidance)}`;
       if (args.length === 0) {
-        return `${envPrefix} ${this.shellEscape(cliBin)} ${systemFlag}`;
+        return `${envPrefix} ${this.shellEscape(cliBin)} ${mcpFlag} ${systemFlag}`;
       }
       const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${systemFlag} ${escaped}`;
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${mcpFlag} ${systemFlag} ${escaped}`;
     }
 
     if (type === "opencode") {
@@ -735,11 +745,19 @@ export class AgentManager {
     }
 
     // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
+    const codexMcpFlags = [
+      "-c",
+      this.shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`)
+    ].join(" ");
     if (args.length === 0) {
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${this.shellEscape(launchGuidance)}`;
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;
     }
     const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-    return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${this.shellEscape(launchGuidance)}`;
+    return `${envPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(launchGuidance)}`;
+  }
+
+  private dispatchMcpUrl(agentId: string): string {
+    return `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}/api/mcp/${agentId}`;
   }
 
   private shellEscape(value: string): string {

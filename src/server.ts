@@ -448,26 +448,43 @@ async function registerRoutes() {
     await handleMcpRequest(request.raw, reply.raw, request.body);
   });
 
+  app.post("/api/mcp/:agentId", async (request, reply) => {
+    const params = request.params as { agentId?: string };
+    const agentId = params.agentId ?? "";
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    try {
+      const { repoRoot } = await resolveRepoConfig(agent.cwd);
+      reply.hijack();
+      await handleMcpRequest(request.raw, reply.raw, request.body, {
+        agent,
+        repoRoot
+      });
+    } catch (error) {
+      if (error instanceof RepoConfigError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
+  });
+
   app.get("/api/mcp", async (_, reply) => {
-    return reply.code(405).send({
-      jsonrpc: "2.0",
-      error: {
-        code: -32000,
-        message: "Method not allowed."
-      },
-      id: null
-    });
+    return reply.code(405).send(mcpMethodNotAllowed());
   });
 
   app.delete("/api/mcp", async (_, reply) => {
-    return reply.code(405).send({
-      jsonrpc: "2.0",
-      error: {
-        code: -32000,
-        message: "Method not allowed."
-      },
-      id: null
-    });
+    return reply.code(405).send(mcpMethodNotAllowed());
+  });
+
+  app.get("/api/mcp/:agentId", async (_, reply) => {
+    return reply.code(405).send(mcpMethodNotAllowed());
+  });
+
+  app.delete("/api/mcp/:agentId", async (_, reply) => {
+    return reply.code(405).send(mcpMethodNotAllowed());
   });
 
   // --- Release routes ---
@@ -1736,6 +1753,17 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
       })
     ).stdout
   );
+}
+
+function mcpMethodNotAllowed(): { jsonrpc: "2.0"; error: { code: number; message: string }; id: null } {
+  return {
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message: "Method not allowed."
+    },
+    id: null
+  };
 }
 
 function normalizePath(value: string): string {
