@@ -185,10 +185,12 @@ cmd_up() {
     # Unset TLS so dev servers run plain HTTP
     unset TLS_CERT TLS_KEY 2>/dev/null || true
 
-    # Override port and set agent runtime
+    # Override port and set agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
     if [ "$OPT_LIVE" = "1" ]; then
       export DISPATCH_AGENT_RUNTIME="tmux"
+    else
+      export DISPATCH_AGENT_RUNTIME="inert"
     fi
     if [ "$OPT_NO_DB" != "1" ]; then
       export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
