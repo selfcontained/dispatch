@@ -1,84 +1,125 @@
 # Dispatch
 
-Dispatch is a local-first control plane for running and managing multiple Codex CLI agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
 
-## Goals
+## Features
 
-- Start, monitor, and stop multiple long-running agents remotely.
+- Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode) remotely.
 - Persist each agent in `tmux` so browser disconnects do not kill work.
 - Give each agent an isolated iOS Simulator device assignment.
-- Provide a browser UI with:
-  - interactive terminal access
-  - agent lifecycle controls
-  - media pane for screenshots/video
+- Browser UI with:
+  - interactive terminal access (xterm.js over WebSocket)
+  - agent lifecycle controls (create, start, stop, delete)
+  - media pane for screenshots/video with `dispatch-share`
+  - real-time agent status events via SSE
 
-## MVP Scope
-
-- Backend service running on the host machine.
-- Browser UI served by backend.
-- Agent manager with `tmux` integration.
-- Web terminal attached/detached to agent `tmux` sessions.
-- Per-agent simulator allocation and screenshot capture endpoint.
-- Minimal auth for remote access over Tailscale/VPN.
-
-## Current Status
-
-- Phase 0 complete:
-  - Fastify server + static UI shell
-  - Docker Compose Postgres with persistent volume
-  - TypeScript build/check scripts
-- Phase 1 in progress:
-  - implemented agent lifecycle API for create/list/get/start/stop/delete
-  - implemented tmux-backed agent runtime management and startup reconciliation
-- Phase 2 implemented:
-  - PTY-backed browser terminal over WebSocket (`tmux attach-session`)
-  - detach/reattach terminal support while agent keeps running
-  - per-agent media panel for image rendering
-  - images loaded from each agent media directory (`$DISPATCH_MEDIA_DIR`, with `HOSTESS_*` compatibility aliases)
-
-## Docs
-
-- [Product Requirements](/Users/bharris/dev/apps/dispatch/docs/01-product-requirements.md)
-- [System Architecture](/Users/bharris/dev/apps/dispatch/docs/02-system-architecture.md)
-- [API Specification](/Users/bharris/dev/apps/dispatch/docs/03-api-spec.md)
-- [Agent Lifecycle Model](/Users/bharris/dev/apps/dispatch/docs/04-agent-lifecycle.md)
-- [Simulator Isolation Strategy](/Users/bharris/dev/apps/dispatch/docs/05-simulator-strategy.md)
-- [Security Model](/Users/bharris/dev/apps/dispatch/docs/06-security.md)
-- [Implementation Plan](/Users/bharris/dev/apps/dispatch/docs/07-implementation-plan.md)
-- [Current State Handoff](/Users/bharris/dev/apps/dispatch/docs/08-current-state-handoff.md)
-- [Agent Attention Phase 2 Plan](/Users/bharris/dev/apps/dispatch/docs/09-agent-attention-phase-2.md)
-- [Operations Runbook](/Users/bharris/dev/apps/dispatch/docs/10-operations-runbook.md)
-- [Backend Compatibility Checklist](/Users/bharris/dev/apps/dispatch/docs/11-backend-compatibility-checklist.md)
-
-## Proposed Tech Stack (MVP)
+## Tech Stack
 
 - Backend: Node.js + TypeScript + Fastify
-- Realtime: WebSocket
+- Frontend: React + Vite + Tailwind CSS
+- Realtime: WebSocket (terminals), SSE (agent events)
 - Terminal UI: xterm.js
-- State store: PostgreSQL (Docker Compose volume-backed)
+- State store: PostgreSQL
 - Process control: `tmux`, `xcrun simctl`, PTY process management
 
-## Local Setup (Current Scaffold)
+## Local Development Setup
 
-1. Use the project Node version:
-   - `nvm install`
-   - `nvm use`
-2. Start persistence services:
-   - `docker compose up -d postgres`
-3. Start the app:
-   - `cp .env.example .env`
-   - `npm install`
-   - `npm run dev`
-4. Verify:
-   - UI: `http://127.0.0.1:6767`
-   - Health: `http://127.0.0.1:6767/api/v1/health`
+### Prerequisites
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| **Node.js 22+** | Runtime | `nvm install 22` (see `.nvmrc`) |
+| **Docker** | Dev database (Postgres) | `brew install --cask docker` |
+| **tmux** | Agent session management | `brew install tmux` |
+
+Run `bin/preflight` to check what's installed and what's missing.
+
+### Quick Start
+
+```bash
+# 1. Clone and enter the repo
+git clone git@github.com:selfcontained/dispatch.git
+cd dispatch
+
+# 2. Use the correct Node version
+nvm install && nvm use
+
+# 3. Install dependencies (backend + frontend)
+npm install && npm --prefix web install
+
+# 4. Copy the example env file
+cp .env.example .env
+
+# 5. Start the dev environment (isolated DB + API server + Vite frontend)
+bin/dispatch-dev up --vite
+```
+
+`dispatch-dev` automatically:
+- Spins up an isolated Postgres container on a free port
+- Runs database migrations on server start
+- Starts the API server on a free port
+- Starts the Vite frontend dev server (with `--vite`)
+- Prints the URLs when ready
+
+```bash
+# Check what's running
+bin/dispatch-dev status
+
+# View API server logs
+bin/dispatch-dev logs
+
+# View Vite logs
+bin/dispatch-dev logs --vite
+
+# Get the API server URL
+bin/dispatch-dev url
+
+# Tear it all down
+bin/dispatch-dev down
+```
+
+To enable live agent spawning (tmux-backed), add `--live`:
+
+```bash
+bin/dispatch-dev up --vite --live
+```
+
+### Verify
+
+Once `dispatch-dev up --vite` reports ready:
+- **UI**: open the Vite URL printed in the output
+- **Health**: `curl -s $(bin/dispatch-dev url)/api/v1/health | jq`
+
+## Production Setup (New Machine)
+
+For setting up Dispatch as a persistent service on a dedicated Mac, see [docs/12-new-machine-setup.md](docs/12-new-machine-setup.md). That guide covers:
+
+- Full dependency installation (Homebrew Postgres, tmux, agent CLIs, Playwright)
+- Database and environment configuration
+- `bin/install-launchd` for auto-start on boot
+- Deploy and update workflow
 
 ## Operations Quick Commands
 
-- Default release flow (no launchd, build + restart tmux + health): `bin/dispatch-server update`
-- Compatibility alias for release: `bin/dispatch-deploy` (delegates to tmux release flow)
-- Optional interactive debug mode in tmux: `bin/dispatch-server start|stop|status|logs|attach`
-- Git context worker diagnostics: `curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq`
+- Release flow (build + restart + health check): `bin/dispatch-server update`
+- Deploy a tag to production: `bin/dispatch-deploy --latest` or `bin/dispatch-deploy v0.2.30`
+- Cut a new release: `bin/dispatch-release patch|minor|major`
+- Interactive debug mode: `bin/dispatch-server start|stop|status|logs|attach`
+
+## Docs
+
+- [Product Requirements](docs/01-product-requirements.md)
+- [System Architecture](docs/02-system-architecture.md)
+- [API Specification](docs/03-api-spec.md)
+- [Agent Lifecycle Model](docs/04-agent-lifecycle.md)
+- [Simulator Isolation Strategy](docs/05-simulator-strategy.md)
+- [Security Model](docs/06-security.md)
+- [Implementation Plan](docs/07-implementation-plan.md)
+- [Current State Handoff](docs/08-current-state-handoff.md)
+- [Agent Attention Phase 2 Plan](docs/09-agent-attention-phase-2.md)
+- [Operations Runbook](docs/10-operations-runbook.md)
+- [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md)
+- [New Machine Setup](docs/12-new-machine-setup.md)
 
 ## Media Sharing
 
@@ -89,14 +130,13 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
   - `dispatch-share --sim [udid] [name]`
 - Save `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp` files into that directory from within the agent session.
 - The browser Media panel auto-refreshes and renders those images.
-- For older agents created before media support, Dispatch falls back to `/tmp/hostess-media/<agent-id>`.
 
 ## Agent Guidance
 
-- Dispatch launches new Codex agents with a startup guidance prompt instructing them to use `dispatch-share` for Playwright and iOS Simulator screenshot sharing.
-- Dispatch startup guidance also instructs agents to run Playwright in headless mode by default unless the user explicitly requests headed mode.
+- Dispatch launches new agents with a startup guidance prompt instructing them to use `dispatch-share` for Playwright and iOS Simulator screenshot sharing.
+- Agents run Playwright in headless mode by default unless the user explicitly requests headed mode.
 
-## Issue Tracking Reference
+## Issue Tracking
 
 - Linear routing for this repo is stored in `.dispatch/config.json` under the `linear` key.
 - Current target:
@@ -104,9 +144,8 @@ Dispatch is a local-first control plane for running and managing multiple Codex 
   - project: `Dispatch`
   - project URL: `https://linear.app/crumbstream/project/dispatch-ad9a26f53856`
 
-## Non-Goals (MVP)
+## Non-Goals
 
 - Multi-tenant SaaS deployment
 - Internet-exposed unauthenticated access
 - Full RBAC and enterprise identity integration
-- Pixel-perfect simulator remote control (view-focused first)
