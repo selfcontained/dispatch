@@ -120,7 +120,7 @@ export function CreateAgentDialog({
               ) : null}
             </div>
             {cwdDropdownOpen && filteredHistory.length > 0 ? (
-              <div className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-card shadow-md">
+              <div className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-background shadow-md">
                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Recent directories</div>
                 {filteredHistory.map((dir) => (
                   <button
