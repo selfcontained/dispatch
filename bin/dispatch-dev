@@ -3,8 +3,8 @@ set -euo pipefail
 
 # dispatch-dev — standalone dev-stack helper.
 #
-# Starts an isolated Postgres DB, API server, and optionally Vite frontend
-# on auto-selected free ports. State is persisted to /tmp so that down/status/
+# Starts an isolated Postgres DB, API server, and Vite frontend on
+# auto-selected free ports. State is persisted to /tmp so that down/status/
 # logs/url can find the running stack later.
 #
 # No tmux or agent-session dependency — just background processes + PID files.
@@ -22,10 +22,10 @@ usage() {
 Usage: dispatch-dev <command> [options]
 
 Start an isolated dev environment with its own DB, API server, and
-optional Vite frontend — all on auto-selected free ports.
+Vite frontend — all on auto-selected free ports.
 
 Commands:
-  up        Start DB + API server (+ Vite with --vite)
+  up        Start DB + API server + Vite frontend
   down      Stop all dev services and remove the DB container
   restart   Tear down and re-create the environment
   status    Show which services are running
@@ -34,7 +34,7 @@ Commands:
 
 Options:
   --cwd <path>      Working directory (default: current directory)
-  --vite            Also start the Vite frontend dev server
+  --no-vite         Skip the Vite frontend dev server
   --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
   --live            Enable live agent runtime (tmux); default is inert
@@ -400,7 +400,8 @@ cmd_logs() {
 # ---------------------------------------------------------------------------
 
 OPT_CWD=""
-OPT_VITE="0"
+OPT_VITE="1"
+OPT_VITE_EXPLICIT="0"
 OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_SUFFIX=""
@@ -417,7 +418,9 @@ while [ $# -gt 0 ]; do
     --cwd)
       OPT_CWD="${2:-}"; shift 2 ;;
     --vite)
-      OPT_VITE="1"; shift ;;
+      OPT_VITE="1"; OPT_VITE_EXPLICIT="1"; shift ;;
+    --no-vite)
+      OPT_VITE="0"; OPT_VITE_EXPLICIT="1"; shift ;;
     --no-db)
       OPT_NO_DB="1"; shift ;;
     --live)
@@ -447,9 +450,9 @@ case "$CMD" in
   up)       cmd_up ;;
   down)     cmd_down ;;
   restart)
-    # Restore flags from previous state if not explicitly set
+    # Restore flags from previous state if not explicitly overridden
     if load_state 2>/dev/null; then
-      [ "$OPT_VITE" = "0" ] && [ "${DEV_VITE:-0}" = "1" ] && OPT_VITE="1"
+      [ "$OPT_VITE_EXPLICIT" = "0" ] && OPT_VITE="${DEV_VITE:-1}"
       [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
       [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
       [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"

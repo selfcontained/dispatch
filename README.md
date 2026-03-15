@@ -61,7 +61,7 @@ npm install && npm --prefix web install
 cp .env.example .env
 
 # 5. Start Dispatch
-bin/dispatch-dev up --vite --live
+bin/dispatch-dev up --live
 ```
 
 > **Important:** Docker Desktop must be running (not just installed). If you see
@@ -71,7 +71,7 @@ bin/dispatch-dev up --vite --live
 - Spins up an isolated Postgres container on a free port
 - Runs database migrations on server start
 - Starts the API server on a free port
-- Starts the Vite frontend dev server (with `--vite`)
+- Starts the Vite frontend dev server
 - Enables live agent spawning via tmux (with `--live`)
 - Prints the URLs when ready
 

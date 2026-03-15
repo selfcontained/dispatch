@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "project.dev_up",
-      "description": "Start the repo's isolated dev environment (DB + API server on free ports). Pass --vite to also start the Vite frontend.",
+      "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports). Pass --no-vite to skip the frontend.",
       "command": ["./bin/dispatch-dev", "up"]
     },
     {
