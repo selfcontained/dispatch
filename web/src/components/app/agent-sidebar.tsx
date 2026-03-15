@@ -364,47 +364,46 @@ export function AgentSidebarContent({
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono />
-                          <div className="grid gap-1">
-                            <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
-                            {agent.gitContext ? (
-                              <div className="grid gap-1 text-foreground">
-                                <div className="inline-flex items-center gap-1.5">
-                                  <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <span>{agent.gitContext.branch}</span>
-                                </div>
-                                <div className="inline-flex items-center gap-1.5">
+                          {agent.gitContext ? (
+                            <div className="grid gap-1 text-foreground">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="inline-flex items-center gap-1.5 cursor-default">
+                                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span>{agent.gitContext.branch}</span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[280px] text-xs">
+                                  Current branch
+                                </TooltipContent>
+                              </Tooltip>
+                              {agent.gitContext.isWorktree && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="inline-flex items-center gap-1.5 cursor-default">
+                                      <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                      <span>{agent.gitContext.worktreeName}</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[280px] text-xs">
+                                    Linked worktree at {agent.gitContext.worktreePath}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="inline-flex items-center gap-1.5 text-foreground cursor-default">
                                   <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <span>
-                                    {agent.gitContext.isWorktree
-                                      ? `worktree: ${agent.gitContext.worktreeName}`
-                                      : "main repository"}
-                                  </span>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span>
-                                        <Badge
-                                          variant="default"
-                                          className="ml-1 h-5 border border-border bg-transparent px-1.5 text-[10px] uppercase text-muted-foreground"
-                                        >
-                                          {agent.gitContext.isWorktree ? "Worktree" : "Repository"}
-                                        </Badge>
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="max-w-[240px] text-xs">
-                                      {agent.gitContext.isWorktree
-                                        ? "This agent is currently in a linked git worktree checkout."
-                                        : "This agent is currently in the primary repository checkout."}
-                                    </TooltipContent>
-                                  </Tooltip>
+                                  <span>Not a git repository</span>
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="inline-flex items-center gap-1.5 text-foreground">
-                                <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                <span>Not a git repository</span>
-                              </div>
-                            )}
-                          </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="max-w-[280px] text-xs">
+                                This directory is not inside a git repository
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
