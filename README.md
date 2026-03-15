@@ -2,6 +2,19 @@
 
 Dispatch is a local-first control plane for running and managing multiple AI coding agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
 
+## Quick Install
+
+Give this prompt to a coding agent to get Dispatch installed as a local service (macOS only):
+
+> Clone https://github.com/selfcontained/dispatch.git and install it as a launchd service on this Mac. Steps:
+>
+> 1. Clone the repo to `~/.dispatch/server`.
+> 2. Run `bin/preflight` to check dependencies — install anything it flags as failed (nvm, Node 22+, PostgreSQL, tmux).
+> 3. Set up PostgreSQL — either use a local install (`createuser dispatch; createdb -O dispatch dispatch`) or run `docker compose up -d postgres` to use the bundled Docker Postgres.
+> 4. Copy `.env.example` to `.env` and configure: set `DATABASE_URL` to match the Postgres setup, set `MEDIA_ROOT` to `~/.dispatch/media`, and generate a random `AUTH_TOKEN`.
+> 5. Run `bin/install-launchd` — this builds the project and registers a launchd service that starts automatically.
+> 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
+
 ## Features
 
 - Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode) remotely.
