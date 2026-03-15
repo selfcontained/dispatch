@@ -20,12 +20,6 @@ import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { runCommand } from "./lib/run-command.js";
 import { handleMcpRequest } from "./mcp/server.js";
-import {
-  RepoConfigError,
-  isWorktreeMode,
-  resolveRepoConfig,
-  writeWorktreeMode
-} from "./repo-config.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
@@ -456,19 +450,18 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    let repoRoot: string | null = null;
     try {
-      const { repoRoot } = await resolveRepoConfig(agent.cwd);
-      reply.hijack();
-      await handleMcpRequest(request.raw, reply.raw, request.body, {
-        agent,
-        repoRoot
-      });
-    } catch (error) {
-      if (error instanceof RepoConfigError) {
-        return reply.code(error.statusCode).send({ error: error.message });
-      }
-      throw error;
+      repoRoot = await resolveRepoRoot(agent.cwd);
+    } catch {
+      // Agent may not be in a git repository — MCP still works, just without repo context.
     }
+
+    reply.hijack();
+    await handleMcpRequest(request.raw, reply.raw, request.body, {
+      agent,
+      repoRoot
+    });
   });
 
   app.get("/api/mcp", async (_, reply) => {
@@ -735,37 +728,6 @@ async function registerRoutes() {
     return { contexts };
   });
 
-  app.get("/api/v1/repo-config", async (request, reply) => {
-    const query = request.query as { cwd?: unknown };
-    if (typeof query.cwd !== "string" || !query.cwd.trim()) {
-      return reply.code(400).send({ error: "cwd query parameter is required." });
-    }
-
-    try {
-      const resolved = await resolveRepoConfig(query.cwd.trim());
-      return resolved;
-    } catch (error) {
-      return handleRepoConfigError(reply, error);
-    }
-  });
-
-  app.patch("/api/v1/repo-config", async (request, reply) => {
-    const body = request.body as { cwd?: unknown; worktreeMode?: unknown };
-    if (typeof body?.cwd !== "string" || !body.cwd.trim()) {
-      return reply.code(400).send({ error: "Body must include cwd as a non-empty string." });
-    }
-
-    if (!isWorktreeMode(body.worktreeMode)) {
-      return reply.code(400).send({ error: "worktreeMode must be one of: ask, auto, off." });
-    }
-
-    try {
-      const resolved = await writeWorktreeMode(body.cwd.trim(), body.worktreeMode);
-      return resolved;
-    } catch (error) {
-      return handleRepoConfigError(reply, error);
-    }
-  });
 
   app.get("/api/v1/events", async (_request, reply) => {
     reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -1385,14 +1347,6 @@ function handleAgentError(reply: FastifyReply, error: unknown) {
   return reply.code(500).send({ error: message });
 }
 
-function handleRepoConfigError(reply: FastifyReply, error: unknown) {
-  if (error instanceof RepoConfigError) {
-    return reply.code(error.statusCode).send({ error: error.message });
-  }
-
-  const message = error instanceof Error ? error.message : "Unknown error.";
-  return reply.code(500).send({ error: message });
-}
 
 function ensureGitRefreshAgentDiagnostics(agentId: string): {
   lastQueuedAt: number | null;

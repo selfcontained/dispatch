@@ -27,7 +27,6 @@ type AgentSidebarSharedProps = {
   selectedAgentId: string | null;
   overflowAgentId: string | null;
   onOpenCreateDialog: () => void;
-  onOpenEditWorktreeDialog: (agent: Agent) => void;
   onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
@@ -59,7 +58,6 @@ export function AgentSidebarContent({
   selectedAgentId,
   overflowAgentId,
   onOpenCreateDialog,
-  onOpenEditWorktreeDialog,
   onOpenSettings,
   setOverflowAgentId,
   setDeleteTarget,
@@ -306,16 +304,6 @@ export function AgentSidebarContent({
 
                       {overflowAgentId === agent.id ? (
                         <div className="absolute right-0 top-9 z-30 min-w-[180px] rounded-md border-2 border-border bg-card p-1.5 text-foreground shadow-xl">
-                          <button
-                            data-agent-control="true"
-                            className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm hover:border-border hover:bg-muted/70"
-                            onClick={() => {
-                              setOverflowAgentId(null);
-                              onOpenEditWorktreeDialog(agent);
-                            }}
-                          >
-                            Worktree mode
-                          </button>
                           {!isStopped ? (
                             <button
                               data-agent-control="true"

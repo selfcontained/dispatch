@@ -52,13 +52,12 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Dev Server Management (CRITICAL)
 - **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all on auto-selected free ports.
+- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and Vite frontend, all on auto-selected free ports.
 - When `DISPATCH_AGENT_ID` is set (normal agent sessions), the suffix is derived automatically. Otherwise pass `--suffix <name>` or let the script generate one.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
   ```bash
-  dispatch-dev up                             # start isolated DB + API server
-  dispatch-dev up --vite                      # also start Vite frontend
-  dispatch-dev up --cwd /path/to/worktree     # start from a specific directory
+  dispatch-dev up                             # start isolated DB + API server + Vite
+  dispatch-dev up --cwd /path/to/dir          # start from a specific directory
   dispatch-dev up --no-db                     # skip DB (use existing DATABASE_URL)
   dispatch-dev down                           # tear down everything
   dispatch-dev restart                        # restart the environment

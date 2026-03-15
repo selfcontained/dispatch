@@ -59,6 +59,7 @@ describe("dispatch-dev", () => {
     const upOutput = run("up");
     expect(upOutput).toContain("Database ready on port");
     expect(upOutput).toContain("API server starting on port");
+    expect(upOutput).toContain("Vite dev server starting on port");
     expect(upOutput).toContain("Dev environment ready");
 
     // State file written
@@ -73,7 +74,7 @@ describe("dispatch-dev", () => {
     const statusOutput = run("status");
     expect(statusOutput).toContain("db:   running");
     expect(statusOutput).toContain("api:  running");
-    expect(statusOutput).toContain("vite: not started");
+    expect(statusOutput).toContain("vite:");
 
     // --- url ---
     const urlOutput = run("url");
