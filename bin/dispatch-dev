@@ -34,7 +34,6 @@ Commands:
 
 Options:
   --cwd <path>      Working directory (default: current directory)
-  --no-vite         Skip the Vite frontend dev server
   --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
   --live            Enable live agent runtime (tmux); default is inert
@@ -93,7 +92,6 @@ DEV_CONTAINER_SUFFIX=${DEV_CONTAINER_SUFFIX:-}
 DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
 DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
-DEV_VITE=${OPT_VITE:-0}
 EOF
 }
 
@@ -152,7 +150,7 @@ cmd_up() {
     local compose
     compose="$(detect_compose)"
     if [ -z "$compose" ]; then
-      echo "Error: docker compose is not available." >&2
+      echo "Error: docker compose is not available. Is Docker Desktop running?" >&2
       exit 1
     fi
 
@@ -219,25 +217,22 @@ cmd_up() {
   done
 
   # --- Vite Frontend ---
-  if [ "$OPT_VITE" = "1" ]; then
-    DEV_VITE_PORT="$(find_free_port)"
+  DEV_VITE_PORT="$(find_free_port)"
 
-    (
-  
-      cd "$cwd"
-      # Tell Vite's proxy where the API server is
-      DISPATCH_PORT="$DEV_API_PORT" npm --prefix web run dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
-      echo $! > "$(log_dir)/vite.pid"
-    )
+  (
+    cd "$cwd"
+    # Tell Vite's proxy where the API server is
+    DISPATCH_PORT="$DEV_API_PORT" npm --prefix web run dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    echo $! > "$(log_dir)/vite.pid"
+  )
 
-    DEV_VITE_PID="$(cat "$(log_dir)/vite.pid")"
-    echo "Vite dev server starting on port ${DEV_VITE_PORT} (PID ${DEV_VITE_PID})"
+  DEV_VITE_PID="$(cat "$(log_dir)/vite.pid")"
+  echo "Vite dev server starting on port ${DEV_VITE_PORT} (PID ${DEV_VITE_PID})"
 
-    # Brief check that Vite didn't crash immediately
-    sleep 1
-    if ! pid_alive "$DEV_VITE_PID"; then
-      echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
-    fi
+  # Brief check that Vite didn't crash immediately
+  sleep 1
+  if ! pid_alive "$DEV_VITE_PID"; then
+    echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
   fi
 
   save_state
@@ -248,9 +243,7 @@ cmd_up() {
     echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
   fi
   echo "  api: http://127.0.0.1:${DEV_API_PORT}"
-  if [ "$OPT_VITE" = "1" ]; then
-    echo "  web: http://127.0.0.1:${DEV_VITE_PORT}"
-  fi
+  echo "  web: http://127.0.0.1:${DEV_VITE_PORT}"
   echo ""
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
 }
@@ -377,7 +370,7 @@ cmd_logs() {
   fi
 
   local logfile
-  if [ "$OPT_VITE" = "1" ]; then
+  if [ "$OPT_LOG_VITE" = "1" ]; then
     logfile="${logdir}/vite.log"
   else
     logfile="${logdir}/api.log"
@@ -400,12 +393,11 @@ cmd_logs() {
 # ---------------------------------------------------------------------------
 
 OPT_CWD=""
-OPT_VITE="1"
-OPT_VITE_EXPLICIT="0"
 OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_SUFFIX=""
 OPT_LOG_DB="0"
+OPT_LOG_VITE="0"
 OPT_FOLLOW="0"
 CMD=""
 
@@ -417,10 +409,6 @@ while [ $# -gt 0 ]; do
     stop)  CMD="down"; shift ;;
     --cwd)
       OPT_CWD="${2:-}"; shift 2 ;;
-    --vite)
-      OPT_VITE="1"; OPT_VITE_EXPLICIT="1"; shift ;;
-    --no-vite)
-      OPT_VITE="0"; OPT_VITE_EXPLICIT="1"; shift ;;
     --no-db)
       OPT_NO_DB="1"; shift ;;
     --live)
@@ -429,6 +417,8 @@ while [ $# -gt 0 ]; do
       OPT_SUFFIX="${2:-}"; shift 2 ;;
     --db)
       OPT_LOG_DB="1"; shift ;;
+    --vite)
+      OPT_LOG_VITE="1"; shift ;;
     -f|--follow)
       OPT_FOLLOW="1"; shift ;;
     -h|--help)
@@ -450,9 +440,8 @@ case "$CMD" in
   up)       cmd_up ;;
   down)     cmd_down ;;
   restart)
-    # Restore flags from previous state if not explicitly overridden
+    # Restore flags from previous state if not explicitly set
     if load_state 2>/dev/null; then
-      [ "$OPT_VITE_EXPLICIT" = "0" ] && OPT_VITE="${DEV_VITE:-1}"
       [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
       [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
       [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
