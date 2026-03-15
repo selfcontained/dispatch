@@ -569,6 +569,16 @@ export class AgentManager {
     }
 
     try {
+      // First, try to resolve the CWD from the agent CLI process itself.
+      // tmux pane_current_path only tracks the shell's CWD, but agent CLIs
+      // (claude, codex, opencode) may cd internally without updating the shell.
+      const agentCwd = await this.resolveAgentProcessCwd(session);
+      if (agentCwd) {
+        this.runtimeCwdCache.set(cacheKey, { value: agentCwd, expiresAt: now + 10_000 });
+        return agentCwd;
+      }
+
+      // Fall back to tmux pane_current_path (the shell's CWD).
       const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
         allowedExitCodes: [0, 1],
         timeoutMs: 800
@@ -581,6 +591,75 @@ export class AgentManager {
       return cwd;
     } catch {
       return fallback;
+    }
+  }
+
+  /**
+   * Resolve the CWD of the agent CLI process (claude/codex/opencode) running
+   * inside a tmux pane. The CLI process may have cd'd into a worktree
+   * internally, which tmux's pane_current_path won't reflect.
+   */
+  private async resolveAgentProcessCwd(session: string): Promise<string | null> {
+    try {
+      // Get the PID of the tmux pane's shell process.
+      const pidResult = await runCommand(
+        "tmux", ["display-message", "-p", "-t", session, "#{pane_pid}"],
+        { allowedExitCodes: [0, 1], timeoutMs: 800 }
+      );
+      const panePid = pidResult.stdout.trim();
+      if (pidResult.exitCode !== 0 || !panePid) {
+        return null;
+      }
+
+      // Find the agent CLI child process (claude, codex, or opencode).
+      const childrenResult = await runCommand(
+        "pgrep", ["-P", panePid],
+        { allowedExitCodes: [0, 1], timeoutMs: 800 }
+      );
+      if (childrenResult.exitCode !== 0 || !childrenResult.stdout.trim()) {
+        return null;
+      }
+
+      const childPids = childrenResult.stdout.trim().split("\n");
+      let agentPid: string | null = null;
+
+      for (const pid of childPids) {
+        const commResult = await runCommand(
+          "ps", ["-o", "comm=", "-p", pid.trim()],
+          { allowedExitCodes: [0, 1], timeoutMs: 800 }
+        );
+        const comm = commResult.stdout.trim();
+        // Match agent CLI binaries by basename.
+        const basename = comm.split("/").pop() ?? "";
+        if (basename === "claude" || basename === "codex" || basename === "opencode") {
+          agentPid = pid.trim();
+          break;
+        }
+      }
+
+      if (!agentPid) {
+        return null;
+      }
+
+      // Read the process's CWD via lsof (works on macOS and Linux).
+      const lsofResult = await runCommand(
+        "lsof", ["-a", "-p", agentPid, "-d", "cwd", "-Fn"],
+        { allowedExitCodes: [0, 1], timeoutMs: 800 }
+      );
+      if (lsofResult.exitCode !== 0 || !lsofResult.stdout) {
+        return null;
+      }
+
+      // lsof -Fn outputs lines like "p<pid>" and "n<path>". Extract the path.
+      for (const line of lsofResult.stdout.split("\n")) {
+        if (line.startsWith("n/")) {
+          return line.slice(1);
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
     }
   }
 
