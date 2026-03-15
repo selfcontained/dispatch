@@ -24,13 +24,6 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
-      onInteractOutside={(event) => {
-        // Prevent dialog from closing when interacting with portaled popovers (e.g. combobox dropdowns)
-        const target = event.target as HTMLElement | null;
-        if (target?.closest("[data-radix-popper-content-wrapper]")) {
-          event.preventDefault();
-        }
-      }}
       className={cn(
         "fixed left-1/2 top-1/2 z-[70] grid w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-xl border border-border bg-card p-4 shadow-lg",
         className

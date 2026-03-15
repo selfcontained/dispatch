@@ -1,11 +1,9 @@
 import { type FormEvent, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
@@ -40,16 +38,12 @@ export function CreateAgentDialog({
   setCreateFullAccess,
   onSubmit
 }: CreateAgentDialogProps): JSX.Element {
-  const [cwdPopoverOpen, setCwdPopoverOpen] = useState(false);
-  const [cwdSearch, setCwdSearch] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [cwdDropdownOpen, setCwdDropdownOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handlePopoverOpenChange = (nextOpen: boolean) => {
-    setCwdPopoverOpen(nextOpen);
-    if (nextOpen) {
-      setCwdSearch("");
-    }
-  };
+  const filteredHistory = cwdHistory.filter(
+    (dir) => !createCwd || dir.toLowerCase().includes(createCwd.toLowerCase())
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -84,81 +78,66 @@ export function CreateAgentDialog({
             </Select>
           </div>
 
-          <div className="space-y-1">
+          <div className="relative space-y-1">
             <label className="text-sm text-muted-foreground">Working directory</label>
-            {cwdHistory.length > 0 ? (
-              <Popover open={cwdPopoverOpen} onOpenChange={handlePopoverOpenChange}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="default"
-                    role="combobox"
-                    aria-expanded={cwdPopoverOpen}
-                    className="w-full justify-between font-mono text-sm"
-                    data-testid="create-agent-cwd"
-                  >
-                    <span className="truncate">{createCwd || "~/path/to/project"}</span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="p-0">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      ref={searchRef}
-                      placeholder="Type a path or pick from history..."
-                      value={cwdSearch}
-                      onValueChange={setCwdSearch}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && cwdSearch.trim()) {
-                          event.preventDefault();
-                          setCreateCwd(cwdSearch.trim());
-                          setCwdPopoverOpen(false);
-                        }
-                      }}
-                    />
-                    <CommandList>
-                      <CommandGroup heading="Recent directories">
-                        {cwdHistory
-                          .filter((dir) => !cwdSearch || dir.toLowerCase().includes(cwdSearch.toLowerCase()))
-                          .map((dir) => (
-                            <CommandItem
-                              key={dir}
-                              value={dir}
-                              onSelect={(value) => {
-                                setCreateCwd(value);
-                                setCwdPopoverOpen(false);
-                              }}
-                            >
-                              <span className="truncate font-mono text-xs">{dir}</span>
-                            </CommandItem>
-                          ))}
-                      </CommandGroup>
-                      {cwdSearch.trim() && !cwdHistory.some((dir) => dir === cwdSearch.trim()) ? (
-                        <CommandGroup>
-                          <CommandItem
-                            value={cwdSearch.trim()}
-                            onSelect={(value) => {
-                              setCreateCwd(value);
-                              setCwdPopoverOpen(false);
-                            }}
-                          >
-                            <span className="font-mono text-xs">Use "{cwdSearch.trim()}"</span>
-                          </CommandItem>
-                        </CommandGroup>
-                      ) : null}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            ) : (
+            <div className="relative">
               <Input
+                ref={inputRef}
                 value={createCwd}
-                onChange={(event) => setCreateCwd(event.target.value)}
+                onChange={(event) => {
+                  setCreateCwd(event.target.value);
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
+                }}
+                onBlur={() => {
+                  // Delay closing so click on dropdown item registers first
+                  setTimeout(() => setCwdDropdownOpen(false), 150);
+                }}
                 placeholder="~/path/to/project"
                 required
                 data-testid="create-agent-cwd"
+                className="pr-8"
               />
-            )}
+              {cwdHistory.length > 0 ? (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setCwdDropdownOpen((prev) => !prev);
+                    inputRef.current?.focus();
+                  }}
+                >
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", cwdDropdownOpen && "rotate-180")} />
+                </button>
+              ) : null}
+            </div>
+            {cwdDropdownOpen && filteredHistory.length > 0 ? (
+              <div className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-card shadow-md">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Recent directories</div>
+                {filteredHistory.map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    className="w-full truncate px-2 py-1.5 text-left font-mono text-xs text-foreground hover:bg-muted/70"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      setCreateCwd(dir);
+                      setCwdDropdownOpen(false);
+                    }}
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
