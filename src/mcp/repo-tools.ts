@@ -5,6 +5,8 @@ import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 const BUILTIN_TOOL_NAMES = new Set([
+  "create_worktree",
+  "cleanup_worktree",
   "create_pr",
   "enable_pr_automerge",
   "merge_pr_now",
