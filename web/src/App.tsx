@@ -156,7 +156,6 @@ export function App(): JSX.Element {
   const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
-  const [createDirectoryPicking, setCreateDirectoryPicking] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -722,28 +721,6 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, [api, createCwdInitialized]);
-
-  const pickCreateDirectory = useCallback(async () => {
-    setCreateDirectoryPicking(true);
-
-    try {
-      const payload = await api<{ canceled: boolean; path?: string }>("/api/v1/system/select-directory", {
-        method: "POST",
-        body: JSON.stringify({
-          currentPath: createCwd.trim()
-        })
-      });
-
-      if (payload.canceled || !payload.path) {
-        return;
-      }
-
-      setCreateCwd(payload.path);
-      setCreateCwdInitialized(true);
-    } finally {
-      setCreateDirectoryPicking(false);
-    }
-  }, [api, createCwd]);
 
   useEffect(() => {
     const host = terminalHostRef.current;
@@ -1561,14 +1538,12 @@ export function App(): JSX.Element {
         createName={createName}
         createType={createType}
         createCwd={createCwd}
-        createDirectoryPicking={createDirectoryPicking}
         createFullAccess={createFullAccess}
         creating={creating}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
-        onPickCreateDirectory={pickCreateDirectory}
         setCreateFullAccess={setCreateFullAccess}
         onSubmit={handleCreateAgent}
       />

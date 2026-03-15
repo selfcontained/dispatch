@@ -1,5 +1,5 @@
 import { type FormEvent } from "react";
-import { Check, FolderOpen, Loader2, Plus } from "lucide-react";
+import { Check, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,14 +12,12 @@ type CreateAgentDialogProps = {
   createName: string;
   createType: string;
   createCwd: string;
-  createDirectoryPicking: boolean;
   createFullAccess: boolean;
   creating: boolean;
   setOpen: (open: boolean) => void;
   setCreateName: (name: string) => void;
   setCreateType: (value: string) => void;
   setCreateCwd: (cwd: string) => void;
-  onPickCreateDirectory: () => Promise<void>;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
@@ -29,14 +27,12 @@ export function CreateAgentDialog({
   createName,
   createType,
   createCwd,
-  createDirectoryPicking,
   createFullAccess,
   creating,
   setOpen,
   setCreateName,
   setCreateType,
   setCreateCwd,
-  onPickCreateDirectory,
   setCreateFullAccess,
   onSubmit
 }: CreateAgentDialogProps): JSX.Element {
@@ -75,29 +71,13 @@ export function CreateAgentDialog({
 
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Working directory</label>
-            <div className="flex items-center gap-2">
-              <Input
-                value={createCwd}
-                onChange={(event) => setCreateCwd(event.target.value)}
-                placeholder="/absolute/path"
-                required
-                data-testid="create-agent-cwd"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void onPickCreateDirectory()}
-                disabled={createDirectoryPicking}
-                data-testid="create-agent-browse"
-              >
-                {createDirectoryPicking ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderOpen className="mr-1.5 h-4 w-4" />
-                )}
-                Browse
-              </Button>
-            </div>
+            <Input
+              value={createCwd}
+              onChange={(event) => setCreateCwd(event.target.value)}
+              placeholder="~/path/to/project"
+              required
+              data-testid="create-agent-cwd"
+            />
           </div>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">

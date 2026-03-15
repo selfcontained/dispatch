@@ -623,22 +623,6 @@ async function registerRoutes() {
     };
   });
 
-  app.post("/api/v1/system/select-directory", async (request, reply) => {
-    const body = request.body as { currentPath?: unknown } | undefined;
-    const currentPath = typeof body?.currentPath === "string" ? body.currentPath.trim() : "";
-
-    try {
-      const selectedPath = await selectDirectory(currentPath || os.homedir());
-      if (!selectedPath) {
-        return { canceled: true };
-      }
-      return { canceled: false, path: selectedPath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to open directory picker.";
-      return reply.code(500).send({ error: message });
-    }
-  });
-
   // --- Energy metrics beacon (PWA diagnostics) ---
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {
@@ -1268,30 +1252,6 @@ async function registerRoutes() {
     }
   );
 
-}
-
-async function selectDirectory(initialPath: string): Promise<string | null> {
-  const fallbackPath = path.resolve(initialPath || os.homedir());
-  const script = [
-    `set startDir to POSIX file "${escapeAppleScriptString(fallbackPath)}"`,
-    'try',
-    'set chosenFolder to choose folder with prompt "Select working directory for new agent" default location startDir',
-    'return POSIX path of chosenFolder',
-    'on error number -128',
-    'return ""',
-    'end try'
-  ];
-  const args = script.flatMap((line) => ["-e", line]);
-  const result = await runCommand("osascript", args, { allowedExitCodes: [0] });
-  const selectedPath = result.stdout.trim();
-  if (!selectedPath) {
-    return null;
-  }
-  return selectedPath;
-}
-
-function escapeAppleScriptString(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
