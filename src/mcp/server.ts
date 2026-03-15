@@ -73,7 +73,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           content: [
             {
               type: "text",
-              text: `Created worktree ${result.worktreeName} on branch ${result.branchName} at ${result.worktreePath}.`
+              text: `Created worktree ${result.worktreeName} on branch ${result.branchName} at ${result.worktreePath}. You MUST now cd into the worktree: cd ${result.worktreePath}`
             }
           ],
           structuredContent: result
