@@ -169,10 +169,12 @@ function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boole
 
 const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
 type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
-type ReleasePhase = "preflight" | "triggering" | "watching" | "deploying" | "restarting" | "done" | "failed";
+type ReleasePhase = "preflight" | "triggering" | "watching" | "fetching" | "deploying" | "restarting" | "done" | "failed";
+type ReleaseJobType = "create" | "update";
 
 type ReleaseJob = {
-  versionType: ReleaseVersionType;
+  jobType: ReleaseJobType;
+  versionType: ReleaseVersionType | null;
   phase: ReleasePhase;
   startedAt: string;
   log: string[];
@@ -324,6 +326,110 @@ async function getGitHubRepo(): Promise<string> {
   return "selfcontained/dispatch";
 }
 
+// Cached admin permission check — lasts for the server process lifetime
+let cachedIsAdmin: boolean | null = null;
+
+async function checkIsAdmin(): Promise<boolean> {
+  if (cachedIsAdmin !== null) return cachedIsAdmin;
+  try {
+    await runCommand("gh", ["--version"]);
+    const repo = await getGitHubRepo();
+    const result = await runCommand("gh", [
+      "repo", "view", repo,
+      "--json", "viewerPermission",
+      "--jq", ".viewerPermission"
+    ]);
+    cachedIsAdmin = result.stdout.trim() === "ADMIN";
+  } catch {
+    cachedIsAdmin = false;
+  }
+  return cachedIsAdmin;
+}
+
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function fetchLatestReleaseMetadata(tag: string): Promise<{ tag: string; publishedAt: string; url: string } | null> {
+  try {
+    const repo = await getGitHubRepo();
+    const result = await runCommand("gh", [
+      "release", "view", tag,
+      "--repo", repo,
+      "--json", "tagName,publishedAt,url"
+    ]);
+    const data = JSON.parse(result.stdout) as { tagName: string; publishedAt: string; url: string };
+    return { tag: data.tagName, publishedAt: data.publishedAt, url: data.url };
+  } catch {
+    return null;
+  }
+}
+
+/** Shared deploy logic: checkout tag, install, build, write record, restart */
+async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
+  setReleasePhase(job, "deploying");
+
+  appendReleaseLog(job, `==> checking out ${tag}`);
+  await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+  appendReleaseLog(job, "==> installing dependencies");
+  await streamProcess("npm", ["ci", "--silent"], { cwd: serverDir }, job);
+  await streamProcess("npm", ["--prefix", "web", "ci", "--silent"], { cwd: serverDir }, job);
+
+  appendReleaseLog(job, "==> building");
+  await streamProcess("npm", ["run", "build"], { cwd: serverDir }, job);
+
+  // Write release record BEFORE the restart — after the restart our
+  // process is dead and can't write anything.
+  await writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
+  appendReleaseLog(job, `==> wrote release record for ${tag}`);
+
+  // Tell SSE clients we're about to restart
+  setReleasePhase(job, "restarting");
+  appendReleaseLog(job, "==> restarting service");
+
+  // Trigger the restart. launchctl kill sends SIGKILL to this process
+  // (and its process group). KeepAlive ensures launchd restarts it
+  // with the newly built code. The UI health-poll takes over from here.
+  const uid = process.getuid?.() ?? 501;
+  spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
+    detached: true,
+    stdio: "ignore"
+  }).unref();
+}
+
+async function runUpdateJob(job: ReleaseJob): Promise<void> {
+  try {
+    const tag = job.tag!;
+
+    setReleasePhase(job, "fetching");
+    appendReleaseLog(job, "==> fetching tags from origin");
+    await runCommand("git", ["-C", serverDir, "fetch", "--tags", "--quiet"]);
+
+    // Verify the tag exists
+    try {
+      await runCommand("git", ["-C", serverDir, "rev-parse", "--verify", tag]);
+    } catch {
+      throw new Error(`Tag ${tag} not found after fetching`);
+    }
+
+    await deployTag(job, tag);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (activeReleaseJob) {
+      activeReleaseJob.error = error;
+    }
+    setReleasePhase(job, "failed", error);
+  }
+}
+
 async function runReleaseJob(job: ReleaseJob): Promise<void> {
   try {
     // Preflight: check gh CLI is available
@@ -393,38 +499,7 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
     broadcastReleaseEvent({ type: "tag", tag });
     appendReleaseLog(job, `==> release workflow produced tag: ${tag}`);
 
-    // Deploy — build inline instead of shelling out to dispatch-deploy,
-    // because dispatch-deploy would be killed as part of the server's
-    // process group when launchd restarts the service.
-    setReleasePhase(job, "deploying");
-
-    appendReleaseLog(job, `==> checking out ${tag}`);
-    await runCommand("git", ["-C", serverDir, "checkout", tag]);
-
-    appendReleaseLog(job, "==> installing dependencies");
-    await streamProcess("npm", ["ci", "--silent"], { cwd: serverDir }, job);
-    await streamProcess("npm", ["--prefix", "web", "ci", "--silent"], { cwd: serverDir }, job);
-
-    appendReleaseLog(job, "==> building");
-    await streamProcess("npm", ["run", "build"], { cwd: serverDir }, job);
-
-    // Write release record BEFORE the restart — after the restart our
-    // process is dead and can't write anything.
-    await writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
-    appendReleaseLog(job, `==> wrote release record for ${tag}`);
-
-    // Tell SSE clients we're about to restart
-    setReleasePhase(job, "restarting");
-    appendReleaseLog(job, "==> restarting service");
-
-    // Trigger the restart. launchctl kill sends SIGKILL to this process
-    // (and its process group). KeepAlive ensures launchd restarts it
-    // with the newly built code. The UI health-poll takes over from here.
-    const uid = process.getuid?.() ?? 501;
-    spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
-      detached: true,
-      stdio: "ignore"
-    }).unref();
+    await deployTag(job, tag);
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     if (activeReleaseJob) {
@@ -496,54 +571,78 @@ async function registerRoutes() {
 
   app.get("/api/v1/release/info", async (_, reply) => {
     try {
-      await runCommand("git", ["-C", serverDir, "fetch", "origin", "--quiet"]);
+      await runCommand("git", ["-C", serverDir, "fetch", "origin", "--tags", "--quiet"]);
 
       // Current deployed tag from store (fast)
       const record = await readReleaseStore();
       const currentTag = record?.tag ?? null;
 
-      if (!currentTag) {
-        return { currentTag: null, unreleasedCount: 0, commits: [] };
+      // Check admin permissions (cached for process lifetime)
+      const isAdmin = await checkIsAdmin();
+
+      // Find latest tag from origin
+      const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
+      const latestTag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
+
+      const updateAvailable = !!(currentTag && latestTag && compareSemver(latestTag, currentTag) > 0);
+
+      // Try to enrich with GitHub Release metadata
+      let latestRelease: { tag: string; publishedAt: string; url: string } | null = null;
+      if (latestTag && updateAvailable) {
+        latestRelease = await fetchLatestReleaseMetadata(latestTag);
       }
 
-      // Verify the ref exists locally (tags may not be present in dev checkouts)
-      const refCheck = await runCommand(
-        "git", ["-C", serverDir, "rev-parse", "--verify", currentTag],
-        { allowedExitCodes: [0, 128] }
-      );
-      if (refCheck.exitCode !== 0) {
-        return { currentTag, unreleasedCount: 0, commits: [], refMissing: true };
-      }
-
-      // Count and list commits between current tag and origin/main
-      const countResult = await runCommand("git", [
-        "-C", serverDir,
-        "rev-list", `${currentTag}..origin/main`, "--count"
-      ]);
-      const unreleasedCount = Number(countResult.stdout) || 0;
-
+      // Admin-only: unreleased commits on main
+      let unreleasedCount = 0;
       let commits: Array<{ sha: string; subject: string }> = [];
-      if (unreleasedCount > 0) {
-        const logResult = await runCommand("git", [
-          "-C", serverDir,
-          "log", `${currentTag}..origin/main`,
-          "--no-merges",
-          "--format=%H\t%s",
-          "--max-count=20"
-        ]);
-        commits = logResult.stdout
-          .split("\n")
-          .filter((l) => l.trim())
-          .map((line) => {
-            const tab = line.indexOf("\t");
-            return {
-              sha: line.slice(0, tab).slice(0, 7),
-              subject: line.slice(tab + 1)
-            };
-          });
+      let refMissing = false;
+
+      if (isAdmin && currentTag) {
+        const refCheck = await runCommand(
+          "git", ["-C", serverDir, "rev-parse", "--verify", currentTag],
+          { allowedExitCodes: [0, 128] }
+        );
+        if (refCheck.exitCode !== 0) {
+          refMissing = true;
+        } else {
+          const countResult = await runCommand("git", [
+            "-C", serverDir,
+            "rev-list", `${currentTag}..origin/main`, "--count"
+          ]);
+          unreleasedCount = Number(countResult.stdout) || 0;
+
+          if (unreleasedCount > 0) {
+            const logResult = await runCommand("git", [
+              "-C", serverDir,
+              "log", `${currentTag}..origin/main`,
+              "--no-merges",
+              "--format=%H\t%s",
+              "--max-count=20"
+            ]);
+            commits = logResult.stdout
+              .split("\n")
+              .filter((l) => l.trim())
+              .map((line) => {
+                const tab = line.indexOf("\t");
+                return {
+                  sha: line.slice(0, tab).slice(0, 7),
+                  subject: line.slice(tab + 1)
+                };
+              });
+          }
+        }
       }
 
-      return { currentTag, unreleasedCount, commits };
+      return {
+        currentTag,
+        isAdmin,
+        latestTag,
+        updateAvailable,
+        latestRelease,
+        unreleasedCount,
+        commits,
+        refMissing
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return reply.code(500).send({ error: message });
@@ -572,6 +671,7 @@ async function registerRoutes() {
     }
 
     const job: ReleaseJob = {
+      jobType: "create",
       versionType,
       phase: "preflight",
       startedAt: new Date().toISOString(),
@@ -584,6 +684,38 @@ async function registerRoutes() {
 
     // Run async — do not await
     void runReleaseJob(job);
+
+    return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/api/v1/release/update", async (request, reply) => {
+    const body = request.body as { tag?: unknown } | undefined;
+
+    if (!body?.tag || typeof body.tag !== "string" || !body.tag.startsWith("v")) {
+      return reply.code(400).send({ error: "tag is required and must be a version tag (e.g. v0.2.31)" });
+    }
+
+    const tag = body.tag as string;
+
+    // Only one release/update at a time
+    if (activeReleaseJob && activeReleaseJob.phase !== "done" && activeReleaseJob.phase !== "failed") {
+      return reply.code(409).send({ error: "A release or update is already in progress." });
+    }
+
+    const job: ReleaseJob = {
+      jobType: "update",
+      versionType: null,
+      phase: "fetching",
+      startedAt: new Date().toISOString(),
+      log: [],
+      runUrl: null,
+      tag,
+      error: null
+    };
+    activeReleaseJob = job;
+
+    // Run async — do not await
+    void runUpdateJob(job);
 
     return reply.code(202).send({ ok: true });
   });
