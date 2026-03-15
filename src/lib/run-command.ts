@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 
 type RunCommandOptions = {
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   allowedExitCodes?: number[];
   timeoutMs?: number;
 };
@@ -20,6 +21,7 @@ export async function runCommand(
   return await new Promise<RunCommandResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"]
     });
 

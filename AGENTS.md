@@ -50,27 +50,31 @@ Before marking any task as done, run the following checks and fix any failures:
 - Playwright screenshots should be published via `dispatch-share`, not saved locally.
 
 ## Dev Server Management (CRITICAL)
+- **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use an isolated Postgres instance for dev work. Pick a unique suffix and ports for your agent before starting anything.
+- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and optionally Vite, all on auto-selected free ports.
+- When `DISPATCH_AGENT_ID` is set (normal agent sessions), the suffix is derived automatically. Otherwise pass `--suffix <name>` or let the script generate one.
+- If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
   ```bash
-  export DISPATCH_DEV_SUFFIX="<unique-suffix>"
-  export DISPATCH_DEV_DB_PORT="<free-db-port>"
-  export DISPATCH_DEV_API_PORT="<free-api-port>"
-  export DISPATCH_DEV_WEB_PORT="<free-web-port>"
-
-  DISPATCH_DB_NAME="$DISPATCH_DEV_SUFFIX" DISPATCH_DB_PORT="$DISPATCH_DEV_DB_PORT" docker compose up -d postgres
-  DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DISPATCH_DEV_DB_PORT}/dispatch_${DISPATCH_DEV_SUFFIX}" DISPATCH_PORT="$DISPATCH_DEV_API_PORT" npm run dev
-  npm --prefix web run dev -- --port "$DISPATCH_DEV_WEB_PORT"
+  dispatch-dev up                             # start isolated DB + API server
+  dispatch-dev up --vite                      # also start Vite frontend
+  dispatch-dev up --cwd /path/to/worktree     # start from a specific directory
+  dispatch-dev up --no-db                     # skip DB (use existing DATABASE_URL)
+  dispatch-dev down                           # tear down everything
+  dispatch-dev restart                        # restart the environment
+  dispatch-dev status                         # check what's running
+  dispatch-dev logs                           # API server logs
+  dispatch-dev logs --vite                    # Vite server logs
+  dispatch-dev url                            # print the API server URL
   ```
-- If you need background services, start them deliberately and capture logs in `/tmp/`. Do not rely on wrappers to clean them up.
-- If the stack was started for user-facing validation, do not stop it automatically at the end of the turn unless the user explicitly asks. Otherwise, stop services explicitly when you are done. Prefer targeted `docker compose stop/down` and tracked process IDs over broad kill commands.
+- `dispatch-dev up` auto-selects free ports and prints the URLs — just use the printed URLs.
 
 ## Backend Testing Safety
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
-- When backend changes need local validation, start an isolated local stack explicitly and point validation tooling to those ports.
+- When backend changes need local validation, use `dispatch-dev up` and point validation tooling to the printed URL.
 - Only operate on production (`:6767`) when explicitly requested by the user.
 
 ## Development Database
 - Production uses the `dispatch` database. Never connect to it from dev servers.
-- For dev servers, set `DISPATCH_DB_NAME` and `DISPATCH_DB_PORT` explicitly so your Postgres container and `DATABASE_URL` are isolated from other agents.
+- `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
 - Migrations run automatically on API server start.

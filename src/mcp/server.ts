@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
+import type { AgentRecord } from "../agents/manager.js";
 import {
   createPr,
   enablePrAutomerge,
@@ -16,13 +17,20 @@ import {
   cleanupGitWorktree,
   createGitWorktree
 } from "../git/worktree.js";
+import { loadRepoTools } from "./repo-tools.js";
+
+type McpRequestContext = {
+  agent: AgentRecord | null;
+  repoRoot: string | null;
+};
 
 export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  parsedBody?: unknown
+  parsedBody?: unknown,
+  context: McpRequestContext = { agent: null, repoRoot: null }
 ): Promise<void> {
-  const server = createDispatchMcpServer();
+  const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined
   });
@@ -35,18 +43,19 @@ export async function handleMcpRequest(
   await transport.handleRequest(req, res, parsedBody);
 }
 
-function createDispatchMcpServer(): McpServer {
+async function createDispatchMcpServer(context: McpRequestContext): Promise<McpServer> {
   const server = new McpServer({
     name: "dispatch",
     version: "0.0.0"
   });
+  const defaultCwd = context.agent?.cwd ?? undefined;
 
   server.registerTool(
     "create_worktree",
     {
       description: "Create a linked git worktree and branch from a repository checkout.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the target git repository."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the target git repository."),
         name: z.string().describe("Human-friendly work item name used to derive the branch when branchName is omitted."),
         branchName: z.string().optional().describe("Explicit branch name to create."),
         baseBranch: z.string().default("main").describe("Base branch or ref to branch from."),
@@ -56,7 +65,10 @@ function createDispatchMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await createGitWorktree(args);
+        const result = await createGitWorktree({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [
             {
@@ -77,7 +89,7 @@ function createDispatchMcpServer(): McpServer {
     {
       description: "Remove a linked git worktree and optionally delete its branch or update the primary checkout base branch.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the linked worktree to clean up."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the linked worktree to clean up."),
         baseBranch: z.string().default("main").describe("Primary checkout branch to optionally fast-forward before cleanup."),
         updateBaseBranch: z.boolean().default(false).describe("Fetch and fast-forward the primary checkout on baseBranch before removing the worktree."),
         deleteBranch: z.boolean().default(false).describe("Delete the local branch after removing the linked worktree."),
@@ -86,7 +98,10 @@ function createDispatchMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await cleanupGitWorktree(args);
+        const result = await cleanupGitWorktree({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [
             {
@@ -107,7 +122,7 @@ function createDispatchMcpServer(): McpServer {
     {
       description: "Create a GitHub pull request for the current branch.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the git repository."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         baseBranch: z.string().default("main").describe("Base branch to target."),
         title: z.string().optional().describe("Explicit PR title."),
         body: z.string().optional().describe("Explicit PR body."),
@@ -117,7 +132,10 @@ function createDispatchMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await createPr(args);
+        const result = await createPr({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [{ type: "text", text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.` }],
           structuredContent: result
@@ -133,7 +151,7 @@ function createDispatchMcpServer(): McpServer {
     {
       description: "Enable GitHub auto-merge for a pull request once required checks pass.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the git repository."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch."),
         mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use once GitHub merges the PR."),
         deleteBranch: z.boolean().default(true).describe("Delete the branch after merge.")
@@ -141,7 +159,10 @@ function createDispatchMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await enablePrAutomerge(args);
+        const result = await enablePrAutomerge({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [{ type: "text", text: `Enabled auto-merge for PR ${result.prNumber ?? "current"} using ${result.mergeMethod}.` }],
           structuredContent: result
@@ -157,7 +178,7 @@ function createDispatchMcpServer(): McpServer {
     {
       description: "Merge a GitHub pull request immediately if it is mergeable right now.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the git repository."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch."),
         mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use."),
         deleteBranch: z.boolean().default(true).describe("Delete the branch after merge.")
@@ -165,7 +186,10 @@ function createDispatchMcpServer(): McpServer {
     },
     async (args) => {
       try {
-        const result = await mergePrNow(args);
+        const result = await mergePrNow({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [{ type: "text", text: `Merged PR ${result.prNumber ?? "current"} using ${result.mergeMethod}.` }],
           structuredContent: result
@@ -181,13 +205,16 @@ function createDispatchMcpServer(): McpServer {
     {
       description: "Fetch status details for a pull request.",
       inputSchema: {
-        cwd: z.string().describe("Absolute path inside the git repository."),
+        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch.")
       }
     },
     async (args) => {
       try {
-        const result = await getPrStatus(args);
+        const result = await getPrStatus({
+          ...args,
+          cwd: resolveCwd(args.cwd, defaultCwd)
+        });
         return {
           content: [{ type: "text", text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.` }],
           structuredContent: result
@@ -198,7 +225,49 @@ function createDispatchMcpServer(): McpServer {
     }
   );
 
+  if (context.agent && context.repoRoot) {
+    const repoTools = await loadRepoTools(context.repoRoot);
+    for (const tool of repoTools) {
+      server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: {}
+        },
+        async () => {
+          try {
+            const result = await tool.run({
+              agentId: context.agent!.id,
+              repoRoot: context.repoRoot!
+            });
+            return {
+              content: [{ type: "text", text: result.message }],
+              structuredContent: result
+            };
+          } catch (error) {
+            return toToolError(error);
+          }
+        }
+      );
+    }
+  }
+
   return server;
+}
+
+function cwdSchema(defaultCwd: string | undefined, description: string): z.ZodType<string | undefined> {
+  const suffix = defaultCwd
+    ? ` Defaults to the agent working directory (${defaultCwd}) when omitted on agent-scoped MCP routes.`
+    : "";
+  return defaultCwd ? z.string().optional().describe(`${description}${suffix}`) : z.string().describe(description);
+}
+
+function resolveCwd(value: string | undefined, defaultCwd: string | undefined): string {
+  const cwd = value?.trim() || defaultCwd?.trim();
+  if (!cwd) {
+    throw new Error("cwd is required.");
+  }
+  return cwd;
 }
 
 function toToolError(error: unknown): { content: Array<{ type: "text"; text: string }>; isError: true } {
