@@ -39,6 +39,8 @@ const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const CWD_HISTORY_KEY = "dispatch:cwdHistory";
+const CWD_HISTORY_MAX = 20;
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 // Chrome Device Toolbar can emulate mobile with a wider layout viewport in some modes.
 // Treat coarse/non-hover input as mobile as well so drawer behavior stays consistent.
@@ -59,6 +61,33 @@ function readLastUsedCwd(): string {
   }
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
   return stored && stored.length > 0 ? stored : "~/";
+}
+
+function readCwdHistory(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(CWD_HISTORY_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string" && v.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToCwdHistory(cwd: string): string[] {
+  const trimmed = cwd.trim();
+  if (!trimmed) {
+    return readCwdHistory();
+  }
+  const existing = readCwdHistory().filter((entry) => entry !== trimmed);
+  const updated = [trimmed, ...existing].slice(0, CWD_HISTORY_MAX);
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(updated));
+  return updated;
 }
 
 function readActiveShellAgentId(): string | null {
@@ -157,6 +186,7 @@ export function App(): JSX.Element {
   const [createType, setCreateType] = useState("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
@@ -684,6 +714,7 @@ export function App(): JSX.Element {
         setCreateName("");
         setCreateFullAccess(false);
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
+        setCwdHistory(addToCwdHistory(payload.agent.cwd));
         setSelectedAgentId(payload.agent.id);
         void refreshMedia(payload.agent.id);
         await ensureTerminalConnected(true, true, payload.agent.id);
@@ -1540,6 +1571,7 @@ export function App(): JSX.Element {
         createCwd={createCwd}
         createFullAccess={createFullAccess}
         creating={creating}
+        cwdHistory={cwdHistory}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
