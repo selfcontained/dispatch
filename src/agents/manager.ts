@@ -686,6 +686,13 @@ export class AgentManager {
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`
     ];
 
+    // When TLS is enabled, tell agent CLI tools to trust the server's cert
+    // so loopback MCP connections don't fail certificate verification.
+    const tlsCertPath = process.env.TLS_CERT;
+    if (this.config.tls && tlsCertPath) {
+      envPrefixParts.push(`NODE_EXTRA_CA_CERTS=${this.shellEscape(tlsCertPath)}`);
+    }
+
     if (type === "opencode" && fullAccess) {
       envPrefixParts.push(
         `OPENCODE_PERMISSION=${this.shellEscape(
