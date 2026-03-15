@@ -60,9 +60,12 @@ find_free_port() {
 }
 
 # Source NVM so that node/npm resolve correctly in subshells.
+# Unset npm_config_prefix first — setup-node in CI sets it, which conflicts
+# with NVM's own prefix management.
 nvm_init() {
   local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
   if [ -s "${nvm_dir}/nvm.sh" ]; then
+    unset npm_config_prefix 2>/dev/null || true
     # shellcheck disable=SC1091
     source "${nvm_dir}/nvm.sh"
     nvm use >/dev/null 2>&1 || true
