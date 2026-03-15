@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, ShieldCheck, Sparkles, Zap, XCircle } from "lucide-react";
+import { ArrowDownToLine, CheckCircle2, ExternalLink, Loader2, ShieldCheck, Sparkles, Zap, XCircle } from "lucide-react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 
 import { cn } from "@/lib/utils";
 
 type ReleaseVersionType = "patch" | "minor" | "major";
-type ReleasePhase = "preflight" | "triggering" | "watching" | "deploying" | "restarting" | "done" | "failed";
+type ReleasePhase = "preflight" | "triggering" | "watching" | "fetching" | "deploying" | "restarting" | "done" | "failed";
+type ReleaseJobType = "create" | "update";
 
 type ReleaseStatus = {
   tag: string | null;
@@ -14,13 +15,18 @@ type ReleaseStatus = {
 
 type ReleaseInfo = {
   currentTag: string | null;
+  isAdmin: boolean;
+  latestTag: string | null;
+  updateAvailable: boolean;
+  latestRelease: { tag: string; publishedAt: string; url: string } | null;
   unreleasedCount: number;
   commits: Array<{ sha: string; subject: string }>;
   refMissing?: boolean;
 };
 
 type ReleaseJob = {
-  versionType: ReleaseVersionType;
+  jobType: ReleaseJobType;
+  versionType: ReleaseVersionType | null;
   phase: ReleasePhase;
   startedAt: string;
   log: string[];
@@ -72,13 +78,15 @@ const PHASE_LABELS: Record<ReleasePhase, string> = {
   preflight: "Pre-flight",
   triggering: "Trigger workflow",
   watching: "CI running",
+  fetching: "Fetching",
   deploying: "Deploying",
   restarting: "Restarting",
   done: "Complete",
   failed: "Failed"
 };
 
-const PHASES_ORDER: ReleasePhase[] = ["preflight", "triggering", "watching", "deploying", "restarting", "done"];
+const CREATE_PHASES: ReleasePhase[] = ["preflight", "triggering", "watching", "deploying", "restarting", "done"];
+const UPDATE_PHASES: ReleasePhase[] = ["fetching", "deploying", "restarting", "done"];
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -228,6 +236,22 @@ export function ReleaseManager(): JSX.Element {
     }
   };
 
+  const handleUpdate = async (tag: string) => {
+    setReleaseError(null);
+    const res = await fetch("/api/v1/release/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag })
+    });
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      setReleaseError(cleanError(err.error ?? "Failed to start update"));
+      return;
+    }
+    setJob({ jobType: "update", versionType: null, phase: "fetching", startedAt: new Date().toISOString(), log: [], runUrl: null, tag, error: null });
+    connectStream();
+  };
+
   const handleRelease = async (versionType: ReleaseVersionType) => {
     setReleaseError(null);
     const res = await fetch("/api/v1/release", {
@@ -240,16 +264,18 @@ export function ReleaseManager(): JSX.Element {
       setReleaseError(cleanError(err.error ?? "Failed to start release"));
       return;
     }
-    setJob({ versionType, phase: "preflight", startedAt: new Date().toISOString(), log: [], runUrl: null, tag: null, error: null });
+    setJob({ jobType: "create", versionType, phase: "preflight", startedAt: new Date().toISOString(), log: [], runUrl: null, tag: null, error: null });
     connectStream();
   };
 
-  const isReleasing = job !== null && !["done", "failed"].includes(job.phase) && !postRestartPolling;
+  const isActive = job !== null && !["done", "failed"].includes(job.phase) && !postRestartPolling;
   const isDone = job?.phase === "done" || (!postRestartPolling && job?.phase === "restarting" && status?.tag === job?.tag);
   const isFailed = job?.phase === "failed";
   const isRestarting = job?.phase === "restarting" || postRestartPolling;
   const showLog = job !== null;
-  const phaseIndex = job ? PHASES_ORDER.indexOf(job.phase) : -1;
+
+  const phasesOrder = job?.jobType === "update" ? UPDATE_PHASES : CREATE_PHASES;
+  const phaseIndex = job ? phasesOrder.indexOf(job.phase) : -1;
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -271,8 +297,8 @@ export function ReleaseManager(): JSX.Element {
           )}
         </div>
 
-        {/* Check for updates / info — hidden while a release is active */}
-        {!isReleasing && !isDone && (
+        {/* Check for updates / info — hidden while an operation is active */}
+        {!isActive && !isDone && (
           <div className="flex flex-col gap-4">
             {!info && !infoLoading && (
               <button
@@ -298,78 +324,129 @@ export function ReleaseManager(): JSX.Element {
 
             {info && (
               <>
-                {info.refMissing ? (
-                  <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
-                    Deployed version <span className="font-mono">{info.currentTag ?? "unknown"}</span> not found in origin — commit count unavailable.
-                  </div>
-                ) : info.unreleasedCount === 0 ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    Up to date
-                  </div>
-                ) : (
-                  <div>
-                    <div className="mb-2 text-xs text-muted-foreground">
-                      {info.unreleasedCount} unreleased {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
-                      <span className="font-mono">main</span>
-                    </div>
-                    <div className="flex flex-col gap-0.5 rounded border border-border bg-muted/20 p-2">
-                      {info.commits.map((c) => (
-                        <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
-                          <span className="shrink-0 font-mono text-muted-foreground">{c.sha}</span>
-                          <span className="text-foreground">{c.subject}</span>
-                        </div>
-                      ))}
-                      {info.unreleasedCount > info.commits.length && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          +{info.unreleasedCount - info.commits.length} more
-                        </div>
+                {/* Update section — always visible */}
+                {info.updateAvailable && info.latestTag ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <ArrowDownToLine className="h-4 w-4 text-blue-400" />
+                      <span className="text-sm text-foreground">
+                        <span className="font-mono font-semibold">{info.latestTag}</span> available
+                      </span>
+                      {info.latestRelease?.publishedAt && (
+                        <span className="text-xs text-muted-foreground">
+                          · {formatDate(info.latestRelease.publishedAt)}
+                        </span>
                       )}
                     </div>
-                  </div>
-                )}
 
-                {(info.refMissing || info.unreleasedCount > 0) && (
-                  <>
+                    {info.latestRelease?.url && (
+                      <a
+                        href={info.latestRelease.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View release on GitHub
+                      </a>
+                    )}
+
                     {releaseError && (
                       <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                         {releaseError}
                       </div>
                     )}
 
-                    <div className="flex flex-col gap-2">
-                      <div className="mb-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">Release type</div>
-                      {(["patch", "minor", "major"] as ReleaseVersionType[]).map((type) => {
-                        const { icon: Icon, color, border, bg, hover } = VERSION_CONFIG[type];
-                        return (
-                          <button
-                            key={type}
-                            onClick={() => void handleRelease(type)}
-                            className={cn(
-                              "flex flex-col items-center justify-center gap-2 rounded border py-4 transition-all",
-                              border, bg, hover
-                            )}
-                          >
-                            <Icon className={cn("h-5 w-5", color)} />
-                            <span className={cn("font-mono text-sm font-bold capitalize", color)}>{type}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
+                    <button
+                      onClick={() => void handleUpdate(info.latestTag!)}
+                      className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
+                    >
+                      Update to {info.latestTag}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    Up to date
+                  </div>
+                )}
+
+                {/* Create release section — admin only */}
+                {info.isAdmin && (
+                  <div className="flex flex-col gap-4 border-t border-border pt-4">
+                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Create release</div>
+
+                    {info.refMissing ? (
+                      <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+                        Deployed version <span className="font-mono">{info.currentTag ?? "unknown"}</span> not found in origin — commit count unavailable.
+                      </div>
+                    ) : info.unreleasedCount === 0 ? (
+                      <div className="text-xs text-muted-foreground">No unreleased commits on main</div>
+                    ) : (
+                      <div>
+                        <div className="mb-2 text-xs text-muted-foreground">
+                          {info.unreleasedCount} unreleased {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
+                          <span className="font-mono">main</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5 rounded border border-border bg-muted/20 p-2">
+                          {info.commits.map((c) => (
+                            <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
+                              <span className="shrink-0 font-mono text-muted-foreground">{c.sha}</span>
+                              <span className="text-foreground">{c.subject}</span>
+                            </div>
+                          ))}
+                          {info.unreleasedCount > info.commits.length && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              +{info.unreleasedCount - info.commits.length} more
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {(info.refMissing || info.unreleasedCount > 0) && (
+                      <>
+                        {releaseError && (
+                          <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            {releaseError}
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-2">
+                          <div className="mb-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">Release type</div>
+                          {(["patch", "minor", "major"] as ReleaseVersionType[]).map((type) => {
+                            const { icon: Icon, color, border, bg, hover } = VERSION_CONFIG[type];
+                            return (
+                              <button
+                                key={type}
+                                onClick={() => void handleRelease(type)}
+                                className={cn(
+                                  "flex flex-col items-center justify-center gap-2 rounded border py-4 transition-all",
+                                  border, bg, hover
+                                )}
+                              >
+                                <Icon className={cn("h-5 w-5", color)} />
+                                <span className={cn("font-mono text-sm font-bold capitalize", color)}>{type}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </>
             )}
           </div>
         )}
 
-        {/* Phase progress — shown when a release is running or finished */}
+        {/* Phase progress — shown when a release/update is running or finished */}
         {job && (
           <div className="flex flex-col gap-4">
             <div>
               <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">Progress</div>
               <div className="flex flex-col gap-2">
-                {PHASES_ORDER.filter((p) => p !== "done").map((phase, i) => {
+                {phasesOrder.filter((p) => p !== "done").map((phase, i) => {
                   const current = phaseIndex === i;
                   const done = phaseIndex > i || job.phase === "done";
                   return (
@@ -415,7 +492,8 @@ export function ReleaseManager(): JSX.Element {
               <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>
-                  Deployed <span className="font-mono font-semibold">{job.tag ?? status?.tag}</span>
+                  {job.jobType === "update" ? "Updated to" : "Deployed"}{" "}
+                  <span className="font-mono font-semibold">{job.tag ?? status?.tag}</span>
                 </span>
               </div>
             )}
@@ -423,7 +501,7 @@ export function ReleaseManager(): JSX.Element {
             {isFailed && (
               <div className="flex items-start gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{job.error ? cleanError(job.error) : "Release failed"}</span>
+                <span>{job.error ? cleanError(job.error) : "Operation failed"}</span>
               </div>
             )}
           </div>
@@ -451,7 +529,7 @@ export function ReleaseManager(): JSX.Element {
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground/40">
-            Log output will appear here during a release
+            Log output will appear here
           </div>
         )}
       </div>

@@ -1,14 +1,14 @@
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronRight, ArrowLeft, Rocket, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, ArrowDownToLine, X } from "lucide-react";
 
 import { ReleaseManager } from "@/components/app/release-manager";
 import { cn } from "@/lib/utils";
 
 type SettingsSection = "release";
 
-const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof Rocket }> = [
-  { id: "release", label: "Release", icon: Rocket }
+const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
+  { id: "release", label: "Updates", icon: ArrowDownToLine }
 ];
 
 type SettingsPaneProps = {
