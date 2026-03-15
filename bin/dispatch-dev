@@ -310,6 +310,8 @@ cmd_status() {
     return 0
   fi
 
+  local display_host="${DISPATCH_HOST:-127.0.0.1}"
+
   # DB
   if [ "${DEV_NO_DB:-0}" != "1" ] && [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
     local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
@@ -324,14 +326,14 @@ cmd_status() {
 
   # API
   if pid_alive "${DEV_API_PID:-}"; then
-    echo "api:  running (port ${DEV_API_PORT:-?}, PID ${DEV_API_PID})"
+    echo "api:  running — http://${display_host}:${DEV_API_PORT}"
   else
     echo "api:  stopped"
   fi
 
   # Vite
   if pid_alive "${DEV_VITE_PID:-}"; then
-    echo "vite: running (port ${DEV_VITE_PORT:-?}, PID ${DEV_VITE_PID})"
+    echo "vite: running — http://${display_host}:${DEV_VITE_PORT}"
   else
     if [ -n "${DEV_VITE_PID:-}" ]; then
       echo "vite: stopped"
