@@ -59,18 +59,6 @@ find_free_port() {
   '
 }
 
-# Source NVM so that node/npm resolve correctly in subshells.
-# Unset npm_config_prefix first — setup-node in CI sets it, which conflicts
-# with NVM's own prefix management.
-nvm_init() {
-  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
-  if [ -s "${nvm_dir}/nvm.sh" ]; then
-    unset npm_config_prefix 2>/dev/null || true
-    # shellcheck disable=SC1091
-    source "${nvm_dir}/nvm.sh"
-    nvm use >/dev/null 2>&1 || true
-  fi
-}
 
 resolve_suffix() {
   if [ -n "$OPT_SUFFIX" ]; then
@@ -185,7 +173,7 @@ cmd_up() {
 
   # Build environment
   (
-    nvm_init
+
     cd "$cwd"
 
     # Source .env if present
@@ -235,7 +223,7 @@ cmd_up() {
     DEV_VITE_PORT="$(find_free_port)"
 
     (
-      nvm_init
+  
       cd "$cwd"
       # Tell Vite's proxy where the API server is
       DISPATCH_PORT="$DEV_API_PORT" npm --prefix web run dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
