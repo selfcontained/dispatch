@@ -59,18 +59,6 @@ find_free_port() {
 }
 
 
-# Resolve a human-friendly hostname for display URLs.
-# Uses macOS .local mDNS convention so URLs work from other devices on the network.
-resolve_display_host() {
-  local short
-  short="$(hostname -s 2>/dev/null)"
-  if [ -n "$short" ] && [ "$short" != "localhost" ]; then
-    echo "${short}.local"
-  else
-    echo "127.0.0.1"
-  fi
-}
-
 resolve_suffix() {
   if [ -n "$OPT_SUFFIX" ]; then
     echo "$OPT_SUFFIX"
@@ -251,8 +239,7 @@ cmd_up() {
 
   save_state
 
-  local display_host
-  display_host="$(resolve_display_host)"
+  local display_host="${DISPATCH_HOST:-127.0.0.1}"
 
   echo ""
   echo "Dev environment ready (suffix: ${SUFFIX}):"
@@ -363,7 +350,7 @@ cmd_url() {
     echo "Dev server is not running." >&2
     exit 1
   fi
-  echo "http://$(resolve_display_host):${DEV_API_PORT}"
+  echo "http://${DISPATCH_HOST:-127.0.0.1}:${DEV_API_PORT}"
 }
 
 cmd_logs() {
