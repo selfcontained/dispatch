@@ -772,7 +772,13 @@ export class AgentManager {
     return `'${value.replaceAll("'", `'\\''`)}'`;
   }
 
-  private async validateWorkingDirectory(cwd: string): Promise<string> {
+  private async validateWorkingDirectory(rawCwd: string): Promise<string> {
+    const cwd = rawCwd.startsWith("~/")
+      ? path.join(process.env.HOME ?? "/", rawCwd.slice(2))
+      : rawCwd === "~"
+        ? process.env.HOME ?? "/"
+        : rawCwd;
+
     if (!path.isAbsolute(cwd)) {
       throw new AgentError("Working directory must be an absolute path.", 400);
     }

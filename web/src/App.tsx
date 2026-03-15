@@ -58,7 +58,7 @@ function readLastUsedCwd(): string {
     return "";
   }
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : "";
+  return stored && stored.length > 0 ? stored : "~/";
 }
 
 function readActiveShellAgentId(): string | null {
