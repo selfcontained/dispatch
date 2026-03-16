@@ -5,6 +5,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
+import { DocsPane } from "@/components/app/docs-pane";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
@@ -179,6 +180,7 @@ export function App(): JSX.Element {
   const [statusMessage, setStatusMessage] = useState("Starting...");
 
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
+  const [docsPaneOpen, setDocsPaneOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
@@ -1418,7 +1420,8 @@ export function App(): JSX.Element {
             overflowAgentId={overflowAgentId}
             setLeftOpen={setLeftOpen}
             onOpenCreateDialog={openCreateDialog}
-                        onOpenSettings={() => setSettingsPaneOpen(true)}
+            onOpenDocs={() => setDocsPaneOpen(true)}
+            onOpenSettings={() => setSettingsPaneOpen(true)}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -1516,6 +1519,7 @@ export function App(): JSX.Element {
             selectedAgentId={selectedAgentId}
             overflowAgentId={overflowAgentId}
             onOpenCreateDialog={() => { setMobileLeftOpen(false); openCreateDialog(); }}
+            onOpenDocs={() => { setMobileLeftOpen(false); setDocsPaneOpen(true); }}
             onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
@@ -1588,6 +1592,7 @@ export function App(): JSX.Element {
         onDelete={deleteAgent}
       />
 
+      <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
       <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} />
 
       <MediaLightbox
