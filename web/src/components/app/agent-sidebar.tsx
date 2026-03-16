@@ -107,6 +107,14 @@ export function AgentSidebarContent({
     return "Idle";
   };
 
+  const latestEventColor = (type: NonNullable<Agent["latestEvent"]>["type"]): string => {
+    if (type === "working") return "text-emerald-400";
+    if (type === "blocked") return "text-red-400";
+    if (type === "waiting_user") return "text-amber-400";
+    if (type === "done") return "text-sky-400";
+    return "text-foreground/80";
+  };
+
   const formatRelativeTime = (value: string): string => {
     const date = new Date(value);
     const time = date.getTime();
@@ -196,7 +204,7 @@ export function AgentSidebarContent({
                           className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
                           onClick={() => toggleAgentDetails(agent.id)}
                         >
-                          <AgentTypeIcon type={agent.type} />
+                          <AgentTypeIcon type={agent.type} eventType={agent.status === "running" ? agent.latestEvent?.type : null} />
                           <span className="truncate">{agent.name}</span>
                         </button>
                       </TooltipTrigger>
@@ -337,7 +345,7 @@ export function AgentSidebarContent({
 
                   {agent.latestEvent ? (
                     <div className="mt-1 truncate text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/80">{latestEventLabel(agent.latestEvent.type)}</span>
+                      <span className={cn("font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
                       <span className="mx-1.5 text-muted-foreground/70">•</span>
                       <span>{agent.latestEvent.message}</span>
                       <span className="mx-1.5 text-muted-foreground/70">•</span>

@@ -3,21 +3,23 @@
 <!-- Keep behavioral rules in sync with CLAUDE.md (used by Claude Code agents). -->
 
 ## CRITICAL: Dispatch Status Events (Mandatory)
-- You MUST call the `dispatch_event` MCP tool for every task turn that involves analysis, tool use, or file changes.
-- Required checkpoints:
-  1. First action in the turn:
-     `dispatch_event` with type `working` and message describing what you are starting
-  2. If blocked by error/tool/env:
-     `dispatch_event` with type `blocked` and message describing the reason
-  3. If waiting for user input/decision:
-     `dispatch_event` with type `waiting_user` and message describing what is needed
-  4. Final action before final response:
-     - Success: `dispatch_event` with type `done` and message describing what was completed
-     - No-op/informational turn: `dispatch_event` with type `idle` and message describing why no actions were taken
-- Hard requirements:
+- You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.
+- **Event types and when to use them:**
+  - `working` — You are actively making progress: reading files, writing code, running commands, researching. Use a short message describing the current activity (e.g., "Reading agent-sidebar.tsx", "Running E2E tests", "Refactoring auth middleware").
+  - `blocked` — You hit an error, a failing test, a missing dependency, or any obstacle you are actively trying to resolve. Message should describe the blocker (e.g., "Type error in agent-type-icon.tsx", "E2E test 'sidebar toggle' failing").
+  - `waiting_user` — You need a decision, clarification, or approval before continuing. Message should describe what you need (e.g., "Should I delete the legacy endpoint?", "Need confirmation on color palette").
+  - `done` — The task is complete and all checks pass. Message should summarize what was accomplished.
+  - `idle` — No meaningful action was taken this turn (e.g., an informational question was answered).
+- **Required checkpoints (minimum):**
+  1. **Start of turn**: `working` with what you are about to do.
+  2. **Phase transitions**: Call `working` again with an updated message whenever your activity shifts to a distinct phase (e.g., moving from research → implementation → testing → validation). This keeps the UI status current.
+  3. **On error or obstacle**: Switch to `blocked` immediately. When you unblock yourself, switch back to `working`.
+  4. **Before final response**: Emit a terminal event — `done`, `idle`, `waiting_user`, or `blocked`.
+- **Hard requirements:**
   - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
   - If `dispatch_event` fails, report that failure explicitly in the response.
   - Include a `Status log` section in the final response with the result from each `dispatch_event` call.
+  - Keep messages short (under ~80 chars) — they are displayed in a narrow sidebar.
 
 ## UI Validation
 - For any UI/layout/style interaction change, validate behavior in Playwright before marking the task complete.

@@ -2,9 +2,20 @@ import { siClaude } from "simple-icons";
 
 import { cn } from "@/lib/utils";
 
+type AgentEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
+
 type AgentTypeIconProps = {
   type?: string | null;
   className?: string;
+  eventType?: AgentEventType | null;
+};
+
+const eventColorClass: Record<AgentEventType, string> = {
+  working: "text-emerald-400 border-emerald-400/50 bg-emerald-500/15",
+  blocked: "text-red-400 border-red-400/50 bg-red-500/15",
+  waiting_user: "text-amber-400 border-amber-400/50 bg-amber-500/15",
+  done: "text-sky-400 border-sky-400/50 bg-sky-500/15",
+  idle: "",
 };
 
 const CODEX_LOGO_PATH =
@@ -23,16 +34,22 @@ function normalizeAgentType(type?: string | null): "codex" | "claude" | "opencod
   return "unknown";
 }
 
-export function AgentTypeIcon({ type, className }: AgentTypeIconProps): JSX.Element {
+export function AgentTypeIcon({ type, className, eventType }: AgentTypeIconProps): JSX.Element {
   const normalizedType = normalizeAgentType(type);
   const label =
     normalizedType === "claude" ? "Claude" : normalizedType === "opencode" ? "OpenCode" : "Codex";
+  const statusClass = eventType ? eventColorClass[eventType] : "";
+  const baseClass = statusClass
+    ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
+    : "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground transition-colors duration-300";
 
   if (normalizedType === "opencode") {
     return (
       <span
         className={cn(
-          "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-[9px] font-semibold tracking-[0.08em] text-muted-foreground",
+          baseClass,
+          statusClass,
+          "text-[9px] font-semibold tracking-[0.08em]",
           className
         )}
         title={`${label} agent`}
@@ -48,10 +65,7 @@ export function AgentTypeIcon({ type, className }: AgentTypeIconProps): JSX.Elem
 
   return (
     <span
-      className={cn(
-        "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-muted-foreground",
-        className
-      )}
+      className={cn(baseClass, statusClass, className)}
       title={`${label} agent`}
       aria-label={`${label} agent`}
     >
