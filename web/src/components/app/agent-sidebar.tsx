@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  BookOpenText,
   ChevronLeft,
   EllipsisVertical,
   FolderGit2,
@@ -27,6 +28,7 @@ type AgentSidebarSharedProps = {
   selectedAgentId: string | null;
   overflowAgentId: string | null;
   onOpenCreateDialog: () => void;
+  onOpenDocs: () => void;
   onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
@@ -58,6 +60,7 @@ export function AgentSidebarContent({
   selectedAgentId,
   overflowAgentId,
   onOpenCreateDialog,
+  onOpenDocs,
   onOpenSettings,
   setOverflowAgentId,
   setDeleteTarget,
@@ -422,9 +425,17 @@ export function AgentSidebarContent({
       </div>
       <div className="border-t border-border px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <button
+          onClick={onOpenDocs}
+          data-testid="docs-button"
+          className="flex w-full items-center gap-2 pt-4 text-sm text-muted-foreground transition-colors hover:text-foreground md:pt-2.5 md:text-xs"
+        >
+          <BookOpenText className="h-4 w-4 md:h-3.5 md:w-3.5" />
+          Docs
+        </button>
+        <button
           onClick={onOpenSettings}
           data-testid="settings-button"
-          className="flex w-full items-center gap-2 py-4 md:py-2.5 text-sm md:text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex w-full items-center gap-2 py-4 text-sm text-muted-foreground transition-colors hover:text-foreground md:py-2.5 md:text-xs"
         >
           <Settings className="h-4 w-4 md:h-3.5 md:w-3.5" />
           Settings
