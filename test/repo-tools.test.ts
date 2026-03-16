@@ -20,38 +20,7 @@ afterEach(async () => {
 });
 
 describe("loadRepoTools", () => {
-  it("loads project-scoped repo tools from .dispatch/tools.json", async () => {
-    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
-    tempDirs.push(repoRoot);
-    await mkdir(path.join(repoRoot, ".dispatch"));
-    await writeFile(
-      path.join(repoRoot, ".dispatch", "tools.json"),
-      JSON.stringify({
-        tools: [
-          {
-            name: "project.dev_up",
-            description: "Start the repo dev stack.",
-            command: ["dispatch-dev", "up"]
-          }
-        ]
-      })
-    );
-
-    const [tool] = await loadRepoTools(repoRoot);
-    const result = await tool.run({ agentId: "agt_test", repoRoot });
-
-    expect(tool.name).toBe("project.dev_up");
-    expect(result.agentId).toBe("agt_test");
-    expect(vi.mocked(runCommand)).toHaveBeenCalledWith("dispatch-dev", ["up"], expect.objectContaining({
-      cwd: repoRoot,
-      env: expect.objectContaining({
-        DISPATCH_AGENT_ID: "agt_test",
-        HOSTESS_AGENT_ID: "agt_test"
-      })
-    }));
-  });
-
-  it("rejects repo tools that do not use the project namespace", async () => {
+  it("auto-prefixes repo tools with repo. namespace", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
     tempDirs.push(repoRoot);
     await mkdir(path.join(repoRoot, ".dispatch"));
@@ -68,6 +37,37 @@ describe("loadRepoTools", () => {
       })
     );
 
-    await expect(loadRepoTools(repoRoot)).rejects.toThrow('must start with "project."');
+    const [tool] = await loadRepoTools(repoRoot);
+    const result = await tool.run({ agentId: "agt_test", repoRoot });
+
+    expect(tool.name).toBe("repo.dev_up");
+    expect(result.agentId).toBe("agt_test");
+    expect(vi.mocked(runCommand)).toHaveBeenCalledWith("dispatch-dev", ["up"], expect.objectContaining({
+      cwd: repoRoot,
+      env: expect.objectContaining({
+        DISPATCH_AGENT_ID: "agt_test",
+        HOSTESS_AGENT_ID: "agt_test"
+      })
+    }));
+  });
+
+  it("rejects repo tools whose names contain dots", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
+    tempDirs.push(repoRoot);
+    await mkdir(path.join(repoRoot, ".dispatch"));
+    await writeFile(
+      path.join(repoRoot, ".dispatch", "tools.json"),
+      JSON.stringify({
+        tools: [
+          {
+            name: "project.dev_up",
+            description: "Start the repo dev stack.",
+            command: ["dispatch-dev", "up"]
+          }
+        ]
+      })
+    );
+
+    await expect(loadRepoTools(repoRoot)).rejects.toThrow("must not contain dots");
   });
 });

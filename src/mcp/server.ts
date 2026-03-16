@@ -30,6 +30,7 @@ export type MediaResult = {
 export type McpRequestContext = {
   agent: AgentRecord | null;
   repoRoot: string | null;
+  worktreeRoot: string | null;
   upsertEvent?: (
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
@@ -44,7 +45,7 @@ export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
   parsedBody?: unknown,
-  context: McpRequestContext = { agent: null, repoRoot: null }
+  context: McpRequestContext = { agent: null, repoRoot: null, worktreeRoot: null }
 ): Promise<void> {
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
@@ -352,8 +353,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  if (context.agent && context.repoRoot) {
-    const repoTools = await loadRepoTools(context.repoRoot);
+  const toolsRoot = context.worktreeRoot ?? context.repoRoot;
+  if (context.agent && toolsRoot) {
+    const repoTools = await loadRepoTools(toolsRoot);
     for (const tool of repoTools) {
       server.registerTool(
         tool.name,

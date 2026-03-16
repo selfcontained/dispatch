@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
+const REPO_TOOL_PREFIX = "repo.";
 const BUILTIN_TOOL_NAMES = new Set([
   "create_worktree",
   "cleanup_worktree",
@@ -47,8 +48,9 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
 
   return rawTools.map((rawTool, index) => {
     const tool = parseRepoTool(rawTool, index);
+    const prefixedName = `${REPO_TOOL_PREFIX}${tool.name}`;
     return {
-      name: tool.name,
+      name: prefixedName,
       description: tool.description,
       run: async ({ agentId, repoRoot: currentRepoRoot }) => {
         const [command, ...args] = tool.command;
@@ -67,7 +69,7 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           exitCode: result.exitCode,
           stdout: result.stdout,
           stderr: result.stderr,
-          message: result.stdout || `Ran ${tool.name} in ${currentRepoRoot}.`
+          message: result.stdout || `Ran ${prefixedName} in ${currentRepoRoot}.`
         };
       }
     };
@@ -94,11 +96,15 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
     ? rawTool.command.map((part) => part.trim()).filter(Boolean)
     : [];
 
-  if (!name.startsWith("project.")) {
-    throw new Error(`Repo tool "${name || `index ${index}`}" must start with "project.".`);
+  if (!name) {
+    throw new Error(`Repo tool at index ${index} must have a non-empty name.`);
   }
-  if (BUILTIN_TOOL_NAMES.has(name)) {
-    throw new Error(`Repo tool "${name}" collides with a built-in Dispatch MCP tool.`);
+  if (name.includes(".")) {
+    throw new Error(`Repo tool "${name}" must not contain dots. Dispatch automatically prefixes repo tools with "${REPO_TOOL_PREFIX}".`);
+  }
+  const prefixedName = `${REPO_TOOL_PREFIX}${name}`;
+  if (BUILTIN_TOOL_NAMES.has(prefixedName)) {
+    throw new Error(`Repo tool "${name}" collides with a built-in Dispatch MCP tool when prefixed as "${prefixedName}".`);
   }
   if (!description) {
     throw new Error(`Repo tool "${name}" must include a description.`);
