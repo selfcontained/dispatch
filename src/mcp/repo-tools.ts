@@ -10,7 +10,9 @@ const BUILTIN_TOOL_NAMES = new Set([
   "create_pr",
   "enable_pr_automerge",
   "merge_pr_now",
-  "get_pr_status"
+  "get_pr_status",
+  "dispatch_event",
+  "dispatch_share"
 ]);
 
 type RepoToolFile = {

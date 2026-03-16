@@ -276,8 +276,10 @@ xcode-select --install               # Ensure CLI tools
 npm rebuild node-pty                  # Rebuild native module
 ```
 
-### Agent can't find dispatch-share/dispatch-event
-`dispatchBinDir` is derived automatically from the server's install location. Verify that `~/.dispatch/server/bin/` contains the dispatch helper scripts. If the production checkout is corrupt, re-run `bin/install-launchd`.
+### Agent can't use dispatch_event/dispatch_share MCP tools
+These tools are served via the Dispatch MCP server at `/api/mcp/:agentId`. They are available automatically to agents launched by Dispatch — no PATH or bin directory needed. If the tools are missing, verify that the Dispatch server is running and the agent's MCP config points to the correct URL.
+
+> **Legacy**: The old `dispatch-share` and `dispatch-event` shell scripts in `bin/` still exist for backward compatibility but agents should use the MCP tools instead.
 
 ---
 

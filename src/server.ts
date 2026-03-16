@@ -535,7 +535,9 @@ async function registerRoutes() {
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       agent,
-      repoRoot
+      repoRoot,
+      upsertEvent: mcpUpsertEvent,
+      shareMedia: mcpShareMedia
     });
   });
 
@@ -1974,4 +1976,62 @@ async function shutdown(code: number): Promise<void> {
 
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
   return typeof value === "string" && AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType);
+}
+
+async function mcpUpsertEvent(
+  agentId: string,
+  event: { type: string; message: string; metadata?: Record<string, unknown> }
+): Promise<void> {
+  if (!isAgentLatestEventType(event.type)) {
+    throw new Error(`type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`);
+  }
+  const agent = await agentManager.upsertLatestEvent(agentId, {
+    type: event.type,
+    message: event.message.trim(),
+    metadata: event.metadata
+  });
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpShareMedia(
+  agentId: string,
+  opts: { filePath: string; description: string; source?: string; name?: string }
+): Promise<{ fileName: string; url: string; sizeBytes: number; source: string; description: string }> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  if (!isImageFile(opts.filePath)) {
+    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp.");
+  }
+
+  const validSources = ["screenshot", "stream", "simulator"];
+  const source = opts.source && validSources.includes(opts.source) ? opts.source : "screenshot";
+
+  const buffer = await readFile(opts.filePath);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
+  const baseName = opts.name ?? path.basename(opts.filePath);
+  const safeName = baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") || `shared-${timestamp}.png`;
+  const ext = path.extname(safeName);
+  const base = path.basename(safeName, ext);
+  const fileName = `${base}-${timestamp}${ext}`;
+
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+  await mkdir(mediaDir, { recursive: true });
+  await writeFile(path.join(mediaDir, fileName), buffer);
+
+  await pool.query(
+    `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [agentId, fileName, source, buffer.length, opts.description]
+  );
+
+  uiEventBroker.publish({ type: "media.changed", agentId });
+
+  return {
+    fileName,
+    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+    sizeBytes: buffer.length,
+    source,
+    description: opts.description
+  };
 }

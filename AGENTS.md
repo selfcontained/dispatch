@@ -3,21 +3,21 @@
 <!-- Keep behavioral rules in sync with CLAUDE.md (used by Claude Code agents). -->
 
 ## CRITICAL: Dispatch Status Events (Mandatory)
-- You MUST call `dispatch-event` for every task turn that involves analysis, tool use, or file changes.
+- You MUST call the `dispatch_event` MCP tool for every task turn that involves analysis, tool use, or file changes.
 - Required checkpoints:
   1. First action in the turn:
-     `dispatch-event working "<what you are starting>"`
+     `dispatch_event` with type `working` and message describing what you are starting
   2. If blocked by error/tool/env:
-     `dispatch-event blocked "<concise reason>"`
+     `dispatch_event` with type `blocked` and message describing the reason
   3. If waiting for user input/decision:
-     `dispatch-event waiting_user "<what is needed>"`
+     `dispatch_event` with type `waiting_user` and message describing what is needed
   4. Final action before final response:
-     - Success: `dispatch-event done "<what was completed>"`
-     - No-op/informational turn: `dispatch-event idle "<why no actions were taken>"`
+     - Success: `dispatch_event` with type `done` and message describing what was completed
+     - No-op/informational turn: `dispatch_event` with type `idle` and message describing why no actions were taken
 - Hard requirements:
   - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
-  - If `dispatch-event` fails, report that failure explicitly in the response.
-  - Include a `Status log` section in the final response with the exact stdout lines from each `dispatch-event` call.
+  - If `dispatch_event` fails, report that failure explicitly in the response.
+  - Include a `Status log` section in the final response with the result from each `dispatch_event` call.
 
 ## UI Validation
 - For any UI/layout/style interaction change, validate behavior in Playwright before marking the task complete.
@@ -47,7 +47,7 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Temporary Files
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
 - Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
-- Playwright screenshots should be published via `dispatch-share`, not saved locally.
+- Playwright screenshots should be published via the `dispatch_share` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
 - **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.

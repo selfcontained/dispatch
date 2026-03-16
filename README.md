@@ -124,12 +124,12 @@ For setting up Dispatch as a persistent service on a dedicated Mac (e.g. Mac min
 
 ## Media Sharing
 
-Agents share screenshots and media with the Dispatch UI via `dispatch-share`, which is automatically available in every agent's `PATH`:
+Agents share screenshots and media with the Dispatch UI via the `dispatch_share` MCP tool, which is automatically available to every agent through the Dispatch MCP server:
 
-- `dispatch-share <image-path> "description"` — publish a Playwright screenshot
-- `dispatch-share --sim "description" [udid]` — capture and publish an iOS Simulator screenshot
+- `dispatch_share` with `filePath` and `description` — publish a Playwright screenshot
+- `dispatch_share` with `source: "simulator"` and `description` — capture and publish an iOS Simulator screenshot
 
-These commands only work inside running agent sessions (they require `DISPATCH_AGENT_ID` which Dispatch sets automatically). The browser Media panel auto-refreshes to show new images.
+These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically). The browser Media panel auto-refreshes to show new images.
 
 ## Operations
 
