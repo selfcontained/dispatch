@@ -746,8 +746,8 @@ export class AgentManager {
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance =
       "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
-      "Capture at least one screenshot per UI validation flow; publish every screenshot with dispatch-share <image-path> \"description\" for Playwright or dispatch-share --sim \"description\" [udid] for iOS Simulator — never leave screenshots local-only. " +
-      "Call dispatch-event at the start of each turn (working), when blocked or waiting for input (blocked/waiting_user), and before your final response (done on success, idle for no-op turns). Never send a final response without a terminal status event. " +
+      "Capture at least one screenshot per UI validation flow; publish every screenshot with the dispatch_share MCP tool (filePath + description for Playwright, or source 'simulator' for iOS Simulator) — never leave screenshots local-only. " +
+      "Call the dispatch_event MCP tool at the start of each turn (working), when blocked or waiting for input (blocked/waiting_user), and before your final response (done on success, idle for no-op turns). Never send a final response without a terminal status event. " +
       "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;

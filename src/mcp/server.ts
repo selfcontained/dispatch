@@ -19,9 +19,25 @@ import {
 } from "../git/worktree.js";
 import { loadRepoTools } from "./repo-tools.js";
 
-type McpRequestContext = {
+export type MediaResult = {
+  fileName: string;
+  url: string;
+  sizeBytes: number;
+  source: string;
+  description: string;
+};
+
+export type McpRequestContext = {
   agent: AgentRecord | null;
   repoRoot: string | null;
+  upsertEvent?: (
+    agentId: string,
+    event: { type: string; message: string; metadata?: Record<string, unknown> }
+  ) => Promise<void>;
+  shareMedia?: (
+    agentId: string,
+    opts: { filePath: string; description: string; source?: string; name?: string }
+  ) => Promise<MediaResult>;
 };
 
 export async function handleMcpRequest(
@@ -224,6 +240,117 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       }
     }
   );
+
+  // TODO: Remove bin/dispatch-event and bin/dispatch-share once all agents use these MCP tools.
+  if (context.agent && context.upsertEvent) {
+    const agentId = context.agent.id;
+    const upsertEvent = context.upsertEvent;
+
+    server.registerTool(
+      "dispatch_event",
+      {
+        description:
+          "Report agent status to Dispatch. Must be called at the start of each turn (working), when blocked (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
+        inputSchema: {
+          type: z.enum(["working", "blocked", "waiting_user", "done", "idle"]).describe("The status event type."),
+          message: z.string().describe("A short description of what is happening."),
+          metadata: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe("Optional metadata object.")
+        }
+      },
+      async (args) => {
+        try {
+          await upsertEvent(agentId, {
+            type: args.type,
+            message: args.message,
+            metadata: args.metadata as Record<string, unknown> | undefined
+          });
+          return {
+            content: [{ type: "text", text: `Updated ${agentId}: ${args.type} - ${args.message}` }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.shareMedia) {
+    const agentId = context.agent.id;
+    const shareMedia = context.shareMedia;
+
+    server.registerTool(
+      "dispatch_share",
+      {
+        description:
+          "Upload an image file to Dispatch for sharing. Supports png, jpg, jpeg, gif, and webp. Use source 'simulator' with a simulator UDID to capture a screenshot directly from an iOS Simulator.",
+        inputSchema: {
+          filePath: z
+            .string()
+            .optional()
+            .describe("Absolute path to the image file to upload. Not required when source is 'simulator'."),
+          description: z.string().describe("A short description of the shared media."),
+          source: z
+            .enum(["screenshot", "simulator"])
+            .default("screenshot")
+            .describe("The source type of the media."),
+          name: z
+            .string()
+            .optional()
+            .describe("Preferred file name for the upload. Derived from the file path if omitted."),
+          simulatorUdid: z
+            .string()
+            .optional()
+            .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'.")
+        }
+      },
+      async (args) => {
+        try {
+          let filePath = args.filePath;
+
+          if (args.source === "simulator") {
+            const { execFile } = await import("node:child_process");
+            const { promisify } = await import("node:util");
+            const execFileAsync = promisify(execFile);
+            const udid = args.simulatorUdid ?? "booted";
+            const timestamp = new Date()
+              .toISOString()
+              .replace(/[:.]/g, "-")
+              .replace("T", "-")
+              .replace("Z", "");
+            const tmpPath = `${process.env.TMPDIR ?? "/tmp"}/sim-${timestamp}.png`;
+            await execFileAsync("xcrun", ["simctl", "io", udid, "screenshot", "--type=png", tmpPath]);
+            filePath = tmpPath;
+          }
+
+          if (!filePath) {
+            return toToolError(new Error("filePath is required when source is not 'simulator'."));
+          }
+
+          const result = await shareMedia(agentId, {
+            filePath,
+            description: args.description,
+            source: args.source,
+            name: args.name
+          });
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result)
+              }
+            ],
+            structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   if (context.agent && context.repoRoot) {
     const repoTools = await loadRepoTools(context.repoRoot);
