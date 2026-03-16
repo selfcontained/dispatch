@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
-const REPO_TOOL_PREFIX = "repo.";
+const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
   "create_worktree",
   "cleanup_worktree",
@@ -90,18 +90,17 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   }
 
   const rawTool = value as Record<string, unknown>;
-  const name = typeof rawTool.name === "string" ? rawTool.name.trim() : "";
+  const rawName = typeof rawTool.name === "string" ? rawTool.name.trim() : "";
   const description = typeof rawTool.description === "string" ? rawTool.description.trim() : "";
   const command = Array.isArray(rawTool.command) && rawTool.command.every((part) => typeof part === "string")
     ? rawTool.command.map((part) => part.trim()).filter(Boolean)
     : [];
 
-  if (!name) {
+  if (!rawName) {
     throw new Error(`Repo tool at index ${index} must have a non-empty name.`);
   }
-  if (name.includes(".")) {
-    throw new Error(`Repo tool "${name}" must not contain dots. Dispatch automatically prefixes repo tools with "${REPO_TOOL_PREFIX}".`);
-  }
+  // Strip dots from tool names — MCP clients (e.g. Claude) don't support dots in tool names.
+  const name = rawName.replaceAll(".", "_");
   const prefixedName = `${REPO_TOOL_PREFIX}${name}`;
   if (BUILTIN_TOOL_NAMES.has(prefixedName)) {
     throw new Error(`Repo tool "${name}" collides with a built-in Dispatch MCP tool when prefixed as "${prefixedName}".`);

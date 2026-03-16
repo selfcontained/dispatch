@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("loadRepoTools", () => {
-  it("auto-prefixes repo tools with repo. namespace", async () => {
+  it("auto-prefixes repo tools with repo_ namespace", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
     tempDirs.push(repoRoot);
     await mkdir(path.join(repoRoot, ".dispatch"));
@@ -40,7 +40,7 @@ describe("loadRepoTools", () => {
     const [tool] = await loadRepoTools(repoRoot);
     const result = await tool.run({ agentId: "agt_test", repoRoot });
 
-    expect(tool.name).toBe("repo.dev_up");
+    expect(tool.name).toBe("repo_dev_up");
     expect(result.agentId).toBe("agt_test");
     expect(vi.mocked(runCommand)).toHaveBeenCalledWith("dispatch-dev", ["up"], expect.objectContaining({
       cwd: repoRoot,
@@ -51,7 +51,7 @@ describe("loadRepoTools", () => {
     }));
   });
 
-  it("rejects repo tools whose names contain dots", async () => {
+  it("sanitizes dots in repo tool names to underscores", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
     tempDirs.push(repoRoot);
     await mkdir(path.join(repoRoot, ".dispatch"));
@@ -68,6 +68,7 @@ describe("loadRepoTools", () => {
       })
     );
 
-    await expect(loadRepoTools(repoRoot)).rejects.toThrow("must not contain dots");
+    const [tool] = await loadRepoTools(repoRoot);
+    expect(tool.name).toBe("repo_project_dev_up");
   });
 });
