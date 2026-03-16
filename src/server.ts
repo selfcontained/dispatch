@@ -526,8 +526,10 @@ async function registerRoutes() {
     }
 
     let repoRoot: string | null = null;
+    let worktreeRoot: string | null = null;
     try {
       repoRoot = await resolveRepoRoot(agent.cwd);
+      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
     } catch {
       // Agent may not be in a git repository — MCP still works, just without repo context.
     }
@@ -536,6 +538,7 @@ async function registerRoutes() {
     await handleMcpRequest(request.raw, reply.raw, request.body, {
       agent,
       repoRoot,
+      worktreeRoot,
       upsertEvent: mcpUpsertEvent,
       shareMedia: mcpShareMedia
     });
@@ -1793,6 +1796,17 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
     }
   }
 
+  return normalizePath(
+    (
+      await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        allowedExitCodes: [0],
+        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+      })
+    ).stdout
+  );
+}
+
+async function resolveWorktreeRoot(cwd: string): Promise<string> {
   return normalizePath(
     (
       await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {

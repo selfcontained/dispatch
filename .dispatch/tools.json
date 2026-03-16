@@ -1,22 +1,22 @@
 {
   "tools": [
     {
-      "name": "project.dev_up",
+      "name": "dev_up",
       "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports).",
       "command": ["./bin/dispatch-dev", "up"]
     },
     {
-      "name": "project.dev_down",
+      "name": "dev_down",
       "description": "Stop the repo's dev environment and remove its database container.",
       "command": ["./bin/dispatch-dev", "down"]
     },
     {
-      "name": "project.dev_status",
+      "name": "dev_status",
       "description": "Show which dev services are running and their ports.",
       "command": ["./bin/dispatch-dev", "status"]
     },
     {
-      "name": "project.dev_logs",
+      "name": "dev_logs",
       "description": "Show recent API server logs from the dev environment.",
       "command": ["./bin/dispatch-dev", "logs"]
     }
