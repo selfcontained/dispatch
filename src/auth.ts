@@ -66,3 +66,43 @@ export async function changePassword(
 export async function cleanExpiredSessions(pool: Pool): Promise<void> {
   await pool.query("DELETE FROM sessions WHERE expires_at <= NOW()");
 }
+
+/**
+ * Returns a stable cookie-signing secret, persisted in the settings table.
+ * If COOKIE_SECRET env var is set, that value is used (and persisted).
+ * Otherwise, the DB value is returned — or a new one is generated on first run.
+ */
+export async function getOrCreateCookieSecret(pool: Pool): Promise<string> {
+  const envSecret = process.env.COOKIE_SECRET;
+
+  const result = await pool.query<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'cookie_secret'"
+  );
+
+  if (envSecret) {
+    // Env var always wins — persist it so the cookie plugin and DB agree.
+    if (result.rowCount === 0 || result.rows[0].value !== envSecret) {
+      await pool.query(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES ('cookie_secret', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+        [envSecret]
+      );
+    }
+    return envSecret;
+  }
+
+  if ((result.rowCount ?? 0) > 0) {
+    return result.rows[0].value;
+  }
+
+  // First run without env var — generate and persist a secret.
+  const secret = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO settings (key, value, updated_at)
+     VALUES ('cookie_secret', $1, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+    [secret]
+  );
+  return secret;
+}
