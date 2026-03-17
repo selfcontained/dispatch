@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "0.2.37",
+  "version": "0.3.0",
   "private": true,
   "description": "Local-first control plane for remote Codex CLI agents with simulator media",
   "type": "module",
