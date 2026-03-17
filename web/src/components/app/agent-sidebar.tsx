@@ -303,21 +303,17 @@ export function AgentSidebarContent({
                         setOverflowAgentId(open ? agent.id : null)
                       }
                     >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              data-agent-control="true"
-                              className="ml-auto"
-                            >
-                              <EllipsisVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                        </TooltipTrigger>
-                        <TooltipContent>More actions</TooltipContent>
-                      </Tooltip>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          data-agent-control="true"
+                          className="ml-auto"
+                          title="More actions"
+                        >
+                          <EllipsisVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
 
                       <DropdownMenuContent align="end">
                         {!isStopped ? (
