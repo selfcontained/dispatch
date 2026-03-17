@@ -19,6 +19,7 @@ import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LayoutGroup, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -296,51 +297,52 @@ export function AgentSidebarContent({
                       </>
                     )}
 
-                    <div className="relative ml-auto" data-overflow-root="true">
+                    <DropdownMenu
+                      open={overflowAgentId === agent.id}
+                      onOpenChange={(open: boolean) =>
+                        setOverflowAgentId(open ? agent.id : null)
+                      }
+                    >
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            data-agent-control="true"
-                            onClick={() =>
-                              setOverflowAgentId((current) => (current === agent.id ? null : agent.id))
-                            }
-                          >
-                            <EllipsisVertical className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              data-agent-control="true"
+                              className="ml-auto"
+                            >
+                              <EllipsisVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
                         </TooltipTrigger>
                         <TooltipContent>More actions</TooltipContent>
                       </Tooltip>
 
-                      {overflowAgentId === agent.id ? (
-                        <div className="absolute right-0 top-9 z-30 min-w-[180px] rounded-md border-2 border-border bg-card p-1.5 text-foreground shadow-xl">
-                          {!isStopped ? (
-                            <button
-                              data-agent-control="true"
-                              className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
-                              onClick={() => {
-                                setOverflowAgentId(null);
-                                void stopAgent(agent);
-                              }}
-                            >
-                              Stop session
-                            </button>
-                          ) : null}
-                          <button
+                      <DropdownMenuContent align="end">
+                        {!isStopped ? (
+                          <DropdownMenuItem
                             data-agent-control="true"
-                            className="w-full rounded-sm border border-transparent px-2 py-1.5 text-left text-sm text-red-300 hover:border-border hover:bg-muted/70"
                             onClick={() => {
                               setOverflowAgentId(null);
-                              setDeleteTarget(agent);
-                              setDeleteConfirmOpen(true);
+                              void stopAgent(agent);
                             }}
                           >
-                            Delete agent
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
+                            Stop session
+                          </DropdownMenuItem>
+                        ) : null}
+                        <DropdownMenuItem
+                          data-agent-control="true"
+                          onClick={() => {
+                            setOverflowAgentId(null);
+                            setDeleteTarget(agent);
+                            setDeleteConfirmOpen(true);
+                          }}
+                        >
+                          Delete agent
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
                   {agent.latestEvent ? (
@@ -431,11 +433,11 @@ export function AgentSidebarContent({
           )}
         </TooltipProvider>
       </div>
-      <div className="border-t border-border px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="space-y-8 border-t border-border px-3 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] md:space-y-6 md:py-6 md:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <button
           onClick={onOpenDocs}
           data-testid="docs-button"
-          className="flex w-full items-center gap-2 pt-4 text-sm text-muted-foreground transition-colors hover:text-foreground md:pt-2.5 md:text-xs"
+          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
         >
           <BookOpenText className="h-4 w-4 md:h-3.5 md:w-3.5" />
           Docs
@@ -443,7 +445,7 @@ export function AgentSidebarContent({
         <button
           onClick={onOpenSettings}
           data-testid="settings-button"
-          className="flex w-full items-center gap-2 py-4 text-sm text-muted-foreground transition-colors hover:text-foreground md:py-2.5 md:text-xs"
+          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
         >
           <Settings className="h-4 w-4 md:h-3.5 md:w-3.5" />
           Settings
