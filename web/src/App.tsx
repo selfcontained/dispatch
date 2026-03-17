@@ -1465,29 +1465,31 @@ export function App(): JSX.Element {
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        <div className="hidden shrink-0 md:block">
-          <AgentSidebar
-            leftOpen={leftOpen}
-            agents={agents}
-            selectedAgentId={selectedAgentId}
-            overflowAgentId={overflowAgentId}
-            setLeftOpen={setLeftOpen}
-            onOpenCreateDialog={openCreateDialog}
-            onOpenDocs={() => setDocsPaneOpen(true)}
-            onOpenSettings={() => setSettingsPaneOpen(true)}
-            setOverflowAgentId={setOverflowAgentId}
-            setDeleteTarget={setDeleteTarget}
-            setDeleteConfirmOpen={setDeleteConfirmOpen}
-            agentVisualState={agentVisualState}
-            borderForAgentState={borderForAgentState}
-            toggleAgentDetails={toggleAgentDetails}
-            isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={detachTerminal}
-            attachToAgent={attachToAgent}
-            stopAgent={stopAgent}
-            startAgent={startAgent}
-          />
-        </div>
+        {!isMobile ? (
+          <div className="shrink-0">
+            <AgentSidebar
+              leftOpen={leftOpen}
+              agents={agents}
+              selectedAgentId={selectedAgentId}
+              overflowAgentId={overflowAgentId}
+              setLeftOpen={setLeftOpen}
+              onOpenCreateDialog={openCreateDialog}
+              onOpenDocs={() => setDocsPaneOpen(true)}
+              onOpenSettings={() => setSettingsPaneOpen(true)}
+              setOverflowAgentId={setOverflowAgentId}
+              setDeleteTarget={setDeleteTarget}
+              setDeleteConfirmOpen={setDeleteConfirmOpen}
+              agentVisualState={agentVisualState}
+              borderForAgentState={borderForAgentState}
+              toggleAgentDetails={toggleAgentDetails}
+              isFullAccessEnabled={isFullAccessEnabled}
+              detachTerminal={detachTerminal}
+              attachToAgent={attachToAgent}
+              stopAgent={stopAgent}
+              startAgent={startAgent}
+            />
+          </div>
+        ) : null}
 
         <main
           className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
