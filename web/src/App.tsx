@@ -1281,9 +1281,12 @@ export function App(): JSX.Element {
   }, [markMediaSeen, mediaFiles, mediaPanelOpen, selectedAgentId]);
 
   useEffect(() => {
+    // Close the overflow menu when the user clicks outside of it.
+    // Radix DropdownMenu handles portal-rendered content internally,
+    // so we only need to clear our synced state on outside clicks.
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement;
-      if (!target.closest("[data-overflow-root='true']")) {
+      if (!target.closest("[data-radix-popper-content-wrapper]") && !target.closest("[data-agent-control='true']")) {
         setOverflowAgentId(null);
       }
     };
