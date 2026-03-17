@@ -1,5 +1,4 @@
 import "dotenv/config";
-import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +21,6 @@ export type AppConfig = {
   claudeBin: string;
   opencodeBin: string;
   agentRuntime: "tmux" | "inert";
-  cookieSecret: string;
   tls: TlsConfig | null;
 };
 
@@ -68,7 +66,6 @@ export function loadConfig(): AppConfig {
       process.env.OPENCODE_BIN ??
       "opencode",
     agentRuntime: process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert",
-    cookieSecret: process.env.COOKIE_SECRET ?? crypto.randomUUID(),
     tls: loadTls(),
   };
 }

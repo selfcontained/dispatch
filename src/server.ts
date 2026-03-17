@@ -24,7 +24,8 @@ import {
   validateSession,
   deleteSession,
   changePassword,
-  cleanExpiredSessions
+  cleanExpiredSessions,
+  getOrCreateCookieSecret
 } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
@@ -532,7 +533,8 @@ const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
 
 async function registerRoutes() {
-  await app.register(fastifyCookie, { secret: config.cookieSecret });
+  const cookieSecret = await getOrCreateCookieSecret(pool);
+  await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
