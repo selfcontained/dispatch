@@ -155,7 +155,7 @@ cmd_up() {
     fi
 
     DEV_CONTAINER_SUFFIX="$SUFFIX"
-    DEV_DB_PORT="$(find_free_port)"
+    DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
     DEV_COMPOSE_PROJECT="dispatch-dev-${SUFFIX}"
 
     echo "Starting database on port ${DEV_DB_PORT}..."
@@ -167,7 +167,7 @@ cmd_up() {
   fi
 
   # --- API Server ---
-  DEV_API_PORT="$(find_free_port)"
+  DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
 
   # Build environment
   (
@@ -219,7 +219,7 @@ cmd_up() {
   done
 
   # --- Vite Frontend ---
-  DEV_VITE_PORT="$(find_free_port)"
+  DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
 
   (
     cd "$cwd"
@@ -446,11 +446,15 @@ case "$CMD" in
   up)       cmd_up ;;
   down)     cmd_down ;;
   restart)
-    # Restore flags from previous state if not explicitly set
+    # Restore flags and ports from previous state if not explicitly set
     if load_state 2>/dev/null; then
       [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
       [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
       [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
+      # Preserve ports so restart reuses them
+      RESTART_DB_PORT="${DEV_DB_PORT:-}"
+      RESTART_API_PORT="${DEV_API_PORT:-}"
+      RESTART_VITE_PORT="${DEV_VITE_PORT:-}"
     fi
     cmd_down 2>/dev/null || true
     cmd_up
