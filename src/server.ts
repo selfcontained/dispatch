@@ -5,6 +5,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 
+import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
@@ -15,6 +16,16 @@ import pty from "node-pty";
 
 import { AgentError, AgentManager } from "./agents/manager.js";
 import type { AgentGitContext, AgentRecord } from "./agents/manager.js";
+import {
+  isPasswordSet,
+  setPassword,
+  verifyPassword,
+  createSession,
+  validateSession,
+  deleteSession,
+  changePassword,
+  cleanExpiredSessions
+} from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
@@ -503,7 +514,25 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
   }
 }
 
+// In-memory cache: null = unknown, true/false = password set/not-set.
+let passwordSetCache: boolean | null = null;
+
+async function isPasswordSetCached(): Promise<boolean> {
+  if (passwordSetCache === null) {
+    passwordSetCache = await isPasswordSet(pool);
+  }
+  return passwordSetCache;
+}
+
+function invalidatePasswordSetCache(): void {
+  passwordSetCache = null;
+}
+
+const SESSION_COOKIE = "dispatch_session";
+const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
+
 async function registerRoutes() {
+  await app.register(fastifyCookie, { secret: config.cookieSecret });
   await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
@@ -511,6 +540,144 @@ async function registerRoutes() {
     root: staticDir,
     prefix: "/"
   });
+
+  // ---------------------------------------------------------------------------
+  // Auth hook — runs before every /api/ route except auth + health endpoints
+  // ---------------------------------------------------------------------------
+  app.addHook("onRequest", async (request, reply) => {
+    const url = request.url.split("?")[0];
+
+    // Static files, auth endpoints, health check, and WebSocket endpoints are always open.
+    // (WebSocket terminal uses its own short-lived token for auth.)
+    if (!url.startsWith("/api/")) return;
+    if (url.startsWith("/api/v1/auth/")) return;
+    if (url === "/api/v1/health") return;
+    if (url.endsWith("/terminal/ws")) return;
+
+    // If no password is set, all routes are open (first-run mode).
+    if (!(await isPasswordSetCached())) return;
+
+    // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      if (token === config.authToken) {
+        return;
+      }
+    }
+
+    // Session cookie
+    const signed = request.cookies[SESSION_COOKIE];
+    if (signed) {
+      const unsigned = request.unsignCookie(signed);
+      if (unsigned.valid && unsigned.value && await validateSession(pool, unsigned.value)) {
+        return;
+      }
+    }
+
+    return reply.code(401).send({ error: "Authentication required." });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auth routes
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/v1/auth/status", async (request) => {
+    const hasPassword = await isPasswordSetCached();
+    let authenticated = false;
+    if (hasPassword) {
+      const signed = request.cookies[SESSION_COOKIE];
+      if (signed) {
+        const unsigned = request.unsignCookie(signed);
+        if (unsigned.valid && unsigned.value) {
+          authenticated = await validateSession(pool, unsigned.value);
+        }
+      }
+    } else {
+      // No password set — everyone is considered authenticated.
+      authenticated = true;
+    }
+    return { passwordSet: hasPassword, authenticated };
+  });
+
+  app.post("/api/v1/auth/setup", async (request, reply) => {
+    if (await isPasswordSetCached()) {
+      return reply.code(400).send({ error: "Password is already set." });
+    }
+    const body = request.body as { password?: string } | null;
+    const password = body?.password;
+    if (!password || typeof password !== "string" || password.length < 4) {
+      return reply.code(400).send({ error: "Password must be at least 4 characters." });
+    }
+    await setPassword(pool, password);
+    invalidatePasswordSetCache();
+    const token = await createSession(pool);
+    reply.setCookie(SESSION_COOKIE, token, {
+      path: "/",
+      httpOnly: true,
+      signed: true,
+      sameSite: "lax",
+      secure: config.tls !== null,
+      maxAge: SESSION_MAX_AGE_S
+    });
+    return { ok: true };
+  });
+
+  app.post("/api/v1/auth/login", async (request, reply) => {
+    const body = request.body as { password?: string } | null;
+    const password = body?.password;
+    if (!password || typeof password !== "string") {
+      return reply.code(400).send({ error: "Password is required." });
+    }
+    if (!(await verifyPassword(pool, password))) {
+      return reply.code(401).send({ error: "Invalid password." });
+    }
+    const token = await createSession(pool);
+    reply.setCookie(SESSION_COOKIE, token, {
+      path: "/",
+      httpOnly: true,
+      signed: true,
+      sameSite: "lax",
+      secure: config.tls !== null,
+      maxAge: SESSION_MAX_AGE_S
+    });
+    return { ok: true };
+  });
+
+  app.post("/api/v1/auth/logout", async (request, reply) => {
+    const signed = request.cookies[SESSION_COOKIE];
+    if (signed) {
+      const unsigned = request.unsignCookie(signed);
+      if (unsigned.valid && unsigned.value) {
+        await deleteSession(pool, unsigned.value);
+      }
+    }
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true };
+  });
+
+  app.post("/api/v1/auth/change-password", async (request, reply) => {
+    // Requires valid session (enforced by hook).
+    const body = request.body as { currentPassword?: string; newPassword?: string } | null;
+    const currentPassword = body?.currentPassword;
+    const newPassword = body?.newPassword;
+    if (!currentPassword || !newPassword || typeof currentPassword !== "string" || typeof newPassword !== "string") {
+      return reply.code(400).send({ error: "currentPassword and newPassword are required." });
+    }
+    if (newPassword.length < 4) {
+      return reply.code(400).send({ error: "New password must be at least 4 characters." });
+    }
+    const changed = await changePassword(pool, currentPassword, newPassword);
+    if (!changed) {
+      return reply.code(401).send({ error: "Current password is incorrect." });
+    }
+    invalidatePasswordSetCache();
+    return { ok: true };
+  });
+
+  // ---------------------------------------------------------------------------
+  // MCP routes
+  // ---------------------------------------------------------------------------
 
   app.post("/api/mcp", async (request, reply) => {
     reply.hijack();
@@ -1412,6 +1579,7 @@ async function start() {
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
   startAgentStatusReconcileLoop();
+  startSessionCleanupTimer();
   await registerRoutes();
 
   const protocol = config.tls ? "https" : "http";
@@ -1581,6 +1749,21 @@ function stopAgentStatusReconcileLoop(): void {
   }
   clearInterval(agentStatusReconcileTimer);
   agentStatusReconcileTimer = null;
+}
+
+let sessionCleanupTimer: NodeJS.Timeout | null = null;
+
+function startSessionCleanupTimer(): void {
+  if (sessionCleanupTimer) return;
+  sessionCleanupTimer = setInterval(() => {
+    void cleanExpiredSessions(pool).catch(() => null);
+  }, 60 * 60 * 1000); // every hour
+}
+
+function stopSessionCleanupTimer(): void {
+  if (!sessionCleanupTimer) return;
+  clearInterval(sessionCleanupTimer);
+  sessionCleanupTimer = null;
 }
 
 async function runAgentStatusReconciliation(): Promise<void> {
@@ -1983,6 +2166,7 @@ async function shutdown(code: number): Promise<void> {
   streamManager.stopAll();
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();
+  stopSessionCleanupTimer();
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);

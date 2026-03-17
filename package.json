@@ -23,10 +23,12 @@
     "test:e2e": "bash scripts/e2e-isolated.sh"
   },
   "dependencies": {
+    "@fastify/cookie": "^9.4.0",
     "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^6.12.0",
     "@fastify/websocket": "^8.3.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.3.1",
     "fastify": "^4.29.1",
     "node-pty": "^1.0.0",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",

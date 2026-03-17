@@ -7,17 +7,18 @@ test.describe("Agent CRUD", () => {
   });
 
   test("displays 'No agents yet' when the list is empty", async ({ page, request }) => {
+    const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
     // Stop and delete only e2e-prefixed agents (never touch real agents)
-    const listRes = await request.get("/api/v1/agents");
+    const listRes = await request.get("/api/v1/agents", { headers: authHeader });
     const { agents } = (await listRes.json()) as { agents: Array<{ id: string; name: string; status: string }> };
     const e2eAgents = agents.filter((a) => a.name.startsWith("e2e-agent-"));
     for (const agent of e2eAgents) {
       if (agent.status !== "stopped") {
-        await request.post(`/api/v1/agents/${agent.id}/stop`);
+        await request.post(`/api/v1/agents/${agent.id}/stop`, { headers: authHeader });
       }
     }
     for (const agent of e2eAgents) {
-      await request.delete(`/api/v1/agents/${agent.id}`);
+      await request.delete(`/api/v1/agents/${agent.id}`, { headers: authHeader });
     }
 
     // Skip empty-state assertion if non-e2e agents remain
