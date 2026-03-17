@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { DocsPane } from "@/components/app/docs-pane";
+import { LoginPage } from "@/components/app/login-page";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
@@ -17,6 +18,7 @@ import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type Agent,
   type AgentVisualState,
+  type AuthState,
   type ConnState,
   type MediaFile,
   type ServiceState
@@ -160,6 +162,7 @@ function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): bo
 }
 
 export function App(): JSX.Element {
+  const [authState, setAuthState] = useState<AuthState>("loading");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [restoreShellAgentId, setRestoreShellAgentId] = useState<string | null>(() => readActiveShellAgentId());
@@ -284,12 +287,18 @@ export function App(): JSX.Element {
   const api = useCallback(async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const hasBody = init?.body !== undefined && init?.body !== null;
     const res = await fetch(path, {
+      credentials: "include",
       headers: {
         ...(hasBody ? { "content-type": "application/json" } : {}),
         ...(init?.headers ?? {})
       },
       ...init
     });
+
+    if (res.status === 401) {
+      setAuthState("needs-login");
+      throw new Error("Authentication required.");
+    }
 
     if (!res.ok) {
       let message = `${res.status} ${res.statusText}`;
@@ -918,7 +927,7 @@ export function App(): JSX.Element {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sendResize]);
+  }, [authState, sendResize]);
 
   useEffect(() => {
     const query = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
@@ -932,11 +941,34 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     void (async () => {
+      try {
+        const res = await fetch("/api/v1/auth/status", { credentials: "include" });
+        if (!res.ok) {
+          setAuthState("needs-login");
+          return;
+        }
+        const data = (await res.json()) as { passwordSet: boolean; authenticated: boolean };
+        if (data.passwordSet && !data.authenticated) {
+          setAuthState("needs-login");
+        } else {
+          // No password set = open access; or already authenticated.
+          setAuthState("authenticated");
+        }
+      } catch {
+        // Server unreachable — let the main app render so health polling shows the issue.
+        setAuthState("authenticated");
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+    void (async () => {
       await Promise.all([pollHealth(), refreshAgents()]);
       setAgentsLoaded(true);
       setStatusMessage("Select an agent to open a session.");
     })();
-  }, [pollHealth, refreshAgents]);
+  }, [authState, pollHealth, refreshAgents]);
 
   // Energy metrics tracker — persists to localStorage and beacons to backend
   useEffect(() => {
@@ -1086,7 +1118,7 @@ export function App(): JSX.Element {
 
     const openSSE = () => {
       if (eventSourceRef.current) return;
-      const source = new EventSource("/api/v1/events");
+      const source = new EventSource("/api/v1/events", { withCredentials: true });
       eventSourceRef.current = source;
       source.onmessage = handleSSEMessage;
       source.onerror = () => {
@@ -1101,13 +1133,13 @@ export function App(): JSX.Element {
       }
     };
 
-    // Only connect when visible
-    if (!document.hidden) {
+    // Only connect when visible and authenticated
+    if (!document.hidden && authState === "authenticated") {
       openSSE();
     }
 
     const onVisChange = () => {
-      if (document.hidden) {
+      if (document.hidden || authState !== "authenticated") {
         closeSSE();
       } else {
         openSSE();
@@ -1120,7 +1152,7 @@ export function App(): JSX.Element {
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [refreshMedia]);
+  }, [authState, refreshMedia]);
 
   useEffect(() => {
     setSelectedAgentId((current) => {
@@ -1409,6 +1441,24 @@ export function App(): JSX.Element {
     return "bg-amber-500";
   };
 
+  const handleAuthenticated = useCallback(() => setAuthState("authenticated"), []);
+  const handleLogout = useCallback(async () => {
+    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+    setAuthState("needs-login");
+  }, []);
+
+  if (authState === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        <span className="text-sm">Loading...</span>
+      </div>
+    );
+  }
+
+  if (authState === "needs-login") {
+    return <LoginPage onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
@@ -1593,7 +1643,7 @@ export function App(): JSX.Element {
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
-      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} />
+      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} onLogout={handleLogout} />
 
       <MediaLightbox
         lightboxSrc={lightboxSrc}

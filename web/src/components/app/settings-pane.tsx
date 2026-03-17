@@ -1,22 +1,25 @@
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronRight, ArrowLeft, ArrowDownToLine, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, ArrowDownToLine, Shield, X } from "lucide-react";
 
 import { ReleaseManager } from "@/components/app/release-manager";
+import { SecuritySettings } from "@/components/app/security-settings";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release";
+type SettingsSection = "release" | "security";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
-  { id: "release", label: "Updates", icon: ArrowDownToLine }
+  { id: "release", label: "Updates", icon: ArrowDownToLine },
+  { id: "security", label: "Security", icon: Shield }
 ];
 
 type SettingsPaneProps = {
   open: boolean;
   onClose: () => void;
+  onLogout: () => void;
 };
 
-export function SettingsPane({ open, onClose }: SettingsPaneProps): JSX.Element {
+export function SettingsPane({ open, onClose, onLogout }: SettingsPaneProps): JSX.Element {
   const [activeSection, setActiveSection] = useState<SettingsSection | null>("release");
 
   return (
@@ -99,6 +102,7 @@ export function SettingsPane({ open, onClose }: SettingsPaneProps): JSX.Element 
             {/* Content */}
             <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
               {activeSection === "release" && <ReleaseManager />}
+              {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
             </div>
           </div>
         </DialogPrimitive.Content>

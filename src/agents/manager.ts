@@ -812,7 +812,10 @@ export class AgentManager {
         mcpServers: {
           dispatch: {
             type: "http",
-            url: dispatchMcpUrl
+            url: dispatchMcpUrl,
+            headers: {
+              Authorization: `Bearer ${this.config.authToken}`
+            }
           }
         }
       }));
@@ -840,7 +843,9 @@ export class AgentManager {
     // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
     const codexMcpFlags = [
       "-c",
-      this.shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`)
+      this.shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`),
+      "-c",
+      this.shellEscape(`mcp_servers.dispatch.headers.Authorization=${JSON.stringify(`Bearer ${this.config.authToken}`)}`)
     ].join(" ");
     if (args.length === 0) {
       return `${envPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;

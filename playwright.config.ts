@@ -28,6 +28,9 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    extraHTTPHeaders: {
+      Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+    },
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD

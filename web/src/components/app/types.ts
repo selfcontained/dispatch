@@ -42,3 +42,4 @@ export type MediaFile = {
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";
 export type AgentVisualState = "stopped" | "idle" | "active";
+export type AuthState = "loading" | "needs-login" | "authenticated";
