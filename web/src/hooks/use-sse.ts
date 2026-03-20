@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Agent, type AuthState } from "@/components/app/types";
-import { sortAgentsByCreatedAtDesc } from "@/hooks/use-agents";
+import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 
 type UiEvent =

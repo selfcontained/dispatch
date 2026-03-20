@@ -164,7 +164,6 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     lightboxSrc,
     lightboxCaption,
     setLightboxSrc,
-    setLightboxCaption,
     openLightbox,
     mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
     refreshMedia,

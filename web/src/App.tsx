@@ -153,7 +153,6 @@ export function App(): JSX.Element {
     lightboxSrc,
     lightboxCaption,
     setLightboxSrc,
-    setLightboxCaption,
     openLightbox,
     mediaViewportRef,
     refreshMedia,
@@ -170,7 +169,18 @@ export function App(): JSX.Element {
     [setSelectedAgentId]
   );
 
-  const terminal = useTerminal({
+  const {
+    connState,
+    connectedAgentId,
+    terminalMode,
+    terminalPlaceholderMessage,
+    statusMessage,
+    terminalHostRef,
+    ctrlPendingRef,
+    ensureTerminalConnected,
+    detachTerminal,
+    sendTerminalInput,
+  } = useTerminal({
     authState,
     agents,
     agentsLoaded,
@@ -184,20 +194,20 @@ export function App(): JSX.Element {
 
   // Sync terminal's connectedAgentId/connState into shared state for useAgents.
   useEffect(() => {
-    setSharedConnectedAgentId(terminal.connectedAgentId);
-  }, [terminal.connectedAgentId]);
+    setSharedConnectedAgentId(connectedAgentId);
+  }, [connectedAgentId]);
 
   useEffect(() => {
-    setSharedConnState(terminal.connState);
-  }, [terminal.connState]);
+    setSharedConnState(connState);
+  }, [connState]);
 
   // Re-sort agents when connected agent changes.
   useEffect(() => {
     resortAgents();
-  }, [terminal.connectedAgentId, resortAgents]);
+  }, [connectedAgentId, resortAgents]);
 
   const connectedAgentIdRef = useRef<string | null>(null);
-  connectedAgentIdRef.current = terminal.connectedAgentId;
+  connectedAgentIdRef.current = connectedAgentId;
 
   // ── SSE ───────────────────────────────────────────────────────────────
   useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, setSeenMediaKeys);
@@ -244,30 +254,24 @@ export function App(): JSX.Element {
     return () => { cancelled = true; };
   }, [createCwdInitialized]);
 
-  // ── Initial data load ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (authState !== "authenticated") return;
-    terminal.ensureTerminalConnected;
-  }, [authState, terminal.ensureTerminalConnected]);
-
   // ── Derived values ────────────────────────────────────────────────────
-  const isAttached = terminal.connState === "connected" && Boolean(terminal.connectedAgentId);
+  const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
-  const showHeaderStatus = terminal.connState !== "disconnected";
+  const showHeaderStatus = connState !== "disconnected";
 
   const statusText = useMemo(() => {
-    if (terminal.connState === "reconnecting") {
+    if (connState === "reconnecting") {
       if (connectedAgent) return `Reconnecting to session ${connectedAgent.name}...`;
       return "Reconnecting session...";
     }
-    if (terminal.connState === "connected" && connectedAgent) {
+    if (connState === "connected" && connectedAgent) {
       if (connectedAgent.latestEvent?.message) return connectedAgent.latestEvent.message;
       return `Connected to session ${connectedAgent.name}`;
     }
     if (apiState === "down") return "Unable to reach API service.";
     if (selectedAgent) return `Ready to attach to session ${selectedAgent.name}`;
     return "Select an agent to open a session.";
-  }, [apiState, connectedAgent, terminal.connState, selectedAgent]);
+  }, [apiState, connectedAgent, connState, selectedAgent]);
 
   // ── Agent action callbacks ────────────────────────────────────────────
   const resolveCreateDefaultCwd = useCallback((): string => {
@@ -296,9 +300,9 @@ export function App(): JSX.Element {
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
       refreshMedia(agent.id);
-      await terminal.ensureTerminalConnected(true, true, agent.id);
+      await ensureTerminalConnected(true, true, agent.id);
     },
-    [terminal.ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const startAgent = useCallback(
@@ -309,22 +313,22 @@ export function App(): JSX.Element {
         body: JSON.stringify({}),
       });
       refreshMedia(agent.id);
-      await terminal.ensureTerminalConnected(true, true, agent.id);
+      await ensureTerminalConnected(true, true, agent.id);
     },
-    [terminal.ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
-      if (terminal.connectedAgentId === agent.id) {
-        terminal.detachTerminal();
+      if (connectedAgentId === agent.id) {
+        detachTerminal();
       }
       await api(`/api/v1/agents/${agent.id}/stop`, {
         method: "POST",
         body: JSON.stringify({ force: true }),
       });
     },
-    [terminal.connectedAgentId, terminal.detachTerminal]
+    [connectedAgentId, detachTerminal]
   );
 
   const deleteAgent = useCallback(
@@ -365,12 +369,12 @@ export function App(): JSX.Element {
         setCwdHistory(addToCwdHistory(payload.agent.cwd));
         setSelectedAgentId(payload.agent.id);
         refreshMedia(payload.agent.id);
-        await terminal.ensureTerminalConnected(true, true, payload.agent.id);
+        await ensureTerminalConnected(true, true, payload.agent.id);
       } finally {
         setCreating(false);
       }
     },
-    [createCwd, createFullAccess, createName, createType, terminal.ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [createCwd, createFullAccess, createName, createType, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const attachSelectedAgent = useCallback(() => {
@@ -424,7 +428,7 @@ export function App(): JSX.Element {
               borderForAgentState={borderForAgentState}
               toggleAgentDetails={toggleAgentDetails}
               isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={terminal.detachTerminal}
+              detachTerminal={detachTerminal}
               attachToAgent={attachToAgent}
               stopAgent={stopAgent}
               startAgent={startAgent}
@@ -447,30 +451,30 @@ export function App(): JSX.Element {
               isMobile={isMobile}
               showHeaderStatus={showHeaderStatus}
               statusText={statusText}
-              showReconnectIndicator={terminal.connState === "reconnecting"}
+              showReconnectIndicator={connState === "reconnecting"}
               isAttached={isAttached}
               canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={handleSetLeftPanelOpen}
               setMediaOpen={handleSetMediaPanelOpen}
               attachSelectedAgent={attachSelectedAgent}
-              detachTerminal={terminal.detachTerminal}
+              detachTerminal={detachTerminal}
             />
 
             <TerminalPane
               isAttached={isAttached}
               hasSelectedAgent={Boolean(selectedAgentId)}
-              connState={terminal.connState}
-              statusMessage={terminal.statusMessage}
-              terminalMode={terminal.terminalMode}
-              terminalPlaceholderMessage={terminal.terminalPlaceholderMessage}
-              terminalHostRef={terminal.terminalHostRef}
+              connState={connState}
+              statusMessage={statusMessage}
+              terminalMode={terminalMode}
+              terminalPlaceholderMessage={terminalPlaceholderMessage}
+              terminalHostRef={terminalHostRef}
             />
 
-            {isMobile ? <MobileTerminalToolbar onSendInput={terminal.sendTerminalInput} ctrlPendingRef={terminal.ctrlPendingRef} /> : null}
+            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
             <StatusFooter
-              connState={terminal.connState}
+              connState={connState}
               apiState={apiState}
               dbState={dbState}
               serviceDotClass={serviceDotClass}
@@ -519,7 +523,7 @@ export function App(): JSX.Element {
             borderForAgentState={borderForAgentState}
             toggleAgentDetails={toggleAgentDetails}
             isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={terminal.detachTerminal}
+            detachTerminal={detachTerminal}
             attachToAgent={attachToAgent}
             stopAgent={stopAgent}
             startAgent={startAgent}
@@ -588,7 +592,7 @@ export function App(): JSX.Element {
       />
 
       <div className="sr-only" aria-live="polite">
-        {terminal.statusMessage}
+        {statusMessage}
       </div>
     </div>
   );
