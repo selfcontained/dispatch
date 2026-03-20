@@ -695,6 +695,12 @@ export class AgentManager {
     await runCommand("tmux", ["set-option", "-t", sessionName, "allow-passthrough", "on"], {
       allowedExitCodes: [0, 1]
     });
+    // Advertise synchronized output support so tmux wraps frame rendering
+    // in DEC 2026 sequences, reducing terminal flashing.  Set once per session
+    // start (not per WebSocket attach) to avoid unbounded array growth.
+    await runCommand("tmux", ["set-option", "-as", "terminal-features", "xterm-256color:sync"], {
+      allowedExitCodes: [0, 1]
+    });
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
