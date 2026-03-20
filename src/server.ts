@@ -1494,6 +1494,11 @@ async function registerRoutes() {
         await runCommand("tmux", ["set-option", "-t", tmuxSession, "mouse", "on"], {
           allowedExitCodes: [0]
         });
+        // Tell tmux the outer terminal (xterm.js) supports synchronized output
+        // so tmux wraps its own frame rendering in DEC 2026 sequences.
+        await runCommand("tmux", ["set-option", "-as", "terminal-features", "xterm-256color:sync"], {
+          allowedExitCodes: [0, 1]
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Terminal attach failed.";
         socket.send(JSON.stringify({ type: "error", message }));

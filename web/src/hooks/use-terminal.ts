@@ -302,7 +302,7 @@ export function useTerminal(args: {
       cursorBlink: true,
       fontFamily: "JetBrains Mono, Menlo, monospace",
       fontSize: 13,
-      scrollback: 5000,
+      scrollback: 1000,
       macOptionClickForcesSelection: true,
       screenReaderMode: isTouchDevice,
       theme: {
