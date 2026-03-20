@@ -87,6 +87,12 @@ export function useTerminal(args: {
   const reconnectAttemptsRef = useRef(0);
   const attachNonceRef = useRef(0);
 
+  // Ref for agents so ensureTerminalConnected doesn't get recreated on every
+  // SSE-driven agents array update (which would trigger the visibility/focus
+  // effect and cause spurious reconnect attempts that abort in-flight connects).
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
+
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
     const term = terminalRef.current;
@@ -126,7 +132,7 @@ export function useTerminal(args: {
       if (!shouldKeepAttachedRef.current || !resolvedAgentId) return;
 
       let agent: Agent | null = userInitiated
-        ? (agents.find((item) => item.id === resolvedAgentId) ?? null)
+        ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
         : null;
 
       if (!agent || agent.status !== "running") {
@@ -270,7 +276,7 @@ export function useTerminal(args: {
         scheduleReconnect("Session connection failed, retrying...");
       }
     },
-    [agents, clearReconnectTimer, closeSocket, selectedAgentId, sendResize]
+    [clearReconnectTimer, closeSocket, selectedAgentId, sendResize]
   );
 
   const detachTerminal = useCallback(() => {
