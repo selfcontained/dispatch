@@ -432,7 +432,7 @@ export function AgentSidebarContent({
           className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
         >
           <BookOpenText className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          Docs
+          Documentation
         </button>
         <button
           onClick={onOpenSettings}
