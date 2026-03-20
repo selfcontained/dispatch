@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useState } from "react";
+import { memo, type RefObject, useEffect, useState } from "react";
 import { Loader2, TerminalSquare } from "lucide-react";
 
 import { type ConnState } from "@/components/app/types";
@@ -14,7 +14,7 @@ type TerminalPaneProps = {
   terminalHostRef: RefObject<HTMLDivElement>;
 };
 
-export function TerminalPane({
+export const TerminalPane = memo(function TerminalPane({
   isAttached,
   hasSelectedAgent,
   connState,
@@ -85,4 +85,4 @@ export function TerminalPane({
       ) : null}
     </div>
   );
-}
+});
