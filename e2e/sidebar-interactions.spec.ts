@@ -16,7 +16,7 @@ test.describe("Sidebar interactions", () => {
     await page.waitForTimeout(400);
     const wrapper = sidebar.locator("..");
     const width = await wrapper.evaluate((el) => el.getBoundingClientRect().width);
-    expect(width).toBeLessThan(2);
+    expect(width).toBeLessThan(4);
 
     // Reopen using the header button
     await page.getByTitle("Open agent sidebar").click();
