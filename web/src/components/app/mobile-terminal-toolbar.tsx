@@ -38,7 +38,11 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
 
   const openInput = useCallback(() => {
     setInputOpen(true);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    // Double-rAF ensures the modal is rendered and laid out before focusing,
+    // which avoids iOS failing to open the keyboard on the first tap.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    });
   }, []);
 
   const submitInput = useCallback(() => {
@@ -183,17 +187,9 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
           <div className="flex-1 p-4">
             <textarea
               ref={inputRef}
-              className="h-full w-full resize-none rounded-lg border border-border bg-card p-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-full w-full resize-none rounded-lg border border-border bg-card p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Type command here..."
               autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submitInput();
-                }
-              }}
             />
           </div>
           <div className="flex gap-3 border-t border-border px-4 py-3">
