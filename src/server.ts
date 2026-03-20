@@ -541,7 +541,21 @@ async function registerRoutes() {
 
   await app.register(fastifyStatic, {
     root: staticDir,
-    prefix: "/"
+    prefix: "/",
+    setHeaders(res, filePath) {
+      // Never HTTP-cache the files the service worker & browser use to
+      // bootstrap an update check.  Hashed assets (JS/CSS with content-hash
+      // in the filename) are safe to cache indefinitely — a rebuild produces
+      // a new URL so stale entries are never served.
+      const base = path.basename(filePath);
+      if (
+        base === "index.html" ||
+        base === "sw.js" ||
+        base === "manifest.webmanifest"
+      ) {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      }
+    }
   });
 
   // ---------------------------------------------------------------------------
