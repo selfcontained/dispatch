@@ -690,6 +690,11 @@ export class AgentManager {
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
       allowedExitCodes: [0, 1]
     });
+    // Allow DCS passthrough so agent CLIs that wrap escape sequences
+    // (e.g. synchronized output) can reach the outer terminal directly.
+    await runCommand("tmux", ["set-option", "-t", sessionName, "allow-passthrough", "on"], {
+      allowedExitCodes: [0, 1]
+    });
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
