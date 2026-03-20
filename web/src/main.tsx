@@ -17,7 +17,17 @@ const queryClient = new QueryClient({
 });
 
 if (import.meta.env.PROD) {
-  registerSW({ immediate: true });
+  // Check for SW updates every 5 minutes so long-lived Safari tabs pick up
+  // new deployments without a manual refresh.
+  const intervalMS = 5 * 60 * 1000;
+  registerSW({
+    immediate: true,
+    onRegisteredSW(_swUrl, registration) {
+      if (registration) {
+        setInterval(() => { void registration.update(); }, intervalMS);
+      }
+    }
+  });
 } else if ("serviceWorker" in navigator) {
   void navigator.serviceWorker.getRegistrations().then((registrations) => {
     registrations.forEach((registration) => {
