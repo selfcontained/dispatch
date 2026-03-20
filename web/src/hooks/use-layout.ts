@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
 const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
@@ -78,7 +78,7 @@ export function useLayout() {
     [isMobile]
   );
 
-  return {
+  return useMemo(() => ({
     isMobile,
     leftOpen,
     mediaOpen,
@@ -92,5 +92,15 @@ export function useLayout() {
     setMobileMediaOpen,
     handleSetLeftPanelOpen,
     handleSetMediaPanelOpen,
-  };
+  }), [
+    isMobile,
+    leftOpen,
+    mediaOpen,
+    leftPanelOpen,
+    mediaPanelOpen,
+    mobileLeftOpen,
+    mobileMediaOpen,
+    handleSetLeftPanelOpen,
+    handleSetMediaPanelOpen,
+  ]);
 }

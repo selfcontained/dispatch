@@ -70,7 +70,7 @@ export function useAgents(
     [connState, connectedAgentId]
   );
 
-  return {
+  return useMemo(() => ({
     agents,
     agentsLoaded,
     selectedAgentId: validatedSelectedAgentId,
@@ -83,5 +83,15 @@ export function useAgents(
     setStreamingAgentIds,
     agentVisualState,
     resortAgents,
-  };
+  }), [
+    agents,
+    agentsLoaded,
+    validatedSelectedAgentId,
+    selectedAgent,
+    connectedAgent,
+    overflowAgentId,
+    streamingAgentIds,
+    agentVisualState,
+    resortAgents,
+  ]);
 }

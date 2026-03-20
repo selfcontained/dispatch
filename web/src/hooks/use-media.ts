@@ -155,7 +155,7 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     [queryClient, selectedAgentId]
   );
 
-  return {
+  return useMemo(() => ({
     mediaFiles,
     seenMediaKeys,
     setSeenMediaKeys,
@@ -167,5 +167,14 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     openLightbox,
     mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
     refreshMedia,
-  };
+  }), [
+    mediaFiles,
+    seenMediaKeys,
+    animatingMediaKeys,
+    unseenMediaCount,
+    lightboxSrc,
+    lightboxCaption,
+    openLightbox,
+    refreshMedia,
+  ]);
 }

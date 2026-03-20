@@ -1,4 +1,4 @@
-import { type MutableRefObject, type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type MutableRefObject, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
@@ -505,7 +505,7 @@ export function useTerminal(args: {
   }, [agents, agentsLoaded, ensureTerminalConnected, onAgentSelected, refreshMedia, restoreShellAgentId]);
 
 
-  return {
+  return useMemo(() => ({
     connState,
     connectedAgentId,
     terminalMode,
@@ -516,5 +516,14 @@ export function useTerminal(args: {
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
-  };
+  }), [
+    connState,
+    connectedAgentId,
+    terminalMode,
+    terminalPlaceholderMessage,
+    statusMessage,
+    ensureTerminalConnected,
+    detachTerminal,
+    sendTerminalInput,
+  ]);
 }
