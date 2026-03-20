@@ -226,8 +226,7 @@ export function AgentSidebarContent({
                         <TooltipTrigger asChild>
                           <Button
                             size="icon"
-                            variant="ghost"
-                            className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
+                            variant="ghost-primary"
                             data-agent-control="true"
                             onClick={() => {
                               if (closeOnSessionAction) {
@@ -248,8 +247,7 @@ export function AgentSidebarContent({
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
-                                variant="ghost"
-                                className="text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
+                                variant="ghost-info"
                                 data-agent-control="true"
                                 onClick={detachTerminal}
                               >
@@ -263,8 +261,7 @@ export function AgentSidebarContent({
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
-                                variant="ghost"
-                                className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
+                                variant="ghost-primary"
                                 data-agent-control="true"
                                 onClick={() => {
                                   if (closeOnSessionAction) {
@@ -284,8 +281,7 @@ export function AgentSidebarContent({
                           <TooltipTrigger asChild>
                             <Button
                               size="icon"
-                              variant="ghost"
-                              className="text-red-300 hover:bg-red-500/15 hover:text-red-200"
+                              variant="ghost-destructive"
                               data-agent-control="true"
                               onClick={() => void stopAgent(agent)}
                             >

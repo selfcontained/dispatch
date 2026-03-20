@@ -100,8 +100,7 @@ export function AppHeader({
         {isAttached ? (
           <Button
             size="sm"
-            variant="ghost"
-            className="text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
+            variant="ghost-info"
             onClick={detachTerminal}
             title="Detach from session"
             data-testid="detach-button"
@@ -112,8 +111,7 @@ export function AppHeader({
         ) : canAttachSelected ? (
           <Button
             size="sm"
-            variant="ghost"
-            className="text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200"
+            variant="ghost-primary"
             onClick={attachSelectedAgent}
             title="Attach to session"
             data-testid="attach-button"
