@@ -249,13 +249,14 @@ function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): 
 function streamProcess(
   command: string,
   args: string[],
-  options: { cwd?: string },
+  options: { cwd?: string; env?: Record<string, string> },
   job: ReleaseJob,
   onLine?: (line: string) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
+      env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"]
     });
 
@@ -488,7 +489,7 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
     // Watch the workflow
     setReleasePhase(job, "watching");
     try {
-      await streamProcess("gh", ["run", "watch", runId, "--repo", repo], {}, job);
+      await streamProcess("gh", ["run", "watch", runId, "--repo", repo], { env: { GH_FORCE_TTY: "120" } }, job);
     } catch {
       throw new Error(`GitHub Actions workflow failed. See ${runUrl}`);
     }
