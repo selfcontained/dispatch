@@ -1,17 +1,62 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronRight, ArrowLeft, ArrowDownToLine, Shield, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, ArrowDownToLine, RefreshCw, Shield, X } from "lucide-react";
 
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release" | "security";
+type SettingsSection = "release" | "security" | "app";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "release", label: "Updates", icon: ArrowDownToLine },
-  { id: "security", label: "Security", icon: Shield }
+  { id: "security", label: "Security", icon: Shield },
+  { id: "app", label: "App", icon: RefreshCw }
 ];
+
+function AppSettings(): JSX.Element {
+  const [reloading, setReloading] = useState(false);
+
+  const handleForceReload = useCallback(async () => {
+    setReloading(true);
+    try {
+      // Unregister all service workers and clear their caches
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((r) => r.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      window.location.reload();
+    } catch {
+      // If anything fails, just reload anyway
+      window.location.reload();
+    }
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Force reload
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          If the app feels stuck on an old version, this will clear all cached data and reload with the latest version.
+        </p>
+        <button
+          onClick={() => void handleForceReload()}
+          disabled={reloading}
+          className="inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
+          {reloading ? "Reloading…" : "Clear cache & reload"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type SettingsPaneProps = {
   open: boolean;
@@ -103,6 +148,7 @@ export function SettingsPane({ open, onClose, onLogout }: SettingsPaneProps): JS
             <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
               {activeSection === "release" && <ReleaseManager />}
               {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
+              {activeSection === "app" && <AppSettings />}
             </div>
           </div>
         </DialogPrimitive.Content>
