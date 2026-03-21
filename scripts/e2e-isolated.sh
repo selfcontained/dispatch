@@ -57,4 +57,4 @@ echo "==> Building web bundle"
 npm run build:web
 
 echo "==> Running Playwright tests (API port: ${API_PORT})"
-E2E_SKIP_WEB_BUILD=1 npx playwright test "$@"
+DISPATCH_AGENT_RUNTIME=inert E2E_SKIP_WEB_BUILD=1 npx playwright test "$@"

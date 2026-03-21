@@ -34,11 +34,7 @@ async function waitForTerminalConnected(page: Page, timeoutMs = 10_000): Promise
 }
 
 test.describe("Terminal live connection", () => {
-  test.beforeAll(() => {
-    if (!IS_LIVE) {
-      test.skip();
-    }
-  });
+  test.skip(!IS_LIVE, "Requires --live agent runtime");
 
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
