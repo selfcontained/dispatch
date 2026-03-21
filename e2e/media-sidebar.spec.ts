@@ -33,4 +33,40 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar).toContainText("2 items", { timeout: 10_000 });
     await expect(mediaSidebar.getByText("Second image")).toBeVisible();
   });
+
+  test("navigates between fullscreen media items", async ({ page, request }) => {
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-lightbox-${Date.now()}` });
+
+    await uploadMediaViaAPI(request, agent.id, "First image", "first-image.png");
+    await uploadMediaViaAPI(request, agent.id, "Second image", "second-image.png");
+
+    await loadApp(page);
+
+    await page.getByText(agent.name, { exact: true }).click();
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await expect(mediaSidebar).toContainText("2 items");
+
+    await mediaSidebar.getByRole("button", { name: "Second image" }).click();
+
+    const lightbox = page.getByTestId("media-lightbox");
+    await expect(lightbox).toBeVisible();
+    await expect(lightbox).toContainText("1 / 2");
+    await expect(lightbox).toContainText("Second image");
+
+    await page.getByTestId("media-lightbox-next").click();
+    await expect(lightbox).toContainText("2 / 2");
+    await expect(lightbox).toContainText("First image");
+
+    await page.getByTestId("media-lightbox-prev").click();
+    await expect(lightbox).toContainText("1 / 2");
+    await expect(lightbox).toContainText("Second image");
+
+    await page.keyboard.press("ArrowRight");
+    await expect(lightbox).toContainText("2 / 2");
+
+    await lightbox.getByRole("button", { name: "Close" }).click();
+    await expect(lightbox).toBeHidden();
+  });
 });
