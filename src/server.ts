@@ -1164,8 +1164,8 @@ async function registerRoutes() {
     }
 
     const fileName = data.filename;
-    if (!isImageFile(fileName)) {
-      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp." });
+    if (!isMediaFile(fileName)) {
+      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4." });
     }
 
     const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? "screenshot";
@@ -2145,8 +2145,8 @@ async function markSeenMediaKeys(agentId: string, keys: string[]): Promise<void>
   );
 }
 
-function isImageFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|gif|webp)$/i.test(name);
+function isMediaFile(name: string): boolean {
+  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name);
 }
 
 function mimeType(name: string): string {
@@ -2164,6 +2164,10 @@ function mimeType(name: string): string {
 
   if (/\.webp$/i.test(name)) {
     return "image/webp";
+  }
+
+  if (/\.mp4$/i.test(name)) {
+    return "video/mp4";
   }
 
   return "application/octet-stream";
@@ -2215,8 +2219,8 @@ async function mcpShareMedia(
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
-  if (!isImageFile(opts.filePath)) {
-    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp.");
+  if (!isMediaFile(opts.filePath)) {
+    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4.");
   }
 
   const validSources = ["screenshot", "stream", "simulator"];
@@ -2225,7 +2229,9 @@ async function mcpShareMedia(
   const buffer = await readFile(opts.filePath);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
   const baseName = opts.name ?? path.basename(opts.filePath);
-  const safeName = baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") || `shared-${timestamp}.png`;
+  const ext0 = path.extname(baseName).toLowerCase();
+  const fallbackExt = ext0 === ".mp4" ? ".mp4" : ".png";
+  const safeName = baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") || `shared-${timestamp}${fallbackExt}`;
   const ext = path.extname(safeName);
   const base = path.basename(safeName, ext);
   const fileName = `${base}-${timestamp}${ext}`;

@@ -64,8 +64,8 @@ if [[ ! -f "$SOURCE_PATH" ]]; then
 fi
 
 lower_name="$(basename "$SOURCE_PATH" | tr '[:upper:]' '[:lower:]')"
-if [[ ! "$lower_name" =~ \.(png|jpg|jpeg|gif|webp)$ ]]; then
-  echo "dispatch-share: unsupported file type. Use png/jpg/jpeg/gif/webp." >&2
+if [[ ! "$lower_name" =~ \.(png|jpg|jpeg|gif|webp|mp4)$ ]]; then
+  echo "dispatch-share: unsupported file type. Use png/jpg/jpeg/gif/webp/mp4." >&2
   exit 4
 fi
 

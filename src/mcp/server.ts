@@ -286,12 +286,12 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       "dispatch_share",
       {
         description:
-          "Upload an image file to Dispatch for sharing. Supports png, jpg, jpeg, gif, and webp. Use source 'simulator' with a simulator UDID to capture a screenshot directly from an iOS Simulator.",
+          "Upload a media file to Dispatch for sharing. Supports png, jpg, jpeg, gif, webp, and mp4. Use source 'simulator' with a simulator UDID to capture a screenshot directly from an iOS Simulator.",
         inputSchema: {
           filePath: z
             .string()
             .optional()
-            .describe("Absolute path to the image file to upload. Not required when source is 'simulator'."),
+            .describe("Absolute path to the media file to upload. Not required when source is 'simulator'."),
           description: z.string().describe("A short description of the shared media."),
           source: z
             .enum(["screenshot", "simulator"])

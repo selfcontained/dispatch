@@ -49,11 +49,20 @@ export function MediaLightbox({
         <Button onClick={() => setLightboxSrc(null)}>Close</Button>
       </div>
       <div className="grid min-h-0 place-items-center">
-        <img
-          src={lightboxSrc}
-          alt={lightboxCaption}
-          className="max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain"
-        />
+        {/\.mp4/i.test(lightboxSrc) ? (
+          <video
+            src={lightboxSrc}
+            controls
+            playsInline
+            className="max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain"
+          />
+        ) : (
+          <img
+            src={lightboxSrc}
+            alt={lightboxCaption}
+            className="max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain"
+          />
+        )}
       </div>
       <div className="text-center text-sm text-muted-foreground">{lightboxCaption}</div>
     </div>

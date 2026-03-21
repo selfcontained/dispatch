@@ -132,15 +132,24 @@ export function MediaSidebarContent({
                 ) : (
                   <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
                 )}
-                <button
-                  className={cn(
+                {/\.mp4$/i.test(file.name) ? (
+                  <div className={cn(
                     "block w-full overflow-hidden border-2 bg-black/60",
                     unseen ? "media-thumb-unseen" : "media-thumb-seen"
-                  )}
-                  onClick={() => openLightbox(cacheBustUrl, file.description || "")}
-                >
-                  <img src={cacheBustUrl} alt={file.description || ""} className="max-h-[260px] w-full object-contain" />
-                </button>
+                  )}>
+                    <video src={cacheBustUrl} controls muted playsInline preload="metadata" className="max-h-[260px] w-full object-contain" />
+                  </div>
+                ) : (
+                  <button
+                    className={cn(
+                      "block w-full overflow-hidden border-2 bg-black/60",
+                      unseen ? "media-thumb-unseen" : "media-thumb-seen"
+                    )}
+                    onClick={() => openLightbox(cacheBustUrl, file.description || "")}
+                  >
+                    <img src={cacheBustUrl} alt={file.description || ""} className="max-h-[260px] w-full object-contain" />
+                  </button>
+                )}
                 <div className="mt-2 text-xs text-muted-foreground">
                   {file.description ? <div>{file.description}</div> : null}
                   <div className={file.description ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
