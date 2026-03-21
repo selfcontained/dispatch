@@ -111,7 +111,7 @@ export async function runMigrations(): Promise<void> {
   }
 }
 
-const IMAGE_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp)$/i;
+const MEDIA_EXTENSIONS = /\.(png|jpg|jpeg|gif|webp|mp4)$/i;
 
 async function migrateExistingMedia(
   pool: import("pg").Pool,
@@ -132,7 +132,7 @@ async function migrateExistingMedia(
     }
 
     for (const entry of entries) {
-      if (!entry.isFile() || !IMAGE_EXTENSIONS.test(entry.name)) {
+      if (!entry.isFile() || !MEDIA_EXTENSIONS.test(entry.name)) {
         continue;
       }
 
