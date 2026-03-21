@@ -168,6 +168,8 @@ describe("AgentManager", () => {
       const wrappedCommand = newSessionCall![1][newSessionCall![1].length - 1];
       expect(wrappedCommand).toContain("mcp_servers.dispatch.url=");
       expect(wrappedCommand).toContain(`/api/mcp/${agent.id}`);
+      expect(wrappedCommand).toContain("mcp_servers.dispatch.bearer_token_env_var=");
+      expect(wrappedCommand).toContain("DISPATCH_AUTH_TOKEN=");
     });
 
     it("should inject an agent-scoped MCP URL into Claude launches", async () => {
