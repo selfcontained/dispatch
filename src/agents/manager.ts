@@ -817,6 +817,7 @@ export class AgentManager {
     const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
     const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
+    const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
 
     if (type === "claude") {
       const mcpConfig = this.shellEscape(JSON.stringify({
@@ -856,13 +857,14 @@ export class AgentManager {
       "-c",
       this.shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`),
       "-c",
-      this.shellEscape(`mcp_servers.dispatch.headers.Authorization=${JSON.stringify(`Bearer ${this.config.authToken}`)}`)
+      this.shellEscape(`mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`)
     ].join(" ");
+    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(this.config.authToken)}`;
     if (args.length === 0) {
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;
+      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;
     }
     const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-    return `${envPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(launchGuidance)}`;
+    return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(launchGuidance)}`;
   }
 
   private dispatchMcpUrl(agentId: string): string {
