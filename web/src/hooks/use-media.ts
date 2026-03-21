@@ -14,14 +14,23 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
 
-  const { data: mediaFiles = [] } = useQuery<MediaFile[]>({
+  const { data: mediaFiles = [], refetch: refetchMedia } = useQuery<MediaFile[]>({
     queryKey: ["media", selectedAgentId],
     queryFn: async () => {
       const payload = await api<{ files: MediaFile[] }>(`/api/v1/agents/${selectedAgentId}/media`);
       return payload.files ?? [];
     },
     enabled: !!selectedAgentId,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    if (!selectedAgentId || !mediaPanelOpen) return;
+    void refetchMedia();
+  }, [mediaPanelOpen, refetchMedia, selectedAgentId]);
 
   // Sync seenMediaKeys from fetched data.
   useEffect(() => {

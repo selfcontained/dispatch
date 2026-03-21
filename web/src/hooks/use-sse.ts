@@ -62,8 +62,8 @@ export function useSSE(
           return;
         }
 
-        if (payload.type === "media.changed" && payload.agentId === selectedAgentIdRef.current) {
-          void queryClient.invalidateQueries({ queryKey: ["media", payload.agentId] });
+        if (payload.type === "media.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["media", payload.agentId], exact: true });
           return;
         }
 

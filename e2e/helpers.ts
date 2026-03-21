@@ -38,6 +38,35 @@ export async function setAgentLatestEventViaAPI(
   });
 }
 
+export async function uploadMediaViaAPI(
+  request: APIRequestContext,
+  agentId: string,
+  description: string,
+  fileName = `media-${Date.now()}.png`
+): Promise<void> {
+  const pngBytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9VE3D7wAAAAASUVORK5CYII=",
+    "base64"
+  );
+
+  const res = await request.post(`${API}/agents/${agentId}/media`, {
+    headers: authHeaders(),
+    multipart: {
+      description,
+      source: "screenshot",
+      file: {
+        name: fileName,
+        mimeType: "image/png",
+        buffer: pngBytes,
+      },
+    },
+  });
+
+  if (!res.ok()) {
+    throw new Error(`Media upload failed with ${res.status()}`);
+  }
+}
+
 /**
  * Delete an agent via the REST API.
  */
