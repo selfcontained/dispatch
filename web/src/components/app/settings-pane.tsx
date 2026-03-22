@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronRight, ArrowLeft, ArrowDownToLine, RefreshCw, Shield, X } from "lucide-react";
+import { ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, RefreshCw, Shield, X } from "lucide-react";
 
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type SettingsSection = "release" | "security" | "app";
@@ -14,8 +15,37 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDo
   { id: "app", label: "App", icon: RefreshCw }
 ];
 
+type AppVersionInfo = {
+  releaseTag: string | null;
+  version: string | null;
+  gitSha: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+};
+
 function AppSettings(): JSX.Element {
   const [reloading, setReloading] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
+  const [versionError, setVersionError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void api<AppVersionInfo>("/api/v1/app/version")
+      .then((payload) => {
+        if (cancelled) return;
+        setVersionInfo(payload);
+        setVersionError(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVersionError(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleForceReload = useCallback(async () => {
     setReloading(true);
@@ -38,6 +68,64 @@ function AppSettings(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div data-testid="app-version-card">
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Current version
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Version information for the running app process.
+        </p>
+        <div className="grid gap-2 rounded border border-border p-3 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Release tag</span>
+            <span className="font-mono" data-testid="app-version-release-tag">
+              {versionInfo?.releaseTag ?? "unreleased"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Package version</span>
+            <span className="font-mono" data-testid="app-version-semver">
+              {versionInfo?.version ?? "unknown"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-muted-foreground">Git SHA</span>
+            <span className="font-mono" data-testid="app-version-git-sha">
+              {versionInfo?.gitSha ?? "unavailable"}
+            </span>
+          </div>
+        </div>
+        <div className="mt-4 rounded border border-border p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Release notes
+            </div>
+            {versionInfo?.releaseUrl ? (
+              <a
+                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"
+                href={versionInfo.releaseUrl}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <ExternalLink className="h-3 w-3" />
+                View on GitHub
+              </a>
+            ) : null}
+          </div>
+          <div
+            className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground"
+            data-testid="app-version-release-notes"
+          >
+            {versionInfo?.releaseNotes ?? "No release notes are stored for this build yet."}
+          </div>
+        </div>
+        {versionError ? (
+          <p className="mt-2 text-xs text-red-300">
+            Unable to load version metadata.
+          </p>
+        ) : null}
+      </div>
+
       <div>
         <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
           Force reload

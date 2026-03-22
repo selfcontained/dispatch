@@ -19,4 +19,16 @@ test.describe("Settings pane", () => {
     // The Updates nav item should no longer be visible (pane is closed)
     await expect(releaseNav).not.toBeVisible({ timeout: 3_000 });
   });
+
+  test("shows version metadata in the App section", async ({ page }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page.getByRole("navigation").getByText("App").click();
+
+    await expect(page.getByTestId("app-version-card")).toBeVisible();
+    await expect(page.getByTestId("app-version-semver")).not.toHaveText("");
+    await expect(page.getByTestId("app-version-git-sha")).not.toHaveText("");
+    await expect(page.getByTestId("app-version-release-notes")).not.toHaveText("");
+  });
 });
