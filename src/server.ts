@@ -161,12 +161,67 @@ let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const appRootDir = path.resolve(__dirname, "..");
+const releaseNotesFile = path.join(appRootDir, "release-notes", "current.md");
 const webDistDir = path.resolve(__dirname, "../web/dist");
 const legacyPublicDir = path.resolve(__dirname, "../public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 
 function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boolean } {
   return { ...agent, hasStream: streamManager.hasStream(agent.id) };
+}
+
+type GitHubReleaseMetadata = {
+  tag: string;
+  publishedAt: string;
+  url: string;
+  body?: string | null;
+};
+
+async function getAppVersionInfo(): Promise<{
+  releaseTag: string | null;
+  version: string | null;
+  gitSha: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+}> {
+  const record = await readReleaseStore().catch(() => null);
+
+  let version: string | null = null;
+  try {
+    const packageJson = JSON.parse(await readFile(path.join(appRootDir, "package.json"), "utf8")) as {
+      version?: unknown;
+    };
+    if (typeof packageJson.version === "string" && packageJson.version.trim()) {
+      version = packageJson.version.trim();
+    }
+  } catch {}
+
+  let gitSha: string | null = null;
+  try {
+    const gitResult = await runCommand(
+      "git",
+      ["-C", appRootDir, "rev-parse", "--short=12", "HEAD"],
+      { allowedExitCodes: [0, 128] }
+    );
+    if (gitResult.exitCode === 0) {
+      gitSha = gitResult.stdout.trim() || null;
+    }
+  } catch {}
+
+  const releaseTag = record?.tag ?? null;
+  const releaseNotes = await readFile(releaseNotesFile, "utf8")
+    .then((raw) => raw.trim() || null)
+    .catch(() => null);
+  const releaseUrl = releaseTag ? `https://github.com/${await getGitHubRepo()}/releases/tag/${releaseTag}` : null;
+
+  return {
+    releaseTag,
+    version,
+    gitSha,
+    releaseNotes,
+    releaseUrl
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -364,19 +419,33 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-async function fetchLatestReleaseMetadata(tag: string): Promise<{ tag: string; publishedAt: string; url: string } | null> {
+async function fetchReleaseMetadata(tag: string): Promise<GitHubReleaseMetadata | null> {
   try {
     const repo = await getGitHubRepo();
     const result = await runCommand("gh", [
       "release", "view", tag,
       "--repo", repo,
-      "--json", "tagName,publishedAt,url"
+      "--json", "tagName,publishedAt,url,body"
     ]);
-    const data = JSON.parse(result.stdout) as { tagName: string; publishedAt: string; url: string };
-    return { tag: data.tagName, publishedAt: data.publishedAt, url: data.url };
+    const data = JSON.parse(result.stdout) as {
+      tagName: string;
+      publishedAt: string;
+      url: string;
+      body?: string | null;
+    };
+    return {
+      tag: data.tagName,
+      publishedAt: data.publishedAt,
+      url: data.url,
+      body: typeof data.body === "string" ? data.body.trim() : null
+    };
   } catch {
     return null;
   }
+}
+
+async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMetadata | null> {
+  return fetchReleaseMetadata(tag);
 }
 
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
@@ -745,6 +814,10 @@ async function registerRoutes() {
   });
 
   // --- Release routes ---
+
+  app.get("/api/v1/app/version", async () => {
+    return getAppVersionInfo();
+  });
 
   app.get("/api/v1/release/status", async () => {
     const record = await readReleaseStore();
