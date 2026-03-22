@@ -150,9 +150,9 @@ export function App(): JSX.Element {
     setSeenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
-    lightboxSrc,
-    lightboxCaption,
-    setLightboxSrc,
+    lightboxIndex,
+    lightboxItem,
+    setLightboxIndex,
     openLightbox,
     mediaViewportRef,
     refreshMedia,
@@ -586,9 +586,10 @@ export function App(): JSX.Element {
       <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} onLogout={handleLogout} />
 
       <MediaLightbox
-        lightboxSrc={lightboxSrc}
-        lightboxCaption={lightboxCaption}
-        setLightboxSrc={setLightboxSrc}
+        item={lightboxItem}
+        currentIndex={lightboxIndex}
+        totalItems={mediaFiles.length}
+        setLightboxIndex={setLightboxIndex}
       />
 
       <div className="sr-only" aria-live="polite">

@@ -12,7 +12,7 @@ type MediaSidebarSharedProps = {
   animatingMediaKeys: Set<string>;
   seenMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
-  openLightbox: (src: string, caption: string) => void;
+  openLightbox: (file: MediaFile) => void;
   hasStream: boolean;
   streamUrl: string | null;
 };
@@ -145,7 +145,7 @@ export function MediaSidebarContent({
                       "block w-full overflow-hidden border-2 bg-black/60",
                       unseen ? "media-thumb-unseen" : "media-thumb-seen"
                     )}
-                    onClick={() => openLightbox(cacheBustUrl, file.description || "")}
+                    onClick={() => openLightbox(file)}
                   >
                     <img src={cacheBustUrl} alt={file.description || ""} className="max-h-[260px] w-full object-contain" />
                   </button>

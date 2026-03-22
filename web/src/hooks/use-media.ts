@@ -8,8 +8,7 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
 
   const [seenMediaKeys, setSeenMediaKeys] = useState<Set<string>>(new Set());
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(new Set());
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const [lightboxCaption, setLightboxCaption] = useState("");
+  const [lightboxMediaKey, setLightboxMediaKey] = useState<string | null>(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
@@ -49,6 +48,7 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
   useEffect(() => {
     setSeenMediaKeys(new Set());
     previousMediaKeysRef.current = new Set();
+    setLightboxMediaKey(null);
   }, [selectedAgentId]);
 
   // Clear media when no agent selected.
@@ -149,10 +149,42 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     return mediaFiles.filter((file) => !seenMediaKeys.has(`${file.name}:${file.updatedAt}`)).length;
   }, [mediaFiles, seenMediaKeys]);
 
-  const openLightbox = useCallback((src: string, caption: string) => {
-    setLightboxSrc(src);
-    setLightboxCaption(caption);
+  const openLightbox = useCallback((file: MediaFile) => {
+    setLightboxMediaKey(`${file.name}:${file.updatedAt}`);
   }, []);
+
+  const lightboxItems = useMemo(
+    () => mediaFiles.map((file) => ({
+      key: `${file.name}:${file.updatedAt}`,
+      src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
+      caption: file.description || "",
+      file,
+    })),
+    [mediaFiles]
+  );
+
+  const lightboxIndex = useMemo(() => {
+    if (!lightboxMediaKey) return -1;
+    return lightboxItems.findIndex((item) => item.key === lightboxMediaKey);
+  }, [lightboxItems, lightboxMediaKey]);
+
+  const lightboxItem = lightboxIndex >= 0 ? lightboxItems[lightboxIndex] : null;
+
+  const setLightboxIndex = useCallback(
+    (nextIndex: number | null) => {
+      if (nextIndex === null) {
+        setLightboxMediaKey(null);
+        return;
+      }
+
+      if (nextIndex < 0 || nextIndex >= lightboxItems.length) {
+        return;
+      }
+
+      setLightboxMediaKey(lightboxItems[nextIndex].key);
+    },
+    [lightboxItems]
+  );
 
   const refreshMedia = useCallback(
     (agentId?: string | null) => {
@@ -170,9 +202,9 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     setSeenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
-    lightboxSrc,
-    lightboxCaption,
-    setLightboxSrc,
+    lightboxIndex,
+    lightboxItem,
+    setLightboxIndex,
     openLightbox,
     mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
     refreshMedia,
@@ -181,8 +213,9 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     seenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
-    lightboxSrc,
-    lightboxCaption,
+    lightboxIndex,
+    lightboxItem,
+    setLightboxIndex,
     openLightbox,
     refreshMedia,
   ]);
