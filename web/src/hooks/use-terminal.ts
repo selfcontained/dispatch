@@ -107,6 +107,10 @@ export function useTerminal(args: {
     }
   }, []);
 
+  const invalidateAttachAttempt = useCallback(() => {
+    attachNonceRef.current += 1;
+  }, []);
+
   const closeSocket = useCallback((announce = true) => {
     if (wsRef.current) {
       try { wsRef.current.close(); } catch {}
@@ -130,6 +134,9 @@ export function useTerminal(args: {
 
       const resolvedAgentId = targetAgentId ?? selectedAgentId;
       if (!shouldKeepAttachedRef.current || !resolvedAgentId) return;
+      const attachNonce = ++attachNonceRef.current;
+      const isCurrentAttempt = () =>
+        shouldKeepAttachedRef.current && attachNonce === attachNonceRef.current;
 
       let agent: Agent | null = userInitiated
         ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
@@ -140,7 +147,7 @@ export function useTerminal(args: {
           const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
           agent = payload.agent;
         } catch {
-          if (!shouldKeepAttachedRef.current) return;
+          if (!isCurrentAttempt()) return;
           clearReconnectTimer();
           reconnectAttemptsRef.current += 1;
           recordWSReconnect();
@@ -156,6 +163,8 @@ export function useTerminal(args: {
         }
       }
 
+      if (!isCurrentAttempt()) return;
+
       if (agent.status !== "running") {
         setConnState("disconnected");
         return;
@@ -170,18 +179,18 @@ export function useTerminal(args: {
 
       clearReconnectTimer();
       closeSocket(false);
+      if (!isCurrentAttempt()) return;
 
       if (clearScreen) {
         terminalRef.current?.clear();
       }
 
       fitAddonRef.current?.fit();
-      const attachNonce = ++attachNonceRef.current;
       setConnState("reconnecting");
       setStatusMessage(`Connecting to session ${agent.name}...`);
 
       const scheduleReconnect = (message: string) => {
-        if (!shouldKeepAttachedRef.current || attachNonce !== attachNonceRef.current) {
+        if (!isCurrentAttempt()) {
           setConnState("disconnected");
           return;
         }
@@ -208,6 +217,10 @@ export function useTerminal(args: {
           { method: "POST", body: JSON.stringify({}) }
         );
 
+        if (!isCurrentAttempt()) {
+          return;
+        }
+
         if (terminalSession.mode === "inert") {
           reconnectAttemptsRef.current = 0;
           setConnState("connected");
@@ -230,6 +243,10 @@ export function useTerminal(args: {
         wsRef.current = ws;
 
         ws.addEventListener("open", () => {
+          if (wsRef.current !== ws || !isCurrentAttempt()) {
+            try { ws.close(); } catch {}
+            return;
+          }
           reconnectAttemptsRef.current = 0;
           setConnState("connected");
           setConnectedAgentId(agent.id);
@@ -238,6 +255,9 @@ export function useTerminal(args: {
         });
 
         ws.addEventListener("message", (event) => {
+          if (wsRef.current !== ws || !isCurrentAttempt()) {
+            return;
+          }
           const payload = JSON.parse(String(event.data)) as
             | { type: "output"; data: string }
             | { type: "error"; message: string }
@@ -261,7 +281,7 @@ export function useTerminal(args: {
         });
 
         ws.addEventListener("close", (event) => {
-          if (wsRef.current !== ws) return;
+          if (wsRef.current !== ws || !isCurrentAttempt()) return;
           wsRef.current = null;
 
           if (event.code === 1008 || event.code === 1011) {
@@ -281,13 +301,14 @@ export function useTerminal(args: {
 
   const detachTerminal = useCallback(() => {
     shouldKeepAttachedRef.current = false;
+    invalidateAttachAttempt();
     persistActiveShellAgentId(null);
     setRestoreShellAgentId(null);
     clearReconnectTimer();
     closeSocket(false);
     setConnState("disconnected");
     setStatusMessage("Detached from session.");
-  }, [clearReconnectTimer, closeSocket]);
+  }, [clearReconnectTimer, closeSocket, invalidateAttachAttempt]);
 
   const sendTerminalInput = useCallback((data: string) => {
     const ws = wsRef.current;
@@ -436,17 +457,20 @@ export function useTerminal(args: {
     window.addEventListener("resize", onResize);
 
     return () => {
+      invalidateAttachAttempt();
       disposable.dispose();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) screenEl.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("resize", onResize);
+      try { wsRef.current?.close(); } catch {}
+      wsRef.current = null;
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [authState, sendResize]);
+  }, [authState, invalidateAttachAttempt, sendResize]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {
