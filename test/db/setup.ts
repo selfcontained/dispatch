@@ -21,11 +21,13 @@ let testPool: Pool;
 export async function setupTestDb(): Promise<Pool> {
   testDbName = `dispatch_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   adminPool = new Pool({ connectionString: ADMIN_DATABASE_URL, max: 2 });
+  adminPool.on("error", () => {});
 
   await adminPool.query(`CREATE DATABASE "${testDbName}"`);
 
   const connStr = ADMIN_DATABASE_URL.replace(/\/[^/]+$/, `/${testDbName}`);
   testPool = new Pool({ connectionString: connStr, max: 5 });
+  testPool.on("error", () => {});
 
   return testPool;
 }
