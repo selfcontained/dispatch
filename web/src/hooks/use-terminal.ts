@@ -134,20 +134,19 @@ export function useTerminal(args: {
 
       const resolvedAgentId = targetAgentId ?? selectedAgentId;
       if (!shouldKeepAttachedRef.current || !resolvedAgentId) return;
-      const attachNonce = ++attachNonceRef.current;
-      const isCurrentAttempt = () =>
-        shouldKeepAttachedRef.current && attachNonce === attachNonceRef.current;
 
       let agent: Agent | null = userInitiated
         ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
         : null;
 
       if (!agent || agent.status !== "running") {
+        // Invalidate prior attempts before the async fetch
+        const fetchNonce = ++attachNonceRef.current;
         try {
           const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
           agent = payload.agent;
         } catch {
-          if (!isCurrentAttempt()) return;
+          if (!shouldKeepAttachedRef.current || fetchNonce !== attachNonceRef.current) return;
           clearReconnectTimer();
           reconnectAttemptsRef.current += 1;
           recordWSReconnect();
@@ -161,15 +160,17 @@ export function useTerminal(args: {
           }, delay);
           return;
         }
+        if (!shouldKeepAttachedRef.current || fetchNonce !== attachNonceRef.current) return;
       }
-
-      if (!isCurrentAttempt()) return;
 
       if (agent.status !== "running") {
         setConnState("disconnected");
         return;
       }
 
+      // If already connected to this agent, just resize — don't invalidate the
+      // current attach nonce, which would cause the existing WS message handler
+      // to silently drop all incoming output.
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         if (connectedAgentIdRef.current === agent.id) {
           sendResize();
@@ -177,9 +178,13 @@ export function useTerminal(args: {
         }
       }
 
+      // We're actually establishing a new connection — now invalidate prior attempts.
+      const attachNonce = ++attachNonceRef.current;
+      const isCurrentAttempt = () =>
+        shouldKeepAttachedRef.current && attachNonce === attachNonceRef.current;
+
       clearReconnectTimer();
       closeSocket(false);
-      if (!isCurrentAttempt()) return;
 
       if (clearScreen) {
         terminalRef.current?.clear();
