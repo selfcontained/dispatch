@@ -32,7 +32,7 @@ export function useSSE(
         if (payload.type === "snapshot") {
           queryClient.setQueryData<Agent[]>(
             ["agents"],
-            sortAgentsByCreatedAtDesc(payload.agents, connectedAgentIdRef.current)
+            sortAgentsByCreatedAtDesc(payload.agents)
           );
           setStreamingAgentIds(
             new Set(payload.agents.filter((a) => a.hasStream).map((a) => a.id))
@@ -45,11 +45,11 @@ export function useSSE(
             if (!old) return [payload.agent];
             const index = old.findIndex((a) => a.id === payload.agent.id);
             if (index === -1) {
-              return sortAgentsByCreatedAtDesc([payload.agent, ...old], connectedAgentIdRef.current);
+              return sortAgentsByCreatedAtDesc([payload.agent, ...old]);
             }
             const next = [...old];
             next[index] = payload.agent;
-            return sortAgentsByCreatedAtDesc(next, connectedAgentIdRef.current);
+            return sortAgentsByCreatedAtDesc(next);
           });
           return;
         }
