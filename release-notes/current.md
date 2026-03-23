@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix terminal freeze: remove nonce from fetch path by @selfcontained in https://github.com/selfcontained/dispatch/pull/94
+* Sort agent sidebar by creation time instead of status by @selfcontained in https://github.com/selfcontained/dispatch/pull/95
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.3.14...v0.3.15
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.3.15...v0.3.16
