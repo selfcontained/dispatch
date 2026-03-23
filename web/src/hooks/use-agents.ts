@@ -27,14 +27,14 @@ export function useAgents(
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
       return payload.agents;
     },
-    select: (data) => sortAgentsByCreatedAtDesc(data, connectedAgentIdRef.current),
+    select: (data) => sortAgentsByCreatedAtDesc(data),
     enabled,
   });
 
-  // Re-sort when connected agent changes (so it floats to top).
+  // Re-sort agents in query cache.
   const resortAgents = useCallback(() => {
     queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-      old ? sortAgentsByCreatedAtDesc(old, connectedAgentIdRef.current) : old
+      old ? sortAgentsByCreatedAtDesc(old) : old
     );
   }, [queryClient]);
 
