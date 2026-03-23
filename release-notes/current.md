@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix terminal output freeze after tab switch by @selfcontained in https://github.com/selfcontained/dispatch/pull/93
+* Fix terminal freeze: remove nonce from fetch path by @selfcontained in https://github.com/selfcontained/dispatch/pull/94
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.3.13...v0.3.14
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.3.14...v0.3.15
