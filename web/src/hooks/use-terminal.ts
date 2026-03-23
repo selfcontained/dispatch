@@ -140,13 +140,11 @@ export function useTerminal(args: {
         : null;
 
       if (!agent || agent.status !== "running") {
-        // Invalidate prior attempts before the async fetch
-        const fetchNonce = ++attachNonceRef.current;
         try {
           const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
           agent = payload.agent;
         } catch {
-          if (!shouldKeepAttachedRef.current || fetchNonce !== attachNonceRef.current) return;
+          if (!shouldKeepAttachedRef.current) return;
           clearReconnectTimer();
           reconnectAttemptsRef.current += 1;
           recordWSReconnect();
@@ -160,7 +158,7 @@ export function useTerminal(args: {
           }, delay);
           return;
         }
-        if (!shouldKeepAttachedRef.current || fetchNonce !== attachNonceRef.current) return;
+        if (!shouldKeepAttachedRef.current) return;
       }
 
       if (agent.status !== "running") {
