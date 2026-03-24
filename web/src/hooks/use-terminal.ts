@@ -323,6 +323,11 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
+  // Keep a ref so the xterm init effect can read the current theme without
+  // depending on it (we don't want to re-create the terminal on theme change).
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+
   // xterm initialization.
   useEffect(() => {
     const host = terminalHostRef.current;
@@ -330,7 +335,7 @@ export function useTerminal(args: {
 
     const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 
-    const palette = getTerminalPalette(theme);
+    const palette = getTerminalPalette(themeRef.current);
     const term = new XTerm({
       convertEol: false,
       cursorBlink: true,

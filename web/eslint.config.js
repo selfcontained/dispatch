@@ -24,6 +24,9 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs["recommended-latest"].rules,
+      // Upgrade hook dependency warnings to errors so CI catches them
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/rules-of-hooks": "error",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       // Empty catch blocks are used intentionally to silence expected errors (e.g. socket.close())
       "no-empty": ["error", { allowEmptyCatch: true }],
