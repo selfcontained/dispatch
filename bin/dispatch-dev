@@ -110,6 +110,21 @@ pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }
 
+# Recursively kill a process and all its descendants (depth-first).
+# This ensures child processes spawned by npm/tsx are cleaned up even
+# when signals don't propagate through the wrapper chain.
+kill_tree() {
+  local pid="${1:-}"
+  local sig="${2:-TERM}"
+  [ -z "$pid" ] && return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null || true
+}
+
 # Detect docker compose command
 detect_compose() {
   if docker compose version &>/dev/null; then
@@ -258,31 +273,31 @@ cmd_down() {
     return 0
   fi
 
-  # Kill API server
+  # Kill API server (tree-kill to catch npm → tsx → node children)
   if pid_alive "${DEV_API_PID:-}"; then
-    kill "$DEV_API_PID" 2>/dev/null || true
-    # Wait briefly for clean exit, then force
+    kill_tree "$DEV_API_PID"
+    # Wait briefly for clean exit, then force-kill survivors
     local i=0
     while [ $i -lt 10 ] && pid_alive "$DEV_API_PID"; do
       sleep 0.5
       i=$((i + 1))
     done
     if pid_alive "$DEV_API_PID"; then
-      kill -9 "$DEV_API_PID" 2>/dev/null || true
+      kill_tree "$DEV_API_PID" 9
     fi
     echo "Stopped API server (PID ${DEV_API_PID})"
   fi
 
-  # Kill Vite server
+  # Kill Vite server (tree-kill to catch npm → vite children)
   if pid_alive "${DEV_VITE_PID:-}"; then
-    kill "$DEV_VITE_PID" 2>/dev/null || true
+    kill_tree "$DEV_VITE_PID"
     local i=0
     while [ $i -lt 10 ] && pid_alive "$DEV_VITE_PID"; do
       sleep 0.5
       i=$((i + 1))
     done
     if pid_alive "$DEV_VITE_PID"; then
-      kill -9 "$DEV_VITE_PID" 2>/dev/null || true
+      kill_tree "$DEV_VITE_PID" 9
     fi
     echo "Stopped Vite server (PID ${DEV_VITE_PID})"
   fi

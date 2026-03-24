@@ -51,6 +51,71 @@ describe("loadRepoTools", () => {
     }));
   });
 
+  it("appends CLI flags from params when provided", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
+    tempDirs.push(repoRoot);
+    await mkdir(path.join(repoRoot, ".dispatch"));
+    await writeFile(
+      path.join(repoRoot, ".dispatch", "tools.json"),
+      JSON.stringify({
+        tools: [
+          {
+            name: "dev_up",
+            description: "Start the repo dev stack.",
+            command: ["dispatch-dev", "up"],
+            params: [
+              { name: "cwd", type: "string", flag: "--cwd", description: "Working directory" },
+              { name: "live", type: "boolean", flag: "--live", description: "Enable live mode" }
+            ]
+          }
+        ]
+      })
+    );
+
+    const [tool] = await loadRepoTools(repoRoot);
+    expect(tool.params).toHaveLength(2);
+
+    // Call with both params set
+    await tool.run({ agentId: "agt_test", repoRoot, params: { cwd: "/tmp/wt", live: true } });
+    expect(vi.mocked(runCommand)).toHaveBeenCalledWith(
+      "dispatch-dev",
+      ["up", "--cwd", "/tmp/wt", "--live"],
+      expect.objectContaining({ cwd: repoRoot })
+    );
+  });
+
+  it("skips unset or false params", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
+    tempDirs.push(repoRoot);
+    await mkdir(path.join(repoRoot, ".dispatch"));
+    await writeFile(
+      path.join(repoRoot, ".dispatch", "tools.json"),
+      JSON.stringify({
+        tools: [
+          {
+            name: "dev_up",
+            description: "Start the repo dev stack.",
+            command: ["dispatch-dev", "up"],
+            params: [
+              { name: "cwd", type: "string", flag: "--cwd", description: "Working directory" },
+              { name: "live", type: "boolean", flag: "--live", description: "Enable live mode" }
+            ]
+          }
+        ]
+      })
+    );
+
+    const [tool] = await loadRepoTools(repoRoot);
+
+    // Call with live=false and no cwd
+    await tool.run({ agentId: "agt_test", repoRoot, params: { live: false } });
+    expect(vi.mocked(runCommand)).toHaveBeenCalledWith(
+      "dispatch-dev",
+      ["up"],
+      expect.objectContaining({ cwd: repoRoot })
+    );
+  });
+
   it("sanitizes dots in repo tool names to underscores", async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
     tempDirs.push(repoRoot);

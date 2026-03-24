@@ -17,7 +17,7 @@ import {
   cleanupGitWorktree,
   createGitWorktree
 } from "../git/worktree.js";
-import { loadRepoTools } from "./repo-tools.js";
+import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 
 export type MediaResult = {
   fileName: string;
@@ -357,17 +357,19 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   if (context.agent && toolsRoot) {
     const repoTools = await loadRepoTools(toolsRoot);
     for (const tool of repoTools) {
+      const inputSchema = buildParamSchema(tool.params);
       server.registerTool(
         tool.name,
         {
           description: tool.description,
-          inputSchema: {}
+          inputSchema
         },
-        async () => {
+        async (args) => {
           try {
             const result = await tool.run({
               agentId: context.agent!.id,
-              repoRoot: context.repoRoot!
+              repoRoot: toolsRoot,
+              params: args as Record<string, unknown>
             });
             return {
               content: [{ type: "text", text: result.message }],
@@ -397,6 +399,19 @@ function resolveCwd(value: string | undefined, defaultCwd: string | undefined): 
     throw new Error("cwd is required.");
   }
   return cwd;
+}
+
+function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {
+  const schema: Record<string, z.ZodType> = {};
+  if (!params) return schema;
+  for (const param of params) {
+    if (param.type === "boolean") {
+      schema[param.name] = z.boolean().optional().describe(param.description);
+    } else {
+      schema[param.name] = z.string().optional().describe(param.description);
+    }
+  }
+  return schema;
 }
 
 function toToolError(error: unknown): { content: Array<{ type: "text"; text: string }>; isError: true } {

@@ -20,10 +20,18 @@ type RepoToolFile = {
   tools?: unknown;
 };
 
+type RepoToolParam = {
+  name: string;
+  type: "string" | "boolean";
+  flag: string;
+  description: string;
+};
+
 type RepoToolConfig = {
   name: string;
   description: string;
   command: string[];
+  params?: RepoToolParam[];
 };
 
 export type RepoToolResult = {
@@ -36,10 +44,13 @@ export type RepoToolResult = {
   message: string;
 };
 
+export type { RepoToolParam };
+
 export type RepoToolDefinition = {
   name: string;
   description: string;
-  run: (context: { agentId: string; repoRoot: string }) => Promise<RepoToolResult>;
+  params?: RepoToolParam[];
+  run: (context: { agentId: string; repoRoot: string; params?: Record<string, unknown> }) => Promise<RepoToolResult>;
 };
 
 export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinition[]> {
@@ -52,8 +63,23 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
     return {
       name: prefixedName,
       description: tool.description,
-      run: async ({ agentId, repoRoot: currentRepoRoot }) => {
+      params: tool.params,
+      run: async ({ agentId, repoRoot: currentRepoRoot, params }) => {
         const [command, ...args] = tool.command;
+
+        // Append CLI flags from params
+        if (tool.params && params) {
+          for (const param of tool.params) {
+            const value = params[param.name];
+            if (value === undefined || value === null) continue;
+            if (param.type === "boolean" && value === true) {
+              args.push(param.flag);
+            } else if (param.type === "string" && typeof value === "string" && value) {
+              args.push(param.flag, value);
+            }
+          }
+        }
+
         const result = await runCommand(command, args, {
           cwd: currentRepoRoot,
           env: {
@@ -112,5 +138,27 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
     throw new Error(`Repo tool "${name}" must include a non-empty command array.`);
   }
 
-  return { name, description, command };
+  const params = parseRepoToolParams(rawTool.params);
+
+  return { name, description, command, params };
+}
+
+function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+
+  return raw.map((entry, i) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`Invalid param at index ${i}.`);
+    }
+    const p = entry as Record<string, unknown>;
+    const name = typeof p.name === "string" ? p.name.trim() : "";
+    const type = p.type === "string" || p.type === "boolean" ? p.type : "";
+    const flag = typeof p.flag === "string" ? p.flag.trim() : "";
+    const description = typeof p.description === "string" ? p.description.trim() : "";
+
+    if (!name || !type || !flag) {
+      throw new Error(`Param at index ${i} must have name, type (string|boolean), and flag.`);
+    }
+    return { name, type, flag, description };
+  });
 }
