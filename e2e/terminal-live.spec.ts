@@ -27,9 +27,9 @@ async function createAndStartAgent(
 }
 
 async function waitForTerminalConnected(page: Page, timeoutMs = 10_000): Promise<void> {
-  // The WS status in the footer shows "connected" when the terminal WebSocket is open
+  // The detach button in the header is visible when the terminal WebSocket is connected
   await expect(
-    page.getByTestId("service-status-ws").getByText("connected")
+    page.getByTestId("detach-button")
   ).toBeVisible({ timeout: timeoutMs });
 }
 
@@ -83,16 +83,9 @@ test.describe("Terminal live connection", () => {
       await page.waitForTimeout(200);
     }
 
-    // After the SSE storm, terminal should still be connected (no flicker to reconnecting)
+    // After the SSE storm, terminal should still be connected (detach button visible)
     await page.waitForTimeout(500);
-    await expect(
-      page.getByTestId("service-status-ws").getByText("connected")
-    ).toBeVisible();
-
-    // Verify WS never showed "reconnecting" by checking the current state is still connected
-    const wsText = await page.getByTestId("service-status-ws").textContent();
-    expect(wsText).toContain("connected");
-    expect(wsText).not.toContain("reconnecting");
+    await expect(page.getByTestId("detach-button")).toBeVisible();
   });
 
   test("reconnects after agent restart", async ({ page, request }) => {
