@@ -20,6 +20,46 @@
   --border: 40 10% 18%;
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
+
+  /* Semantic status colors */
+  --status-working: 158 64% 52%;
+  --status-blocked: 0 84% 60%;
+  --status-waiting: 45 96% 64%;
+  --status-done: 198 93% 60%;
+  --status-idle: 240 4% 46%;
+
+  /* Surface & terminal */
+  --surface: 50 15% 5%;
+  --terminal-bg: 0 0% 8%;
+}
+
+[data-theme="crumbstream"] {
+  --background: 222 18% 7%;
+  --foreground: 224 13% 95%;
+  --card: 222 16% 9%;
+  --card-foreground: 224 13% 95%;
+  --popover: 222 16% 9%;
+  --popover-foreground: 224 13% 95%;
+  --primary: 207 100% 67%;
+  --primary-foreground: 222 40% 8%;
+  --muted: 220 10% 14%;
+  --muted-foreground: 220 8% 67%;
+  --accent: 220 10% 14%;
+  --accent-foreground: 224 13% 95%;
+  --destructive: 330 100% 68%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 11% 21%;
+  --input: 220 11% 21%;
+  --ring: 207 100% 67%;
+
+  --status-working: 150 57% 59%;
+  --status-blocked: 330 100% 68%;
+  --status-waiting: 55 87% 63%;
+  --status-done: 207 100% 67%;
+  --status-idle: 220 8% 50%;
+
+  --surface: 225 16% 7%;
+  --terminal-bg: 225 16% 7%;
 }
 
 * {
@@ -50,7 +90,7 @@ body {
 .xterm,
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
-  background-color: #141414 !important;
+  background-color: hsl(var(--terminal-bg)) !important;
 }
 
 /* Mobile: enable native long-press text selection via the xterm
@@ -81,10 +121,10 @@ body {
 }
 
 .media-thumb-unseen {
-  border-color: rgba(13, 131, 88, 0.45);
+  border-color: hsl(var(--status-working) / 0.45);
   box-shadow:
-    inset 0 0 0 1px rgba(13, 131, 88, 0.28),
-    0 0 14px rgba(13, 131, 88, 0.2);
+    inset 0 0 0 1px hsl(var(--status-working) / 0.28),
+    0 0 14px hsl(var(--status-working) / 0.2);
   transition:
     border-color 1600ms ease-out,
     box-shadow 1600ms ease-out;
@@ -93,8 +133,8 @@ body {
 .media-thumb-seen {
   border-color: hsl(var(--border));
   box-shadow:
-    inset 0 0 0 1px rgba(13, 131, 88, 0),
-    0 0 0 rgba(13, 131, 88, 0);
+    inset 0 0 0 1px hsl(var(--status-working) / 0),
+    0 0 0 hsl(var(--status-working) / 0);
   transition:
     border-color 1600ms ease-out,
     box-shadow 1600ms ease-out;

@@ -23,6 +23,22 @@ function persistActiveShellAgentId(agentId: string | null): void {
   window.localStorage.removeItem(ACTIVE_SHELL_AGENT_KEY);
 }
 
+/** Read a CSS custom property as an hsl() hex string. */
+function cssHsl(prop: string): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
+  if (!raw) return "";
+  // raw is like "0 0% 8%" — convert to hsl(0, 0%, 8%) then to hex via a temp element
+  const el = document.createElement("div");
+  el.style.color = `hsl(${raw.replace(/ /g, ", ")})`;
+  document.body.appendChild(el);
+  const computed = getComputedStyle(el).color;
+  el.remove();
+  // computed is rgb(r, g, b), convert to hex
+  const match = computed.match(/(\d+)/g);
+  if (!match || match.length < 3) return "";
+  return "#" + match.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+}
+
 /** Strip terminal line-wrap artifacts from copied text. */
 function cleanCopiedText(text: string): string {
   const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
@@ -336,13 +352,13 @@ export function useTerminal(args: {
       macOptionClickForcesSelection: true,
       screenReaderMode: isTouchDevice,
       theme: {
-        foreground: "#f8f8f2",
-        background: "#141414",
+        foreground: cssHsl("--foreground") || "#f8f8f2",
+        background: cssHsl("--terminal-bg") || "#141414",
         cursor: "#f8f8f0",
-        cursorAccent: "#141414",
+        cursorAccent: cssHsl("--terminal-bg") || "#141414",
         selectionBackground: "#49483e",
         selectionInactiveBackground: "#3e3d32",
-        black: "#141414",
+        black: cssHsl("--terminal-bg") || "#141414",
         red: "#f92672",
         green: "#a6e22e",
         yellow: "#f4bf75",

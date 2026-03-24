@@ -14,11 +14,11 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         ghost: "hover:bg-muted/70",
         "ghost-primary":
-          "text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200",
+          "text-status-working hover:bg-status-working/15 hover:text-status-working",
         "ghost-info":
-          "text-sky-300 hover:bg-sky-500/15 hover:text-sky-200",
+          "text-status-done hover:bg-status-done/15 hover:text-status-done",
         "ghost-destructive":
-          "text-red-300 hover:bg-red-500/15 hover:text-red-200"
+          "text-status-blocked hover:bg-status-blocked/15 hover:text-status-blocked"
       },
       size: {
         default: "h-9 px-3 py-2",

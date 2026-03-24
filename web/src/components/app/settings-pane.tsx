@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Bell, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, RefreshCw, Shield, X } from "lucide-react";
+import { Bell, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, X } from "lucide-react";
 
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
+import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release" | "security" | "notifications" | "app";
+type SettingsSection = "release" | "security" | "notifications" | "appearance" | "app";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "release", label: "Updates", icon: ArrowDownToLine },
   { id: "security", label: "Security", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "app", label: "App", icon: RefreshCw }
 ];
 
@@ -148,13 +150,58 @@ function AppSettings(): JSX.Element {
   );
 }
 
+function AppearanceSettings({ theme, setTheme }: { theme: ThemeId; setTheme: (id: ThemeId) => void }): JSX.Element {
+  return (
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Theme
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Choose a color theme for the interface.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTheme(t.id)}
+              className={cn(
+                "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+                theme === t.id
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:border-muted-foreground/30"
+              )}
+            >
+              <div className="mt-0.5 flex gap-1">
+                {t.swatches.map((color, i) => (
+                  <span
+                    key={i}
+                    className="block h-4 w-4 rounded-full border border-white/10"
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">{t.label}</div>
+                <div className="text-xs text-muted-foreground">{t.description}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type SettingsPaneProps = {
   open: boolean;
   onClose: () => void;
   onLogout: () => void;
+  theme: ThemeId;
+  setTheme: (id: ThemeId) => void;
 };
 
-export function SettingsPane({ open, onClose, onLogout }: SettingsPaneProps): JSX.Element {
+export function SettingsPane({ open, onClose, onLogout, theme, setTheme }: SettingsPaneProps): JSX.Element {
   const [activeSection, setActiveSection] = useState<SettingsSection | null>("release");
 
   return (
@@ -239,6 +286,7 @@ export function SettingsPane({ open, onClose, onLogout }: SettingsPaneProps): JS
               {activeSection === "release" && <ReleaseManager />}
               {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
               {activeSection === "notifications" && <NotificationSettings />}
+              {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} />}
               {activeSection === "app" && <AppSettings />}
             </div>
           </div>

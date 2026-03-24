@@ -53,17 +53,17 @@ const VERSION_CONFIG: Record<ReleaseVersionType, {
 }> = {
   patch: {
     icon: ShieldCheck,
-    color: "text-emerald-400",
-    border: "border-emerald-500/30",
-    bg: "bg-emerald-500/10",
-    hover: "hover:border-emerald-500/60 hover:bg-emerald-500/20"
+    color: "text-status-working",
+    border: "border-status-working/30",
+    bg: "bg-status-working/10",
+    hover: "hover:border-status-working/60 hover:bg-status-working/20"
   },
   minor: {
     icon: Sparkles,
-    color: "text-blue-400",
-    border: "border-blue-500/30",
-    bg: "bg-blue-500/10",
-    hover: "hover:border-blue-500/60 hover:bg-blue-500/20"
+    color: "text-status-done",
+    border: "border-status-done/30",
+    bg: "bg-status-done/10",
+    hover: "hover:border-status-done/60 hover:bg-status-done/20"
   },
   major: {
     icon: Zap,
@@ -377,7 +377,7 @@ export function ReleaseManager(): JSX.Element {
                     <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Create release</div>
 
                     {info.refMissing ? (
-                      <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+                      <div className="rounded border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
                         Deployed version <span className="font-mono">{info.currentTag ?? "unknown"}</span> not found in origin — commit count unavailable.
                       </div>
                     ) : info.unreleasedCount === 0 ? (
@@ -453,8 +453,8 @@ export function ReleaseManager(): JSX.Element {
                     <div key={phase} className="flex items-center gap-3">
                       <div className={cn(
                         "h-2 w-2 rounded-full shrink-0",
-                        done && "bg-green-500",
-                        current && !isFailed && "animate-pulse bg-amber-500",
+                        done && "bg-status-working",
+                        current && !isFailed && "animate-pulse bg-status-waiting",
                         current && isFailed && "bg-destructive",
                         !done && !current && "bg-muted"
                       )} />

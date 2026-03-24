@@ -28,6 +28,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useSSE } from "@/hooks/use-sse";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
+import { useTheme } from "@/hooks/use-theme";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -71,6 +72,9 @@ function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): bo
 }
 
 export function App(): JSX.Element {
+  // ── Theme ─────────────────────────────────────────────────────────────
+  const { theme, setTheme } = useTheme();
+
   // ── Auth ──────────────────────────────────────────────────────────────
   const { authState, handleAuthenticated, handleLogout } = useAuth();
 
@@ -382,15 +386,15 @@ export function App(): JSX.Element {
   }, [attachToAgent, selectedAgent]);
 
   const borderForAgentState = (state: AgentVisualState): string => {
-    if (state === "active") return "border-r-emerald-500";
-    if (state === "idle") return "border-r-sky-300";
-    return "border-r-zinc-500";
+    if (state === "active") return "border-r-status-working";
+    if (state === "idle") return "border-r-status-done";
+    return "border-r-status-idle";
   };
 
   const serviceDotClass = (state: ServiceState): string => {
-    if (state === "ok") return "bg-emerald-500";
-    if (state === "down") return "bg-red-500";
-    return "bg-amber-500";
+    if (state === "ok") return "bg-status-working";
+    if (state === "down") return "bg-status-blocked";
+    return "bg-status-waiting";
   };
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -582,7 +586,7 @@ export function App(): JSX.Element {
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
-      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} onLogout={handleLogout} />
+      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} onLogout={handleLogout} theme={theme} setTheme={setTheme} />
 
       <MediaLightbox
         item={lightboxItem}

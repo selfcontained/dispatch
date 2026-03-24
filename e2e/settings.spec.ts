@@ -24,7 +24,7 @@ test.describe("Settings pane", () => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByRole("navigation").getByText("App").click();
+    await page.getByRole("navigation").getByText("App", { exact: true }).click();
 
     await expect(page.getByTestId("app-version-card")).toBeVisible();
     await expect(page.getByTestId("app-version-semver")).not.toHaveText("");

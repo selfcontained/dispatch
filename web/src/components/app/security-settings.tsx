@@ -137,7 +137,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
           />
           {mismatch && <p className="text-sm text-destructive">Passwords do not match.</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
-          {message && <p className="text-sm text-emerald-500">{message}</p>}
+          {message && <p className="text-sm text-status-working">{message}</p>}
           <Button
             type="submit"
             variant="primary"

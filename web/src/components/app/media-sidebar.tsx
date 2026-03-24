@@ -39,8 +39,8 @@ function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; 
   return (
     <div className="border-b-2 border-border">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-red-400">Live Stream</span>
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-blocked" />
+        <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">Live Stream</span>
         <div className="ml-auto">
           <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={popOut}>
             <ExternalLink className="h-3 w-3" />
@@ -117,14 +117,14 @@ export function MediaSidebarContent({
                 data-media-key={mediaKey}
                 className={cn(
                   "border-b-2 border-border px-3 py-3",
-                  isStream && "border-l-2 border-l-red-500/60 bg-red-500/5",
+                  isStream && "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
                   animating && "animate-media-in-slow"
                 )}
               >
                 {isStream ? (
                   <div className="mb-2 flex items-center gap-1.5">
-                    <MonitorPlay className="h-3.5 w-3.5 text-red-400" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-red-400">Stream recording</span>
+                    <MonitorPlay className="h-3.5 w-3.5 text-status-blocked" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">Stream recording</span>
                     <span className="ml-auto text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</span>
                   </div>
                 ) : (
