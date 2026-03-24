@@ -20,7 +20,7 @@ type RepoToolFile = {
   tools?: unknown;
 };
 
-type RepoToolParam = {
+export type RepoToolParam = {
   name: string;
   type: "string" | "boolean";
   flag: string;
@@ -43,8 +43,6 @@ export type RepoToolResult = {
   stderr: string;
   message: string;
 };
-
-export type { RepoToolParam };
 
 export type RepoToolDefinition = {
   name: string;

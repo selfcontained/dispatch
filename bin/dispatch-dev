@@ -125,6 +125,25 @@ kill_tree() {
   kill -"$sig" "$pid" 2>/dev/null || true
 }
 
+# Tree-kill a service PID, wait for exit, then force-kill if needed.
+stop_service() {
+  local pid="${1:-}"
+  local name="${2:-service}"
+  if ! pid_alive "$pid"; then
+    return 0
+  fi
+  kill_tree "$pid"
+  local i=0
+  while [ $i -lt 10 ] && pid_alive "$pid"; do
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if pid_alive "$pid"; then
+    kill_tree "$pid" 9
+  fi
+  echo "Stopped ${name} (PID ${pid})"
+}
+
 # Detect docker compose command
 detect_compose() {
   if docker compose version &>/dev/null; then
@@ -276,34 +295,8 @@ cmd_down() {
     return 0
   fi
 
-  # Kill API server (tree-kill to catch npm → tsx → node children)
-  if pid_alive "${DEV_API_PID:-}"; then
-    kill_tree "$DEV_API_PID"
-    # Wait briefly for clean exit, then force-kill survivors
-    local i=0
-    while [ $i -lt 10 ] && pid_alive "$DEV_API_PID"; do
-      sleep 0.5
-      i=$((i + 1))
-    done
-    if pid_alive "$DEV_API_PID"; then
-      kill_tree "$DEV_API_PID" 9
-    fi
-    echo "Stopped API server (PID ${DEV_API_PID})"
-  fi
-
-  # Kill Vite server (tree-kill to catch npm → vite children)
-  if pid_alive "${DEV_VITE_PID:-}"; then
-    kill_tree "$DEV_VITE_PID"
-    local i=0
-    while [ $i -lt 10 ] && pid_alive "$DEV_VITE_PID"; do
-      sleep 0.5
-      i=$((i + 1))
-    done
-    if pid_alive "$DEV_VITE_PID"; then
-      kill_tree "$DEV_VITE_PID" 9
-    fi
-    echo "Stopped Vite server (PID ${DEV_VITE_PID})"
-  fi
+  stop_service "${DEV_API_PID:-}" "API server"
+  stop_service "${DEV_VITE_PID:-}" "Vite server"
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
