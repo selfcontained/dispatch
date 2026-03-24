@@ -4,7 +4,7 @@ const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
 const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
-const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px), (pointer: coarse), (hover: none)";
+const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
 
 function readBool(key: string, legacyKey: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
