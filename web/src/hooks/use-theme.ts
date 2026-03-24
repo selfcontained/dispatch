@@ -100,7 +100,7 @@ const LIGHT: TerminalPalette = {
   blue: "#1a56db",
   magenta: "#8b3fc7",
   cyan: "#0f7b8a",
-  white: "#f5f5f4",
+  white: "#4b4b4b",
   brightBlack: "#666666",
   brightRed: "#e03e52",
   brightGreen: "#16a34a",
@@ -108,7 +108,7 @@ const LIGHT: TerminalPalette = {
   brightBlue: "#2563eb",
   brightMagenta: "#a855f7",
   brightCyan: "#0891b2",
-  brightWhite: "#ffffff",
+  brightWhite: "#333333",
 };
 
 export const THEMES: ThemeDefinition[] = [
