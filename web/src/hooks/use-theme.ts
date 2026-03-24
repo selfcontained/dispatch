@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light";
 
 export type TerminalPalette = {
+  minimumContrastRatio?: number;
   foreground: string;
   background: string;
   cursor: string;
@@ -87,6 +88,7 @@ const SOLARIZED_DARK: TerminalPalette = {
 };
 
 const LIGHT: TerminalPalette = {
+  minimumContrastRatio: 4.5,
   foreground: "#1a1a1a",
   background: "#f5f5f4",
   cursor: "#1a1a1a",

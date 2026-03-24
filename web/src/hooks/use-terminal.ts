@@ -330,6 +330,7 @@ export function useTerminal(args: {
 
     const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 
+    const palette = getTerminalPalette(theme);
     const term = new XTerm({
       convertEol: false,
       cursorBlink: true,
@@ -338,7 +339,8 @@ export function useTerminal(args: {
       scrollback: 1000,
       macOptionClickForcesSelection: true,
       screenReaderMode: isTouchDevice,
-      theme: getTerminalPalette(theme),
+      minimumContrastRatio: palette.minimumContrastRatio ?? 1,
+      theme: palette,
     });
 
     const fit = new FitAddon();
@@ -527,7 +529,9 @@ export function useTerminal(args: {
     // Update xterm palette in-place
     const term = terminalRef.current;
     if (term) {
-      term.options.theme = getTerminalPalette(theme);
+      const palette = getTerminalPalette(theme);
+      term.options.theme = palette;
+      term.options.minimumContrastRatio = palette.minimumContrastRatio ?? 1;
     }
 
     // Reconnect so tmux re-sends viewport with the new palette colors
