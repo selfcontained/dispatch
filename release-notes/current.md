@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix sidebar event line to always show relative time by @selfcontained in https://github.com/selfcontained/dispatch/pull/99
+* Add theme system with settings picker by @selfcontained in https://github.com/selfcontained/dispatch/pull/100
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.2...v0.4.3
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.3...v0.4.4
