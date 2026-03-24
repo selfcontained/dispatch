@@ -188,6 +188,7 @@ export function App(): JSX.Element {
     agents,
     agentsLoaded,
     selectedAgentId,
+    theme,
     isMobile,
     leftOpen,
     mediaOpen,

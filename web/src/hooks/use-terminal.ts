@@ -5,6 +5,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { type Agent, type AuthState, type ConnState } from "@/components/app/types";
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
+import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 
@@ -23,22 +24,6 @@ function persistActiveShellAgentId(agentId: string | null): void {
   window.localStorage.removeItem(ACTIVE_SHELL_AGENT_KEY);
 }
 
-/** Read a CSS custom property as an hsl() hex string. */
-function cssHsl(prop: string): string {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue(prop).trim();
-  if (!raw) return "";
-  // raw is like "0 0% 8%" — convert to hsl(0, 0%, 8%) then to hex via a temp element
-  const el = document.createElement("div");
-  el.style.color = `hsl(${raw.replace(/ /g, ", ")})`;
-  document.body.appendChild(el);
-  const computed = getComputedStyle(el).color;
-  el.remove();
-  // computed is rgb(r, g, b), convert to hex
-  const match = computed.match(/(\d+)/g);
-  if (!match || match.length < 3) return "";
-  return "#" + match.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
-}
-
 /** Strip terminal line-wrap artifacts from copied text. */
 function cleanCopiedText(text: string): string {
   const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
@@ -53,6 +38,7 @@ export function useTerminal(args: {
   agents: Agent[];
   agentsLoaded: boolean;
   selectedAgentId: string | null;
+  theme: ThemeId;
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
@@ -75,6 +61,7 @@ export function useTerminal(args: {
     agents,
     agentsLoaded,
     selectedAgentId,
+    theme,
     isMobile,
     leftOpen,
     mediaOpen,
@@ -351,30 +338,7 @@ export function useTerminal(args: {
       scrollback: 1000,
       macOptionClickForcesSelection: true,
       screenReaderMode: isTouchDevice,
-      theme: {
-        foreground: cssHsl("--foreground") || "#f8f8f2",
-        background: cssHsl("--terminal-bg") || "#141414",
-        cursor: "#f8f8f0",
-        cursorAccent: cssHsl("--terminal-bg") || "#141414",
-        selectionBackground: "#49483e",
-        selectionInactiveBackground: "#3e3d32",
-        black: cssHsl("--terminal-bg") || "#141414",
-        red: "#f92672",
-        green: "#a6e22e",
-        yellow: "#f4bf75",
-        blue: "#66d9ef",
-        magenta: "#ae81ff",
-        cyan: "#a1efe4",
-        white: "#f8f8f2",
-        brightBlack: "#75715e",
-        brightRed: "#f92672",
-        brightGreen: "#a6e22e",
-        brightYellow: "#f4bf75",
-        brightBlue: "#66d9ef",
-        brightMagenta: "#ae81ff",
-        brightCyan: "#a1efe4",
-        brightWhite: "#f9f8f5",
-      },
+      theme: getTerminalPalette(theme),
     });
 
     const fit = new FitAddon();
@@ -553,6 +517,28 @@ export function useTerminal(args: {
     setRestoreShellAgentId(null);
   }, [agents, agentsLoaded, ensureTerminalConnected, onAgentSelected, refreshMedia, restoreShellAgentId]);
 
+
+  // Update terminal palette and reconnect when theme changes.
+  const prevThemeRef = useRef(theme);
+  useEffect(() => {
+    if (prevThemeRef.current === theme) return;
+    prevThemeRef.current = theme;
+
+    // Update xterm palette in-place
+    const term = terminalRef.current;
+    if (term) {
+      term.options.theme = getTerminalPalette(theme);
+    }
+
+    // Reconnect so tmux re-sends viewport with the new palette colors
+    if (connState !== "connected" || !connectedAgentId) return;
+    const agentId = connectedAgentId;
+    detachTerminal();
+    const timer = window.setTimeout(() => {
+      void ensureTerminalConnected(true, true, agentId);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [theme, connState, connectedAgentId, detachTerminal, ensureTerminalConnected]);
 
   return useMemo(() => ({
     connState,

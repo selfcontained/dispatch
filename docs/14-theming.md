@@ -134,7 +134,7 @@ Add a new `[data-theme="your-theme-id"]` block in `web/src/index.css`. You must 
 export type ThemeId = "default" | "crumbstream" | "midnight";
 ```
 
-2. Add an entry to the `THEMES` array with a label, description, and 4 representative hex swatches (shown in the picker UI):
+2. Add an entry to the `THEMES` array with a label, description, 4 representative hex swatches (shown in the picker UI), and a `terminal` palette:
 
 ```ts
 {
@@ -142,10 +142,15 @@ export type ThemeId = "default" | "crumbstream" | "midnight";
   label: "Midnight",
   description: "Deep purple with violet accents",
   swatches: ["#0a0a14", "#9966ff", "#f0f0f0", "#2d2d3d"],
+  terminal: { ...MONOKAI, background: "#0a0a14", cursorAccent: "#0a0a14", black: "#0a0a14" },
 },
 ```
 
-That's it — the theme picker, localStorage persistence, and flash-free loading all work automatically.
+The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` and `LIGHT` in `use-theme.ts` for examples.
+
+When the user switches themes, the terminal palette is updated live and the session reconnects so tmux re-sends the viewport with the correct colors.
+
+That's it — the theme picker, localStorage persistence, flash-free loading, and terminal palette all work automatically.
 
 ### Step 3: Validate
 
@@ -159,7 +164,8 @@ That's it — the theme picker, localStorage persistence, and flash-free loading
 - **Primary** is the most prominent accent — used on the Create button, selected states, and focus rings. Pick something that pops against the background.
 - **Status colors** should be visually distinct from each other. They appear as small dots and text labels, so they need good contrast against both `--background` and `--card`.
 - **Border** should be subtle — lightness around 18–22% works well for dark themes.
-- **Terminal background** (`--terminal-bg`) is usually the same as `--background` or `--surface`. The terminal ANSI palette (red, green, blue, etc.) is currently hardcoded to a Monokai-inspired set and shared across themes — only the terminal `background` and `foreground` colors are theme-aware.
+- **Terminal background** (`--terminal-bg`) is usually the same as `--background` or `--surface`. The terminal palette's `background` field should match `--terminal-bg`.
+- **Terminal ANSI palette** — each theme defines a full 16-color ANSI palette in its `terminal` field. For dark themes, the Monokai base palette works well — just override the background to match. For light themes or distinctive palettes (Solarized), define all 16 colors. Ensure good contrast between ANSI colors and the terminal background.
 
 ## What NOT to do
 
