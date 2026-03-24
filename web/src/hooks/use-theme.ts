@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream";
+export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light";
 
 export type ThemeDefinition = {
   id: ThemeId;
@@ -21,6 +21,24 @@ export const THEMES: ThemeDefinition[] = [
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
+  },
+  {
+    id: "oled-black",
+    label: "OLED Black",
+    description: "True black for OLED screens",
+    swatches: ["#000000", "#34d399", "#f0f0f0", "#222222"],
+  },
+  {
+    id: "solarized-dark",
+    label: "Solarized Dark",
+    description: "Classic Ethan Schoonover palette",
+    swatches: ["#002b36", "#268bd2", "#859900", "#b58900"],
+  },
+  {
+    id: "light",
+    label: "Light",
+    description: "Clean light theme for bright environments",
+    swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
   },
 ];
 
