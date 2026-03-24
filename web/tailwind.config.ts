@@ -11,6 +11,8 @@ export default {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        surface: "hsl(var(--surface))",
+        "terminal-bg": "hsl(var(--terminal-bg))",
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))"
@@ -26,6 +28,13 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))"
+        },
+        status: {
+          working: "hsl(var(--status-working) / <alpha-value>)",
+          blocked: "hsl(var(--status-blocked) / <alpha-value>)",
+          waiting: "hsl(var(--status-waiting) / <alpha-value>)",
+          done: "hsl(var(--status-done) / <alpha-value>)",
+          idle: "hsl(var(--status-idle) / <alpha-value>)"
         }
       },
       borderRadius: {

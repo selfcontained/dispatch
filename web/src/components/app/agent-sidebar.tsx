@@ -109,10 +109,10 @@ export function AgentSidebarContent({
   };
 
   const latestEventColor = (type: NonNullable<Agent["latestEvent"]>["type"]): string => {
-    if (type === "working") return "text-emerald-400";
-    if (type === "blocked") return "text-red-400";
-    if (type === "waiting_user") return "text-amber-400";
-    if (type === "done") return "text-sky-400";
+    if (type === "working") return "text-status-working";
+    if (type === "blocked") return "text-status-blocked";
+    if (type === "waiting_user") return "text-status-waiting";
+    if (type === "done") return "text-status-done";
     return "text-foreground/80";
   };
 
@@ -183,7 +183,7 @@ export function AgentSidebarContent({
                   className={cn(
                     "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
                     borderForAgentState(state),
-                    isActive && "bg-emerald-500/10",
+                    isActive && "bg-status-working/10",
                     isStopped && "opacity-60",
                     isSelected && "bg-muted/60"
                   )}
@@ -214,7 +214,7 @@ export function AgentSidebarContent({
 
                     {needsAttention ? (
                       <Badge
-                        className="border-red-400/45 bg-red-500/15 text-red-200"
+                        className="border-status-blocked/45 bg-status-blocked/15 text-status-blocked"
                         title={agent.lastError ?? "Agent entered an error state and may need attention."}
                       >
                         Attention
@@ -417,7 +417,7 @@ export function AgentSidebarContent({
                               className={cn(
                                 "inline-flex w-fit items-center gap-1.5 px-1.5 py-0.5 text-foreground",
                                 fullAccessEnabled &&
-                                  "border border-amber-400/45 bg-amber-500/15 text-amber-200"
+                                  "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
                               )}
                             >
                               {fullAccessEnabled ? <AlertTriangle className="h-3.5 w-3.5" /> : null}

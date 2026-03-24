@@ -194,7 +194,7 @@ export function NotificationSettings(): JSX.Element {
       <div className="max-w-lg">
         {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
         {message && (
-          <p className="mb-3 text-sm text-emerald-500">{message}</p>
+          <p className="mb-3 text-sm text-status-working">{message}</p>
         )}
         <div className="flex gap-2">
           <Button

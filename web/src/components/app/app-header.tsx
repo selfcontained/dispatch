@@ -40,7 +40,7 @@ export function AppHeader({
     <header
       data-testid="app-header"
       className={cn(
-        "relative flex min-h-14 min-w-0 items-center gap-2 border-b-2 border-b-border bg-[#11120f] px-3 py-2 pt-[env(safe-area-inset-top)]"
+        "relative flex min-h-14 min-w-0 items-center gap-2 border-b-2 border-b-border bg-surface px-3 py-2 pt-[env(safe-area-inset-top)]"
       )}
     >
       <div
@@ -142,7 +142,7 @@ export function AppHeader({
 
       {showReconnectIndicator ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-          <div className="dispatch-reconnect-scan h-full w-1/3 bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+          <div className="dispatch-reconnect-scan h-full w-1/3 bg-gradient-to-r from-transparent via-status-waiting to-transparent" />
         </div>
       ) : null}
     </header>

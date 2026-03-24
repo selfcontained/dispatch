@@ -11,10 +11,10 @@ type AgentTypeIconProps = {
 };
 
 const eventColorClass: Record<AgentEventType, string> = {
-  working: "text-emerald-400 border-emerald-400/50 bg-emerald-500/15",
-  blocked: "text-red-400 border-red-400/50 bg-red-500/15",
-  waiting_user: "text-amber-400 border-amber-400/50 bg-amber-500/15",
-  done: "text-sky-400 border-sky-400/50 bg-sky-500/15",
+  working: "text-status-working border-status-working/50 bg-status-working/15",
+  blocked: "text-status-blocked border-status-blocked/50 bg-status-blocked/15",
+  waiting_user: "text-status-waiting border-status-waiting/50 bg-status-waiting/15",
+  done: "text-status-done border-status-done/50 bg-status-done/15",
   idle: "",
 };
 

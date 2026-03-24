@@ -56,7 +56,7 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
 
   return (
     <>
-      <div className="border-t-2 border-border bg-[#12130f] px-2 py-2 md:hidden">
+      <div className="border-t-2 border-border bg-surface px-2 py-2 md:hidden">
         {/* Row 1: modifier + action keys + keyboard button */}
         <div className="flex justify-center gap-2">
           <Button
