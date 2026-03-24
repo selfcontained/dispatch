@@ -178,6 +178,35 @@
   --terminal-bg: 262 52% 6%;
 }
 
+[data-theme="midnight"] {
+  --background: 0 0% 0%;
+  --foreground: 224 13% 95%;
+  --card: 220 18% 4%;
+  --card-foreground: 224 13% 95%;
+  --popover: 220 18% 4%;
+  --popover-foreground: 224 13% 95%;
+  --primary: 207 100% 67%;
+  --primary-foreground: 0 0% 0%;
+  --muted: 220 10% 8%;
+  --muted-foreground: 220 8% 60%;
+  --accent: 220 10% 8%;
+  --accent-foreground: 224 13% 95%;
+  --destructive: 330 100% 68%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 11% 14%;
+  --input: 220 11% 14%;
+  --ring: 207 100% 67%;
+
+  --status-working: 150 57% 59%;
+  --status-blocked: 330 100% 68%;
+  --status-waiting: 55 87% 63%;
+  --status-done: 207 100% 67%;
+  --status-idle: 220 8% 40%;
+
+  --surface: 0 0% 2%;
+  --terminal-bg: 0 0% 0%;
+}
+
 [data-theme="matrix"] {
   --background: 150 20% 1.5%;
   --foreground: 136 100% 92%;
