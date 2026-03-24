@@ -10,7 +10,6 @@ type MediaSidebarSharedProps = {
   selectedAgentId: string | null;
   selectedAgentName: string | null;
   animatingMediaKeys: Set<string>;
-  seenMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
   hasStream: boolean;
@@ -67,7 +66,6 @@ export function MediaSidebarContent({
   selectedAgentId,
   selectedAgentName,
   animatingMediaKeys,
-  seenMediaKeys,
   mediaViewportRef,
   openLightbox,
   hasStream,
@@ -109,7 +107,7 @@ export function MediaSidebarContent({
             const mediaKey = `${file.name}:${file.updatedAt}`;
             const cacheBustUrl = `${file.url}?t=${encodeURIComponent(file.updatedAt)}`;
             const animating = animatingMediaKeys.has(mediaKey);
-            const unseen = !seenMediaKeys.has(mediaKey);
+            const unseen = !file.seen;
 
             const isStream = file.source === "stream";
 

@@ -69,4 +69,28 @@ test.describe("Media sidebar", () => {
     await lightbox.getByRole("button", { name: "Close" }).click();
     await expect(lightbox).toBeHidden();
   });
+
+  test("marks visible media as seen and persists to server", async ({ page, request }) => {
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-seen-${Date.now()}` });
+
+    await uploadMediaViaAPI(request, agent.id, "Seen test image", "seen-test.png");
+
+    await loadApp(page);
+    await page.getByText(agent.name, { exact: true }).click();
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await expect(mediaSidebar).toContainText("1 items");
+
+    // The item should flip to "seen" once visible (IntersectionObserver fires).
+    const thumb = mediaSidebar.locator(".media-thumb-seen");
+    await expect(thumb).toBeVisible({ timeout: 5_000 });
+
+    // Verify it persisted to the server.
+    const res = await request.get(`/api/v1/agents/${agent.id}/media`, {
+      headers: { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` },
+    });
+    const body = (await res.json()) as { files: Array<{ seen?: boolean }> };
+    expect(body.files[0].seen).toBe(true);
+  });
 });

@@ -146,8 +146,6 @@ export function App(): JSX.Element {
 
   const {
     mediaFiles,
-    seenMediaKeys,
-    setSeenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
@@ -156,6 +154,7 @@ export function App(): JSX.Element {
     openLightbox,
     mediaViewportRef,
     refreshMedia,
+    markSeenInCache,
   } = useMedia(selectedAgentId, mediaPanelOpen);
 
   const selectedAgentHasStream = selectedAgentId ? streamingAgentIds.has(selectedAgentId) : false;
@@ -210,7 +209,7 @@ export function App(): JSX.Element {
   connectedAgentIdRef.current = connectedAgentId;
 
   // ── SSE ───────────────────────────────────────────────────────────────
-  useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, setSeenMediaKeys);
+  useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
 
   // ── Energy metrics ────────────────────────────────────────────────────
   useEffect(() => {
@@ -489,7 +488,7 @@ export function App(): JSX.Element {
             selectedAgentId={selectedAgentId}
             selectedAgentName={selectedAgent?.name ?? null}
             animatingMediaKeys={animatingMediaKeys}
-            seenMediaKeys={seenMediaKeys}
+
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             hasStream={selectedAgentHasStream}
@@ -548,7 +547,7 @@ export function App(): JSX.Element {
               selectedAgentId={selectedAgentId}
               selectedAgentName={selectedAgent?.name ?? null}
               animatingMediaKeys={animatingMediaKeys}
-              seenMediaKeys={seenMediaKeys}
+  
               mediaViewportRef={mediaViewportRef}
               hasStream={selectedAgentHasStream}
               streamUrl={selectedAgentStreamUrl}
