@@ -338,13 +338,24 @@ export function AgentSidebarContent({
                   </div>
 
                   {agent.latestEvent ? (
-                    <div className="mt-1 truncate text-xs text-muted-foreground">
-                      <span className={cn("font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
-                      <span className="mx-1.5 text-muted-foreground/70">•</span>
-                      <span>{agent.latestEvent.message}</span>
-                      <span className="mx-1.5 text-muted-foreground/70">•</span>
-                      <span>{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
-                    </div>
+                    isExpanded ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="flex items-baseline">
+                          <span className={cn("shrink-0 font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
+                          <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
+                          <span className="shrink-0">{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
+                        </div>
+                        <div className="mt-0.5 leading-relaxed text-muted-foreground">{agent.latestEvent.message}</div>
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex min-w-0 items-baseline text-xs text-muted-foreground">
+                        <span className={cn("shrink-0 font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
+                        <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
+                        <span className="shrink-0">{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
+                        <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
+                        <span className="min-w-0 truncate">{agent.latestEvent.message}</span>
+                      </div>
+                    )
                   ) : null}
 
                   <div
