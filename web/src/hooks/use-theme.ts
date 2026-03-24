@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix";
+export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -168,18 +168,32 @@ const MATRIX: TerminalPalette = {
 
 export const THEMES: ThemeDefinition[] = [
   {
-    id: "default",
-    label: "Warm Dark",
-    description: "Warm charcoal with emerald accents",
-    swatches: ["#141210", "#0d8358", "#f5f0f0", "#4d3e2e"],
-    terminal: MONOKAI,
-  },
-  {
     id: "crumbstream",
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
     terminal: { ...MONOKAI, background: "#0e1014", cursorAccent: "#0e1014", black: "#0e1014" },
+  },
+  {
+    id: "light",
+    label: "Light",
+    description: "Clean light theme for bright environments",
+    swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
+    terminal: LIGHT,
+  },
+  {
+    id: "matrix",
+    label: "Matrix",
+    description: "Phosphor green on near-black terminal glass",
+    swatches: ["#020403", "#0a0f0b", "#1fa34a", "#6bff8f"],
+    terminal: MATRIX,
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    description: "OLED black with vibrant cyan & pink",
+    swatches: ["#000000", "#58b8ff", "#ff5db1", "#f1e84f"],
+    terminal: { ...MONOKAI, background: "#000000", cursorAccent: "#000000", black: "#000000" },
   },
   {
     id: "oled-black",
@@ -196,13 +210,6 @@ export const THEMES: ThemeDefinition[] = [
     terminal: SOLARIZED_DARK,
   },
   {
-    id: "light",
-    label: "Light",
-    description: "Clean light theme for bright environments",
-    swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
-    terminal: LIGHT,
-  },
-  {
     id: "vaporwave",
     label: "Vaporwave",
     description: "Neon pink & cyan on deep purple",
@@ -210,11 +217,11 @@ export const THEMES: ThemeDefinition[] = [
     terminal: VAPORWAVE,
   },
   {
-    id: "matrix",
-    label: "Matrix",
-    description: "Phosphor green on near-black terminal glass",
-    swatches: ["#020403", "#0a0f0b", "#1fa34a", "#6bff8f"],
-    terminal: MATRIX,
+    id: "default",
+    label: "Warm Dark",
+    description: "Warm charcoal with emerald accents",
+    swatches: ["#141210", "#0d8358", "#f5f0f0", "#4d3e2e"],
+    terminal: MONOKAI,
   },
 ];
 
