@@ -236,6 +236,9 @@ cmd_up() {
   # --- Vite Frontend ---
   DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
 
+  # Clear stale Vite dep optimizer cache to prevent white-page on fresh worktrees
+  rm -rf "${cwd}/web/node_modules/.vite" 2>/dev/null || true
+
   (
     cd "$cwd"
     # Tell Vite's proxy where the API server is
