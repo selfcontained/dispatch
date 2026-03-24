@@ -478,7 +478,6 @@ export function App(): JSX.Element {
             {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
             <StatusFooter
-              connState={connState}
               apiState={apiState}
               dbState={dbState}
               serviceDotClass={serviceDotClass}
