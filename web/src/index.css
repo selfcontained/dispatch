@@ -62,6 +62,93 @@
   --terminal-bg: 225 16% 7%;
 }
 
+[data-theme="oled-black"] {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 94%;
+  --card: 0 0% 4%;
+  --card-foreground: 0 0% 94%;
+  --popover: 0 0% 4%;
+  --popover-foreground: 0 0% 94%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 0 0% 0%;
+  --muted: 0 0% 8%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 0 0% 8%;
+  --accent-foreground: 0 0% 94%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 14%;
+  --input: 0 0% 14%;
+  --ring: 160 84% 39%;
+
+  --status-working: 160 72% 52%;
+  --status-blocked: 0 84% 60%;
+  --status-waiting: 45 93% 58%;
+  --status-done: 198 93% 60%;
+  --status-idle: 0 0% 35%;
+
+  --surface: 0 0% 2%;
+  --terminal-bg: 0 0% 0%;
+}
+
+[data-theme="solarized-dark"] {
+  --background: 192 100% 11%;
+  --foreground: 186 8% 62%;
+  --card: 192 81% 14%;
+  --card-foreground: 186 8% 62%;
+  --popover: 192 81% 14%;
+  --popover-foreground: 186 8% 62%;
+  --primary: 205 82% 45%;
+  --primary-foreground: 44 87% 94%;
+  --muted: 192 81% 14%;
+  --muted-foreground: 194 14% 40%;
+  --accent: 192 81% 14%;
+  --accent-foreground: 186 8% 62%;
+  --destructive: 1 71% 52%;
+  --destructive-foreground: 44 87% 94%;
+  --border: 192 40% 23%;
+  --input: 192 40% 23%;
+  --ring: 205 82% 45%;
+
+  --status-working: 68 100% 30%;
+  --status-blocked: 1 71% 52%;
+  --status-waiting: 45 100% 35%;
+  --status-done: 205 82% 45%;
+  --status-idle: 194 14% 40%;
+
+  --surface: 192 100% 8%;
+  --terminal-bg: 192 100% 11%;
+}
+
+[data-theme="light"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 153 78% 27%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 40 10% 92%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 40 10% 92%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 85%;
+  --input: 0 0% 85%;
+  --ring: 153 78% 27%;
+
+  --status-working: 142 71% 35%;
+  --status-blocked: 0 72% 51%;
+  --status-waiting: 46 97% 42%;
+  --status-done: 217 91% 50%;
+  --status-idle: 0 0% 60%;
+
+  --surface: 40 20% 96%;
+  --terminal-bg: 40 10% 96%;
+}
+
 * {
   @apply border-border;
 }
