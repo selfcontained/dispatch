@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave";
+export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -139,6 +139,33 @@ const VAPORWAVE: TerminalPalette = {
   brightWhite: "#f0e4ff",
 };
 
+/** Matrix — restrained phosphor green on deep black */
+const MATRIX: TerminalPalette = {
+  minimumContrastRatio: 4.5,
+  foreground: "#b7ffc9",
+  background: "#020403",
+  cursor: "#6bff8f",
+  cursorAccent: "#020403",
+  selectionBackground: "#174d28",
+  selectionInactiveBackground: "#102d1a",
+  black: "#020403",
+  red: "#a63a3a",
+  green: "#1fa34a",
+  yellow: "#c6a94a",
+  blue: "#3fbf7f",
+  magenta: "#5bd47f",
+  cyan: "#7ceea3",
+  white: "#b7ffc9",
+  brightBlack: "#3d5b45",
+  brightRed: "#cf6666",
+  brightGreen: "#6bff8f",
+  brightYellow: "#e4cf7d",
+  brightBlue: "#6ff0ab",
+  brightMagenta: "#97ffb6",
+  brightCyan: "#c8ffda",
+  brightWhite: "#effff2",
+};
+
 export const THEMES: ThemeDefinition[] = [
   {
     id: "default",
@@ -181,6 +208,13 @@ export const THEMES: ThemeDefinition[] = [
     description: "Neon pink & cyan on deep purple",
     swatches: ["#1a0a2e", "#ff71ce", "#01cdfe", "#b967ff"],
     terminal: VAPORWAVE,
+  },
+  {
+    id: "matrix",
+    label: "Matrix",
+    description: "Phosphor green on near-black terminal glass",
+    swatches: ["#020403", "#0a0f0b", "#1fa34a", "#6bff8f"],
+    terminal: MATRIX,
   },
 ];
 
