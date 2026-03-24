@@ -34,6 +34,7 @@ import { runCommand } from "./lib/run-command.js";
 import { handleMcpRequest } from "./mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
+import { SlackNotifier } from "./notifications/slack.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 
 const config = loadConfig();
@@ -43,6 +44,8 @@ const app = Fastify({
 });
 const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
+const slackNotifier = new SlackNotifier(pool, app.log);
+agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
@@ -1015,6 +1018,43 @@ async function registerRoutes() {
     return {
       homeDir: os.homedir()
     };
+  });
+
+  // --- Notification settings ---
+  app.get("/api/v1/notifications/settings", async () => {
+    return slackNotifier.getSettings();
+  });
+
+  app.post("/api/v1/notifications/settings", async (request, reply) => {
+    const body = request.body as {
+      webhookUrl?: unknown;
+      notifyEvents?: unknown;
+    } | null;
+
+    if (body?.webhookUrl !== undefined) {
+      if (typeof body.webhookUrl !== "string") {
+        return reply.code(400).send({ error: "webhookUrl must be a string." });
+      }
+      await slackNotifier.setWebhookUrl(body.webhookUrl);
+    }
+
+    if (body?.notifyEvents !== undefined) {
+      if (!Array.isArray(body.notifyEvents)) {
+        return reply.code(400).send({ error: "notifyEvents must be an array." });
+      }
+      await slackNotifier.setNotifyEvents(body.notifyEvents as string[]);
+    }
+
+    return slackNotifier.getSettings();
+  });
+
+  app.post("/api/v1/notifications/test", async (request, reply) => {
+    const body = request.body as { webhookUrl?: unknown } | null;
+    const url = typeof body?.webhookUrl === "string" ? body.webhookUrl : await slackNotifier.getWebhookUrl();
+    if (!url) {
+      return reply.code(400).send({ error: "No webhook URL provided or configured." });
+    }
+    return slackNotifier.sendTestMessage(url);
   });
 
   // --- Energy metrics beacon (PWA diagnostics) ---
