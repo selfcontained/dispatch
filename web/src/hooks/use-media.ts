@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean) {
   const queryClient = useQueryClient();
 
-  const [seenMediaKeys, setSeenMediaKeys] = useState<Set<string>>(new Set());
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(new Set());
   const [lightboxMediaKey, setLightboxMediaKey] = useState<string | null>(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
@@ -31,22 +30,8 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     void refetchMedia();
   }, [mediaPanelOpen, refetchMedia, selectedAgentId]);
 
-  // Sync seenMediaKeys from fetched data.
+  // Reset on agent change.
   useEffect(() => {
-    if (mediaFiles.length > 0) {
-      setSeenMediaKeys(
-        new Set(
-          mediaFiles
-            .filter((file) => file.seen === true)
-            .map((file) => `${file.name}:${file.updatedAt}`)
-        )
-      );
-    }
-  }, [mediaFiles]);
-
-  // Reset seen keys when selected agent changes.
-  useEffect(() => {
-    setSeenMediaKeys(new Set());
     previousMediaKeysRef.current = new Set();
     setLightboxMediaKey(null);
   }, [selectedAgentId]);
@@ -88,20 +73,21 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     };
   }, [mediaFiles]);
 
-  // IntersectionObserver for marking media as seen.
-  const markMediaSeen = useCallback(
-    async (agentId: string, keys: string[]) => {
-      if (keys.length === 0) return;
-      try {
-        await api<{ ok: boolean; updated: number }>(`/api/v1/agents/${agentId}/media/seen`, {
-          method: "POST",
-          body: JSON.stringify({ keys }),
+  // Optimistically mark files as seen in the query cache.
+  const markSeenInCache = useCallback(
+    (agentId: string, keys: Set<string>) => {
+      queryClient.setQueryData<MediaFile[]>(["media", agentId], (old) => {
+        if (!old) return old;
+        return old.map((file) => {
+          const key = `${file.name}:${file.updatedAt}`;
+          return keys.has(key) && !file.seen ? { ...file, seen: true } : file;
         });
-      } catch {}
+      });
     },
-    []
+    [queryClient]
   );
 
+  // IntersectionObserver for marking media as seen.
   useEffect(() => {
     if (!mediaPanelOpen) return;
 
@@ -112,26 +98,29 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     const observer = new IntersectionObserver(
       (entries) => {
         const newlySeen: string[] = [];
-        setSeenMediaKeys((current) => {
-          let changed = false;
-          const next = new Set(current);
 
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              const mediaKey = (entry.target as HTMLElement).dataset.mediaKey;
-              if (mediaKey && !next.has(mediaKey)) {
-                next.add(mediaKey);
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const mediaKey = (entry.target as HTMLElement).dataset.mediaKey;
+            if (mediaKey) {
+              // Check if already seen in current cache data
+              const cached = queryClient.getQueryData<MediaFile[]>(["media", selected]);
+              const file = cached?.find((f) => `${f.name}:${f.updatedAt}` === mediaKey);
+              if (file && !file.seen) {
                 newlySeen.push(mediaKey);
-                changed = true;
               }
             }
           }
-
-          return changed ? next : current;
-        });
+        }
 
         if (newlySeen.length > 0) {
-          void markMediaSeen(selected, newlySeen);
+          // Optimistic cache update
+          markSeenInCache(selected, new Set(newlySeen));
+          // Persist to server
+          void api(`/api/v1/agents/${selected}/media/seen`, {
+            method: "POST",
+            body: JSON.stringify({ keys: newlySeen }),
+          }).catch(() => {});
         }
       },
       { root, threshold: 0.65 }
@@ -143,11 +132,11 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     return () => {
       observer.disconnect();
     };
-  }, [markMediaSeen, mediaFiles, mediaPanelOpen, selectedAgentId]);
+  }, [markSeenInCache, mediaFiles, mediaPanelOpen, queryClient, selectedAgentId]);
 
   const unseenMediaCount = useMemo(() => {
-    return mediaFiles.filter((file) => !seenMediaKeys.has(`${file.name}:${file.updatedAt}`)).length;
-  }, [mediaFiles, seenMediaKeys]);
+    return mediaFiles.filter((file) => !file.seen).length;
+  }, [mediaFiles]);
 
   const openLightbox = useCallback((file: MediaFile) => {
     setLightboxMediaKey(`${file.name}:${file.updatedAt}`);
@@ -198,8 +187,6 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
 
   return useMemo(() => ({
     mediaFiles,
-    seenMediaKeys,
-    setSeenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
@@ -208,9 +195,9 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     openLightbox,
     mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
     refreshMedia,
+    markSeenInCache,
   }), [
     mediaFiles,
-    seenMediaKeys,
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
@@ -218,5 +205,6 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     setLightboxIndex,
     openLightbox,
     refreshMedia,
+    markSeenInCache,
   ]);
 }

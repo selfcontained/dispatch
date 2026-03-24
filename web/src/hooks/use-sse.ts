@@ -18,7 +18,7 @@ export function useSSE(
   connectedAgentIdRef: React.RefObject<string | null>,
   selectedAgentIdRef: React.RefObject<string | null>,
   setStreamingAgentIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-  setSeenMediaKeys: React.Dispatch<React.SetStateAction<Set<string>>>,
+  markSeenInCache: (agentId: string, keys: Set<string>) => void,
 ): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -87,18 +87,8 @@ export function useSSE(
           return;
         }
 
-        if (payload.type === "media.seen" && payload.agentId === selectedAgentIdRef.current) {
-          setSeenMediaKeys((current) => {
-            const next = new Set(current);
-            let changed = false;
-            for (const key of payload.keys) {
-              if (!next.has(key)) {
-                next.add(key);
-                changed = true;
-              }
-            }
-            return changed ? next : current;
-          });
+        if (payload.type === "media.seen") {
+          markSeenInCache(payload.agentId, new Set(payload.keys));
         }
       } catch {}
     };
@@ -138,5 +128,5 @@ export function useSSE(
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [authState, connectedAgentIdRef, queryClient, selectedAgentIdRef, setSeenMediaKeys, setStreamingAgentIds]);
+  }, [authState, connectedAgentIdRef, markSeenInCache, queryClient, selectedAgentIdRef, setStreamingAgentIds]);
 }
