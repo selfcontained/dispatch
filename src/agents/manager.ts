@@ -85,18 +85,26 @@ export class AgentError extends Error {
   }
 }
 
+export type AgentEventListener = (agent: AgentRecord) => void;
+
 export class AgentManager {
   private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
   private readonly runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
+  private readonly eventListeners: AgentEventListener[] = [];
   private lastTmuxInventoryAt = 0;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
     this.logger = logger;
     this.config = config;
+  }
+
+  /** Register a callback invoked after every upsertLatestEvent. */
+  onLatestEvent(listener: AgentEventListener): void {
+    this.eventListeners.push(listener);
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -301,7 +309,15 @@ export class AgentManager {
       throw new AgentError("Agent not found.", 404);
     }
 
-    return (await this.getAgent(id)) as AgentRecord;
+    const agent = (await this.getAgent(id)) as AgentRecord;
+    for (const listener of this.eventListeners) {
+      try {
+        listener(agent);
+      } catch (err) {
+        this.logger.warn({ err }, "Agent event listener threw");
+      }
+    }
+    return agent;
   }
 
   async reconcileAgents(): Promise<void> {

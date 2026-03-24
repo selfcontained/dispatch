@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, RefreshCw, Shield, X } from "lucide-react";
+import { Bell, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, RefreshCw, Shield, X } from "lucide-react";
 
+import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release" | "security" | "app";
+type SettingsSection = "release" | "security" | "notifications" | "app";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "release", label: "Updates", icon: ArrowDownToLine },
   { id: "security", label: "Security", icon: Shield },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "app", label: "App", icon: RefreshCw }
 ];
 
@@ -236,6 +238,7 @@ export function SettingsPane({ open, onClose, onLogout }: SettingsPaneProps): JS
             <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
               {activeSection === "release" && <ReleaseManager />}
               {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
+              {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "app" && <AppSettings />}
             </div>
           </div>

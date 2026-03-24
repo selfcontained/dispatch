@@ -2,32 +2,24 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import bcrypt from "bcryptjs";
 
+import { getSetting, setSetting } from "./db/settings.js";
+
 const BCRYPT_COST = 12;
 const SESSION_TTL_DAYS = 30;
 
 export async function isPasswordSet(pool: Pool): Promise<boolean> {
-  const result = await pool.query(
-    "SELECT 1 FROM settings WHERE key = 'password_hash'"
-  );
-  return (result.rowCount ?? 0) > 0;
+  return (await getSetting(pool, "password_hash")) !== null;
 }
 
 export async function setPassword(pool: Pool, password: string): Promise<void> {
   const hash = await bcrypt.hash(password, BCRYPT_COST);
-  await pool.query(
-    `INSERT INTO settings (key, value, updated_at)
-     VALUES ('password_hash', $1, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-    [hash]
-  );
+  await setSetting(pool, "password_hash", hash);
 }
 
 export async function verifyPassword(pool: Pool, password: string): Promise<boolean> {
-  const result = await pool.query<{ value: string }>(
-    "SELECT value FROM settings WHERE key = 'password_hash'"
-  );
-  if (result.rowCount === 0) return false;
-  return bcrypt.compare(password, result.rows[0].value);
+  const hash = await getSetting(pool, "password_hash");
+  if (!hash) return false;
+  return bcrypt.compare(password, hash);
 }
 
 export async function createSession(pool: Pool): Promise<string> {
@@ -74,35 +66,18 @@ export async function cleanExpiredSessions(pool: Pool): Promise<void> {
  */
 export async function getOrCreateCookieSecret(pool: Pool): Promise<string> {
   const envSecret = process.env.COOKIE_SECRET;
-
-  const result = await pool.query<{ value: string }>(
-    "SELECT value FROM settings WHERE key = 'cookie_secret'"
-  );
+  const stored = await getSetting(pool, "cookie_secret");
 
   if (envSecret) {
-    // Env var always wins — persist it so the cookie plugin and DB agree.
-    if (result.rowCount === 0 || result.rows[0].value !== envSecret) {
-      await pool.query(
-        `INSERT INTO settings (key, value, updated_at)
-         VALUES ('cookie_secret', $1, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-        [envSecret]
-      );
+    if (stored !== envSecret) {
+      await setSetting(pool, "cookie_secret", envSecret);
     }
     return envSecret;
   }
 
-  if ((result.rowCount ?? 0) > 0) {
-    return result.rows[0].value;
-  }
+  if (stored) return stored;
 
-  // First run without env var — generate and persist a secret.
   const secret = crypto.randomUUID();
-  await pool.query(
-    `INSERT INTO settings (key, value, updated_at)
-     VALUES ('cookie_secret', $1, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-    [secret]
-  );
+  await setSetting(pool, "cookie_secret", secret);
   return secret;
 }
