@@ -1,5 +1,5 @@
 ## What's Changed
-* Add split reload button with dropdown for cache clearing by @selfcontained in https://github.com/selfcontained/dispatch/pull/107
+* Add Matrix-inspired Dispatch theme by @selfcontained in https://github.com/selfcontained/dispatch/pull/108
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.9...v0.4.10
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.10...v0.4.11
