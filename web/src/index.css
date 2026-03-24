@@ -149,6 +149,35 @@
   --terminal-bg: 40 10% 96%;
 }
 
+[data-theme="vaporwave"] {
+  --background: 262 52% 6%;
+  --foreground: 270 50% 90%;
+  --card: 262 48% 8%;
+  --card-foreground: 270 50% 90%;
+  --popover: 262 48% 8%;
+  --popover-foreground: 270 50% 90%;
+  --primary: 325 100% 72%;
+  --primary-foreground: 262 60% 6%;
+  --muted: 262 30% 12%;
+  --muted-foreground: 270 20% 58%;
+  --accent: 262 30% 12%;
+  --accent-foreground: 270 50% 90%;
+  --destructive: 325 100% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 262 30% 18%;
+  --input: 262 30% 18%;
+  --ring: 191 99% 50%;
+
+  --status-working: 160 100% 50%;
+  --status-blocked: 325 100% 62%;
+  --status-waiting: 57 100% 79%;
+  --status-done: 191 99% 50%;
+  --status-idle: 262 20% 45%;
+
+  --surface: 262 52% 4%;
+  --terminal-bg: 262 52% 6%;
+}
+
 * {
   @apply border-border;
 }
