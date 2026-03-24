@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave";
+export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "midnight";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -125,34 +125,41 @@ const VAPORWAVE: TerminalPalette = {
   red: "#ff71ce",
   green: "#05ffa1",
   yellow: "#fffb96",
-  blue: "#01cdfe",
-  magenta: "#b967ff",
+  blue: "#b967ff",
+  magenta: "#ff71ce",
   cyan: "#01cdfe",
   white: "#e0d0f0",
   brightBlack: "#6a5a8a",
   brightRed: "#ff9ade",
   brightGreen: "#50ffbe",
   brightYellow: "#fffcb5",
-  brightBlue: "#50dfff",
-  brightMagenta: "#d094ff",
+  brightBlue: "#d094ff",
+  brightMagenta: "#ff9ade",
   brightCyan: "#50dfff",
   brightWhite: "#f0e4ff",
 };
 
 export const THEMES: ThemeDefinition[] = [
   {
-    id: "default",
-    label: "Warm Dark",
-    description: "Warm charcoal with emerald accents",
-    swatches: ["#141210", "#0d8358", "#f5f0f0", "#4d3e2e"],
-    terminal: MONOKAI,
-  },
-  {
     id: "crumbstream",
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
     terminal: { ...MONOKAI, background: "#0e1014", cursorAccent: "#0e1014", black: "#0e1014" },
+  },
+  {
+    id: "light",
+    label: "Light",
+    description: "Clean light theme for bright environments",
+    swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
+    terminal: LIGHT,
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    description: "OLED black with vibrant cyan & pink",
+    swatches: ["#000000", "#58b8ff", "#ff5db1", "#f1e84f"],
+    terminal: { ...MONOKAI, background: "#000000", cursorAccent: "#000000", black: "#000000" },
   },
   {
     id: "oled-black",
@@ -169,18 +176,18 @@ export const THEMES: ThemeDefinition[] = [
     terminal: SOLARIZED_DARK,
   },
   {
-    id: "light",
-    label: "Light",
-    description: "Clean light theme for bright environments",
-    swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
-    terminal: LIGHT,
-  },
-  {
     id: "vaporwave",
     label: "Vaporwave",
     description: "Neon pink & cyan on deep purple",
-    swatches: ["#1a0a2e", "#ff71ce", "#01cdfe", "#b967ff"],
+    swatches: ["#110720", "#ff71ce", "#01cdfe", "#b967ff"],
     terminal: VAPORWAVE,
+  },
+  {
+    id: "default",
+    label: "Warm Dark",
+    description: "Warm charcoal with emerald accents",
+    swatches: ["#141210", "#0d8358", "#f5f0f0", "#4d3e2e"],
+    terminal: MONOKAI,
   },
 ];
 
