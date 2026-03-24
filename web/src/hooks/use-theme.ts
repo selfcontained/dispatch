@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light";
+export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -113,6 +113,32 @@ const LIGHT: TerminalPalette = {
   brightWhite: "#333333",
 };
 
+/** Vaporwave — neon pink, cyan & purple on deep purple-black */
+const VAPORWAVE: TerminalPalette = {
+  foreground: "#e0d0f0",
+  background: "#110720",
+  cursor: "#ff71ce",
+  cursorAccent: "#110720",
+  selectionBackground: "#2e1450",
+  selectionInactiveBackground: "#241040",
+  black: "#110720",
+  red: "#ff71ce",
+  green: "#05ffa1",
+  yellow: "#fffb96",
+  blue: "#01cdfe",
+  magenta: "#b967ff",
+  cyan: "#01cdfe",
+  white: "#e0d0f0",
+  brightBlack: "#6a5a8a",
+  brightRed: "#ff9ade",
+  brightGreen: "#50ffbe",
+  brightYellow: "#fffcb5",
+  brightBlue: "#50dfff",
+  brightMagenta: "#d094ff",
+  brightCyan: "#50dfff",
+  brightWhite: "#f0e4ff",
+};
+
 export const THEMES: ThemeDefinition[] = [
   {
     id: "default",
@@ -148,6 +174,13 @@ export const THEMES: ThemeDefinition[] = [
     description: "Clean light theme for bright environments",
     swatches: ["#ffffff", "#0d7d4d", "#1a1a1a", "#e2e2e2"],
     terminal: LIGHT,
+  },
+  {
+    id: "vaporwave",
+    label: "Vaporwave",
+    description: "Neon pink & cyan on deep purple",
+    swatches: ["#1a0a2e", "#ff71ce", "#01cdfe", "#b967ff"],
+    terminal: VAPORWAVE,
   },
 ];
 
