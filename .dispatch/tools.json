@@ -10,6 +10,15 @@
       ]
     },
     {
+      "name": "dev_restart",
+      "description": "Restart the repo's dev environment, picking up code changes (reuses ports and DB).",
+      "command": ["./bin/dispatch-dev", "restart"],
+      "params": [
+        { "name": "cwd", "type": "string", "flag": "--cwd", "description": "Working directory override (e.g. a worktree path)." },
+        { "name": "live", "type": "boolean", "flag": "--live", "description": "Enable live agent runtime (tmux) instead of inert mode." }
+      ]
+    },
+    {
       "name": "dev_down",
       "description": "Stop the repo's dev environment and remove its database container.",
       "command": ["./bin/dispatch-dev", "down"]
