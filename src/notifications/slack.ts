@@ -170,7 +170,7 @@ export class SlackNotifier {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${cfg.emoji} *Agent "${agentName}" ${cfg.verb}*\n_${event.message}_`,
+          text: `*Agent "${agentName}" ${cfg.verb}*\n_${event.message}_`,
         },
       },
     ];
@@ -185,12 +185,11 @@ export class SlackNotifier {
       elements: [{ type: "mrkdwn", text: contextParts.join("  \u00b7  ") }],
     });
 
-    const fallback = `${cfg.emoji} Agent "${agentName}" ${cfg.verb}: ${event.message}`;
+    const fallback = `Agent "${agentName}" ${cfg.verb}: ${event.message}`;
 
     const res = await this.postToSlack(webhookUrl, {
       username: "Dispatch",
-      text: fallback,
-      attachments: [{ color: cfg.color, blocks }],
+      attachments: [{ color: cfg.color, fallback, blocks }],
     });
 
     if (!res.ok) {
