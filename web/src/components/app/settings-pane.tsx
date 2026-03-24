@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Bell, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, X } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, Trash2, X } from "lucide-react";
 
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -51,7 +52,12 @@ function AppSettings(): JSX.Element {
     };
   }, []);
 
-  const handleForceReload = useCallback(async () => {
+  const handleReload = useCallback(() => {
+    setReloading(true);
+    window.location.reload();
+  }, []);
+
+  const handleClearCacheAndReload = useCallback(async () => {
     setReloading(true);
     try {
       // Unregister all service workers and clear their caches
@@ -132,19 +138,40 @@ function AppSettings(): JSX.Element {
 
       <div>
         <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Force reload
+          Reload
         </div>
         <p className="mb-3 text-sm text-muted-foreground">
-          If the app feels stuck on an old version, this will clear all cached data and reload with the latest version.
+          Reload the app to pick up the latest version. Use the dropdown to clear cached data first if the app feels stuck.
         </p>
-        <button
-          onClick={() => void handleForceReload()}
-          disabled={reloading}
-          className="inline-flex items-center gap-2 rounded border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
-          {reloading ? "Reloading…" : "Clear cache & reload"}
-        </button>
+        <div className="inline-flex items-stretch">
+          <button
+            onClick={handleReload}
+            disabled={reloading}
+            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
+            {reloading ? "Reloading…" : "Reload"}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                disabled={reloading}
+                className="inline-flex items-center rounded-r border border-border px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => void handleClearCacheAndReload()}
+                className="flex items-center whitespace-nowrap text-muted-foreground"
+              >
+                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                Clear cache & reload
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );
