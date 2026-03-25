@@ -151,6 +151,42 @@ const SECTIONS: SectionDef[] = [
         </Section>
 
         <Section>
+          <H3>Tool parameters</H3>
+          <P>
+            Tools can declare optional parameters that agents pass at call time.
+            Each parameter maps to a CLI flag appended to the command. Supported
+            types are <Code>string</Code> (appends <Code>--flag value</Code>)
+            and <Code>boolean</Code> (appends <Code>--flag</Code> when true).
+          </P>
+          <CodeBlock>{`
+{
+  "name": "dev_up",
+  "description": "Start the dev environment",
+  "command": ["./bin/dev", "up"],
+  "params": [
+    {
+      "name": "cwd",
+      "type": "string",
+      "flag": "--cwd",
+      "description": "Working directory override"
+    },
+    {
+      "name": "live",
+      "type": "boolean",
+      "flag": "--live",
+      "description": "Enable live mode"
+    }
+  ]
+}`}</CodeBlock>
+          <P>
+            When an agent calls <Code>repo.dev_up</Code> with{" "}
+            <Code>{"{ cwd: \"/path\", live: true }"}</Code>, Dispatch
+            runs <Code>./bin/dev up --cwd /path --live</Code>.
+            Parameters that are omitted or false are skipped.
+          </P>
+        </Section>
+
+        <Section>
           <H3>Built-in tools</H3>
           <P>
             Dispatch also provides built-in tools that are always available,
