@@ -30,6 +30,7 @@ import {
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./lib/run-command.js";
 import { handleMcpRequest } from "./mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
@@ -1021,6 +1022,34 @@ async function registerRoutes() {
     };
   });
 
+  // --- Agent worktree settings ---
+  const WORKTREE_LOCATION_KEY = "worktree_location";
+  type WorktreeLocation = "sibling" | "nested";
+  const VALID_WORKTREE_LOCATIONS: WorktreeLocation[] = ["sibling", "nested"];
+
+  app.get("/api/v1/agents/settings", async () => {
+    const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
+    const worktreeLocation: WorktreeLocation =
+      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
+    return { worktreeLocation };
+  });
+
+  app.post("/api/v1/agents/settings", async (request, reply) => {
+    const body = request.body as { worktreeLocation?: unknown };
+
+    if (body.worktreeLocation !== undefined) {
+      if (typeof body.worktreeLocation !== "string" || !(VALID_WORKTREE_LOCATIONS as string[]).includes(body.worktreeLocation)) {
+        return reply.code(400).send({ error: `worktreeLocation must be "sibling" or "nested".` });
+      }
+      await setSetting(pool, WORKTREE_LOCATION_KEY, body.worktreeLocation);
+    }
+
+    const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
+    const worktreeLocation: WorktreeLocation =
+      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
+    return { worktreeLocation };
+  });
+
   // --- Notification settings ---
   app.get("/api/v1/notifications/settings", async () => {
     return slackNotifier.getSettings();
@@ -1534,6 +1563,12 @@ async function registerRoutes() {
         : agentArgs;
 
     try {
+      const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
+      const worktreeLocation: WorktreeLocation =
+        worktreeLocationRaw && (VALID_WORKTREE_LOCATIONS as string[]).includes(worktreeLocationRaw)
+          ? (worktreeLocationRaw as WorktreeLocation)
+          : "sibling";
+
       const agent = await agentManager.createAgent({
         name: typeof body.name === "string" ? body.name : undefined,
         type: agentType,
@@ -1541,7 +1576,8 @@ async function registerRoutes() {
         agentArgs: resolvedAgentArgs,
         fullAccess: body.fullAccess === true,
         useWorktree: typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
-        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined
+        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined,
+        worktreeLocation
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
