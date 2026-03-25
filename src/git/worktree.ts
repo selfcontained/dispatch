@@ -75,7 +75,7 @@ export async function createGitWorktree(
   const branchName = normalizeRefName(input.branchName, slugify(name), "branchName");
   const worktreePath = input.worktreePath?.trim()
     ? path.resolve(input.worktreePath)
-    : path.resolve(repoRoot, "..", `dispatch-${path.basename(repoRoot)}-${slugify(branchName)}`);
+    : path.resolve(repoRoot, "..", `${path.basename(repoRoot)}-${slugify(branchName)}`);
 
   if (normalizePath(worktreePath) === normalizePath(repoRoot)) {
     throw new GitWorktreeError("worktree path must differ from the repository root.", 400);

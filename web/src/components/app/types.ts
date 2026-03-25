@@ -6,6 +6,8 @@ export type Agent = {
   type?: string;
   status: AgentStatus;
   cwd: string;
+  worktreePath: string | null;
+  worktreeBranch: string | null;
   tmuxSession: string | null;
   agentArgs: string[];
   fullAccess: boolean;

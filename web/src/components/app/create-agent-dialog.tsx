@@ -1,5 +1,5 @@
 import { type FormEvent, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, Plus } from "lucide-react";
+import { Check, ChevronDown, GitBranch, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,6 +14,8 @@ type CreateAgentDialogProps = {
   createType: AgentType;
   createCwd: string;
   createFullAccess: boolean;
+  createUseWorktree: boolean;
+  createWorktreeBranch: string;
   creating: boolean;
   cwdHistory: string[];
   enabledAgentTypes: AgentType[];
@@ -22,6 +24,8 @@ type CreateAgentDialogProps = {
   setCreateType: (value: AgentType) => void;
   setCreateCwd: (cwd: string) => void;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
+  setCreateUseWorktree: (value: boolean | ((current: boolean) => boolean)) => void;
+  setCreateWorktreeBranch: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
@@ -31,6 +35,8 @@ export function CreateAgentDialog({
   createType,
   createCwd,
   createFullAccess,
+  createUseWorktree,
+  createWorktreeBranch,
   creating,
   cwdHistory,
   enabledAgentTypes,
@@ -39,6 +45,8 @@ export function CreateAgentDialog({
   setCreateType,
   setCreateCwd,
   setCreateFullAccess,
+  setCreateUseWorktree,
+  setCreateWorktreeBranch,
   onSubmit
 }: CreateAgentDialogProps): JSX.Element {
   const [cwdDropdownOpen, setCwdDropdownOpen] = useState(false);
@@ -143,6 +151,43 @@ export function CreateAgentDialog({
                   </button>
                 ))}
               </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+            <label className="flex cursor-pointer items-start gap-3">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={createUseWorktree}
+                onClick={() => setCreateUseWorktree((current) => !current)}
+                className={cn(
+                  "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
+                  createUseWorktree ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
+                )}
+                title="Toggle git worktree"
+                data-testid="create-agent-worktree"
+              >
+                {createUseWorktree ? <Check className="h-3.5 w-3.5" /> : null}
+              </button>
+              <span className="space-y-1">
+                <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Create git worktree
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Creates an isolated worktree and branch for this agent.
+                </span>
+              </span>
+            </label>
+            {createUseWorktree ? (
+              <Input
+                value={createWorktreeBranch}
+                onChange={(event) => setCreateWorktreeBranch(event.target.value)}
+                placeholder="branch name (auto-generated if empty)"
+                data-testid="create-agent-worktree-branch"
+                className="ml-8 w-[calc(100%-2rem)]"
+              />
             ) : null}
           </div>
 

@@ -25,7 +25,7 @@ describe("git worktree services", () => {
 
   it("creates a linked worktree from origin/main", async () => {
     const repoRoot = path.join(tempRoot, "repo");
-    const expectedWorktreePath = path.join(tempRoot, "dispatch-repo-feature-auth-flow");
+    const expectedWorktreePath = path.join(tempRoot, "repo-feature-auth-flow");
 
     vi.mocked(runCommand).mockImplementation(async (_command, args) => {
       const key = args.join(" ");
@@ -56,7 +56,7 @@ describe("git worktree services", () => {
     expect(result).toEqual({
       repoRoot,
       worktreePath: expectedWorktreePath,
-      worktreeName: "dispatch-repo-feature-auth-flow",
+      worktreeName: "repo-feature-auth-flow",
       branchName: "feature-auth-flow",
       baseBranch: "main",
       baseRef: "origin/main",
@@ -98,7 +98,7 @@ describe("git worktree services", () => {
 
   it("removes a linked worktree, updates main, and deletes the branch", async () => {
     const repoRoot = path.join(tempRoot, "repo");
-    const worktreePath = path.join(tempRoot, "dispatch-repo-feature-auth-flow");
+    const worktreePath = path.join(tempRoot, "repo-feature-auth-flow");
 
     vi.mocked(runCommand).mockImplementation(async (_command, args) => {
       const key = args.join(" ");
@@ -138,7 +138,7 @@ describe("git worktree services", () => {
     expect(result).toEqual({
       repoRoot,
       worktreePath,
-      worktreeName: "dispatch-repo-feature-auth-flow",
+      worktreeName: "repo-feature-auth-flow",
       branchName: "feature-auth-flow",
       baseBranch: "main",
       updatedBaseBranch: true,

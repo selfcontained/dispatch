@@ -3,8 +3,6 @@ import {
   BookOpenText,
   ChevronLeft,
   EllipsisVertical,
-  FolderGit2,
-  GitBranch,
   Monitor,
   MonitorOff,
   Play,
@@ -367,46 +365,24 @@ export function AgentSidebarContent({
                     <div className="min-h-0 overflow-hidden">
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
-                          <AgentMeta label="Working dir" value={agent.cwd} mono />
-                          {agent.gitContext ? (
-                            <div className="grid gap-1 text-foreground">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="inline-flex items-center gap-1.5 cursor-default">
-                                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <span>{agent.gitContext.branch}</span>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                  Current branch
-                                </TooltipContent>
-                              </Tooltip>
-                              {agent.gitContext.isWorktree && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="inline-flex items-center gap-1.5 cursor-default">
-                                      <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <span>{agent.gitContext.worktreeName}</span>
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                    Linked worktree at {agent.gitContext.worktreePath}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
+                          {agent.gitContext?.isWorktree ? (
+                            <>
+                              <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
+                              <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
+                              <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                            </>
                           ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="inline-flex items-center gap-1.5 text-foreground cursor-default">
-                                  <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <span>Not a git repository</span>
+                            <>
+                              <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
+                              {agent.gitContext ? (
+                                <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                              ) : (
+                                <div className="grid gap-1">
+                                  <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
+                                  <div className="text-foreground text-xs">Not a git repository</div>
                                 </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                This directory is not inside a git repository
-                              </TooltipContent>
-                            </Tooltip>
+                              )}
+                            </>
                           )}
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">

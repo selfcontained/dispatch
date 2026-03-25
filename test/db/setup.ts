@@ -111,6 +111,10 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_media_agent_id ON media(agent_id);
 
     ALTER TABLE media ADD COLUMN IF NOT EXISTS description TEXT;
+
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS worktree_path TEXT;
+
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
   `;
 
   await pool.query(sql);

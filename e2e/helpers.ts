@@ -13,18 +13,30 @@ function authHeaders(): Record<string, string> {
  */
 export async function createAgentViaAPI(
   request: APIRequestContext,
-  overrides: { name?: string; type?: string; cwd?: string } = {}
-): Promise<{ id: string; name: string }> {
+  overrides: { name?: string; type?: string; cwd?: string; useWorktree?: boolean; worktreeBranch?: string } = {}
+): Promise<{ id: string; name: string; worktreePath: string | null; worktreeBranch: string | null }> {
   const res = await request.post(`${API}/agents`, {
     headers: authHeaders(),
     data: {
       name: overrides.name ?? `e2e-agent-${Date.now()}`,
       type: overrides.type ?? "codex",
       cwd: overrides.cwd ?? "/tmp",
+      useWorktree: overrides.useWorktree ?? false,
+      worktreeBranch: overrides.worktreeBranch,
     },
   });
-  const body = (await res.json()) as { agent: { id: string; name: string } };
+  const body = (await res.json()) as { agent: { id: string; name: string; worktreePath: string | null; worktreeBranch: string | null } };
   return body.agent;
+}
+
+export async function getWorktreeStatusViaAPI(
+  request: APIRequestContext,
+  agentId: string
+): Promise<{ hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null }> {
+  const res = await request.get(`${API}/agents/${agentId}/worktree-status`, {
+    headers: authHeaders(),
+  });
+  return (await res.json()) as { hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null };
 }
 
 export async function setAgentLatestEventViaAPI(
@@ -82,13 +94,20 @@ export async function uploadMediaViaAPI(
 }
 
 /**
- * Delete an agent via the REST API.
+ * Delete an agent via the REST API (force-stops and cleans up worktrees).
  */
 export async function deleteAgentViaAPI(
   request: APIRequestContext,
-  agentId: string
+  agentId: string,
+  cleanupWorktree: "auto" | "keep" | "force" = "force"
 ): Promise<void> {
-  await request.delete(`${API}/agents/${agentId}`, { headers: authHeaders() });
+  await request.post(`${API}/agents/${agentId}/stop`, {
+    headers: authHeaders(),
+    data: { force: true },
+  }).catch(() => {});
+  await request.delete(`${API}/agents/${agentId}?force=true&cleanupWorktree=${cleanupWorktree}`, {
+    headers: authHeaders(),
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,6 +7,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
+import { createGitWorktree, cleanupGitWorktree } from "../git/worktree.js";
 import { runCommand } from "../lib/run-command.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
@@ -34,6 +35,8 @@ export type AgentRecord = {
   type: AgentType;
   status: AgentStatus;
   cwd: string;
+  worktreePath: string | null;
+  worktreeBranch: string | null;
   tmuxSession: string | null;
   simulatorUdid: string | null;
   mediaDir: string | null;
@@ -60,6 +63,17 @@ type CreateAgentInput = {
   cwd: string;
   agentArgs?: string[];
   fullAccess?: boolean;
+  useWorktree?: boolean;
+  worktreeBranch?: string;
+};
+
+type WorktreeCleanupMode = "auto" | "keep" | "force";
+
+export type WorktreeStatus = {
+  hasWorktree: boolean;
+  hasUnmergedCommits: boolean;
+  worktreePath: string | null;
+  branchName: string | null;
 };
 
 type StopAgentInput = {
@@ -118,7 +132,7 @@ export class AgentManager {
   }
 
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
-    const cwd = await this.validateWorkingDirectory(input.cwd);
+    const originalCwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
     const agentArgs = input.agentArgs ?? [];
@@ -128,17 +142,49 @@ export class AgentManager {
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
 
+    // Worktree creation (default: on)
+    let effectiveCwd = originalCwd;
+    let worktreePath: string | null = null;
+    let worktreeBranch: string | null = null;
+
+    if (input.useWorktree !== false) {
+      try {
+        const slugName = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        const branchName = input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+        const result = await createGitWorktree({
+          cwd: originalCwd,
+          name,
+          branchName
+        });
+        worktreePath = result.worktreePath;
+        worktreeBranch = result.branchName;
+        effectiveCwd = result.worktreePath;
+        this.logger.info({ agentId: id, worktreePath, worktreeBranch }, "Created worktree for agent.");
+
+        // Post-worktree setup
+        await this.setupWorktree(originalCwd, worktreePath);
+      } catch (error) {
+        this.logger.warn({ err: error, agentId: id }, "Worktree creation failed; falling back to original cwd.");
+        worktreePath = null;
+        worktreeBranch = null;
+        effectiveCwd = originalCwd;
+      }
+    }
+
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, worktree_path, worktree_branch, tmux_session, media_dir, codex_args, full_access, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7, $8, $9::jsonb, $10, NOW())
       `,
-      [id, name, type, cwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess]
+      [id, name, type, effectiveCwd, worktreePath, worktreeBranch, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess]
     );
 
     try {
       await this.ensureNoExistingSession(tmuxSession);
-      await this.startAgentSession(tmuxSession, cwd, mediaDir, type, agentArgs, fullAccess);
+      await this.startAgentSession(tmuxSession, effectiveCwd, mediaDir, type, agentArgs, fullAccess);
       await this.setAgentStatus(id, "running", null);
       await this.setSystemLatestEvent(id, {
         type: "working",
@@ -263,7 +309,7 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
-  async deleteAgent(id: string, force = false): Promise<void> {
+  async deleteAgent(id: string, force = false, cleanupWorktree: WorktreeCleanupMode = "auto"): Promise<void> {
     const agent = await this.getRequiredAgent(id);
     const sessionExists = agent.tmuxSession ? await this.hasAgentSession(agent.tmuxSession) : false;
 
@@ -280,10 +326,61 @@ export class AgentManager {
       await this.stopAgentSession(agent.tmuxSession, true);
     }
 
+    // Worktree cleanup
+    if (agent.worktreePath) {
+      try {
+        const shouldCleanup =
+          cleanupWorktree === "force" ||
+          (cleanupWorktree === "auto" && !(await this.hasUnmergedCommits(agent.worktreePath)));
+
+        if (shouldCleanup) {
+          await cleanupGitWorktree({
+            cwd: agent.worktreePath,
+            deleteBranch: true,
+            force: true
+          });
+          this.logger.info({ agentId: id, worktreePath: agent.worktreePath }, "Cleaned up agent worktree.");
+        } else {
+          this.logger.info({ agentId: id, worktreePath: agent.worktreePath }, "Preserved agent worktree (unmerged commits).");
+        }
+      } catch (error) {
+        this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
+      }
+    }
+
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
 
     const mediaDir = agent.mediaDir ?? path.join(this.config.mediaRoot, id);
     await rm(mediaDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
+    const agent = await this.getRequiredAgent(id);
+
+    if (!agent.worktreePath) {
+      return { hasWorktree: false, hasUnmergedCommits: false, worktreePath: null, branchName: null };
+    }
+
+    let branchName: string | null = null;
+    let hasUnmergedCommits = false;
+
+    try {
+      const branchResult = await runCommand(
+        "git", ["-C", agent.worktreePath, "symbolic-ref", "--short", "-q", "HEAD"],
+        { allowedExitCodes: [0, 1] }
+      );
+      branchName = branchResult.exitCode === 0 && branchResult.stdout ? branchResult.stdout : null;
+      hasUnmergedCommits = await this.hasUnmergedCommits(agent.worktreePath);
+    } catch {
+      // Worktree may have been manually removed
+    }
+
+    return {
+      hasWorktree: true,
+      hasUnmergedCommits,
+      worktreePath: agent.worktreePath,
+      branchName
+    };
   }
 
   async upsertLatestEvent(id: string, input: AgentLatestEventInput): Promise<AgentRecord> {
@@ -951,6 +1048,8 @@ export class AgentManager {
         type,
         status,
         cwd,
+        worktree_path AS "worktreePath",
+        worktree_branch AS "worktreeBranch",
         tmux_session AS "tmuxSession",
         simulator_udid AS "simulatorUdid",
         media_dir AS "mediaDir",
@@ -1037,6 +1136,62 @@ export class AgentManager {
       });
     } catch (error) {
       this.logger.warn({ err: error, id, eventType: input.type }, "Failed to upsert system latest event.");
+    }
+  }
+
+  private async setupWorktree(originalCwd: string, worktreePath: string): Promise<void> {
+    // Copy .env if it exists
+    const envSource = path.join(originalCwd, ".env");
+    const envDest = path.join(worktreePath, ".env");
+    try {
+      await copyFile(envSource, envDest);
+      this.logger.info({ worktreePath }, "Copied .env into worktree.");
+    } catch {
+      // .env doesn't exist — that's fine
+    }
+
+    // Auto-install dependencies
+    const lockfileMap: Array<[string, string, string[]]> = [
+      ["pnpm-lock.yaml", "pnpm", ["install"]],
+      ["yarn.lock", "yarn", ["install"]],
+      ["package-lock.json", "npm", ["install"]],
+      ["bun.lockb", "bun", ["install"]]
+    ];
+
+    for (const [lockfile, bin, args] of lockfileMap) {
+      const lockPath = path.join(worktreePath, lockfile);
+      const exists = await stat(lockPath).catch(() => null);
+      if (exists) {
+        this.logger.info({ worktreePath, packageManager: bin }, "Installing dependencies in worktree.");
+        try {
+          await runCommand(bin, args, { cwd: worktreePath, timeoutMs: 120_000 });
+          this.logger.info({ worktreePath, packageManager: bin }, "Dependency install complete.");
+        } catch (error) {
+          this.logger.warn({ err: error, worktreePath, packageManager: bin }, "Dependency install failed.");
+        }
+        break;
+      }
+    }
+  }
+
+  private async hasUnmergedCommits(worktreePath: string): Promise<boolean> {
+    try {
+      // Find the merge-base between HEAD and main to check for divergent commits
+      const mergeBase = await runCommand(
+        "git", ["-C", worktreePath, "merge-base", "HEAD", "main"],
+        { allowedExitCodes: [0, 1, 128], timeoutMs: 10_000 }
+      );
+      if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
+        return false;
+      }
+
+      const result = await runCommand(
+        "git", ["-C", worktreePath, "log", `${mergeBase.stdout.trim()}..HEAD`, "--oneline"],
+        { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
+      );
+      return result.exitCode === 0 && result.stdout.trim().length > 0;
+    } catch {
+      return false;
     }
   }
 }

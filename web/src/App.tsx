@@ -115,6 +115,8 @@ export function App(): JSX.Element {
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
   const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
+  const [createUseWorktree, setCreateUseWorktree] = useState(true);
+  const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
@@ -363,14 +365,19 @@ export function App(): JSX.Element {
   );
 
   const deleteAgent = useCallback(
-    async (agent: Agent) => {
+    async (agent: Agent, cleanupWorktree?: string) => {
       if (agent.status === "running") {
         await api(`/api/v1/agents/${agent.id}/stop`, {
           method: "POST",
           body: JSON.stringify({ force: true }),
         });
       }
-      await api(`/api/v1/agents/${agent.id}`, { method: "DELETE" });
+      const params = new URLSearchParams();
+      if (cleanupWorktree) {
+        params.set("cleanupWorktree", cleanupWorktree);
+      }
+      const qs = params.toString();
+      await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
     []
   );
@@ -390,12 +397,16 @@ export function App(): JSX.Element {
             cwd: createCwd.trim(),
             type: createType,
             fullAccess: createFullAccess,
+            useWorktree: createUseWorktree,
+            worktreeBranch: createWorktreeBranch.trim() || undefined,
           }),
         });
 
         setCreateOpen(false);
         setCreateName("");
         setCreateFullAccess(false);
+        setCreateUseWorktree(true);
+        setCreateWorktreeBranch("");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         setCwdHistory(addToCwdHistory(payload.agent.cwd));
         setSelectedAgentId(payload.agent.id);
@@ -405,7 +416,7 @@ export function App(): JSX.Element {
         setCreating(false);
       }
     },
-    [createCwd, createFullAccess, createName, createType, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const attachSelectedAgent = useCallback(() => {
@@ -594,6 +605,8 @@ export function App(): JSX.Element {
         createType={createType}
         createCwd={createCwd}
         createFullAccess={createFullAccess}
+        createUseWorktree={createUseWorktree}
+        createWorktreeBranch={createWorktreeBranch}
         creating={creating}
         cwdHistory={cwdHistory}
         enabledAgentTypes={enabledAgentTypes}
@@ -602,6 +615,8 @@ export function App(): JSX.Element {
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
         setCreateFullAccess={setCreateFullAccess}
+        setCreateUseWorktree={setCreateUseWorktree}
+        setCreateWorktreeBranch={setCreateWorktreeBranch}
         onSubmit={handleCreateAgent}
       />
 
