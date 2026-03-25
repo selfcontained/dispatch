@@ -95,6 +95,13 @@ else
   warn "codex — needed to spawn Codex agents: npm install -g codex"
 fi
 
+# OpenCode CLI
+if command -v opencode &>/dev/null; then
+  ok "opencode ($(which opencode))"
+else
+  warn "opencode — needed to spawn OpenCode agents: npm install -g opencode"
+fi
+
 # Playwright browsers
 PW_CHROMIUM_DIR="$HOME/Library/Caches/ms-playwright"
 if [[ -d "$PW_CHROMIUM_DIR" ]] && ls "$PW_CHROMIUM_DIR"/chromium-* &>/dev/null 2>&1; then
