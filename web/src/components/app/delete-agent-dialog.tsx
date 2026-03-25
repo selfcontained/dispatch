@@ -1,13 +1,26 @@
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
+
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { api } from "@/lib/api";
+
+type WorktreeStatus = {
+  hasWorktree: boolean;
+  hasUnmergedCommits: boolean;
+  worktreePath: string | null;
+  branchName: string | null;
+};
+
+type DeleteStep = "confirm" | "worktree-choice";
 
 type DeleteAgentDialogProps = {
   open: boolean;
   deleteTarget: Agent | null;
   setOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
-  onDelete: (agent: Agent) => Promise<void>;
+  onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
 };
 
 export function DeleteAgentDialog({
@@ -17,6 +30,133 @@ export function DeleteAgentDialog({
   setDeleteTarget,
   onDelete
 }: DeleteAgentDialogProps): JSX.Element {
+  const [step, setStep] = useState<DeleteStep>("confirm");
+  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Fetch worktree status when dialog opens for an agent with a worktree
+  useEffect(() => {
+    if (!open || !deleteTarget) {
+      setStep("confirm");
+      setWorktreeStatus(null);
+      setLoading(false);
+      setDeleting(false);
+      return;
+    }
+
+    if (!deleteTarget.worktreePath) {
+      setWorktreeStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    api<WorktreeStatus>(`/api/v1/agents/${deleteTarget.id}/worktree-status`)
+      .then((status) => {
+        if (!cancelled) {
+          setWorktreeStatus(status);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWorktreeStatus(null);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, deleteTarget]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    // If there's a worktree with unmerged commits, transition to choice step
+    if (worktreeStatus?.hasWorktree && worktreeStatus.hasUnmergedCommits) {
+      setStep("worktree-choice");
+      return;
+    }
+
+    // No worktree or no unmerged commits — standard delete with auto cleanup
+    setDeleting(true);
+    try {
+      await onDelete(deleteTarget, "auto");
+      setOpen(false);
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, worktreeStatus, onDelete, setOpen, setDeleteTarget]);
+
+  const handleWorktreeChoice = useCallback(
+    async (cleanupMode: "keep" | "force") => {
+      if (!deleteTarget) return;
+
+      setDeleting(true);
+      try {
+        await onDelete(deleteTarget, cleanupMode);
+        setOpen(false);
+        setDeleteTarget(null);
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [deleteTarget, onDelete, setOpen, setDeleteTarget]
+  );
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setDeleteTarget(null);
+  }, [setOpen, setDeleteTarget]);
+
+  if (step === "worktree-choice" && worktreeStatus) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Worktree Has Unmerged Changes</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <span>
+              Branch <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> at{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.worktreePath}</code> has
+              commits that will be lost if deleted. The agent will be deleted either way.
+            </span>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={close} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              disabled={deleting}
+              onClick={() => void handleWorktreeChoice("keep")}
+              data-testid="delete-agent-keep-worktree"
+            >
+              <GitBranch className="mr-1.5 h-4 w-4" />
+              Delete agent, keep worktree
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void handleWorktreeChoice("force")}
+              data-testid="delete-agent-force-worktree"
+            >
+              {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Delete both
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
@@ -32,25 +172,17 @@ export function DeleteAgentDialog({
           <Button
             variant="ghost"
             data-testid="delete-agent-cancel"
-            onClick={() => {
-              setOpen(false);
-              setDeleteTarget(null);
-            }}
+            onClick={close}
           >
             Cancel
           </Button>
           <Button
             variant="destructive"
             data-testid="delete-agent-confirm"
-            onClick={async () => {
-              if (!deleteTarget) {
-                return;
-              }
-              await onDelete(deleteTarget);
-              setOpen(false);
-              setDeleteTarget(null);
-            }}
+            disabled={loading || deleting}
+            onClick={() => void handleConfirmDelete()}
           >
+            {loading || deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
             Delete
           </Button>
         </div>

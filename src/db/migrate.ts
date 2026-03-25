@@ -89,6 +89,12 @@ export async function runMigrations(): Promise<void> {
     ALTER TABLE media
       ADD COLUMN IF NOT EXISTS description TEXT;
 
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS worktree_path TEXT;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,

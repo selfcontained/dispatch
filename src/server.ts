@@ -1449,6 +1449,8 @@ async function registerRoutes() {
       agentArgs?: unknown;
       codexArgs?: unknown;
       fullAccess?: unknown;
+      useWorktree?: unknown;
+      worktreeBranch?: unknown;
     };
 
     if (typeof body?.cwd !== "string") {
@@ -1472,6 +1474,14 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "fullAccess must be a boolean when provided." });
     }
 
+    if (body.useWorktree !== undefined && typeof body.useWorktree !== "boolean") {
+      return reply.code(400).send({ error: "useWorktree must be a boolean when provided." });
+    }
+
+    if (body.worktreeBranch !== undefined && typeof body.worktreeBranch !== "string") {
+      return reply.code(400).send({ error: "worktreeBranch must be a string when provided." });
+    }
+
     const agentArgs = providedAgentArgs as string[] | undefined;
     const agentType = body.type === "claude" ? "claude" : body.type === "opencode" ? "opencode" : "codex";
     const fullAccessArg =
@@ -1491,7 +1501,9 @@ async function registerRoutes() {
         type: agentType,
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
-        fullAccess: body.fullAccess === true
+        fullAccess: body.fullAccess === true,
+        useWorktree: typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
+        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
@@ -1536,9 +1548,21 @@ async function registerRoutes() {
     }
   });
 
+  app.get("/api/v1/agents/:id/worktree-status", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    try {
+      const status = await agentManager.checkWorktreeStatus(id);
+      return status;
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.delete("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: unknown };
-    const query = request.query as { force?: unknown };
+    const query = request.query as { force?: unknown; cleanupWorktree?: unknown };
 
     if (typeof params.id !== "string") {
       return reply.code(400).send({ error: "Missing agent id." });
@@ -1549,9 +1573,16 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "force must be true or false." });
     }
 
+    const validCleanupModes = ["auto", "keep", "force"] as const;
+    type CleanupMode = (typeof validCleanupModes)[number];
+    const cleanupWorktree: CleanupMode =
+      typeof query.cleanupWorktree === "string" && (validCleanupModes as readonly string[]).includes(query.cleanupWorktree)
+        ? (query.cleanupWorktree as CleanupMode)
+        : "auto";
+
     try {
       const existing = await agentManager.getAgent(params.id);
-      await agentManager.deleteAgent(params.id, force);
+      await agentManager.deleteAgent(params.id, force, cleanupWorktree);
       if (existing) {
         streamManager.stopStream(existing.id);
         pendingGitRefreshAgentIds.delete(existing.id);

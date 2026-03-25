@@ -149,7 +149,7 @@ describe("AgentManager", () => {
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       vi.mocked(runCommand).mockClear();
 
-      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+      const agent = await inertManager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       expect(agent.status).toBe("running");
       expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
