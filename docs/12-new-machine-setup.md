@@ -32,19 +32,18 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Playwright browsers.
-2. Install agent CLIs: check which of claude, codex, and opencode are available (claude --version, codex --version, opencode --version). Install any that are needed (npm install -g @anthropic-ai/claude-code, npm install -g codex, npm install -g opencode).
-3. Clone the repo to ~/dev/apps/dispatch.
-4. Run bin/preflight and fix any failures it reports.
-5. Start Postgres: brew services start postgresql@17
-6. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
-7. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
-8. Run: nvm use && npm ci && npm --prefix web ci && npm run build
-9. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
-10. Install the launchd service: bin/install-launchd --port 6767
-11. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
-12. Configure enabled agent types: check which agent CLIs are actually installed, then use the API to set only those types as enabled: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to include only installed CLIs).
-13. Run gh auth login to authenticate GitHub CLI for releases.
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Playwright browsers. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
+2. Clone the repo to ~/dev/apps/dispatch.
+3. Run bin/preflight and fix any failures it reports.
+4. Start Postgres: brew services start postgresql@17
+5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
+6. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
+7. Run: nvm use && npm ci && npm --prefix web ci && npm run build
+8. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
+9. Install the launchd service: bin/install-launchd --port 6767
+10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
+11. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
+12. Run gh auth login to authenticate GitHub CLI for releases.
 
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
