@@ -5,19 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type CreateAgentDialogProps = {
   open: boolean;
   createName: string;
-  createType: string;
+  createType: AgentType;
   createCwd: string;
   createFullAccess: boolean;
   creating: boolean;
   cwdHistory: string[];
+  enabledAgentTypes: AgentType[];
   setOpen: (open: boolean) => void;
   setCreateName: (name: string) => void;
-  setCreateType: (value: string) => void;
+  setCreateType: (value: AgentType) => void;
   setCreateCwd: (cwd: string) => void;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -31,6 +33,7 @@ export function CreateAgentDialog({
   createFullAccess,
   creating,
   cwdHistory,
+  enabledAgentTypes,
   setOpen,
   setCreateName,
   setCreateType,
@@ -63,14 +66,16 @@ export function CreateAgentDialog({
 
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Type</label>
-            <Select value={createType} onValueChange={setCreateType}>
+            <Select value={createType} onValueChange={(value) => setCreateType(value as AgentType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="codex">Codex</SelectItem>
-                <SelectItem value="claude">Claude</SelectItem>
-                <SelectItem value="opencode">OpenCode</SelectItem>
+                {enabledAgentTypes.map((agentType) => (
+                  <SelectItem key={agentType} value={agentType}>
+                    {AGENT_TYPE_LABELS[agentType]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
