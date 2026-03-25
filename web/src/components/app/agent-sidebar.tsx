@@ -365,14 +365,24 @@ export function AgentSidebarContent({
                     <div className="min-h-0 overflow-hidden">
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
-                          <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
-                          {agent.gitContext ? (
-                            <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                          {agent.gitContext?.isWorktree ? (
+                            <>
+                              <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
+                              <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
+                              <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                            </>
                           ) : (
-                            <div className="grid gap-1">
-                              <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
-                              <div className="text-foreground text-xs">Not a git repository</div>
-                            </div>
+                            <>
+                              <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
+                              {agent.gitContext ? (
+                                <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                              ) : (
+                                <div className="grid gap-1">
+                                  <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
+                                  <div className="text-foreground text-xs">Not a git repository</div>
+                                </div>
+                              )}
+                            </>
                           )}
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
