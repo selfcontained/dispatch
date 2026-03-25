@@ -29,6 +29,7 @@ import { useSSE } from "@/hooks/use-sse";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useTheme } from "@/hooks/use-theme";
+import { AGENT_TYPES, type AgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -111,7 +112,8 @@ export function App(): JSX.Element {
   const [createName, setCreateName] = useState("");
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
   const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
-  const [createType, setCreateType] = useState("codex");
+  const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
+  const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
@@ -258,6 +260,30 @@ export function App(): JSX.Element {
     return () => { cancelled = true; };
   }, [createCwdInitialized]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void api<{ enabledAgentTypes: AgentType[] }>("/api/v1/app/settings/agent-types")
+      .then((payload) => {
+        if (cancelled) return;
+        setEnabledAgentTypes(sanitizeEnabledAgentTypes(payload.enabledAgentTypes));
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (enabledAgentTypes.includes(createType)) {
+      return;
+    }
+    setCreateType(enabledAgentTypes[0] ?? "codex");
+  }, [createType, enabledAgentTypes]);
+
   // ── Derived values ────────────────────────────────────────────────────
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
@@ -288,8 +314,9 @@ export function App(): JSX.Element {
 
   const openCreateDialog = useCallback(() => {
     setCreateCwd(resolveCreateDefaultCwd());
+    setCreateType((current) => (enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex"));
     setCreateOpen(true);
-  }, [resolveCreateDefaultCwd]);
+  }, [enabledAgentTypes, resolveCreateDefaultCwd]);
 
   const toggleAgentDetails = useCallback(
     (agentId: string) => {
@@ -569,6 +596,7 @@ export function App(): JSX.Element {
         createFullAccess={createFullAccess}
         creating={creating}
         cwdHistory={cwdHistory}
+        enabledAgentTypes={enabledAgentTypes}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
@@ -586,7 +614,15 @@ export function App(): JSX.Element {
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
-      <SettingsPane open={settingsPaneOpen} onClose={() => setSettingsPaneOpen(false)} onLogout={handleLogout} theme={theme} setTheme={setTheme} />
+      <SettingsPane
+        open={settingsPaneOpen}
+        onClose={() => setSettingsPaneOpen(false)}
+        onLogout={handleLogout}
+        theme={theme}
+        setTheme={setTheme}
+        enabledAgentTypes={enabledAgentTypes}
+        onEnabledAgentTypesChange={setEnabledAgentTypes}
+      />
 
       <MediaLightbox
         item={lightboxItem}

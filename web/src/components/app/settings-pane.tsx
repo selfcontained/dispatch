@@ -1,22 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Bell, ChevronDown, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, Trash2, X } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, Trash2, Users, X } from "lucide-react";
 
+import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
+import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release" | "security" | "notifications" | "appearance" | "app";
+type SettingsSection = "release" | "security" | "notifications" | "appearance" | "agents" | "app";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "release", label: "Updates", icon: ArrowDownToLine },
   { id: "security", label: "Security", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "agents", label: "Agents", icon: Users },
   { id: "app", label: "App", icon: RefreshCw }
 ];
 
@@ -226,9 +229,19 @@ type SettingsPaneProps = {
   onLogout: () => void;
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
+  enabledAgentTypes: AgentType[];
+  onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
 };
 
-export function SettingsPane({ open, onClose, onLogout, theme, setTheme }: SettingsPaneProps): JSX.Element {
+export function SettingsPane({
+  open,
+  onClose,
+  onLogout,
+  theme,
+  setTheme,
+  enabledAgentTypes,
+  onEnabledAgentTypesChange,
+}: SettingsPaneProps): JSX.Element {
   const [activeSection, setActiveSection] = useState<SettingsSection | null>("release");
 
   return (
@@ -314,6 +327,12 @@ export function SettingsPane({ open, onClose, onLogout, theme, setTheme }: Setti
               {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
               {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} />}
+              {activeSection === "agents" && (
+                <AgentTypeSettings
+                  enabledAgentTypes={enabledAgentTypes}
+                  onChange={onEnabledAgentTypesChange}
+                />
+              )}
               {activeSection === "app" && <AppSettings />}
             </div>
           </div>

@@ -38,6 +38,20 @@ export async function setAgentLatestEventViaAPI(
   });
 }
 
+export async function setEnabledAgentTypesViaAPI(
+  request: APIRequestContext,
+  enabledAgentTypes: string[]
+): Promise<void> {
+  const res = await request.post(`${API}/app/settings/agent-types`, {
+    headers: authHeaders(),
+    data: { enabledAgentTypes },
+  });
+
+  if (!res.ok()) {
+    throw new Error(`Failed to update agent type settings: ${res.status()}`);
+  }
+}
+
 export async function uploadMediaViaAPI(
   request: APIRequestContext,
   agentId: string,

@@ -36,6 +36,7 @@ import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
+import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -1057,6 +1058,38 @@ async function registerRoutes() {
     return slackNotifier.sendTestMessage(url);
   });
 
+  app.get("/api/v1/app/settings/agent-types", async () => {
+    return {
+      enabledAgentTypes: await getEnabledAgentTypes(pool)
+    };
+  });
+
+  app.post("/api/v1/app/settings/agent-types", async (request, reply) => {
+    const body = request.body as { enabledAgentTypes?: unknown } | null;
+
+    if (!Array.isArray(body?.enabledAgentTypes)) {
+      return reply.code(400).send({ error: "enabledAgentTypes must be an array." });
+    }
+
+    const uniqueTypes = body.enabledAgentTypes
+      .filter((value): value is typeof AGENT_TYPES[number] => typeof value === "string" && AGENT_TYPES.includes(value as typeof AGENT_TYPES[number]))
+      .filter((value, index, values) => values.indexOf(value) === index);
+
+    if (uniqueTypes.length === 0) {
+      return reply.code(400).send({ error: "At least one agent type must remain enabled." });
+    }
+
+    if (uniqueTypes.length !== body.enabledAgentTypes.length) {
+      return reply
+        .code(400)
+        .send({ error: `enabledAgentTypes must only include ${AGENT_TYPES.join(", ")}.` });
+    }
+
+    return {
+      enabledAgentTypes: await setEnabledAgentTypes(pool, uniqueTypes)
+    };
+  });
+
   // --- Energy metrics beacon (PWA diagnostics) ---
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {
@@ -1474,6 +1507,11 @@ async function registerRoutes() {
 
     const agentArgs = providedAgentArgs as string[] | undefined;
     const agentType = body.type === "claude" ? "claude" : body.type === "opencode" ? "opencode" : "codex";
+    const enabledAgentTypes = await getEnabledAgentTypes(pool);
+    if (!enabledAgentTypes.includes(agentType)) {
+      return reply.code(400).send({ error: `${agentType} agents are disabled in settings.` });
+    }
+
     const fullAccessArg =
       agentType === "claude"
         ? CLAUDE_FULL_ACCESS_ARG
