@@ -9,11 +9,12 @@ Give this prompt to a coding agent to get Dispatch installed as a local service 
 > Clone https://github.com/selfcontained/dispatch.git and install it as a launchd service on this Mac. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Run `bin/preflight` to check dependencies — install anything it flags as failed (nvm, Node 22+, PostgreSQL, tmux).
-> 3. Set up PostgreSQL — either use a local install (`createuser dispatch; createdb -O dispatch dispatch`) or run `docker compose up -d postgres` to use the bundled Docker Postgres.
-> 4. Copy `.env.example` to `.env` and configure: set `DATABASE_URL` to match the Postgres setup, set `MEDIA_ROOT` to `~/.dispatch/media`, and generate a random `AUTH_TOKEN`.
+> 2. Run `bin/preflight` to check dependencies — install anything it flags as failed (nvm, Node 22+, PostgreSQL 17, tmux).
+> 3. Start PostgreSQL (`brew services start postgresql@17`) and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
+> 4. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The other defaults are usually fine.
 > 5. Run `bin/install-launchd` — this builds the project and registers a launchd service that starts automatically.
 > 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
+> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
 ## Features
 
@@ -33,9 +34,16 @@ Give this prompt to a coding agent to get Dispatch installed as a local service 
 | **Xcode CLI Tools** | Build tools for native npm modules (node-pty) | `xcode-select --install` |
 | **Homebrew** | Package manager | [brew.sh](https://brew.sh) |
 | **Node.js 22+** | Runtime | `nvm install 22` (see `.nvmrc`) |
-| **Docker Desktop** | Postgres database | `brew install --cask docker` |
+| **PostgreSQL 17** | Database (production) | `brew install postgresql@17` |
 | **tmux** | Agent session management | `brew install tmux` |
 | **At least one agent CLI** | The agents Dispatch runs | See below |
+
+### Optional
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| **Docker Desktop** | Isolated dev databases via `dispatch-dev` | `brew install --cask docker` |
+| **Xcode** (full) | iOS Simulator, `xcrun simctl` | App Store |
 
 ### Agent CLIs
 

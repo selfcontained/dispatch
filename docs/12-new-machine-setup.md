@@ -15,8 +15,7 @@ The new machine needs:
 | **tmux** | Agent session management | `brew install tmux` |
 | **Git** | Source control | Included with Xcode CLI Tools |
 | **GitHub CLI** | Release automation | `brew install gh` |
-| **Claude CLI** | Agent runtime (Claude agents) | `npm install -g @anthropic-ai/claude-code` |
-| **Codex CLI** | Agent runtime (Codex agents) | `npm install -g codex` |
+| **At least one agent CLI** | Agent runtime — install any you plan to use | See [Agent CLIs](#8-agent-clis) |
 | **Playwright browsers** | Headless Chrome for agent UI validation | `npx playwright install chromium` |
 
 ### Optional
@@ -33,7 +32,7 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Claude CLI, Codex CLI, Playwright browsers.
+1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Playwright browsers. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
@@ -43,7 +42,8 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 8. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
 9. Install the launchd service: bin/install-launchd --port 6767
 10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
-11. Run gh auth login to authenticate GitHub CLI for releases.
+11. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
+12. Run gh auth login to authenticate GitHub CLI for releases.
 
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
@@ -174,21 +174,32 @@ This is needed for `bin/dispatch-release` to trigger GitHub Actions workflows.
 
 ### 8. Agent CLIs
 
-Dispatch spawns agents via Claude CLI and/or Codex CLI:
+Dispatch spawns agents via their CLI tools. Install whichever you plan to use:
 
 ```bash
 # Claude CLI
 npm install -g @anthropic-ai/claude-code
-which claude
 claude --version
 
 # Codex CLI
 npm install -g codex
-which codex
 codex --version
+
+# OpenCode CLI
+npm install -g opencode
+opencode --version
 ```
 
-The config defaults to `claude` and `codex` on PATH. To override, set `DISPATCH_CLAUDE_BIN` or `DISPATCH_CODEX_BIN` in `.env`.
+The config defaults to `claude`, `codex`, and `opencode` on PATH. To override, set `DISPATCH_CLAUDE_BIN`, `DISPATCH_CODEX_BIN`, or `DISPATCH_OPENCODE_BIN` in `.env`.
+
+After setup, configure which agent types are available in the create-agent dialog. In the Dispatch UI go to **Settings > Agent Types** and enable only the CLIs you have installed. Or use the API:
+
+```bash
+# Example: only Claude and Codex are installed
+curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types \
+  -H 'Content-Type: application/json' \
+  -d '{"enabledAgentTypes": ["claude", "codex"]}'
+```
 
 ### 9. Playwright browsers
 
