@@ -8,6 +8,33 @@ import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
+const TERMINAL_HEARTBEAT_INTERVAL_MS = 20_000;
+const TERMINAL_LIVENESS_GRACE_MS = 5_000;
+const TERMINAL_FRESHNESS_MS = TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
+const RESUME_RECONNECT_DEDUPE_MS = 150;
+
+type TerminalSocketMessage =
+  | { type: "heartbeat"; ts: number }
+  | { type: "output"; data: string }
+  | { type: "error"; message: string }
+  | { type: "exit"; exitCode?: number };
+
+function isTerminalSessionGone(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("session no longer exists") ||
+    normalized.includes("session is not available") ||
+    normalized.includes("tmux session is no longer running")
+  );
+}
+
+function isRetriableTerminalFailure(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("invalid or expired terminal token") ||
+    normalized.includes("attach failed")
+  );
+}
 
 function readActiveShellAgentId(): string | null {
   if (typeof window === "undefined") return null;
@@ -89,6 +116,19 @@ export function useTerminal(args: {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const attachNonceRef = useRef(0);
+  const reconnectInFlightRef = useRef<{
+    agentId: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const lastResumeTriggerAtRef = useRef(0);
+  const socketHealthRef = useRef({
+    lastHeartbeatAt: 0,
+    lastOutputAt: 0,
+    lastHealthyAt: 0,
+    lastOpenAt: 0,
+    lastErrorMessage: null as string | null,
+    sessionGone: false,
+  });
 
   // Ref for agents so ensureTerminalConnected doesn't get recreated on every
   // SSE-driven agents array update (which would trigger the visibility/focus
@@ -103,6 +143,43 @@ export function useTerminal(args: {
     ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
   }, []);
 
+  const clearSocketHealth = useCallback(() => {
+    socketHealthRef.current = {
+      lastHeartbeatAt: 0,
+      lastOutputAt: 0,
+      lastHealthyAt: 0,
+      lastOpenAt: 0,
+      lastErrorMessage: null,
+      sessionGone: false,
+    };
+  }, []);
+
+  const markSocketHealthy = useCallback((source: "open" | "heartbeat" | "output") => {
+    const now = Date.now();
+    if (source === "open") {
+      socketHealthRef.current.lastOpenAt = now;
+    } else if (source === "heartbeat") {
+      socketHealthRef.current.lastHeartbeatAt = now;
+    } else {
+      socketHealthRef.current.lastOutputAt = now;
+    }
+    socketHealthRef.current.lastHealthyAt = now;
+    socketHealthRef.current.lastErrorMessage = null;
+    socketHealthRef.current.sessionGone = false;
+  }, []);
+
+  const noteTerminalError = useCallback((message: string) => {
+    socketHealthRef.current.lastErrorMessage = message;
+    socketHealthRef.current.sessionGone = isTerminalSessionGone(message);
+  }, []);
+
+  const hasFreshSocket = useCallback((agentId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    if (connectedAgentIdRef.current !== agentId) return false;
+    return Date.now() - socketHealthRef.current.lastHealthyAt <= TERMINAL_FRESHNESS_MS;
+  }, []);
+
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -114,11 +191,26 @@ export function useTerminal(args: {
     attachNonceRef.current += 1;
   }, []);
 
-  const closeSocket = useCallback((announce = true) => {
+  const closeSocketTransport = useCallback(() => {
     if (wsRef.current) {
       try { wsRef.current.close(); } catch {}
       wsRef.current = null;
     }
+    clearSocketHealth();
+  }, [clearSocketHealth]);
+
+  const restoreConnectedState = useCallback((agent: Agent, mode: "tmux" | "inert", message?: string) => {
+    clearReconnectTimer();
+    reconnectAttemptsRef.current = 0;
+    setConnState("connected");
+    setConnectedAgentId(agent.id);
+    setTerminalMode(mode);
+    setTerminalPlaceholderMessage(mode === "tmux" ? null : message ?? null);
+    setStatusMessage(message ?? `Connected to session ${agent.name}`);
+  }, [clearReconnectTimer]);
+
+  const closeSocket = useCallback((announce = true) => {
+    closeSocketTransport();
     setConnectedAgentId(null);
     setTerminalMode(null);
     setTerminalPlaceholderMessage(null);
@@ -127,7 +219,7 @@ export function useTerminal(args: {
       setStatusMessage("Session disconnected.");
       setConnState("disconnected");
     }
-  }, []);
+  }, [closeSocketTransport]);
 
   const ensureTerminalConnected = useCallback(
     async (clearScreen = false, userInitiated = false, targetAgentId?: string) => {
@@ -138,66 +230,17 @@ export function useTerminal(args: {
       const resolvedAgentId = targetAgentId ?? selectedAgentId;
       if (!shouldKeepAttachedRef.current || !resolvedAgentId) return;
 
-      let agent: Agent | null = userInitiated
-        ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
-        : null;
-
-      if (!agent || agent.status !== "running") {
-        try {
-          const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
-          agent = payload.agent;
-        } catch {
-          if (!shouldKeepAttachedRef.current) return;
-          clearReconnectTimer();
-          reconnectAttemptsRef.current += 1;
-          recordWSReconnect();
-          const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
-          setConnState("reconnecting");
-          setStatusMessage("Session disconnected, reconnecting...");
-          reconnectTimerRef.current = window.setTimeout(() => {
-            reconnectTimerRef.current = null;
-            if (document.hidden) return;
-            void ensureTerminalConnected(false, false, resolvedAgentId);
-          }, delay);
-          return;
-        }
-        if (!shouldKeepAttachedRef.current) return;
-      }
-
-      if (agent.status !== "running") {
-        setConnState("disconnected");
+       if (!userInitiated && reconnectInFlightRef.current?.agentId === resolvedAgentId) {
+        await reconnectInFlightRef.current.promise;
         return;
       }
 
-      // If already connected to this agent, just resize — don't invalidate the
-      // current attach nonce, which would cause the existing WS message handler
-      // to silently drop all incoming output.
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        if (connectedAgentIdRef.current === agent.id) {
-          sendResize();
-          return;
-        }
-      }
-
-      // We're actually establishing a new connection — now invalidate prior attempts.
-      const attachNonce = ++attachNonceRef.current;
+      const attemptNonce = ++attachNonceRef.current;
       const isCurrentAttempt = () =>
-        shouldKeepAttachedRef.current && attachNonce === attachNonceRef.current;
-
-      clearReconnectTimer();
-      closeSocket(false);
-
-      if (clearScreen) {
-        terminalRef.current?.clear();
-      }
-
-      fitAddonRef.current?.fit();
-      setConnState("reconnecting");
-      setStatusMessage(`Connecting to session ${agent.name}...`);
+        shouldKeepAttachedRef.current && attemptNonce === attachNonceRef.current;
 
       const scheduleReconnect = (message: string) => {
-        if (!isCurrentAttempt()) {
-          setConnState("disconnected");
+        if (!isCurrentAttempt() || !shouldKeepAttachedRef.current) {
           return;
         }
 
@@ -206,103 +249,199 @@ export function useTerminal(args: {
         const delay = Math.min(1200 * reconnectAttemptsRef.current, 8000);
         setConnState("reconnecting");
         setStatusMessage(message);
-
+        clearReconnectTimer();
         reconnectTimerRef.current = window.setTimeout(() => {
           reconnectTimerRef.current = null;
-          if (document.hidden) return;
+          if (!shouldKeepAttachedRef.current || document.hidden) return;
           void ensureTerminalConnected(false, false, resolvedAgentId);
         }, delay);
       };
 
-      try {
-        const terminalSession = await api<
-          | { mode: "tmux"; token: string; wsUrl: string }
-          | { mode: "inert"; message: string }
-        >(
-          `/api/v1/agents/${agent.id}/terminal/token`,
-          { method: "POST", body: JSON.stringify({}) }
-        );
+      const connectPromise = (async () => {
+        let agent: Agent | null = userInitiated
+          ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
+          : null;
 
-        if (!isCurrentAttempt()) {
+        if (!agent || agent.status !== "running") {
+          try {
+            const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
+            agent = payload.agent;
+          } catch {
+            if (!isCurrentAttempt()) return;
+            scheduleReconnect("Session disconnected, reconnecting...");
+            return;
+          }
+        }
+
+        if (!isCurrentAttempt() || !agent) return;
+
+        if (agent.status !== "running") {
+          shouldKeepAttachedRef.current = false;
+          clearReconnectTimer();
+          closeSocket(false);
+          setConnState("disconnected");
+          setStatusMessage("Session ended.");
           return;
         }
 
-        if (terminalSession.mode === "inert") {
-          reconnectAttemptsRef.current = 0;
-          setConnState("connected");
-          setConnectedAgentId(agent.id);
-          setTerminalMode("inert");
-          setTerminalPlaceholderMessage(terminalSession.message);
-          setStatusMessage(terminalSession.message);
+        if (hasFreshSocket(agent.id)) {
+          restoreConnectedState(agent, "tmux");
+          sendResize();
           return;
         }
 
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const term = terminalRef.current;
-        const cols = term?.cols ?? 140;
-        const rows = term?.rows ?? 42;
-        setTerminalMode("tmux");
-        setTerminalPlaceholderMessage(null);
-        const ws = new WebSocket(
-          `${protocol}//${window.location.host}${terminalSession.wsUrl}&cols=${cols}&rows=${rows}`
-        );
-        wsRef.current = ws;
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && connectedAgentIdRef.current === agent.id) {
+          closeSocketTransport();
+        }
 
-        ws.addEventListener("open", () => {
-          if (wsRef.current !== ws || !isCurrentAttempt()) {
-            try { ws.close(); } catch {}
+        clearReconnectTimer();
+        closeSocket(false);
+
+        if (clearScreen) {
+          terminalRef.current?.clear();
+        }
+
+        fitAddonRef.current?.fit();
+        setConnState("reconnecting");
+        setStatusMessage(`Connecting to session ${agent.name}...`);
+
+        try {
+          const terminalSession = await api<
+            | { mode: "tmux"; token: string; wsUrl: string }
+            | { mode: "inert"; message: string }
+          >(
+            `/api/v1/agents/${agent.id}/terminal/token`,
+            { method: "POST", body: JSON.stringify({}) }
+          );
+
+          if (!isCurrentAttempt()) {
             return;
           }
-          reconnectAttemptsRef.current = 0;
-          setConnState("connected");
-          setConnectedAgentId(agent.id);
-          setStatusMessage(`Connected to session ${agent.name}`);
-          terminalRef.current?.focus();
-        });
 
-        ws.addEventListener("message", (event) => {
-          if (wsRef.current !== ws || !isCurrentAttempt()) {
+          if (terminalSession.mode === "inert") {
+            restoreConnectedState(agent, "inert", terminalSession.message);
             return;
           }
-          const payload = JSON.parse(String(event.data)) as
-            | { type: "output"; data: string }
-            | { type: "error"; message: string }
-            | { type: "exit" };
 
-          if (payload.type === "output") {
-            terminalRef.current?.write(payload.data);
-          } else if (payload.type === "error") {
-            const normalized = payload.message.toLowerCase();
-            if (
-              normalized.includes("session no longer exists") ||
-              normalized.includes("attach failed") ||
-              normalized.includes("invalid or expired terminal token")
-            ) {
-              shouldKeepAttachedRef.current = false;
+          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          const term = terminalRef.current;
+          const cols = term?.cols ?? 140;
+          const rows = term?.rows ?? 42;
+          setTerminalMode("tmux");
+          setTerminalPlaceholderMessage(null);
+          const ws = new WebSocket(
+            `${protocol}//${window.location.host}${terminalSession.wsUrl}&cols=${cols}&rows=${rows}`
+          );
+          wsRef.current = ws;
+
+          ws.addEventListener("open", () => {
+            if (wsRef.current !== ws || !isCurrentAttempt()) {
+              try { ws.close(); } catch {}
+              return;
             }
-            setStatusMessage(`Session error: ${payload.message}`);
-          } else if (payload.type === "exit") {
-            setStatusMessage("Session ended.");
-          }
-        });
+            markSocketHealthy("open");
+            restoreConnectedState(agent, "tmux");
+            terminalRef.current?.focus();
+          });
 
-        ws.addEventListener("close", (event) => {
-          if (wsRef.current !== ws || !isCurrentAttempt()) return;
-          wsRef.current = null;
+          ws.addEventListener("message", (event) => {
+            if (wsRef.current !== ws || !isCurrentAttempt()) {
+              return;
+            }
+            const payload = JSON.parse(String(event.data)) as TerminalSocketMessage;
 
-          if (event.code === 1008 || event.code === 1011) {
+            if (payload.type === "heartbeat") {
+              markSocketHealthy("heartbeat");
+              return;
+            }
+
+            if (payload.type === "output") {
+              markSocketHealthy("output");
+              terminalRef.current?.write(payload.data);
+              return;
+            }
+
+            if (payload.type === "error") {
+              noteTerminalError(payload.message);
+              setStatusMessage(`Session error: ${payload.message}`);
+              if (isTerminalSessionGone(payload.message)) {
+                shouldKeepAttachedRef.current = false;
+              }
+              return;
+            }
+
+            noteTerminalError("Session ended.");
+            socketHealthRef.current.sessionGone = true;
             shouldKeepAttachedRef.current = false;
-            setConnState("disconnected");
+            setStatusMessage("Session ended.");
+          });
+
+          ws.addEventListener("close", (event) => {
+            if (wsRef.current !== ws || !isCurrentAttempt()) return;
+            wsRef.current = null;
+            const lastErrorMessage = socketHealthRef.current.lastErrorMessage;
+            const sessionGone = socketHealthRef.current.sessionGone;
+            clearSocketHealth();
+
+            if (sessionGone) {
+              shouldKeepAttachedRef.current = false;
+              setConnectedAgentId(null);
+              setTerminalMode(null);
+              setConnState("disconnected");
+              return;
+            }
+
+            if (event.code === 1008 && lastErrorMessage && isRetriableTerminalFailure(lastErrorMessage)) {
+              scheduleReconnect("Session token expired, retrying...");
+              return;
+            }
+
+            scheduleReconnect("Session disconnected, reconnecting...");
+          });
+        } catch (error) {
+          if (!isCurrentAttempt()) {
             return;
           }
 
-          scheduleReconnect("Session disconnected, reconnecting...");
-        });
-      } catch {
-        scheduleReconnect("Session connection failed, retrying...");
+          const message = error instanceof Error ? error.message : "Session connection failed.";
+          if (isTerminalSessionGone(message)) {
+            shouldKeepAttachedRef.current = false;
+            clearReconnectTimer();
+            closeSocket(false);
+            setConnState("disconnected");
+            setStatusMessage(message);
+            return;
+          }
+
+          scheduleReconnect(
+            isRetriableTerminalFailure(message)
+              ? "Session token expired, retrying..."
+              : "Session connection failed, retrying..."
+          );
+        }
+      })();
+
+      reconnectInFlightRef.current = { agentId: resolvedAgentId, promise: connectPromise };
+      try {
+        await connectPromise;
+      } finally {
+        if (reconnectInFlightRef.current?.promise === connectPromise) {
+          reconnectInFlightRef.current = null;
+        }
       }
     },
-    [clearReconnectTimer, closeSocket, selectedAgentId, sendResize]
+    [
+      clearReconnectTimer,
+      clearSocketHealth,
+      closeSocket,
+      closeSocketTransport,
+      hasFreshSocket,
+      markSocketHealthy,
+      noteTerminalError,
+      restoreConnectedState,
+      selectedAgentId,
+      sendResize,
+    ]
   );
 
   const detachTerminal = useCallback(() => {
@@ -464,24 +603,42 @@ export function useTerminal(args: {
 
   // Reconnect on visibility/focus.
   useEffect(() => {
+    const requestForegroundReconnect = () => {
+      const targetAgentId = connectedAgentIdRef.current ?? selectedAgentId ?? undefined;
+      if (!targetAgentId) return;
+      const now = Date.now();
+      if (now - lastResumeTriggerAtRef.current < RESUME_RECONNECT_DEDUPE_MS) {
+        return;
+      }
+      lastResumeTriggerAtRef.current = now;
+      void ensureTerminalConnected(false, false, targetAgentId);
+    };
+
     const onVisible = () => {
       if (!document.hidden) {
-        void ensureTerminalConnected(false, false, connectedAgentIdRef.current ?? selectedAgentId ?? undefined);
+        requestForegroundReconnect();
       }
     };
 
     const onFocus = () => {
+      requestForegroundReconnect();
+    };
+
+    const onOnline = () => {
+      clearReconnectTimer();
       void ensureTerminalConnected(false, false, connectedAgentIdRef.current ?? selectedAgentId ?? undefined);
     };
 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
     };
-  }, [connectedAgentId, ensureTerminalConnected, selectedAgentId]);
+  }, [clearReconnectTimer, ensureTerminalConnected, selectedAgentId]);
 
   // Fit on layout change.
   useEffect(() => {
