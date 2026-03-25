@@ -367,20 +367,33 @@ export function AgentSidebarContent({
                     <div className="min-h-0 overflow-hidden">
                       <div className="px-3 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
-                          <AgentMeta label="Working dir" value={agent.cwd} mono />
+                          <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
                           {agent.gitContext ? (
-                            <div className="grid gap-1 text-foreground">
+                            <div className="flex items-center gap-1.5 text-foreground min-w-0">
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <div className="inline-flex items-center gap-1.5 cursor-default">
-                                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <span>{agent.gitContext.branch}</span>
+                                  <div className="inline-flex items-center gap-1.5 cursor-default min-w-0">
+                                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{agent.gitContext.branch}</span>
                                   </div>
                                 </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                  Current branch
+                                <TooltipContent side="right" className="max-w-[360px] break-all text-xs font-mono">
+                                  {agent.gitContext.branch}
                                 </TooltipContent>
                               </Tooltip>
+                              {agent.gitContext.isWorktree && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="cursor-default shrink-0">
+                                      <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[360px] break-all text-xs">
+                                    <span className="text-muted-foreground">Worktree:</span>{" "}
+                                    <span className="font-mono">{agent.gitContext.worktreeName}</span>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                             </div>
                           ) : (
                             <Tooltip>
