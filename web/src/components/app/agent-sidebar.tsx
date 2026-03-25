@@ -3,8 +3,6 @@ import {
   BookOpenText,
   ChevronLeft,
   EllipsisVertical,
-  FolderGit2,
-  GitBranch,
   Monitor,
   MonitorOff,
   Play,
@@ -369,44 +367,12 @@ export function AgentSidebarContent({
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
                           {agent.gitContext ? (
-                            <div className="flex items-center gap-1.5 text-foreground min-w-0">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="inline-flex items-center gap-1.5 cursor-default min-w-0">
-                                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                    <span className="truncate">{agent.gitContext.branch}</span>
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-[360px] break-all text-xs font-mono">
-                                  {agent.gitContext.branch}
-                                </TooltipContent>
-                              </Tooltip>
-                              {agent.gitContext.isWorktree && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="cursor-default shrink-0">
-                                      <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[360px] break-all text-xs">
-                                    <span className="text-muted-foreground">Worktree:</span>{" "}
-                                    <span className="font-mono">{agent.gitContext.worktreeName}</span>
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
+                            <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
                           ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="inline-flex items-center gap-1.5 text-foreground cursor-default">
-                                  <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <span>Not a git repository</span>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                This directory is not inside a git repository
-                              </TooltipContent>
-                            </Tooltip>
+                            <div className="grid gap-1">
+                              <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
+                              <div className="text-foreground text-xs">Not a git repository</div>
+                            </div>
                           )}
                           <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
