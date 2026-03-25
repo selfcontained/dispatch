@@ -15,7 +15,7 @@ async function createAndStartAgent(
 ): Promise<{ id: string; name: string }> {
   const createRes = await request.post("/api/v1/agents", {
     headers: authHeaders(),
-    data: { name, type: "shell", cwd: "/tmp" },
+    data: { name, type: "codex", cwd: "/tmp" },
   });
   const { agent } = (await createRes.json()) as { agent: { id: string; name: string } };
 
@@ -31,6 +31,39 @@ async function waitForTerminalConnected(page: Page, timeoutMs = 10_000): Promise
   await expect(
     page.getByTestId("detach-button")
   ).toBeVisible({ timeout: timeoutMs });
+}
+
+async function simulateHidden(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      value: "hidden",
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(document, "hidden", {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+async function simulateVisibleWithFocus(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(document, "hidden", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
 }
 
 test.describe("Terminal live connection", () => {
@@ -148,6 +181,36 @@ test.describe("Terminal live connection", () => {
 
     // After all switching, the final connection should stabilize
     await waitForTerminalConnected(page, 5_000);
+  });
+
+  test("healthy resume does not fetch a duplicate terminal token", async ({ page, request }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    let tokenRequests = 0;
+    page.on("request", (req) => {
+      if (req.method() === "POST" && req.url().includes(`/api/v1/agents/${agent.id}/terminal/token`)) {
+        tokenRequests += 1;
+      }
+    });
+
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await agentCard.getByText(agent.name).click();
+    const attachBtn = agentCard.locator('[data-agent-control="true"]').first();
+    await attachBtn.click();
+    await waitForTerminalConnected(page, 5_000);
+    await expect.poll(() => tokenRequests).toBe(1);
+
+    await simulateHidden(page);
+    await page.waitForTimeout(100);
+    await simulateVisibleWithFocus(page);
+    await page.waitForTimeout(500);
+
+    await waitForTerminalConnected(page, 5_000);
+    await expect.poll(() => tokenRequests).toBe(1);
   });
 
   test("terminal-features not duplicated across attaches", async ({ request }) => {
