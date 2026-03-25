@@ -110,6 +110,40 @@ pid_alive() {
   [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
 }
 
+# Recursively kill a process and all its descendants (depth-first).
+# This ensures child processes spawned by npm/tsx are cleaned up even
+# when signals don't propagate through the wrapper chain.
+kill_tree() {
+  local pid="${1:-}"
+  local sig="${2:-TERM}"
+  [ -z "$pid" ] && return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null || true
+}
+
+# Tree-kill a service PID, wait for exit, then force-kill if needed.
+stop_service() {
+  local pid="${1:-}"
+  local name="${2:-service}"
+  if ! pid_alive "$pid"; then
+    return 0
+  fi
+  kill_tree "$pid"
+  local i=0
+  while [ $i -lt 10 ] && pid_alive "$pid"; do
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if pid_alive "$pid"; then
+    kill_tree "$pid" 9
+  fi
+  echo "Stopped ${name} (PID ${pid})"
+}
+
 # Detect docker compose command
 detect_compose() {
   if docker compose version &>/dev/null; then
@@ -221,6 +255,9 @@ cmd_up() {
   # --- Vite Frontend ---
   DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
 
+  # Clear stale Vite dep optimizer cache to prevent white-page on fresh worktrees
+  rm -rf "${cwd}/web/node_modules/.vite" 2>/dev/null || true
+
   (
     cd "$cwd"
     # Tell Vite's proxy where the API server is
@@ -258,34 +295,8 @@ cmd_down() {
     return 0
   fi
 
-  # Kill API server
-  if pid_alive "${DEV_API_PID:-}"; then
-    kill "$DEV_API_PID" 2>/dev/null || true
-    # Wait briefly for clean exit, then force
-    local i=0
-    while [ $i -lt 10 ] && pid_alive "$DEV_API_PID"; do
-      sleep 0.5
-      i=$((i + 1))
-    done
-    if pid_alive "$DEV_API_PID"; then
-      kill -9 "$DEV_API_PID" 2>/dev/null || true
-    fi
-    echo "Stopped API server (PID ${DEV_API_PID})"
-  fi
-
-  # Kill Vite server
-  if pid_alive "${DEV_VITE_PID:-}"; then
-    kill "$DEV_VITE_PID" 2>/dev/null || true
-    local i=0
-    while [ $i -lt 10 ] && pid_alive "$DEV_VITE_PID"; do
-      sleep 0.5
-      i=$((i + 1))
-    done
-    if pid_alive "$DEV_VITE_PID"; then
-      kill -9 "$DEV_VITE_PID" 2>/dev/null || true
-    fi
-    echo "Stopped Vite server (PID ${DEV_VITE_PID})"
-  fi
+  stop_service "${DEV_API_PID:-}" "API server"
+  stop_service "${DEV_VITE_PID:-}" "Vite server"
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then

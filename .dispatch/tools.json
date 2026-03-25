@@ -3,7 +3,20 @@
     {
       "name": "dev_up",
       "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports).",
-      "command": ["./bin/dispatch-dev", "up"]
+      "command": ["./bin/dispatch-dev", "up"],
+      "params": [
+        { "name": "cwd", "type": "string", "flag": "--cwd", "description": "Working directory override (e.g. a worktree path)." },
+        { "name": "live", "type": "boolean", "flag": "--live", "description": "Enable live agent runtime (tmux) instead of inert mode." }
+      ]
+    },
+    {
+      "name": "dev_restart",
+      "description": "Restart the repo's dev environment, picking up code changes (reuses ports and DB).",
+      "command": ["./bin/dispatch-dev", "restart"],
+      "params": [
+        { "name": "cwd", "type": "string", "flag": "--cwd", "description": "Working directory override (e.g. a worktree path)." },
+        { "name": "live", "type": "boolean", "flag": "--live", "description": "Enable live agent runtime (tmux) instead of inert mode." }
+      ]
     },
     {
       "name": "dev_down",
