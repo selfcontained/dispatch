@@ -1,5 +1,5 @@
 ## What's Changed
-* Improve tmux terminal reconnect recovery by @selfcontained in https://github.com/selfcontained/dispatch/pull/112
+* Sort recent project path options by @selfcontained in https://github.com/selfcontained/dispatch/pull/113
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.13...v0.4.14
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.4.14...v0.4.15
