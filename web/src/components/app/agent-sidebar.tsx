@@ -381,19 +381,6 @@ export function AgentSidebarContent({
                                   Current branch
                                 </TooltipContent>
                               </Tooltip>
-                              {agent.gitContext.isWorktree && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="inline-flex items-center gap-1.5 cursor-default">
-                                      <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <span>{agent.gitContext.worktreeName}</span>
-                                    </div>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[280px] text-xs">
-                                    Linked worktree at {agent.gitContext.worktreePath}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
                             </div>
                           ) : (
                             <Tooltip>
