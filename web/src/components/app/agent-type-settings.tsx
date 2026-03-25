@@ -92,7 +92,7 @@ export function AgentTypeSettings({
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-6 p-6">
       <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
         Available agent types
       </h3>
