@@ -45,9 +45,9 @@ test.describe("Settings pane", () => {
     const claudeToggle = page.getByTestId("agent-type-toggle-claude");
     await expect(claudeToggle).toBeChecked();
     await claudeToggle.uncheck();
-    await page.getByTestId("save-agent-type-settings").click();
-    await expect(page.getByText("Agent type settings saved.")).toBeVisible();
+    await expect(claudeToggle).not.toBeChecked();
 
+    // Auto-saves — close settings and verify
     await page.getByRole("button", { name: "Close" }).click();
 
     await page.getByTestId("create-agent-button").click();

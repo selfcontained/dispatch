@@ -404,7 +404,7 @@ export function SettingsPane({
               {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} />}
               {activeSection === "agents" && (
-                <div className="flex flex-col gap-6">
+                <div className="flex flex-col">
                   <AgentTypeSettings
                     enabledAgentTypes={enabledAgentTypes}
                     onChange={onEnabledAgentTypesChange}
