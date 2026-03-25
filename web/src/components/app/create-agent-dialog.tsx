@@ -40,10 +40,7 @@ export function CreateAgentDialog({
 }: CreateAgentDialogProps): JSX.Element {
   const [cwdDropdownOpen, setCwdDropdownOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const filteredHistory = cwdHistory.filter(
-    (dir) => !createCwd || dir.toLowerCase().includes(createCwd.toLowerCase())
-  );
+  const sortedCwdHistory = [...cwdHistory].sort((left, right) => left.localeCompare(right));
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -119,13 +116,17 @@ export function CreateAgentDialog({
                 </button>
               ) : null}
             </div>
-            {cwdDropdownOpen && filteredHistory.length > 0 ? (
-              <div className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-background shadow-md">
+            {cwdDropdownOpen && sortedCwdHistory.length > 0 ? (
+              <div
+                className="absolute left-0 right-0 z-10 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-border bg-background shadow-md"
+                data-testid="create-agent-cwd-history"
+              >
                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Recent directories</div>
-                {filteredHistory.map((dir) => (
+                {sortedCwdHistory.map((dir) => (
                   <button
                     key={dir}
                     type="button"
+                    data-testid="create-agent-cwd-history-option"
                     className="w-full truncate px-2 py-1.5 text-left font-mono text-xs text-foreground hover:bg-muted/70"
                     onMouseDown={(event) => {
                       event.preventDefault();

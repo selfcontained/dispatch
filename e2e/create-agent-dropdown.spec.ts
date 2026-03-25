@@ -43,4 +43,28 @@ test.describe("Create agent dialog", () => {
     await page.getByTestId("create-agent-cancel").click();
     await expect(form).not.toBeVisible({ timeout: 3_000 });
   });
+
+  test("recent directories remain visible while typing a new path", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "dispatch:cwdHistory",
+        JSON.stringify(["/tmp/existing-project", "/Users/brad/dev/apps/dispatch"])
+      );
+    });
+
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    const form = page.getByTestId("create-agent-form");
+    await expect(form).toBeVisible();
+
+    const cwdInput = form.getByTestId("create-agent-cwd");
+    await cwdInput.fill("/brand/new/path");
+    const recentOptions = form.getByTestId("create-agent-cwd-history-option");
+
+    await expect(page.getByRole("button", { name: "/Users/brad/dev/apps/dispatch" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "/tmp/existing-project" })).toBeVisible();
+    await expect(recentOptions).toHaveText(["/tmp/existing-project", "/Users/brad/dev/apps/dispatch"]);
+    await expect(cwdInput).toHaveValue("/brand/new/path");
+  });
 });
