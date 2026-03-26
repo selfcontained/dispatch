@@ -85,10 +85,11 @@ beforeEach(async () => {
 describe("AgentManager", () => {
   describe("createAgent", () => {
     it("should create an agent and return it", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       expect(agent.id).toMatch(/^agt_/);
-      expect(agent.status).toBe("running");
+      expect(agent.status).toBe("creating");
+      expect(agent.setupPhase).toBe("session");
       expect(agent.cwd).toBe("/tmp");
       expect(agent.type).toBe("codex");
       expect(agent.tmuxSession).toMatch(/^dispatch_agt_/);
@@ -97,22 +98,22 @@ describe("AgentManager", () => {
     });
 
     it("should use a custom name when provided", async () => {
-      const agent = await manager.createAgent({ name: "my-agent", cwd: "/tmp" });
+      const agent = await manager.createAgent({ name: "my-agent", cwd: "/tmp", useWorktree: false });
       expect(agent.name).toBe("my-agent");
     });
 
     it("should generate a default name from ID suffix", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
       expect(agent.name).toMatch(/^agent-/);
     });
 
     it("should support claude agent type", async () => {
-      const agent = await manager.createAgent({ type: "claude", cwd: "/tmp" });
+      const agent = await manager.createAgent({ type: "claude", cwd: "/tmp", useWorktree: false });
       expect(agent.type).toBe("claude");
     });
 
     it("should support opencode agent type", async () => {
-      const agent = await manager.createAgent({ type: "opencode", cwd: "/tmp" });
+      const agent = await manager.createAgent({ type: "opencode", cwd: "/tmp", useWorktree: false });
       expect(agent.type).toBe("opencode");
     });
 
@@ -120,6 +121,7 @@ describe("AgentManager", () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         agentArgs: ["--model", "o3"],
+        useWorktree: false,
       });
       expect(agent.agentArgs).toEqual(["--model", "o3"]);
     });
@@ -128,6 +130,7 @@ describe("AgentManager", () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         fullAccess: true,
+        useWorktree: false,
       });
       expect(agent.fullAccess).toBe(true);
     });
@@ -156,35 +159,63 @@ describe("AgentManager", () => {
     });
 
     it("should inject an agent-scoped MCP URL into Codex launches", async () => {
-      const { runCommand } = await import("../../src/lib/run-command.js");
-      vi.mocked(runCommand).mockClear();
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", useWorktree: false });
 
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex" });
-
-      const newSessionCall = vi.mocked(runCommand).mock.calls.find(
-        ([command, args]) => command === "tmux" && args[0] === "new-session"
-      );
-      expect(newSessionCall).toBeTruthy();
-      const wrappedCommand = newSessionCall![1][newSessionCall![1].length - 1];
-      expect(wrappedCommand).toContain("mcp_servers.dispatch.url=");
-      expect(wrappedCommand).toContain(`/api/mcp/${agent.id}`);
-      expect(wrappedCommand).toContain("mcp_servers.dispatch.bearer_token_env_var=");
-      expect(wrappedCommand).toContain("DISPATCH_AUTH_TOKEN=");
+      // The setup script should contain the MCP configuration
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("mcp_servers.dispatch.url=");
+      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
+      expect(setupScript).toContain("mcp_servers.dispatch.bearer_token_env_var=");
+      expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
     });
 
     it("should inject an agent-scoped MCP URL into Claude launches", async () => {
-      const { runCommand } = await import("../../src/lib/run-command.js");
-      vi.mocked(runCommand).mockClear();
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: false });
 
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude" });
+      // The setup script should contain the MCP configuration
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("--mcp-config");
+      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
+    });
 
-      const newSessionCall = vi.mocked(runCommand).mock.calls.find(
-        ([command, args]) => command === "tmux" && args[0] === "new-session"
-      );
-      expect(newSessionCall).toBeTruthy();
-      const wrappedCommand = newSessionCall![1][newSessionCall![1].length - 1];
-      expect(wrappedCommand).toContain("--mcp-config");
-      expect(wrappedCommand).toContain(`/api/mcp/${agent.id}`);
+    it("should generate a setup script with worktree steps when useWorktree is true", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: true });
+
+      expect(agent.setupPhase).toBe("worktree");
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("Creating git worktree");
+      expect(setupScript).toContain("Copying environment files");
+      expect(setupScript).toContain("Installing dependencies");
+      expect(setupScript).toContain("Starting agent session");
+      expect(setupScript).toContain("setup/complete");
+      expect(setupScript).toContain("exec bash");
+    });
+
+    it("should skip worktree steps in setup script when useWorktree is false", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: false });
+
+      expect(agent.setupPhase).toBe("session");
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("Creating git worktree");
+      expect(setupScript).toContain("Starting agent session");
+      expect(setupScript).toContain("exec bash");
+    });
+
+    it("should complete setup and transition to running", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      expect(agent.status).toBe("creating");
+
+      const updated = await manager.completeSetup(agent.id, {
+        effectiveCwd: "/tmp/worktree",
+        worktreePath: "/tmp/worktree",
+        worktreeBranch: "test-branch",
+      });
+
+      expect(updated.status).toBe("running");
+      expect(updated.cwd).toBe("/tmp/worktree");
+      expect(updated.worktreePath).toBe("/tmp/worktree");
+      expect(updated.worktreeBranch).toBe("test-branch");
+      expect(updated.setupPhase).toBeNull();
     });
   });
 
@@ -195,8 +226,8 @@ describe("AgentManager", () => {
     });
 
     it("should list created agents in descending order", async () => {
-      await manager.createAgent({ name: "first", cwd: "/tmp" });
-      await manager.createAgent({ name: "second", cwd: "/tmp" });
+      await manager.createAgent({ name: "first", cwd: "/tmp", useWorktree: false });
+      await manager.createAgent({ name: "second", cwd: "/tmp", useWorktree: false });
 
       const agents = await manager.listAgents();
       expect(agents.length).toBe(2);
@@ -205,7 +236,7 @@ describe("AgentManager", () => {
     });
 
     it("should fetch a single agent by ID", async () => {
-      const created = await manager.createAgent({ name: "fetch-me", cwd: "/tmp" });
+      const created = await manager.createAgent({ name: "fetch-me", cwd: "/tmp", useWorktree: false });
       const fetched = await manager.getAgent(created.id);
 
       expect(fetched).not.toBeNull();
@@ -228,7 +259,7 @@ describe("AgentManager", () => {
 
   describe("upsertLatestEvent", () => {
     it("should persist an event on an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       const updated = await manager.upsertLatestEvent(agent.id, {
         type: "working",
@@ -242,7 +273,7 @@ describe("AgentManager", () => {
     });
 
     it("should overwrite a previous event", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       await manager.upsertLatestEvent(agent.id, {
         type: "working",
@@ -259,7 +290,7 @@ describe("AgentManager", () => {
     });
 
     it("should store metadata", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       const updated = await manager.upsertLatestEvent(agent.id, {
         type: "blocked",
@@ -274,7 +305,7 @@ describe("AgentManager", () => {
     });
 
     it("should reject empty message", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       await expect(
         manager.upsertLatestEvent(agent.id, { type: "working", message: "  " })
@@ -297,7 +328,7 @@ describe("AgentManager", () => {
 
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       // Stop first so delete doesn't need force
       await manager.stopAgent(agent.id, { force: true });
@@ -308,7 +339,7 @@ describe("AgentManager", () => {
     });
 
     it("should cascade-delete media and media_seen", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       // Insert media directly
       await pool.query(
@@ -340,16 +371,16 @@ describe("AgentManager", () => {
   });
 
   describe("stopAgent", () => {
-    it("should stop a running agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
-      expect(agent.status).toBe("running");
+    it("should stop an agent", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      expect(agent.status).toBe("creating");
 
       const stopped = await manager.stopAgent(agent.id, { force: true });
       expect(stopped.status).toBe("stopped");
     });
 
     it("should be a no-op for already stopped agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
       await manager.stopAgent(agent.id, { force: true });
 
       const result = await manager.stopAgent(agent.id);
@@ -371,7 +402,7 @@ describe("AgentManager", () => {
 
   describe("reconcileAgents", () => {
     it("should mark agents as stopped when tmux session is gone", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp" });
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       // Now make tmux report no session
       const { runCommand } = await import("../../src/lib/run-command.js");
@@ -404,7 +435,7 @@ describe("AgentManager", () => {
       process.env.HOME = tempHome;
 
       try {
-        const agent = await manager.createAgent({ cwd: "/tmp" });
+        const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
         const { runCommand } = await import("../../src/lib/run-command.js");
         const mockRunCommand = vi.mocked(runCommand);

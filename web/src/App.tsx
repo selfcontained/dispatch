@@ -408,10 +408,11 @@ export function App(): JSX.Element {
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
-        setCwdHistory(addToCwdHistory(payload.agent.cwd));
+        setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
         refreshMedia(payload.agent.id);
-        await ensureTerminalConnected(true, true, payload.agent.id);
+        // Small delay to let tmux session start before connecting
+        setTimeout(() => void ensureTerminalConnected(true, true, payload.agent.id), 300);
       } finally {
         setCreating(false);
       }
@@ -420,7 +421,7 @@ export function App(): JSX.Element {
   );
 
   const attachSelectedAgent = useCallback(() => {
-    if (!selectedAgent || selectedAgent.status !== "running") return;
+    if (!selectedAgent || (selectedAgent.status !== "running" && selectedAgent.status !== "creating")) return;
     void attachToAgent(selectedAgent);
   }, [attachToAgent, selectedAgent]);
 

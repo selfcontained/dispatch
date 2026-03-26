@@ -1587,6 +1587,56 @@ async function registerRoutes() {
     }
   });
 
+  // Setup script callbacks — called by the bash setup script running in tmux
+  app.post("/api/v1/agents/:id/setup/phase", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as { phase?: unknown };
+    const id = params.id ?? "";
+
+    const validPhases = ["worktree", "env", "deps", "session"];
+    if (typeof body?.phase !== "string" || !validPhases.includes(body.phase)) {
+      return reply.code(400).send({ error: "phase must be one of: worktree, env, deps, session" });
+    }
+
+    try {
+      await agentManager.updateSetupPhase(id, body.phase as "worktree" | "env" | "deps" | "session");
+      const agent = await agentManager.getAgent(id);
+      if (agent) {
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      }
+      return { ok: true };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
+  app.post("/api/v1/agents/:id/setup/complete", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as {
+      effectiveCwd?: unknown;
+      worktreePath?: unknown;
+      worktreeBranch?: unknown;
+    };
+    const id = params.id ?? "";
+
+    if (typeof body?.effectiveCwd !== "string") {
+      return reply.code(400).send({ error: "effectiveCwd must be a string." });
+    }
+
+    try {
+      const agent = await agentManager.completeSetup(id, {
+        effectiveCwd: body.effectiveCwd,
+        worktreePath: typeof body.worktreePath === "string" ? body.worktreePath : null,
+        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
+      });
+      queueGitContextRefresh([agent.id]);
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      return { ok: true };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/start", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";

@@ -106,6 +106,9 @@ export async function runMigrations(): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       expires_at TIMESTAMPTZ NOT NULL
     );
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS setup_phase TEXT;
   `;
 
   try {
