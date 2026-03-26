@@ -1,5 +1,5 @@
 ## What's Changed
-* Add configurable worktree location setting by @selfcontained in https://github.com/selfcontained/dispatch/pull/118
+* Add terminal-streamed agent creation with live setup progress by @selfcontained in https://github.com/selfcontained/dispatch/pull/119
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.0...v0.5.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.1...v0.5.2
