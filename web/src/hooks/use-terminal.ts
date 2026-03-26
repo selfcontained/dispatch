@@ -235,7 +235,10 @@ export function useTerminal(args: {
         return;
       }
 
-      const attemptNonce = ++attachNonceRef.current;
+      // Nonce is incremented later (just before opening a new WebSocket) so
+      // that reusing a fresh socket doesn't invalidate its existing message
+      // handler.  Read the current value here for the in-flight guard only.
+      let attemptNonce = attachNonceRef.current;
       const isCurrentAttempt = () =>
         shouldKeepAttachedRef.current && attemptNonce === attachNonceRef.current;
 
@@ -289,6 +292,10 @@ export function useTerminal(args: {
           sendResize();
           return;
         }
+
+        // We're about to create a new WebSocket — NOW increment the nonce to
+        // invalidate any previous handler that is still attached.
+        attemptNonce = ++attachNonceRef.current;
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && connectedAgentIdRef.current === agent.id) {
           closeSocketTransport();
