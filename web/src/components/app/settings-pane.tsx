@@ -180,6 +180,82 @@ function AppSettings(): JSX.Element {
   );
 }
 
+type WorktreeLocation = "sibling" | "nested";
+
+function WorktreeLocationSettings(): JSX.Element {
+  const [worktreeLocation, setWorktreeLocation] = useState<WorktreeLocation>("sibling");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ worktreeLocation: WorktreeLocation }>("/api/v1/agents/settings")
+      .then((data) => {
+        if (!cancelled) setWorktreeLocation(data.worktreeLocation);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleChange = useCallback(async (value: WorktreeLocation) => {
+    setWorktreeLocation(value);
+    setSaving(true);
+    try {
+      await api<{ worktreeLocation: WorktreeLocation }>("/api/v1/agents/settings", {
+        method: "POST",
+        body: JSON.stringify({ worktreeLocation: value }),
+      });
+    } catch {
+      // revert on error
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const options: Array<{ value: WorktreeLocation; label: string; description: string }> = [
+    {
+      value: "sibling",
+      label: "Sibling directories",
+      description: "Worktrees are created next to the repo (e.g. ../repo-branch-name)"
+    },
+    {
+      value: "nested",
+      label: "Inside .dispatch/worktrees",
+      description: "Worktrees are created inside the repo in .dispatch/worktrees/"
+    }
+  ];
+
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Worktree location
+      </div>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Choose where git worktrees are created for new agents.
+      </p>
+      <div className="grid gap-3">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => void handleChange(opt.value)}
+            disabled={saving}
+            className={cn(
+              "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+              worktreeLocation === opt.value
+                ? "border-primary bg-primary/10"
+                : "border-border hover:border-muted-foreground/30"
+            )}
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">{opt.label}</div>
+              <div className="text-xs text-muted-foreground">{opt.description}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AppearanceSettings({ theme, setTheme }: { theme: ThemeId; setTheme: (id: ThemeId) => void }): JSX.Element {
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -328,10 +404,15 @@ export function SettingsPane({
               {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} />}
               {activeSection === "agents" && (
-                <AgentTypeSettings
-                  enabledAgentTypes={enabledAgentTypes}
-                  onChange={onEnabledAgentTypesChange}
-                />
+                <div className="flex flex-col">
+                  <AgentTypeSettings
+                    enabledAgentTypes={enabledAgentTypes}
+                    onChange={onEnabledAgentTypesChange}
+                  />
+                  <div className="px-6 pb-6">
+                    <WorktreeLocationSettings />
+                  </div>
+                </div>
               )}
               {activeSection === "app" && <AppSettings />}
             </div>

@@ -57,6 +57,8 @@ const CLI_BY_AGENT_TYPE: Record<AgentType, keyof Pick<AppConfig, "codexBin" | "c
   opencode: "opencodeBin"
 };
 
+type WorktreeLocation = "sibling" | "nested";
+
 type CreateAgentInput = {
   name?: string;
   type?: AgentType;
@@ -65,6 +67,7 @@ type CreateAgentInput = {
   fullAccess?: boolean;
   useWorktree?: boolean;
   worktreeBranch?: string;
+  worktreeLocation?: WorktreeLocation;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -154,10 +157,16 @@ export class AgentManager {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
         const branchName = input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+        const worktreeLocation = input.worktreeLocation ?? "sibling";
+        // For "nested", place worktrees inside <repoRoot>/.dispatch/worktrees/
+        const worktreePathOverride = worktreeLocation === "nested"
+          ? path.join(originalCwd, ".dispatch", "worktrees", branchName.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase())
+          : undefined;
         const result = await createGitWorktree({
           cwd: originalCwd,
           name,
-          branchName
+          branchName,
+          worktreePath: worktreePathOverride
         });
         worktreePath = result.worktreePath;
         worktreeBranch = result.branchName;

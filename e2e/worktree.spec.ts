@@ -467,3 +467,102 @@ test.describe("Worktree filesystem", () => {
     expect(existsSync(wtPath)).toBe(false);
   });
 });
+
+test.describe("Worktree location setting", () => {
+  const testId = `loc-${process.pid}-${Date.now()}`;
+  let repoPath: string;
+
+  test.beforeAll(() => {
+    repoPath = createTestRepo(testId);
+  });
+
+  test.afterAll(() => {
+    cleanupTestRepo(repoPath);
+  });
+
+  test.afterEach(async ({ request }) => {
+    // Reset to default
+    await request.post("/api/v1/agents/settings", {
+      headers: authHeader,
+      data: { worktreeLocation: "sibling" },
+    });
+    await cleanupE2EAgents(request);
+  });
+
+  test("GET /api/v1/agents/settings returns default worktree location", async ({ request }) => {
+    const res = await request.get("/api/v1/agents/settings", { headers: authHeader });
+    expect(res.ok()).toBeTruthy();
+    const body = (await res.json()) as { worktreeLocation: string };
+    expect(body.worktreeLocation).toBe("sibling");
+  });
+
+  test("POST /api/v1/agents/settings persists worktree location", async ({ request }) => {
+    const res = await request.post("/api/v1/agents/settings", {
+      headers: authHeader,
+      data: { worktreeLocation: "nested" },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = (await res.json()) as { worktreeLocation: string };
+    expect(body.worktreeLocation).toBe("nested");
+
+    // Verify it persisted
+    const getRes = await request.get("/api/v1/agents/settings", { headers: authHeader });
+    const getBody = (await getRes.json()) as { worktreeLocation: string };
+    expect(getBody.worktreeLocation).toBe("nested");
+  });
+
+  test("POST /api/v1/agents/settings validates worktree location", async ({ request }) => {
+    const res = await request.post("/api/v1/agents/settings", {
+      headers: authHeader,
+      data: { worktreeLocation: "invalid" },
+    });
+    expect(res.status()).toBe(400);
+  });
+
+  test("sibling location creates worktree next to the repo", async ({ request }) => {
+    await request.post("/api/v1/agents/settings", {
+      headers: authHeader,
+      data: { worktreeLocation: "sibling" },
+    });
+
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-sibling-${Date.now()}`,
+      cwd: repoPath,
+      useWorktree: true,
+    });
+
+    expect(agent.worktreePath).toBeTruthy();
+    // Sibling: worktree is next to the repo, not inside it
+    expect(agent.worktreePath!.startsWith(repoPath)).toBe(false);
+    expect(existsSync(agent.worktreePath!)).toBe(true);
+  });
+
+  test("nested location creates worktree inside .dispatch/worktrees", async ({ request }) => {
+    await request.post("/api/v1/agents/settings", {
+      headers: authHeader,
+      data: { worktreeLocation: "nested" },
+    });
+
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-nested-${Date.now()}`,
+      cwd: repoPath,
+      useWorktree: true,
+    });
+
+    expect(agent.worktreePath).toBeTruthy();
+    // Nested: worktree is inside <repoPath>/.dispatch/worktrees/
+    expect(agent.worktreePath!.startsWith(`${repoPath}/.dispatch/worktrees/`)).toBe(true);
+    expect(existsSync(agent.worktreePath!)).toBe(true);
+  });
+
+  test("settings toggle is visible in the UI", async ({ page }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page.getByRole("navigation").getByText("Agents", { exact: true }).click();
+
+    await expect(page.getByText("Worktree location")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByText("Sibling directories")).toBeVisible();
+    await expect(page.getByText("Inside .dispatch/worktrees")).toBeVisible();
+  });
+});

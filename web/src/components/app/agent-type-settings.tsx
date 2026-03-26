@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { AGENT_TYPES, AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 
@@ -17,16 +16,12 @@ export function AgentTypeSettings({
   enabledAgentTypes,
   onChange,
 }: AgentTypeSettingsProps): JSX.Element {
-  const [draftAgentTypes, setDraftAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
-  const [savedAgentTypes, setSavedAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
+  const [agentTypes, setAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setDraftAgentTypes(enabledAgentTypes);
-    setSavedAgentTypes(enabledAgentTypes);
+    setAgentTypes(enabledAgentTypes);
   }, [enabledAgentTypes]);
 
   useEffect(() => {
@@ -35,8 +30,7 @@ export function AgentTypeSettings({
     void api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types")
       .then((data) => {
         if (cancelled) return;
-        setDraftAgentTypes(data.enabledAgentTypes);
-        setSavedAgentTypes(data.enabledAgentTypes);
+        setAgentTypes(data.enabledAgentTypes);
         onChange(data.enabledAgentTypes);
         setError("");
       })
@@ -53,57 +47,54 @@ export function AgentTypeSettings({
     };
   }, [onChange]);
 
-  const hasChanges =
-    JSON.stringify([...draftAgentTypes].sort()) !== JSON.stringify([...savedAgentTypes].sort());
+  const toggleAgentType = useCallback(
+    async (agentType: AgentType) => {
+      setError("");
 
-  const toggleAgentType = useCallback((agentType: AgentType) => {
-    setMessage("");
-    setError("");
-    setDraftAgentTypes((current) => {
-      if (current.includes(agentType)) {
-        return current.filter((item) => item !== agentType);
+      const next = agentTypes.includes(agentType)
+        ? agentTypes.filter((item) => item !== agentType)
+        : [...agentTypes, agentType];
+
+      // Optimistic update
+      setAgentTypes(next);
+      onChange(next);
+
+      try {
+        const data = await api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types", {
+          method: "POST",
+          body: JSON.stringify({ enabledAgentTypes: next }),
+        });
+        setAgentTypes(data.enabledAgentTypes);
+        onChange(data.enabledAgentTypes);
+      } catch (err) {
+        // Revert on failure
+        setAgentTypes(agentTypes);
+        onChange(agentTypes);
+        setError(err instanceof Error ? err.message : "Failed to save agent type settings.");
       }
-      return [...current, agentType];
-    });
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      const data = await api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types", {
-        method: "POST",
-        body: JSON.stringify({ enabledAgentTypes: draftAgentTypes }),
-      });
-      setDraftAgentTypes(data.enabledAgentTypes);
-      setSavedAgentTypes(data.enabledAgentTypes);
-      onChange(data.enabledAgentTypes);
-      setMessage("Agent type settings saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save agent type settings.");
-    } finally {
-      setSaving(false);
-    }
-  }, [draftAgentTypes, onChange]);
+    },
+    [agentTypes, onChange]
+  );
 
   if (loading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Available agent types
-      </h3>
-      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        Choose which agent runtimes can be created from the app. Disabled types are removed from the create-agent dialog.
-      </p>
+    <div className="flex flex-col gap-4 p-6">
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Available agent types
+        </div>
+        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+          Choose which agent runtimes can be created from the app. Disabled types are removed from the create-agent dialog.
+        </p>
+      </div>
 
       <div className="max-w-lg space-y-2">
         {AGENT_TYPES.map((agentType) => {
-          const checked = draftAgentTypes.includes(agentType);
-          const disabled = checked && draftAgentTypes.length === 1;
+          const checked = agentTypes.includes(agentType);
+          const disabled = checked && agentTypes.length === 1;
           return (
             <label
               key={agentType}
@@ -113,7 +104,7 @@ export function AgentTypeSettings({
                 type="checkbox"
                 checked={checked}
                 disabled={disabled}
-                onChange={() => toggleAgentType(agentType)}
+                onChange={() => void toggleAgentType(agentType)}
                 className="h-4 w-4 rounded border-border accent-primary"
                 data-testid={`agent-type-toggle-${agentType}`}
               />
@@ -128,19 +119,7 @@ export function AgentTypeSettings({
         })}
       </div>
 
-      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
-      {message ? <p className="mt-3 text-sm text-status-working">{message}</p> : null}
-
-      <div className="mt-4">
-        <Button
-          variant="primary"
-          disabled={saving || !hasChanges}
-          onClick={() => void handleSave()}
-          data-testid="save-agent-type-settings"
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>
   );
 }
