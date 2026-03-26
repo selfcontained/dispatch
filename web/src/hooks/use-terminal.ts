@@ -275,7 +275,7 @@ export function useTerminal(args: {
 
         if (!isCurrentAttempt() || !agent) return;
 
-        if (agent.status !== "running") {
+        if (agent.status !== "running" && agent.status !== "creating") {
           shouldKeepAttachedRef.current = false;
           clearReconnectTimer();
           closeSocket(false);

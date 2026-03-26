@@ -3,6 +3,7 @@ import {
   BookOpenText,
   ChevronLeft,
   EllipsisVertical,
+  Loader2,
   Monitor,
   MonitorOff,
   Play,
@@ -334,6 +335,18 @@ export function AgentSidebarContent({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+
+                  {agent.status === "creating" && agent.setupPhase ? (
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                      <span className="truncate font-medium">
+                        {agent.setupPhase === "worktree" ? "Creating worktree…" :
+                         agent.setupPhase === "env" ? "Copying environment…" :
+                         agent.setupPhase === "deps" ? "Installing dependencies…" :
+                         agent.setupPhase === "session" ? "Starting session…" : "Setting up…"}
+                      </span>
+                    </div>
+                  ) : null}
 
                   {agent.latestEvent ? (
                     isExpanded ? (

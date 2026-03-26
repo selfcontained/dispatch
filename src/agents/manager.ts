@@ -13,6 +13,7 @@ import { runCommand } from "../lib/run-command.js";
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
 type AgentType = "codex" | "claude" | "opencode";
 type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
+type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 
 type AgentLatestEvent = {
   type: AgentLatestEventType;
@@ -42,6 +43,7 @@ export type AgentRecord = {
   mediaDir: string | null;
   agentArgs: string[];
   fullAccess: boolean;
+  setupPhase: SetupPhase;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
   gitContext: AgentGitContext | null;
@@ -145,72 +147,164 @@ export class AgentManager {
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
 
-    // Worktree creation (default: on)
-    let effectiveCwd = originalCwd;
-    let worktreePath: string | null = null;
-    let worktreeBranch: string | null = null;
+    const useWorktree = input.useWorktree !== false;
 
-    if (input.useWorktree !== false) {
-      try {
-        const slugName = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "");
-        const branchName = input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
-        const worktreeLocation = input.worktreeLocation ?? "sibling";
-        // For "nested", place worktrees inside <repoRoot>/.dispatch/worktrees/
-        const worktreePathOverride = worktreeLocation === "nested"
-          ? path.join(originalCwd, ".dispatch", "worktrees", branchName.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase())
-          : undefined;
-        const result = await createGitWorktree({
-          cwd: originalCwd,
-          name,
-          branchName,
-          worktreePath: worktreePathOverride
-        });
-        worktreePath = result.worktreePath;
-        worktreeBranch = result.branchName;
-        effectiveCwd = result.worktreePath;
-        this.logger.info({ agentId: id, worktreePath, worktreeBranch }, "Created worktree for agent.");
-
-        // Post-worktree setup
-        await this.setupWorktree(originalCwd, worktreePath);
-      } catch (error) {
-        this.logger.warn({ err: error, agentId: id }, "Worktree creation failed; falling back to original cwd.");
-        worktreePath = null;
-        worktreeBranch = null;
-        effectiveCwd = originalCwd;
+    // Compute worktree params for the setup script
+    let worktreeBranchName: string | undefined;
+    let worktreePathOverride: string | undefined;
+    if (useWorktree) {
+      const slugName = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      worktreeBranchName = input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+      const worktreeLocation = input.worktreeLocation ?? "sibling";
+      if (worktreeLocation === "nested") {
+        worktreePathOverride = path.join(originalCwd, ".dispatch", "worktrees",
+          worktreeBranchName.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase());
       }
     }
 
+    // Insert the agent record immediately so the API can return fast.
+    // The setup script running in tmux will handle worktree/deps/etc.
+    const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, worktree_path, worktree_branch, tmux_session, media_dir, codex_args, full_access, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7, $8, $9::jsonb, $10, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, NOW())
       `,
-      [id, name, type, effectiveCwd, worktreePath, worktreeBranch, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess]
+      [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase]
     );
 
-    try {
-      await this.ensureNoExistingSession(tmuxSession);
-      await this.startAgentSession(tmuxSession, effectiveCwd, mediaDir, type, agentArgs, fullAccess);
-      await this.setAgentStatus(id, "running", null);
+    if (this.config.agentRuntime === "inert") {
+      // Inert mode: no tmux, no setup script — do worktree synchronously and go straight to running
+      let effectiveCwd = originalCwd;
+      let worktreePath: string | null = null;
+      let worktreeBranch: string | null = null;
+
+      if (useWorktree && worktreeBranchName) {
+        try {
+          const result = await createGitWorktree({
+            cwd: originalCwd,
+            name,
+            branchName: worktreeBranchName,
+            worktreePath: worktreePathOverride,
+          });
+          worktreePath = result.worktreePath;
+          worktreeBranch = result.branchName;
+          effectiveCwd = result.worktreePath;
+          this.logger.info({ agentId: id, worktreePath, worktreeBranch }, "Created worktree for inert agent.");
+          await this.setupWorktree(originalCwd, worktreePath);
+        } catch (error) {
+          this.logger.warn({ err: error, agentId: id }, "Worktree creation failed for inert agent.");
+        }
+      }
+
+      await this.pool.query(
+        `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
+        [id, effectiveCwd, worktreePath, worktreeBranch]
+      );
       await this.setSystemLatestEvent(id, {
         type: "working",
         message: "Session started."
       });
-    } catch (error) {
-      const message = this.errorMessage(error);
-      await this.setAgentStatus(id, "error", message);
-      await this.setSystemLatestEvent(id, {
-        type: "blocked",
-        message: `Failed to create agent: ${message}`,
-        metadata: { source: "system", phase: "create" }
-      });
-      throw new AgentError(`Failed to create agent: ${message}`, 500);
+    } else {
+      try {
+        await this.ensureNoExistingSession(tmuxSession);
+
+        // Build the agent command that the setup script will exec into
+        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess);
+        const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
+
+        // Generate a setup script that handles worktree creation, env copy,
+        // dep install, and then exec's into the agent CLI — all visible in the terminal.
+        const setupScript = this.generateSetupScript({
+          agentId: id,
+          originalCwd,
+          useWorktree,
+          worktreeBranchName,
+          worktreePathOverride,
+          agentName: name,
+          agentCommand,
+          exitFile,
+        });
+
+        const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
+        await writeFile(setupScriptPath, setupScript, { mode: 0o755 });
+
+        // Start tmux running the setup script — the frontend can connect immediately
+        await runCommand("tmux", ["new-session", "-d", "-s", tmuxSession, "-c", originalCwd, `bash ${setupScriptPath}`]);
+        await runCommand("tmux", ["set-option", "-t", tmuxSession, "status", "off"], {
+          allowedExitCodes: [0, 1]
+        });
+        await runCommand("tmux", ["set-option", "-t", tmuxSession, "allow-passthrough", "on"], {
+          allowedExitCodes: [0, 1]
+        });
+        await runCommand("tmux", ["set-option", "-as", "terminal-features", "xterm-256color:sync"], {
+          allowedExitCodes: [0, 1]
+        });
+
+        if (!(await this.hasAgentSession(tmuxSession))) {
+          throw new Error("tmux session exited immediately after launch");
+        }
+      } catch (error) {
+        const message = this.errorMessage(error);
+        await this.setAgentStatus(id, "error", message);
+        await this.setSetupPhase(id, null);
+        await this.setSystemLatestEvent(id, {
+          type: "blocked",
+          message: `Failed to create agent: ${message}`,
+          metadata: { source: "system", phase: "create" }
+        });
+        throw new AgentError(`Failed to create agent: ${message}`, 500);
+      }
     }
 
     return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  /**
+   * Called by the setup script (via API) to report phase transitions and completion.
+   * Updates worktree info and transitions the agent to 'running' when setup is done.
+   */
+  async completeSetup(id: string, result: {
+    effectiveCwd: string;
+    worktreePath: string | null;
+    worktreeBranch: string | null;
+  }): Promise<AgentRecord> {
+    const agent = await this.getRequiredAgent(id);
+    if (agent.status !== "creating") {
+      throw new AgentError("Agent is not in creating state.", 409);
+    }
+
+    await this.pool.query(
+      `
+      UPDATE agents
+      SET status = 'running',
+          cwd = $2,
+          worktree_path = $3,
+          worktree_branch = $4,
+          setup_phase = NULL,
+          updated_at = NOW()
+      WHERE id = $1
+      `,
+      [id, result.effectiveCwd, result.worktreePath, result.worktreeBranch]
+    );
+
+    await this.setSystemLatestEvent(id, {
+      type: "working",
+      message: "Session started."
+    });
+
+    // Clean up setup script
+    const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
+    await unlink(setupScriptPath).catch(() => {});
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  async updateSetupPhase(id: string, phase: SetupPhase): Promise<void> {
+    await this.setSetupPhase(id, phase);
   }
 
   async startAgent(id: string): Promise<AgentRecord> {
@@ -259,7 +353,7 @@ export class AgentManager {
 
   async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
     const agent = await this.getRequiredAgent(id);
-    if (agent.status !== "running") {
+    if (agent.status !== "running" && agent.status !== "creating") {
       throw new AgentError("Agent is not running.", 409);
     }
 
@@ -1064,6 +1158,7 @@ export class AgentManager {
         media_dir AS "mediaDir",
         codex_args AS "agentArgs",
         full_access AS "fullAccess",
+        setup_phase AS "setupPhase",
         last_error AS "lastError",
         CASE
           WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL
@@ -1132,6 +1227,196 @@ export class AgentManager {
 
   private async sleep(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async setSetupPhase(id: string, phase: SetupPhase): Promise<void> {
+    await this.pool.query(
+      `UPDATE agents SET setup_phase = $2, updated_at = NOW() WHERE id = $1`,
+      [id, phase]
+    );
+  }
+
+  private generateSetupScript(params: {
+    agentId: string;
+    originalCwd: string;
+    useWorktree: boolean;
+    worktreeBranchName?: string;
+    worktreePathOverride?: string;
+    agentName: string;
+    agentCommand: string;
+    exitFile: string;
+  }): string {
+    const {
+      agentId,
+      originalCwd,
+      useWorktree,
+      worktreeBranchName,
+      worktreePathOverride,
+      agentName,
+      agentCommand,
+      exitFile,
+    } = params;
+
+    const serverUrl = `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`;
+    const authToken = this.config.authToken;
+
+    // Helper function to call back to the server to update setup phase
+    const curlPhase = (phase: string) =>
+      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/phase" ` +
+      `-H "Content-Type: application/json" ` +
+      `-H "Authorization: Bearer ${authToken}" ` +
+      `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
+
+    // Helper function for the completion callback
+    const curlComplete = (cwdVar: string, worktreePathVar: string, worktreeBranchVar: string) =>
+      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/complete" ` +
+      `-H "Content-Type: application/json" ` +
+      `-H "Authorization: Bearer ${authToken}" ` +
+      `-d "{\\"effectiveCwd\\":\\"${cwdVar}\\",\\"worktreePath\\":${worktreePathVar},\\"worktreeBranch\\":${worktreeBranchVar}}" > /dev/null 2>&1`;
+
+    const lines: string[] = [
+      `#!/usr/bin/env bash`,
+      `set -euo pipefail`,
+      ``,
+      `# Dispatch agent setup script for ${agentName}`,
+      `# This script runs in tmux so the user can see setup progress in real time.`,
+      ``,
+      `BOLD="\\033[1m"`,
+      `DIM="\\033[2m"`,
+      `GREEN="\\033[32m"`,
+      `YELLOW="\\033[33m"`,
+      `RED="\\033[31m"`,
+      `RESET="\\033[0m"`,
+      ``,
+      `phase() { printf "\\n\${BOLD}\${GREEN}▸ %s\${RESET}\\n" "$1"; }`,
+      `info()  { printf "  \${DIM}%s\${RESET}\\n" "$1"; }`,
+      `warn()  { printf "  \${YELLOW}⚠ %s\${RESET}\\n" "$1"; }`,
+      `fail()  { printf "  \${RED}✗ %s\${RESET}\\n" "$1"; }`,
+      `ok()    { printf "  \${GREEN}✓ %s\${RESET}\\n" "$1"; }`,
+      ``,
+      `EFFECTIVE_CWD="${this.shellQuote(originalCwd)}"`,
+      `WORKTREE_PATH="null"`,
+      `WORKTREE_BRANCH="null"`,
+      ``,
+    ];
+
+    if (useWorktree && worktreeBranchName) {
+      lines.push(
+        `# --- Worktree creation ---`,
+        `phase "Creating git worktree"`,
+        `info "Branch: ${worktreeBranchName}"`,
+        ``,
+      );
+
+      // Determine worktree path arg
+      const wtPathArg = worktreePathOverride
+        ? `"${worktreePathOverride}"`
+        : "";
+
+      // We need to compute the worktree path. Use git worktree add directly.
+      // First fetch origin/main
+      lines.push(
+        `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
+        `  warn "Not a git repository — skipping worktree"`,
+        `  ${curlPhase("session")}`,
+        `  exec_agent=true`,
+        `}`,
+        ``,
+        `if [ "\${exec_agent:-}" != "true" ]; then`,
+        `  info "Fetching origin/main..."`,
+        `  git -C "$REPO_ROOT" fetch origin main --quiet 2>/dev/null || true`,
+        ``,
+        `  BASE_REF="origin/main"`,
+        `  git -C "$REPO_ROOT" rev-parse --verify "$BASE_REF" > /dev/null 2>&1 || {`,
+        `    BASE_REF="main"`,
+        `  }`,
+        ``,
+      );
+
+      if (worktreePathOverride) {
+        lines.push(
+          `  WT_PATH="${worktreePathOverride}"`,
+        );
+      } else {
+        // Default sibling path: <repoRoot>/../<basename>-<slugified-branch>
+        const sluggedBranch = worktreeBranchName
+          .replace(/[^a-z0-9]+/gi, "-")
+          .replace(/^-+|-+$/g, "")
+          .toLowerCase();
+        lines.push(
+          `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
+          `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`,
+        );
+      }
+
+      lines.push(
+        ``,
+        `  if git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF" 2>&1; then`,
+        `    ok "Worktree created at $WT_PATH"`,
+        `    EFFECTIVE_CWD="$WT_PATH"`,
+        `    WORKTREE_PATH="\\"$WT_PATH\\""`,
+        `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
+        ``,
+        `    # --- Copy .env ---`,
+        `    ${curlPhase("env")}`,
+        `    phase "Copying environment files"`,
+        `    if [ -f "${originalCwd}/.env" ]; then`,
+        `      cp "${originalCwd}/.env" "$WT_PATH/.env" && ok "Copied .env" || warn "Failed to copy .env"`,
+        `    else`,
+        `      info "No .env file found — skipping"`,
+        `    fi`,
+        ``,
+        `    # --- Install dependencies ---`,
+        `    ${curlPhase("deps")}`,
+        `    phase "Installing dependencies"`,
+        `    cd "$WT_PATH"`,
+        `    if [ -f "pnpm-lock.yaml" ]; then`,
+        `      info "Detected pnpm-lock.yaml"`,
+        `      pnpm install 2>&1 || warn "pnpm install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "yarn.lock" ]; then`,
+        `      info "Detected yarn.lock"`,
+        `      yarn install 2>&1 || warn "yarn install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "package-lock.json" ]; then`,
+        `      info "Detected package-lock.json"`,
+        `      npm install 2>&1 || warn "npm install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "bun.lockb" ]; then`,
+        `      info "Detected bun.lockb"`,
+        `      bun install 2>&1 || warn "bun install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    else`,
+        `      info "No lockfile found — skipping dependency install"`,
+        `    fi`,
+        `  else`,
+        `    warn "Worktree creation failed — using original directory"`,
+        `  fi`,
+        `fi`,
+        ``,
+      );
+    }
+
+    lines.push(
+      `# --- Start agent session ---`,
+      `${curlPhase("session")}`,
+      `phase "Starting agent session"`,
+      `info "Type: ${params.agentName}"`,
+      ``,
+      `# Notify server that setup is complete`,
+      `cd "$EFFECTIVE_CWD"`,
+      `${curlComplete('$EFFECTIVE_CWD', '$WORKTREE_PATH', '$WORKTREE_BRANCH')}`,
+      ``,
+      `# exec replaces this shell with the agent CLI — seamless transition`,
+      `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`,
+    );
+
+    return lines.join("\n") + "\n";
+  }
+
+  /** Quote a value for safe embedding in a bash script (single-quote wrapping). */
+  private shellQuote(value: string): string {
+    return value.replaceAll("'", "'\\''");
   }
 
   private async setSystemLatestEvent(id: string, input: AgentLatestEventInput): Promise<void> {

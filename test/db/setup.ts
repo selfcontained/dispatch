@@ -115,6 +115,8 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS worktree_path TEXT;
 
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
+
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS setup_phase TEXT;
   `;
 
   await pool.query(sql);

@@ -8,13 +8,24 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${AUTH_TOKEN}` };
 }
 
+type AgentResult = {
+  id: string;
+  name: string;
+  status: string;
+  cwd: string;
+  worktreePath: string | null;
+  worktreeBranch: string | null;
+};
+
 /**
  * Create an agent via the REST API (faster than going through the UI every time).
+ * When useWorktree is true, polls until the setup script completes (status transitions
+ * from 'creating' to 'running') so the worktree fields are populated.
  */
 export async function createAgentViaAPI(
   request: APIRequestContext,
   overrides: { name?: string; type?: string; cwd?: string; useWorktree?: boolean; worktreeBranch?: string } = {}
-): Promise<{ id: string; name: string; worktreePath: string | null; worktreeBranch: string | null }> {
+): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
     headers: authHeaders(),
     data: {
@@ -25,8 +36,27 @@ export async function createAgentViaAPI(
       worktreeBranch: overrides.worktreeBranch,
     },
   });
-  const body = (await res.json()) as { agent: { id: string; name: string; worktreePath: string | null; worktreeBranch: string | null } };
-  return body.agent;
+  const body = (await res.json()) as { agent: AgentResult };
+  let agent = body.agent;
+
+  // When using worktrees, the setup runs asynchronously in tmux.
+  // Poll until the agent transitions to 'running' (setup complete).
+  if (overrides.useWorktree && agent.status === "creating") {
+    const deadline = Date.now() + 60_000;
+    while (agent.status === "creating" && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500));
+      const poll = await request.get(`${API}/agents/${agent.id}`, {
+        headers: authHeaders(),
+      });
+      const pollBody = (await poll.json()) as { agent: AgentResult };
+      agent = pollBody.agent;
+    }
+    if (agent.status === "creating") {
+      throw new Error(`Agent ${agent.id} setup did not complete within 60s`);
+    }
+  }
+
+  return agent;
 }
 
 export async function getWorktreeStatusViaAPI(

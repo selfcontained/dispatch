@@ -11,6 +11,7 @@ export type Agent = {
   tmuxSession: string | null;
   agentArgs: string[];
   fullAccess: boolean;
+  setupPhase?: "worktree" | "env" | "deps" | "session" | null;
   lastError?: string | null;
   latestEvent?: {
     type: "working" | "blocked" | "waiting_user" | "done" | "idle";
