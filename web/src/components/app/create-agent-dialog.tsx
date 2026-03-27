@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, GitBranch, Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,19 @@ import { Input } from "@/components/ui/input";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+function useClickOutside(ref: React.RefObject<HTMLElement | null>, isOpen: boolean, onClose: () => void): void {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [ref, isOpen, onClose]);
+}
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -62,32 +75,23 @@ export function CreateAgentDialog({
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!typeDropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (typeCmdRef.current && !typeCmdRef.current.contains(e.target as Node)) {
-        setTypeDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [typeDropdownOpen]);
+  const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
+  useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
   // --- Base branch combobox state ---
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
-  // Track which cwd the branches were fetched for so we re-fetch on change
   const [branchesFetchedForCwd, setBranchesFetchedForCwd] = useState<string | null>(null);
   const branchCmdRef = useRef<HTMLDivElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const branchInputRef = useRef<HTMLInputElement>(null);
+  const closeBranchDropdown = useCallback(() => setBranchDropdownOpen(false), []);
+  useClickOutside(branchCmdRef, branchDropdownOpen, closeBranchDropdown);
 
   const fetchBranches = useCallback(async () => {
     const cwd = createCwd.trim();
     if (!cwd) return;
-    if (branchesFetchedForCwd === cwd) return;
     setBranchesLoading(true);
     setRemoteBranches([]);
     try {
@@ -99,29 +103,20 @@ export function CreateAgentDialog({
       setBranchesLoading(false);
       setBranchesFetchedForCwd(cwd);
     }
-  }, [createCwd, branchesFetchedForCwd]);
+  }, [createCwd]);
 
   const openBranchDropdown = useCallback(() => {
     setBranchDropdownOpen(true);
-    void fetchBranches();
-    // Focus the cmdk input after the dropdown renders
+    if (branchesFetchedForCwd !== createCwd.trim()) {
+      void fetchBranches();
+    }
     requestAnimationFrame(() => branchInputRef.current?.focus());
-  }, [fetchBranches]);
+  }, [fetchBranches, branchesFetchedForCwd, createCwd]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    if (!branchDropdownOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (branchCmdRef.current && !branchCmdRef.current.contains(e.target as Node)) {
-        setBranchDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [branchDropdownOpen]);
-
-  // Build branch list — always include "main" even if not in remote list
-  const allBranches = remoteBranches.includes("main") ? remoteBranches : ["main", ...remoteBranches];
+  const allBranches = useMemo(
+    () => remoteBranches.includes("main") ? remoteBranches : ["main", ...remoteBranches],
+    [remoteBranches]
+  );
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
