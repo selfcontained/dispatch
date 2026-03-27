@@ -1022,6 +1022,38 @@ async function registerRoutes() {
     };
   });
 
+  // --- Git helpers ---
+  app.get("/api/v1/git/branches", async (request, reply) => {
+    const query = request.query as { cwd?: unknown };
+    if (typeof query?.cwd !== "string" || !query.cwd.trim()) {
+      return reply.code(400).send({ error: "cwd query parameter is required." });
+    }
+    try {
+      const rawCwd = query.cwd.trim();
+      const cwd = rawCwd.startsWith("~/") ? path.join(os.homedir(), rawCwd.slice(2)) : rawCwd === "~" ? os.homedir() : rawCwd;
+      const result = await runCommand("git", ["-C", cwd, "ls-remote", "--heads", "origin"], {
+        timeoutMs: 15_000,
+      });
+      if (result.exitCode !== 0) {
+        return reply.code(500).send({ error: "Failed to list remote branches." });
+      }
+      const branches = result.stdout
+        .split("\n")
+        .map((line) => line.replace(/^.*refs\/heads\//, "").trim())
+        .filter(Boolean)
+        .sort((a, b) => {
+          if (a === "main") return -1;
+          if (b === "main") return 1;
+          if (a === "master") return -1;
+          if (b === "master") return 1;
+          return a.localeCompare(b);
+        });
+      return { branches };
+    } catch {
+      return reply.code(500).send({ error: "Failed to list remote branches." });
+    }
+  });
+
   // --- Agent worktree settings ---
   const WORKTREE_LOCATION_KEY = "worktree_location";
   type WorktreeLocation = "sibling" | "nested";
@@ -1513,6 +1545,7 @@ async function registerRoutes() {
       fullAccess?: unknown;
       useWorktree?: unknown;
       worktreeBranch?: unknown;
+      baseBranch?: unknown;
     };
 
     if (typeof body?.cwd !== "string") {
@@ -1542,6 +1575,10 @@ async function registerRoutes() {
 
     if (body.worktreeBranch !== undefined && typeof body.worktreeBranch !== "string") {
       return reply.code(400).send({ error: "worktreeBranch must be a string when provided." });
+    }
+
+    if (body.baseBranch !== undefined && typeof body.baseBranch !== "string") {
+      return reply.code(400).send({ error: "baseBranch must be a string when provided." });
     }
 
     const agentArgs = providedAgentArgs as string[] | undefined;
@@ -1577,6 +1614,7 @@ async function registerRoutes() {
         fullAccess: body.fullAccess === true,
         useWorktree: typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
         worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined,
+        baseBranch: typeof body.baseBranch === "string" ? body.baseBranch : undefined,
         worktreeLocation
       });
       queueGitContextRefresh([agent.id]);

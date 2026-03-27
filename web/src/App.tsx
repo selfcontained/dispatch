@@ -117,6 +117,7 @@ export function App(): JSX.Element {
   const [createFullAccess, setCreateFullAccess] = useState(false);
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
+  const [createBaseBranch, setCreateBaseBranch] = useState("main");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
@@ -399,6 +400,7 @@ export function App(): JSX.Element {
             fullAccess: createFullAccess,
             useWorktree: createUseWorktree,
             worktreeBranch: createWorktreeBranch.trim() || undefined,
+            baseBranch: createBaseBranch !== "main" ? createBaseBranch : undefined,
           }),
         });
 
@@ -407,6 +409,7 @@ export function App(): JSX.Element {
         setCreateFullAccess(false);
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
+        setCreateBaseBranch("main");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
@@ -417,7 +420,7 @@ export function App(): JSX.Element {
         setCreating(false);
       }
     },
-    [createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const attachSelectedAgent = useCallback(() => {
@@ -608,6 +611,7 @@ export function App(): JSX.Element {
         createFullAccess={createFullAccess}
         createUseWorktree={createUseWorktree}
         createWorktreeBranch={createWorktreeBranch}
+        createBaseBranch={createBaseBranch}
         creating={creating}
         cwdHistory={cwdHistory}
         enabledAgentTypes={enabledAgentTypes}
@@ -618,6 +622,7 @@ export function App(): JSX.Element {
         setCreateFullAccess={setCreateFullAccess}
         setCreateUseWorktree={setCreateUseWorktree}
         setCreateWorktreeBranch={setCreateWorktreeBranch}
+        setCreateBaseBranch={setCreateBaseBranch}
         onSubmit={handleCreateAgent}
       />
 
