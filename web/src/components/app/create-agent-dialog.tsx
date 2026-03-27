@@ -191,7 +191,13 @@ export function CreateAgentDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent>
+      <DialogContent
+        onEscapeKeyDown={(e) => {
+          if (cwdDropdownOpen || typeDropdownOpen || branchDropdownOpen) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Create Agent</DialogTitle>
           <DialogDescription>Name, type, and working directory for a new agent session.</DialogDescription>
