@@ -1496,35 +1496,22 @@ export class AgentManager {
         return { hasUnmergedCommits: false, changedFiles: [] };
       }
 
-      const mergeBase = await runCommand(
-        "git", ["-C", worktreePath, "merge-base", "HEAD", baseRef],
-        { allowedExitCodes: [0, 1, 128], timeoutMs: 10_000 }
-      );
-      if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
-        return { hasUnmergedCommits: false, changedFiles: [] };
-      }
-
-      const range = `${mergeBase.stdout.trim()}..HEAD`;
-
-      const logResult = await runCommand(
-        "git", ["-C", worktreePath, "log", range, "--oneline"],
+      // Direct content diff between HEAD and the base ref.
+      // This handles squash-merged PRs: even though commit SHAs differ,
+      // if the tree content is identical the diff will be empty.
+      const contentDiff = await runCommand(
+        "git", ["-C", worktreePath, "diff", "--name-only", baseRef, "HEAD"],
         { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
       );
-      const hasUnmergedCommits = logResult.exitCode === 0 && logResult.stdout.trim().length > 0;
-
-      if (!hasUnmergedCommits) {
-        return { hasUnmergedCommits: false, changedFiles: [] };
-      }
-
-      const diffResult = await runCommand(
-        "git", ["-C", worktreePath, "diff", "--name-only", range],
-        { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
-      );
-      const changedFiles = diffResult.exitCode === 0
-        ? diffResult.stdout.trim().split("\n").filter(Boolean)
+      const changedFiles = contentDiff.exitCode === 0
+        ? contentDiff.stdout.trim().split("\n").filter(Boolean)
         : [];
 
-      return { hasUnmergedCommits, changedFiles };
+      if (changedFiles.length === 0) {
+        return { hasUnmergedCommits: false, changedFiles: [] };
+      }
+
+      return { hasUnmergedCommits: true, changedFiles };
     } catch {
       return { hasUnmergedCommits: false, changedFiles: [] };
     }
