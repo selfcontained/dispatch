@@ -264,7 +264,32 @@ export function CreateAgentDialog({
           </div>
 
           <div className="relative" ref={cwdCmdRef}>
-            <label className="mb-1 block text-sm text-muted-foreground">Working directory</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-sm text-muted-foreground">Working directory</label>
+              <div className="flex items-center gap-1 text-xs">
+                {validating ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                ) : pathValidation && createCwd.trim() ? (
+                  pathValidation.isDirectory && pathValidation.isGitRepo ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                      <GitBranch className="h-3 w-3 text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Git repository</span>
+                    </>
+                  ) : pathValidation.isDirectory ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Valid directory</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-3 w-3 text-amber-500" />
+                      <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
+                    </>
+                  )
+                ) : null}
+              </div>
+            </div>
             <div className="relative">
               {/* Ghost autocomplete overlay */}
               {ghostSuffix && createCwd.trim() ? (
@@ -323,32 +348,8 @@ export function CreateAgentDialog({
                 </button>
               ) : null}
             </div>
-            {/* Reserved-height validation feedback */}
-            <div className="flex h-5 items-center gap-1 text-xs">
-              {validating ? (
-                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              ) : pathValidation && createCwd.trim() ? (
-                pathValidation.isDirectory && pathValidation.isGitRepo ? (
-                  <>
-                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                    <GitBranch className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Git repository</span>
-                  </>
-                ) : pathValidation.isDirectory ? (
-                  <>
-                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Valid directory</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="h-3 w-3 text-amber-500" />
-                    <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
-                  </>
-                )
-              ) : null}
-            </div>
             {cwdDropdownOpen && sortedCwdHistory.length > 0 ? (
-              <div className="absolute left-0 right-0 z-[60] rounded-md border border-border bg-background shadow-md" data-testid="create-agent-cwd-history">
+              <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-border bg-background p-1 shadow-md" data-testid="create-agent-cwd-history">
                 <Command shouldFilter={false} onKeyDown={(e) => {
                   if (e.key === "Escape") {
                     e.preventDefault();
@@ -357,7 +358,7 @@ export function CreateAgentDialog({
                   }
                 }}>
                   <CommandList>
-                    <CommandGroup heading="Recent directories">
+                    <CommandGroup heading="Recent">
                       {sortedCwdHistory.map((dir) => (
                         <CommandItem
                           key={dir}
