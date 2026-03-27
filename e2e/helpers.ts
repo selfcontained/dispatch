@@ -62,11 +62,11 @@ export async function createAgentViaAPI(
 export async function getWorktreeStatusViaAPI(
   request: APIRequestContext,
   agentId: string
-): Promise<{ hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null }> {
+): Promise<{ hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null; changedFiles: string[] }> {
   const res = await request.get(`${API}/agents/${agentId}/worktree-status`, {
     headers: authHeaders(),
   });
-  return (await res.json()) as { hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null };
+  return (await res.json()) as { hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null; changedFiles: string[] };
 }
 
 export async function setAgentLatestEventViaAPI(
