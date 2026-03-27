@@ -29,7 +29,6 @@ export type EnablePrAutomergeInput = {
   cwd: string;
   prNumber?: number;
   mergeMethod?: "squash" | "merge" | "rebase";
-  deleteBranch?: boolean;
 };
 
 export type EnablePrAutomergeResult = {
@@ -43,7 +42,6 @@ export type MergePrNowInput = {
   cwd: string;
   prNumber?: number;
   mergeMethod?: "squash" | "merge" | "rebase";
-  deleteBranch?: boolean;
 };
 
 export type MergePrNowResult = {
@@ -155,9 +153,6 @@ export async function enablePrAutomerge(
     args.push(prSelector);
   }
   args.push("--auto", mergeMethodFlag(mergeMethod));
-  if (input.deleteBranch ?? true) {
-    args.push("--delete-branch");
-  }
 
   await commandRunner("gh", args, { cwd: repoRoot });
   const status = await getPrStatus({ cwd: repoRoot, prNumber: input.prNumber }, commandRunner);
@@ -183,9 +178,10 @@ export async function mergePrNow(
     args.push(prSelector);
   }
   args.push(mergeMethodFlag(mergeMethod));
-  if (input.deleteBranch ?? true) {
-    args.push("--delete-branch");
-  }
+
+  // Skip --delete-branch: in worktrees it fails because gh tries to checkout
+  // the base branch locally, which is already checked out in the main worktree.
+  // Remote branch cleanup is left to GitHub's "Automatically delete head branches" setting.
 
   await commandRunner("gh", args, { cwd: repoRoot });
   const status = await getPrStatus({ cwd: repoRoot, prNumber: input.prNumber }, commandRunner);

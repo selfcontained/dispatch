@@ -170,8 +170,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       inputSchema: {
         cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch."),
-        mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use once GitHub merges the PR."),
-        deleteBranch: z.boolean().default(true).describe("Delete the branch after merge.")
+        mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use once GitHub merges the PR.")
       }
     },
     async (args) => {
@@ -197,8 +196,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       inputSchema: {
         cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
         prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch."),
-        mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use."),
-        deleteBranch: z.boolean().default(true).describe("Delete the branch after merge.")
+        mergeMethod: z.enum(["squash", "merge", "rebase"]).default("squash").describe("Merge strategy to use.")
       }
     },
     async (args) => {
