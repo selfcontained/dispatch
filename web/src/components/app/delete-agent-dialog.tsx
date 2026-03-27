@@ -9,9 +9,11 @@ import { api } from "@/lib/api";
 type WorktreeStatus = {
   hasWorktree: boolean;
   hasUnmergedCommits: boolean;
+  hasUncommittedChanges: boolean;
   worktreePath: string | null;
   branchName: string | null;
   changedFiles: string[];
+  uncommittedFiles: string[];
 };
 
 type DeleteStep = "confirm" | "worktree-choice";
@@ -75,8 +77,8 @@ export function DeleteAgentDialog({
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
 
-    // If there's a worktree with unmerged commits, transition to choice step
-    if (worktreeStatus?.hasWorktree && worktreeStatus.hasUnmergedCommits) {
+    // If there's a worktree with unmerged commits or uncommitted changes, transition to choice step
+    if (worktreeStatus?.hasWorktree && (worktreeStatus.hasUnmergedCommits || worktreeStatus.hasUncommittedChanges)) {
       setStep("worktree-choice");
       return;
     }
@@ -114,28 +116,49 @@ export function DeleteAgentDialog({
   }, [setOpen, setDeleteTarget]);
 
   if (step === "worktree-choice" && worktreeStatus) {
+    const hasUnmerged = worktreeStatus.hasUnmergedCommits && worktreeStatus.changedFiles.length > 0;
+    const hasUncommitted = worktreeStatus.hasUncommittedChanges && worktreeStatus.uncommittedFiles.length > 0;
+
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Worktree Has Unmerged Changes</DialogTitle>
+            <DialogTitle>Worktree Has Outstanding Changes</DialogTitle>
           </DialogHeader>
 
-          <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <span>
-                Branch <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> has
-                commits not merged to origin. The agent will be deleted either way.
-              </span>
-            </div>
-            {worktreeStatus.changedFiles.length > 0 && (
-              <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
-                {worktreeStatus.changedFiles.map((file) => (
-                  <div key={file}>{file}</div>
-                ))}
+          <div className="flex flex-col gap-3">
+            {hasUnmerged && (
+              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <span>
+                    Branch <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> has
+                    commits not merged to origin.
+                  </span>
+                </div>
+                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                  {worktreeStatus.changedFiles.map((file) => (
+                    <div key={file}>{file}</div>
+                  ))}
+                </div>
               </div>
             )}
+
+            {hasUncommitted && (
+              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <span>Worktree has uncommitted changes.</span>
+                </div>
+                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                  {worktreeStatus.uncommittedFiles.map((file) => (
+                    <div key={file}>{file}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground">The agent will be deleted either way.</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-1">

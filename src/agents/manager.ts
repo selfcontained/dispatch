@@ -78,9 +78,11 @@ type WorktreeCleanupMode = "auto" | "keep" | "force";
 export type WorktreeStatus = {
   hasWorktree: boolean;
   hasUnmergedCommits: boolean;
+  hasUncommittedChanges: boolean;
   worktreePath: string | null;
   branchName: string | null;
   changedFiles: string[];
+  uncommittedFiles: string[];
 };
 
 type StopAgentInput = {
@@ -438,7 +440,7 @@ export class AgentManager {
       try {
         const shouldCleanup =
           cleanupWorktree === "force" ||
-          (cleanupWorktree === "auto" && !(await this.hasUnmergedCommits(agent.worktreePath)));
+          (cleanupWorktree === "auto" && !(await this.hasOutstandingChanges(agent.worktreePath)));
 
         if (shouldCleanup) {
           await cleanupGitWorktree({
@@ -465,12 +467,14 @@ export class AgentManager {
     const agent = await this.getRequiredAgent(id);
 
     if (!agent.worktreePath) {
-      return { hasWorktree: false, hasUnmergedCommits: false, worktreePath: null, branchName: null, changedFiles: [] };
+      return { hasWorktree: false, hasUnmergedCommits: false, hasUncommittedChanges: false, worktreePath: null, branchName: null, changedFiles: [], uncommittedFiles: [] };
     }
 
     let branchName: string | null = null;
     let hasUnmergedCommits = false;
+    let hasUncommittedChanges = false;
     let changedFiles: string[] = [];
+    let uncommittedFiles: string[] = [];
 
     try {
       const branchResult = await runCommand(
@@ -478,9 +482,14 @@ export class AgentManager {
         { allowedExitCodes: [0, 1] }
       );
       branchName = branchResult.exitCode === 0 && branchResult.stdout ? branchResult.stdout : null;
-      const result = await this.getUnmergedChanges(agent.worktreePath);
-      hasUnmergedCommits = result.hasUnmergedCommits;
-      changedFiles = result.changedFiles;
+      const [unmerged, uncommitted] = await Promise.all([
+        this.getUnmergedChanges(agent.worktreePath),
+        this.getUncommittedChanges(agent.worktreePath),
+      ]);
+      hasUnmergedCommits = unmerged.hasUnmergedCommits;
+      changedFiles = unmerged.changedFiles;
+      hasUncommittedChanges = uncommitted.hasUncommittedChanges;
+      uncommittedFiles = uncommitted.uncommittedFiles;
     } catch {
       // Worktree may have been manually removed
     }
@@ -488,9 +497,11 @@ export class AgentManager {
     return {
       hasWorktree: true,
       hasUnmergedCommits,
+      hasUncommittedChanges,
       worktreePath: agent.worktreePath,
       branchName,
-      changedFiles
+      changedFiles,
+      uncommittedFiles
     };
   }
 
@@ -1477,9 +1488,12 @@ export class AgentManager {
     }
   }
 
-  private async hasUnmergedCommits(worktreePath: string): Promise<boolean> {
-    const result = await this.getUnmergedChanges(worktreePath);
-    return result.hasUnmergedCommits;
+  private async hasOutstandingChanges(worktreePath: string): Promise<boolean> {
+    const [unmerged, uncommitted] = await Promise.all([
+      this.getUnmergedChanges(worktreePath),
+      this.getUncommittedChanges(worktreePath),
+    ]);
+    return unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
   }
 
   private async getUnmergedChanges(worktreePath: string): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
@@ -1496,24 +1510,49 @@ export class AgentManager {
         return { hasUnmergedCommits: false, changedFiles: [] };
       }
 
-      // Direct content diff between HEAD and the base ref.
-      // This handles squash-merged PRs: even though commit SHAs differ,
-      // if the tree content is identical the diff will be empty.
-      const contentDiff = await runCommand(
-        "git", ["-C", worktreePath, "diff", "--name-only", baseRef, "HEAD"],
-        { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
+      // Simulate merging this branch into main. If the resulting tree is
+      // identical to main's tree, everything on this branch is already in main
+      // (handles squash-merges, rebases, and main moving forward with releases).
+      const mergeTree = await runCommand(
+        "git", ["-C", worktreePath, "merge-tree", "--write-tree", baseRef, "HEAD"],
+        { allowedExitCodes: [0, 1], timeoutMs: 10_000 }
       );
-      const changedFiles = contentDiff.exitCode === 0
-        ? contentDiff.stdout.trim().split("\n").filter(Boolean)
-        : [];
+      // merge-tree outputs the tree hash on the first line (exit 1 = conflicts)
+      const resultTree = mergeTree.stdout.trim().split("\n")[0];
+      const mainTree = await runCommand(
+        "git", ["-C", worktreePath, "rev-parse", `${baseRef}^{tree}`],
+        { allowedExitCodes: [0], timeoutMs: 5_000 }
+      );
 
-      if (changedFiles.length === 0) {
+      if (resultTree === mainTree.stdout.trim()) {
         return { hasUnmergedCommits: false, changedFiles: [] };
       }
 
-      return { hasUnmergedCommits: true, changedFiles };
+      // Trees differ — find which files the branch would actually change
+      const fileDiff = await runCommand(
+        "git", ["-C", worktreePath, "diff", "--name-only", mainTree.stdout.trim(), resultTree],
+        { allowedExitCodes: [0], timeoutMs: 10_000 }
+      );
+      const changedFiles = fileDiff.stdout.trim().split("\n").filter(Boolean);
+
+      return { hasUnmergedCommits: changedFiles.length > 0, changedFiles };
     } catch {
       return { hasUnmergedCommits: false, changedFiles: [] };
+    }
+  }
+
+  private async getUncommittedChanges(worktreePath: string): Promise<{ hasUncommittedChanges: boolean; uncommittedFiles: string[] }> {
+    try {
+      // Detect staged + unstaged modifications and untracked files
+      const status = await runCommand(
+        "git", ["-C", worktreePath, "status", "--porcelain"],
+        { allowedExitCodes: [0], timeoutMs: 10_000 }
+      );
+      const uncommittedFiles = status.stdout.trim().split("\n").filter(Boolean).map((line) => line.slice(3));
+
+      return { hasUncommittedChanges: uncommittedFiles.length > 0, uncommittedFiles };
+    } catch {
+      return { hasUncommittedChanges: false, uncommittedFiles: [] };
     }
   }
 
