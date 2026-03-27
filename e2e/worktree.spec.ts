@@ -23,6 +23,7 @@ function createTestRepo(suffix: string): string {
     stdio: "ignore",
   });
   writeFileSync(`${repoPath}/README.md`, "# test\n");
+  writeFileSync(`${repoPath}/.gitignore`, ".env\n");
   execSync("git add -A && git commit -m 'initial' && git push origin main", {
     cwd: repoPath,
     stdio: "ignore",
@@ -121,6 +122,7 @@ test.describe("Worktree", () => {
     const status = await getWorktreeStatusViaAPI(request, agent.id);
     expect(status.hasWorktree).toBe(false);
     expect(status.hasUnmergedCommits).toBe(false);
+    expect(status.hasUncommittedChanges).toBe(false);
     expect(status.worktreePath).toBeNull();
     expect(status.branchName).toBeNull();
   });
@@ -289,6 +291,7 @@ test.describe("Worktree filesystem", () => {
     const status = await getWorktreeStatusViaAPI(request, agent.id);
     expect(status.hasWorktree).toBe(true);
     expect(status.hasUnmergedCommits).toBe(false);
+    expect(status.hasUncommittedChanges).toBe(false);
     expect(status.branchName).toBeTruthy();
     expect(status.worktreePath).toBe(agent.worktreePath);
   });
@@ -327,6 +330,42 @@ test.describe("Worktree filesystem", () => {
     expect(status.hasWorktree).toBe(true);
     expect(status.hasUnmergedCommits).toBe(true);
     expect(status.changedFiles).toContain("new-file.txt");
+  });
+
+  test("worktree-status reports uncommitted changes for modified files", async ({ request }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-uncommitted-${Date.now()}`,
+      cwd: repoPath,
+      useWorktree: true,
+    });
+
+    // Create an unstaged file in the worktree (no commit)
+    writeFileSync(`${agent.worktreePath}/uncommitted-file.txt`, "uncommitted work\n");
+
+    const status = await getWorktreeStatusViaAPI(request, agent.id);
+    expect(status.hasWorktree).toBe(true);
+    expect(status.hasUnmergedCommits).toBe(false);
+    expect(status.hasUncommittedChanges).toBe(true);
+    expect(status.uncommittedFiles).toContain("uncommitted-file.txt");
+  });
+
+  test("deleting agent with uncommitted changes and cleanupWorktree=auto preserves worktree", async ({ request }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-keepuncommitted-${Date.now()}`,
+      cwd: repoPath,
+      useWorktree: true,
+    });
+
+    writeFileSync(`${agent.worktreePath}/uncommitted-keep.txt`, "keep this\n");
+
+    const wtPath = agent.worktreePath!;
+    await deleteAgentViaAPI(request, agent.id, "auto");
+
+    // Worktree should be preserved because it has uncommitted changes
+    expect(existsSync(wtPath)).toBe(true);
+
+    // Clean up manually
+    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, { stdio: "ignore" });
   });
 
   test("deleting agent with unmerged commits and cleanupWorktree=auto preserves worktree", async ({ request }) => {
@@ -406,7 +445,7 @@ test.describe("Worktree filesystem", () => {
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog should appear
-    await expect(page.getByText("Worktree Has Unmerged Changes")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Worktree Has Outstanding Changes")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("delete-agent-keep-worktree")).toBeVisible();
     await expect(page.getByTestId("delete-agent-force-worktree")).toBeVisible();
 
@@ -455,7 +494,7 @@ test.describe("Worktree filesystem", () => {
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog
-    await expect(page.getByText("Worktree Has Unmerged Changes")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Worktree Has Outstanding Changes")).toBeVisible({ timeout: 5_000 });
 
     // Choose "Delete worktree"
     const wtPath = agent.worktreePath!;
