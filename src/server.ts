@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 
@@ -1020,6 +1020,84 @@ async function registerRoutes() {
     return {
       homeDir: os.homedir()
     };
+  });
+
+  function resolveTildePath(raw: string): string {
+    if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
+    if (raw === "~") return os.homedir();
+    return raw;
+  }
+
+  app.get("/api/v1/system/path-info", async (request, reply) => {
+    const query = request.query as { path?: unknown };
+    if (typeof query?.path !== "string" || !query.path.trim()) {
+      return reply.code(400).send({ error: "path query parameter is required." });
+    }
+    const resolved = resolveTildePath(query.path.trim());
+    if (!path.isAbsolute(resolved)) {
+      return { exists: false, isDirectory: false, isGitRepo: false, resolvedPath: resolved };
+    }
+    try {
+      const info = await stat(resolved).catch(() => null);
+      const exists = info !== null;
+      const isDirectory = exists && info.isDirectory();
+      let isGitRepo = false;
+      if (isDirectory) {
+        const result = await runCommand("git", ["-C", resolved, "rev-parse", "--is-inside-work-tree"], {
+          timeoutMs: 3_000,
+          allowedExitCodes: [0, 1, 128],
+        });
+        isGitRepo = result.exitCode === 0 && result.stdout.trim() === "true";
+      }
+      return { exists, isDirectory, isGitRepo, resolvedPath: resolved };
+    } catch {
+      return { exists: false, isDirectory: false, isGitRepo: false, resolvedPath: resolved };
+    }
+  });
+
+  app.get("/api/v1/system/path-completions", async (request, reply) => {
+    const query = request.query as { prefix?: unknown };
+    if (typeof query?.prefix !== "string" || !query.prefix.trim()) {
+      return reply.code(400).send({ error: "prefix query parameter is required." });
+    }
+    const raw = query.prefix.trim();
+    const resolved = resolveTildePath(raw);
+    if (!path.isAbsolute(resolved)) {
+      return { completions: [] };
+    }
+    try {
+      const parentDir = path.dirname(resolved);
+      const partial = path.basename(resolved).toLowerCase();
+
+      // If the prefix ends with /, list children of that directory instead
+      const isExactDir = raw.endsWith("/");
+      const searchDir = isExactDir ? resolved : parentDir;
+      const searchPartial = isExactDir ? "" : partial;
+
+      const entries = await readdir(searchDir, { withFileTypes: true });
+      const dirs = entries
+        .filter((entry) => {
+          if (!entry.isDirectory()) return false;
+          // Skip hidden dirs unless the partial starts with "."
+          if (entry.name.startsWith(".") && !searchPartial.startsWith(".")) return false;
+          return entry.name.toLowerCase().startsWith(searchPartial);
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, 20)
+        .map((entry) => path.join(searchDir, entry.name));
+
+      // Convert back to tilde paths if the input used tilde
+      const homeDir = os.homedir();
+      const completions = dirs.map((dir) =>
+        raw.startsWith("~") && dir.startsWith(homeDir)
+          ? "~" + dir.slice(homeDir.length)
+          : dir
+      );
+
+      return { completions };
+    } catch {
+      return { completions: [] };
+    }
   });
 
   // --- Git helpers ---

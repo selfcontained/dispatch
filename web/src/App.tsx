@@ -64,6 +64,12 @@ function addToCwdHistory(cwd: string): string[] {
   return updated;
 }
 
+function removeCwdFromHistory(cwd: string): string[] {
+  const current = readCwdHistory().filter((entry) => entry !== cwd);
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(current));
+  return current;
+}
+
 function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): boolean {
   return (
     agent.fullAccess ||
@@ -383,6 +389,10 @@ export function App(): JSX.Element {
     []
   );
 
+  const handleRemoveCwdHistory = useCallback((cwd: string) => {
+    setCwdHistory(removeCwdFromHistory(cwd));
+  }, []);
+
   const handleCreateAgent = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
@@ -624,6 +634,7 @@ export function App(): JSX.Element {
         setCreateWorktreeBranch={setCreateWorktreeBranch}
         setCreateBaseBranch={setCreateBaseBranch}
         onSubmit={handleCreateAgent}
+        onRemoveCwdHistory={handleRemoveCwdHistory}
       />
 
       <DeleteAgentDialog

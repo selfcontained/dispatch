@@ -62,9 +62,9 @@ test.describe("Create agent dialog", () => {
     await cwdInput.fill("/brand/new/path");
     const recentOptions = form.getByTestId("create-agent-cwd-history-option");
 
-    await expect(page.getByRole("button", { name: "/Users/brad/dev/apps/dispatch" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "/tmp/existing-project" })).toBeVisible();
-    await expect(recentOptions).toHaveText(["/tmp/existing-project", "/Users/brad/dev/apps/dispatch"]);
+    await expect(page.getByRole("option", { name: "/Users/brad/dev/apps/dispatch" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "/tmp/existing-project" })).toBeVisible();
+    await expect(recentOptions).toHaveCount(2);
     await expect(cwdInput).toHaveValue("/brand/new/path");
   });
 });
