@@ -69,6 +69,7 @@ type CreateAgentInput = {
   fullAccess?: boolean;
   useWorktree?: boolean;
   worktreeBranch?: string;
+  baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
 };
 
@@ -188,6 +189,7 @@ export class AgentManager {
             cwd: originalCwd,
             name,
             branchName: worktreeBranchName,
+            baseBranch: input.baseBranch,
             worktreePath: worktreePathOverride,
           });
           worktreePath = result.worktreePath;
@@ -223,6 +225,7 @@ export class AgentManager {
           originalCwd,
           useWorktree,
           worktreeBranchName,
+          baseBranch: input.baseBranch,
           worktreePathOverride,
           agentName: name,
           agentCommand,
@@ -1241,6 +1244,7 @@ export class AgentManager {
     originalCwd: string;
     useWorktree: boolean;
     worktreeBranchName?: string;
+    baseBranch?: string;
     worktreePathOverride?: string;
     agentName: string;
     agentCommand: string;
@@ -1314,7 +1318,7 @@ export class AgentManager {
         : "";
 
       // We need to compute the worktree path. Use git worktree add directly.
-      // First fetch origin/main
+      const effectiveBaseBranch = params.baseBranch || "main";
       lines.push(
         `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
         `  warn "Not a git repository — skipping worktree"`,
@@ -1323,12 +1327,12 @@ export class AgentManager {
         `}`,
         ``,
         `if [ "\${exec_agent:-}" != "true" ]; then`,
-        `  info "Fetching origin/main..."`,
-        `  git -C "$REPO_ROOT" fetch origin main --quiet 2>/dev/null || true`,
+        `  info "Fetching origin/${effectiveBaseBranch}..."`,
+        `  git -C "$REPO_ROOT" fetch origin "${effectiveBaseBranch}" --quiet 2>/dev/null || true`,
         ``,
-        `  BASE_REF="origin/main"`,
+        `  BASE_REF="origin/${effectiveBaseBranch}"`,
         `  git -C "$REPO_ROOT" rev-parse --verify "$BASE_REF" > /dev/null 2>&1 || {`,
-        `    BASE_REF="main"`,
+        `    BASE_REF="${effectiveBaseBranch}"`,
         `  }`,
         ``,
       );
