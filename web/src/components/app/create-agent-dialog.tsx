@@ -120,7 +120,11 @@ export function CreateAgentDialog({
             const best = result.completions[0];
             // Show only the part after what the user already typed
             if (best.startsWith(trimmed.replace(/\/$/, ""))) {
-              setGhostSuffix(best.slice(trimmed.replace(/\/$/, "").length));
+              let suffix = best.slice(trimmed.replace(/\/$/, "").length);
+              if (trimmed.endsWith("/") && suffix.startsWith("/")) {
+                suffix = suffix.slice(1);
+              }
+              setGhostSuffix(suffix);
             } else {
               setGhostSuffix("");
             }
