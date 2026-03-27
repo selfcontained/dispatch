@@ -94,7 +94,7 @@ describe("github pr services", () => {
       switch (key) {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
-        case `pr merge --auto --squash --delete-branch`:
+        case `pr merge --auto --squash`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
           return {
@@ -170,7 +170,7 @@ describe("github pr services", () => {
       switch (key) {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
-        case `pr merge 99 --squash --delete-branch`:
+        case `pr merge 99 --squash`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `pr view 99 --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
           return {
