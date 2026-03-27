@@ -12,6 +12,7 @@ const TERMINAL_HEARTBEAT_INTERVAL_MS = 20_000;
 const TERMINAL_LIVENESS_GRACE_MS = 5_000;
 const TERMINAL_FRESHNESS_MS = TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
+const SOCKET_PROBE_TIMEOUT_MS = 1_500;
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
@@ -180,6 +181,41 @@ export function useTerminal(args: {
     return Date.now() - socketHealthRef.current.lastHealthyAt <= TERMINAL_FRESHNESS_MS;
   }, []);
 
+  /** Probe an open-but-stale socket: send a resize and wait for any server message. */
+  const probeSocket = useCallback((agentId: string): Promise<boolean> => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+    if (connectedAgentIdRef.current !== agentId) return Promise.resolve(false);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (alive: boolean) => {
+        if (settled) return;
+        settled = true;
+        ws.removeEventListener("message", onMsg);
+        ws.removeEventListener("close", onClose);
+        clearTimeout(timer);
+        resolve(alive);
+      };
+
+      const onMsg = () => {
+        markSocketHealthy("heartbeat");
+        settle(true);
+      };
+      const onClose = () => settle(false);
+      const timer = setTimeout(() => settle(false), SOCKET_PROBE_TIMEOUT_MS);
+
+      ws.addEventListener("message", onMsg);
+      ws.addEventListener("close", onClose);
+
+      // Trigger server activity by sending a resize.
+      const term = terminalRef.current;
+      if (term) {
+        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      }
+    });
+  }, [markSocketHealthy]);
+
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -291,6 +327,18 @@ export function useTerminal(args: {
           restoreConnectedState(agent, "tmux");
           sendResize();
           return;
+        }
+
+        // Socket is open but stale (no heartbeat during background throttle).
+        // Probe it before tearing down — avoids a full reconnect cycle.
+        if (wsRef.current?.readyState === WebSocket.OPEN && connectedAgentIdRef.current === agent.id) {
+          const alive = await probeSocket(agent.id);
+          if (!isCurrentAttempt()) return;
+          if (alive) {
+            restoreConnectedState(agent, "tmux");
+            sendResize();
+            return;
+          }
         }
 
         // We're about to create a new WebSocket — NOW increment the nonce to
@@ -445,6 +493,7 @@ export function useTerminal(args: {
       hasFreshSocket,
       markSocketHealthy,
       noteTerminalError,
+      probeSocket,
       restoreConnectedState,
       selectedAgentId,
       sendResize,
