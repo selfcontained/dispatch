@@ -326,6 +326,7 @@ test.describe("Worktree filesystem", () => {
     const status = await getWorktreeStatusViaAPI(request, agent.id);
     expect(status.hasWorktree).toBe(true);
     expect(status.hasUnmergedCommits).toBe(true);
+    expect(status.changedFiles).toContain("new-file.txt");
   });
 
   test("deleting agent with unmerged commits and cleanupWorktree=auto preserves worktree", async ({ request }) => {

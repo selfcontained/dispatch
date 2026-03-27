@@ -80,6 +80,7 @@ export type WorktreeStatus = {
   hasUnmergedCommits: boolean;
   worktreePath: string | null;
   branchName: string | null;
+  changedFiles: string[];
 };
 
 type StopAgentInput = {
@@ -464,11 +465,12 @@ export class AgentManager {
     const agent = await this.getRequiredAgent(id);
 
     if (!agent.worktreePath) {
-      return { hasWorktree: false, hasUnmergedCommits: false, worktreePath: null, branchName: null };
+      return { hasWorktree: false, hasUnmergedCommits: false, worktreePath: null, branchName: null, changedFiles: [] };
     }
 
     let branchName: string | null = null;
     let hasUnmergedCommits = false;
+    let changedFiles: string[] = [];
 
     try {
       const branchResult = await runCommand(
@@ -476,7 +478,9 @@ export class AgentManager {
         { allowedExitCodes: [0, 1] }
       );
       branchName = branchResult.exitCode === 0 && branchResult.stdout ? branchResult.stdout : null;
-      hasUnmergedCommits = await this.hasUnmergedCommits(agent.worktreePath);
+      const result = await this.getUnmergedChanges(agent.worktreePath);
+      hasUnmergedCommits = result.hasUnmergedCommits;
+      changedFiles = result.changedFiles;
     } catch {
       // Worktree may have been manually removed
     }
@@ -485,7 +489,8 @@ export class AgentManager {
       hasWorktree: true,
       hasUnmergedCommits,
       worktreePath: agent.worktreePath,
-      branchName
+      branchName,
+      changedFiles
     };
   }
 
@@ -1473,23 +1478,63 @@ export class AgentManager {
   }
 
   private async hasUnmergedCommits(worktreePath: string): Promise<boolean> {
+    const result = await this.getUnmergedChanges(worktreePath);
+    return result.hasUnmergedCommits;
+  }
+
+  private async getUnmergedChanges(worktreePath: string): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
     try {
-      // Find the merge-base between HEAD and main to check for divergent commits
+      // Fetch origin/main so we detect commits that were merged via PR
+      await runCommand(
+        "git", ["-C", worktreePath, "fetch", "origin", "main", "--quiet"],
+        { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
+      );
+
+      // Compare against origin/main (falls back to local main if fetch failed)
+      const baseRef = await this.resolveRef(worktreePath, "origin/main") ?? await this.resolveRef(worktreePath, "main");
+      if (!baseRef) {
+        return { hasUnmergedCommits: false, changedFiles: [] };
+      }
+
       const mergeBase = await runCommand(
-        "git", ["-C", worktreePath, "merge-base", "HEAD", "main"],
+        "git", ["-C", worktreePath, "merge-base", "HEAD", baseRef],
         { allowedExitCodes: [0, 1, 128], timeoutMs: 10_000 }
       );
       if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
-        return false;
+        return { hasUnmergedCommits: false, changedFiles: [] };
       }
 
-      const result = await runCommand(
-        "git", ["-C", worktreePath, "log", `${mergeBase.stdout.trim()}..HEAD`, "--oneline"],
+      const range = `${mergeBase.stdout.trim()}..HEAD`;
+
+      const logResult = await runCommand(
+        "git", ["-C", worktreePath, "log", range, "--oneline"],
         { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
       );
-      return result.exitCode === 0 && result.stdout.trim().length > 0;
+      const hasUnmergedCommits = logResult.exitCode === 0 && logResult.stdout.trim().length > 0;
+
+      if (!hasUnmergedCommits) {
+        return { hasUnmergedCommits: false, changedFiles: [] };
+      }
+
+      const diffResult = await runCommand(
+        "git", ["-C", worktreePath, "diff", "--name-only", range],
+        { allowedExitCodes: [0, 128], timeoutMs: 10_000 }
+      );
+      const changedFiles = diffResult.exitCode === 0
+        ? diffResult.stdout.trim().split("\n").filter(Boolean)
+        : [];
+
+      return { hasUnmergedCommits, changedFiles };
     } catch {
-      return false;
+      return { hasUnmergedCommits: false, changedFiles: [] };
     }
+  }
+
+  private async resolveRef(worktreePath: string, ref: string): Promise<string | null> {
+    const result = await runCommand(
+      "git", ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
+      { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
+    );
+    return result.exitCode === 0 && result.stdout.trim() ? ref : null;
   }
 }
