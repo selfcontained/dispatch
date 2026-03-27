@@ -84,9 +84,8 @@ export function CreateAgentDialog({
   const [pathValidation, setPathValidation] = useState<PathInfo | null>(null);
   const [validating, setValidating] = useState(false);
 
-  // --- Path completions state ---
-  const [completions, setCompletions] = useState<string[]>([]);
-  const [completionsLoading, setCompletionsLoading] = useState(false);
+  // --- Inline ghost autocomplete ---
+  const [ghostSuffix, setGhostSuffix] = useState("");
 
   // Debounced path validation
   useEffect(() => {
@@ -107,28 +106,38 @@ export function CreateAgentDialog({
     return () => { clearTimeout(timer); setValidating(false); };
   }, [createCwd]);
 
-  // Debounced path completions
+  // Debounced inline ghost completion
   useEffect(() => {
     const trimmed = createCwd.trim();
     if (!trimmed || (!trimmed.startsWith("/") && !trimmed.startsWith("~"))) {
-      setCompletions([]);
+      setGhostSuffix("");
       return;
     }
-    setCompletionsLoading(true);
     const timer = setTimeout(() => {
       api<{ completions: string[] }>(`/api/v1/system/path-completions?prefix=${encodeURIComponent(trimmed)}`)
-        .then((result) => setCompletions(result.completions))
-        .catch(() => setCompletions([]))
-        .finally(() => setCompletionsLoading(false));
-    }, 250);
-    return () => { clearTimeout(timer); setCompletionsLoading(false); };
+        .then((result) => {
+          if (result.completions.length > 0) {
+            const best = result.completions[0];
+            // Show only the part after what the user already typed
+            if (best.startsWith(trimmed.replace(/\/$/, ""))) {
+              setGhostSuffix(best.slice(trimmed.replace(/\/$/, "").length));
+            } else {
+              setGhostSuffix("");
+            }
+          } else {
+            setGhostSuffix("");
+          }
+        })
+        .catch(() => setGhostSuffix(""));
+    }, 150);
+    return () => clearTimeout(timer);
   }, [createCwd]);
 
-  // Reset validation/completions when dialog closes
+  // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
       setPathValidation(null);
-      setCompletions([]);
+      setGhostSuffix("");
       setCwdDropdownOpen(false);
     }
   }, [open]);
@@ -248,125 +257,73 @@ export function CreateAgentDialog({
             ) : null}
           </div>
 
-          <div className="relative space-y-1" ref={cwdCmdRef}>
-            <label className="text-sm text-muted-foreground">Working directory</label>
+          <div className="relative" ref={cwdCmdRef}>
+            <label className="mb-1 block text-sm text-muted-foreground">Working directory</label>
             <div className="relative">
+              {/* Ghost autocomplete overlay */}
+              {ghostSuffix && createCwd.trim() ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-xs"
+                >
+                  <span className="invisible whitespace-pre">{createCwd}</span>
+                  <span className="whitespace-pre text-muted-foreground/40">{ghostSuffix}</span>
+                </div>
+              ) : null}
               <Input
                 ref={cwdInputRef}
                 value={createCwd}
                 onChange={(event) => {
                   setCreateCwd(event.target.value);
-                  setCwdDropdownOpen(true);
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
                 }}
-                onFocus={() => setCwdDropdownOpen(true)}
+                onFocus={() => {
+                  if (cwdHistory.length > 0) {
+                    setCwdDropdownOpen(true);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && cwdDropdownOpen) {
                     e.preventDefault();
                     e.stopPropagation();
                     setCwdDropdownOpen(false);
                   }
-                  if (e.key === "Tab" && cwdDropdownOpen && completions.length > 0) {
+                  if (e.key === "Tab" && ghostSuffix) {
                     e.preventDefault();
-                    setCreateCwd(completions[0] + "/");
+                    e.stopPropagation();
+                    const accepted = createCwd.replace(/\/$/, "") + ghostSuffix + "/";
+                    setCreateCwd(accepted);
+                    setGhostSuffix("");
                   }
                 }}
                 placeholder="~/path/to/project"
                 required
                 data-testid="create-agent-cwd"
-                className="pr-8 font-mono text-xs"
+                className="bg-transparent pr-8 font-mono text-xs"
               />
-              <button
-                type="button"
-                tabIndex={-1}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  setCwdDropdownOpen((prev) => !prev);
-                  cwdInputRef.current?.focus();
-                }}
-              >
-                {validating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ChevronDown className={cn("h-4 w-4 transition-transform", cwdDropdownOpen && "rotate-180")} />
-                )}
-              </button>
-            </div>
-            {cwdDropdownOpen && (completions.length > 0 || sortedCwdHistory.length > 0) ? (
-              <div className="absolute left-0 right-0 z-[60] mt-1 rounded-md border border-border bg-background shadow-md">
-                <Command shouldFilter={false} onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setCwdDropdownOpen(false);
+              {cwdHistory.length > 0 ? (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setCwdDropdownOpen((prev) => !prev);
                     cwdInputRef.current?.focus();
-                  }
-                }}>
-                  <CommandList>
-                    {completions.length > 0 ? (
-                      <CommandGroup heading="Directories">
-                        {completionsLoading ? (
-                          <CommandLoading>
-                            <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              Loading...
-                            </div>
-                          </CommandLoading>
-                        ) : null}
-                        {completions.map((dir) => (
-                          <CommandItem
-                            key={dir}
-                            value={dir}
-                            data-testid="create-agent-cwd-completion"
-                            className="font-mono text-xs"
-                            onSelect={() => {
-                              setCreateCwd(dir + "/");
-                              setCwdDropdownOpen(true);
-                              requestAnimationFrame(() => cwdInputRef.current?.focus());
-                            }}
-                          >
-                            {dir}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ) : null}
-                    {sortedCwdHistory.length > 0 ? (
-                      <CommandGroup heading="Recent directories">
-                        {sortedCwdHistory.map((dir) => (
-                          <CommandItem
-                            key={dir}
-                            value={`history:${dir}`}
-                            data-testid="create-agent-cwd-history-option"
-                            className="group font-mono text-xs"
-                            onSelect={() => {
-                              setCreateCwd(dir);
-                              setCwdDropdownOpen(false);
-                              requestAnimationFrame(() => cwdInputRef.current?.focus());
-                            }}
-                          >
-                            <span className="truncate">{dir}</span>
-                            <button
-                              type="button"
-                              className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onRemoveCwdHistory(dir);
-                              }}
-                              title="Remove from history"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ) : null}
-                  </CommandList>
-                </Command>
-              </div>
-            ) : null}
-            {!validating && pathValidation && createCwd.trim() ? (
-              <div className="flex items-center gap-1 text-xs">
-                {pathValidation.isDirectory && pathValidation.isGitRepo ? (
+                  }}
+                >
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", cwdDropdownOpen && "rotate-180")} />
+                </button>
+              ) : null}
+            </div>
+            {/* Reserved-height validation feedback */}
+            <div className="flex h-5 items-center gap-1 text-xs">
+              {validating ? (
+                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              ) : pathValidation && createCwd.trim() ? (
+                pathValidation.isDirectory && pathValidation.isGitRepo ? (
                   <>
                     <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                     <GitBranch className="h-3 w-3 text-emerald-500" />
@@ -382,7 +339,50 @@ export function CreateAgentDialog({
                     <AlertCircle className="h-3 w-3 text-amber-500" />
                     <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
                   </>
-                )}
+                )
+              ) : null}
+            </div>
+            {cwdDropdownOpen && sortedCwdHistory.length > 0 ? (
+              <div className="absolute left-0 right-0 z-[60] rounded-md border border-border bg-background shadow-md" data-testid="create-agent-cwd-history">
+                <Command shouldFilter={false} onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setCwdDropdownOpen(false);
+                    cwdInputRef.current?.focus();
+                  }
+                }}>
+                  <CommandList>
+                    <CommandGroup heading="Recent directories">
+                      {sortedCwdHistory.map((dir) => (
+                        <CommandItem
+                          key={dir}
+                          value={dir}
+                          data-testid="create-agent-cwd-history-option"
+                          className="group font-mono text-xs"
+                          onSelect={() => {
+                            setCreateCwd(dir);
+                            setCwdDropdownOpen(false);
+                            requestAnimationFrame(() => cwdInputRef.current?.focus());
+                          }}
+                        >
+                          <span className="truncate">{dir}</span>
+                          <button
+                            type="button"
+                            className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onRemoveCwdHistory(dir);
+                            }}
+                            title="Remove from history"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
               </div>
             ) : null}
           </div>
