@@ -285,16 +285,15 @@ export function CreateAgentDialog({
                     setCwdDropdownOpen(true);
                   }
                 }}
-                onFocus={() => {
-                  if (cwdHistory.length > 0) {
-                    setCwdDropdownOpen(true);
-                  }
-                }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && cwdDropdownOpen) {
                     e.preventDefault();
                     e.stopPropagation();
                     setCwdDropdownOpen(false);
+                  }
+                  if ((e.key === "Enter" || e.key === "ArrowDown") && !cwdDropdownOpen && cwdHistory.length > 0) {
+                    e.preventDefault();
+                    setCwdDropdownOpen(true);
                   }
                   if (e.key === "Tab" && ghostSuffix) {
                     e.preventDefault();
@@ -368,7 +367,7 @@ export function CreateAgentDialog({
                           onSelect={() => {
                             setCreateCwd(dir);
                             setCwdDropdownOpen(false);
-                            requestAnimationFrame(() => cwdInputRef.current?.focus());
+                            cwdInputRef.current?.focus();
                           }}
                         >
                           <span className="truncate">{dir}</span>
