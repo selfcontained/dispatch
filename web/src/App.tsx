@@ -196,6 +196,7 @@ export function App(): JSX.Element {
     statusMessage,
     terminalHostRef,
     ctrlPendingRef,
+    focusTerminal,
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
@@ -231,6 +232,21 @@ export function App(): JSX.Element {
 
   // ── SSE ───────────────────────────────────────────────────────────────
   useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
+
+  // Return focus to the terminal when either sidebar closes.
+  const prevLeftOpenRef = useRef(leftPanelOpen);
+  const prevMediaOpenRef = useRef(mediaPanelOpen);
+  useEffect(() => {
+    const leftClosed = prevLeftOpenRef.current && !leftPanelOpen;
+    const mediaClosed = prevMediaOpenRef.current && !mediaPanelOpen;
+    prevLeftOpenRef.current = leftPanelOpen;
+    prevMediaOpenRef.current = mediaPanelOpen;
+    if (leftClosed || mediaClosed) {
+      // Delay slightly so the sidebar close animation doesn't steal focus.
+      const timer = window.setTimeout(focusTerminal, 50);
+      return () => window.clearTimeout(timer);
+    }
+  }, [leftPanelOpen, mediaPanelOpen, focusTerminal]);
 
   // ── Energy metrics ────────────────────────────────────────────────────
   useEffect(() => {
