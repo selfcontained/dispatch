@@ -346,7 +346,7 @@ test.describe("Worktree filesystem", () => {
     expect(status.hasWorktree).toBe(true);
     expect(status.hasUnmergedCommits).toBe(false);
     expect(status.hasUncommittedChanges).toBe(true);
-    expect(status.uncommittedFiles).toContain("uncommitted-file.txt");
+    expect(status.uncommittedFiles).toContain("?? uncommitted-file.txt");
   });
 
   test("deleting agent with uncommitted changes and cleanupWorktree=auto preserves worktree", async ({ request }) => {

@@ -1548,7 +1548,7 @@ export class AgentManager {
         "git", ["-C", worktreePath, "status", "--porcelain"],
         { allowedExitCodes: [0], timeoutMs: 10_000 }
       );
-      const uncommittedFiles = status.stdout.trim().split("\n").filter(Boolean).map((line) => line.slice(3));
+      const uncommittedFiles = status.stdout.trim().split("\n").filter(Boolean);
 
       return { hasUncommittedChanges: uncommittedFiles.length > 0, uncommittedFiles };
     } catch {
