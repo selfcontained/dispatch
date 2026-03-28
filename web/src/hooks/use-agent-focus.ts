@@ -41,6 +41,8 @@ export function useAgentFocus(
     const tick = () => {
       if (isPageActive() && selectedAgentId) {
         sendFocus(selectedAgentId);
+      } else if (lastReportedRef.current) {
+        sendFocus(null);
       }
     };
 

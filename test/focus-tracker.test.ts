@@ -60,6 +60,18 @@ describe("FocusTracker", () => {
     expect(tracker.isFocused("agent-2")).toBe(true);
   });
 
+  it("clearAll removes all focus entries immediately", () => {
+    const tracker = new FocusTracker();
+    tracker.setFocused("agent-1");
+    tracker.setFocused("agent-2");
+    tracker.setFocused("agent-3");
+
+    tracker.clearAll();
+    expect(tracker.isFocused("agent-1")).toBe(false);
+    expect(tracker.isFocused("agent-2")).toBe(false);
+    expect(tracker.isFocused("agent-3")).toBe(false);
+  });
+
   it("refreshes TTL on repeated setFocused calls", () => {
     const tracker = new FocusTracker();
     tracker.setFocused("agent-1");

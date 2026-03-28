@@ -20,6 +20,11 @@ export class FocusTracker {
     this.focusedAgents.delete(agentId);
   }
 
+  /** Clear all focus entries (e.g. user switched away from all agents). */
+  clearAll(): void {
+    this.focusedAgents.clear();
+  }
+
   /** Returns true if the agent was focused within the last TTL window. */
   isFocused(agentId: string): boolean {
     const ts = this.focusedAgents.get(agentId);
