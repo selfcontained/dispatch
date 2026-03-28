@@ -31,11 +31,17 @@ type CachedSettings = {
 
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
+  private isFocused: ((agentId: string) => boolean) | null = null;
 
   constructor(
     private pool: Pool,
     private log: FastifyBaseLogger
   ) {}
+
+  /** Register a callback to check if the user is actively viewing an agent. */
+  setFocusCheck(fn: (agentId: string) => boolean): void {
+    this.isFocused = fn;
+  }
 
   async getWebhookUrl(): Promise<string | null> {
     return getSetting(this.pool, SETTING_WEBHOOK_URL);
@@ -93,6 +99,11 @@ export class SlackNotifier {
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
 
     try {
+      if (this.isFocused?.(agent.id)) {
+        this.log.debug({ agentId: agent.id }, "Skipping notification — user is focused on agent");
+        return;
+      }
+
       const settings = await this.getCachedSettings();
       if (!settings.webhookUrl) return;
       if (!settings.notifyEvents.includes(event.type as NotifyEventType)) return;

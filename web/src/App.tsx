@@ -29,6 +29,7 @@ import { useSSE } from "@/hooks/use-sse";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useTheme } from "@/hooks/use-theme";
+import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { AGENT_TYPES, type AgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -229,6 +230,9 @@ export function App(): JSX.Element {
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
+
+  // ── Focus tracking (notification suppression) ─────────────────────────
+  useAgentFocus(selectedAgentId, authState);
 
   // ── SSE ───────────────────────────────────────────────────────────────
   useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
