@@ -1014,7 +1014,10 @@ export class AgentManager {
       `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
-      `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`
+      `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
+      // Pin the Bash tool's cwd to the project root (worktree) after every command.
+      // Prevents cwd drift back to the original repo root during long conversations.
+      `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`
     ];
 
     // When TLS is enabled with a CA cert, tell agent CLI tools to trust it
