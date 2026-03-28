@@ -20,7 +20,8 @@
     "check": "tsc --noEmit && npm run check:web",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "bash scripts/e2e-isolated.sh"
+    "test:e2e": "bash scripts/e2e-isolated.sh",
+    "postinstall": "npm --prefix web install"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",

@@ -37,6 +37,11 @@ const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
 const CWD_HISTORY_KEY = "dispatch:cwdHistory";
 const CWD_HISTORY_MAX = 20;
 
+/** Return the project root for an agent, preferring gitContext.repoRoot over cwd (which may be a worktree path). */
+function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
+  return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
+}
+
 function readLastUsedCwd(): string {
   if (typeof window === "undefined") return "";
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
@@ -246,7 +251,7 @@ export function App(): JSX.Element {
 
   // ── Persist last-used CWD ─────────────────────────────────────────────
   useEffect(() => {
-    const lastUsedCwd = selectedAgent?.cwd?.trim() || connectedAgent?.cwd?.trim();
+    const lastUsedCwd = agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
     if (lastUsedCwd) {
       window.localStorage.setItem(LAST_USED_CWD_KEY, lastUsedCwd);
     }
@@ -314,9 +319,9 @@ export function App(): JSX.Element {
 
   // ── Agent action callbacks ────────────────────────────────────────────
   const resolveCreateDefaultCwd = useCallback((): string => {
-    const activeCwd = selectedAgent?.cwd?.trim() || connectedAgent?.cwd?.trim();
+    const activeCwd = agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
     if (activeCwd) return activeCwd;
-    const latestAgentCwd = agents[0]?.cwd?.trim();
+    const latestAgentCwd = agentProjectRoot(agents[0]);
     if (latestAgentCwd) return latestAgentCwd;
     return readLastUsedCwd();
   }, [agents, connectedAgent, selectedAgent]);
