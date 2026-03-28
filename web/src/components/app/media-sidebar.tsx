@@ -1,9 +1,28 @@
 import { type RefObject, useCallback, useEffect } from "react";
-import { ChevronRight, ExternalLink, MonitorPlay, X } from "lucide-react";
+import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
 
 import { type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const TEXT_EXTENSIONS = new Set([
+  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".xml",
+  ".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".sh",
+  ".sql", ".diff", ".patch", ".env", ".ini", ".cfg", ".conf", ".swift",
+  ".kt", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".lua",
+  ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
+]);
+
+function isTextFileName(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return false;
+  return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
+function fileExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
 
 type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
@@ -110,6 +129,7 @@ export function MediaSidebarContent({
             const unseen = !file.seen;
 
             const isStream = file.source === "stream";
+            const isText = file.source === "text" || isTextFileName(file.name);
 
             return (
               <article
@@ -130,7 +150,21 @@ export function MediaSidebarContent({
                 ) : (
                   <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
                 )}
-                {/\.mp4$/i.test(file.name) ? (
+                {isText ? (
+                  <button
+                    className={cn(
+                      "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
+                      unseen ? "media-thumb-unseen" : "media-thumb-seen"
+                    )}
+                    onClick={() => openLightbox(file)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 flex-none text-muted-foreground" />
+                      <span className="truncate text-xs font-medium text-foreground">{file.name.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "")}</span>
+                      <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{fileExtension(file.name)}</span>
+                    </div>
+                  </button>
+                ) : /\.mp4$/i.test(file.name) ? (
                   <div className={cn(
                     "block w-full overflow-hidden border-2 bg-black/60",
                     unseen ? "media-thumb-unseen" : "media-thumb-seen"

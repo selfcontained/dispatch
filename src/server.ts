@@ -1470,12 +1470,13 @@ async function registerRoutes() {
 
     const fileName = data.filename;
     if (!isMediaFile(fileName)) {
-      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4." });
+      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc)." });
     }
 
-    const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? "screenshot";
-    const validSources = ["screenshot", "stream", "simulator"];
-    const source = validSources.includes(sourceField) ? sourceField : "screenshot";
+    const isText = isTextFile(fileName);
+    const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? (isText ? "text" : "screenshot");
+    const validSources = ["screenshot", "stream", "simulator", "text"];
+    const source = validSources.includes(sourceField) ? sourceField : (isText ? "text" : "screenshot");
     const description = (data.fields.description as { value?: string } | undefined)?.value ?? null;
     if (!description) {
       return reply.code(400).send({ error: "A description field is required." });
@@ -2549,8 +2550,21 @@ async function markSeenMediaKeys(agentId: string, keys: string[]): Promise<void>
   );
 }
 
+const TEXT_EXTENSIONS = new Set([
+  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".xml",
+  ".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".sh",
+  ".sql", ".diff", ".patch", ".env", ".ini", ".cfg", ".conf", ".swift",
+  ".kt", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".lua",
+  ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
+]);
+
+function isTextFile(name: string): boolean {
+  const ext = path.extname(name).toLowerCase();
+  return TEXT_EXTENSIONS.has(ext);
+}
+
 function isMediaFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name);
+  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name);
 }
 
 function mimeType(name: string): string {
@@ -2572,6 +2586,42 @@ function mimeType(name: string): string {
 
   if (/\.mp4$/i.test(name)) {
     return "video/mp4";
+  }
+
+  if (/\.json$/i.test(name)) {
+    return "application/json";
+  }
+
+  if (/\.xml$/i.test(name)) {
+    return "application/xml";
+  }
+
+  if (/\.html$/i.test(name)) {
+    return "text/html";
+  }
+
+  if (/\.css$/i.test(name)) {
+    return "text/css";
+  }
+
+  if (/\.(js|jsx|mjs)$/i.test(name)) {
+    return "text/javascript";
+  }
+
+  if (/\.csv$/i.test(name)) {
+    return "text/csv";
+  }
+
+  if (/\.md$/i.test(name)) {
+    return "text/markdown";
+  }
+
+  if (/\.ya?ml$/i.test(name)) {
+    return "text/yaml";
+  }
+
+  if (isTextFile(name)) {
+    return "text/plain";
   }
 
   return "application/octet-stream";
@@ -2624,17 +2674,18 @@ async function mcpShareMedia(
   if (!agent) throw new Error("Agent not found.");
 
   if (!isMediaFile(opts.filePath)) {
-    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4.");
+    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc).");
   }
 
-  const validSources = ["screenshot", "stream", "simulator"];
-  const source = opts.source && validSources.includes(opts.source) ? opts.source : "screenshot";
+  const isText = isTextFile(opts.filePath);
+  const validSources = ["screenshot", "stream", "simulator", "text"];
+  const source = isText ? "text" : (opts.source && validSources.includes(opts.source) ? opts.source : "screenshot");
 
   const buffer = await readFile(opts.filePath);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
   const baseName = opts.name ?? path.basename(opts.filePath);
   const ext0 = path.extname(baseName).toLowerCase();
-  const fallbackExt = ext0 === ".mp4" ? ".mp4" : ".png";
+  const fallbackExt = ext0 === ".mp4" ? ".mp4" : isText ? (ext0 || ".txt") : ".png";
   const safeName = baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") || `shared-${timestamp}${fallbackExt}`;
   const ext = path.extname(safeName);
   const base = path.basename(safeName, ext);
