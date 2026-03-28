@@ -80,6 +80,7 @@ export function useTerminal(args: {
   statusMessage: string;
   terminalHostRef: RefObject<HTMLDivElement>;
   ctrlPendingRef: MutableRefObject<boolean>;
+  focusTerminal: () => void;
   ensureTerminalConnected: (clearScreen?: boolean, userInitiated?: boolean, targetAgentId?: string) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
@@ -762,6 +763,10 @@ export function useTerminal(args: {
     return () => window.clearTimeout(timer);
   }, [theme, connState, connectedAgentId, detachTerminal, ensureTerminalConnected]);
 
+  const focusTerminal = useCallback(() => {
+    terminalRef.current?.focus();
+  }, []);
+
   return useMemo(() => ({
     connState,
     connectedAgentId,
@@ -770,6 +775,7 @@ export function useTerminal(args: {
     statusMessage,
     terminalHostRef: terminalHostRef as RefObject<HTMLDivElement>,
     ctrlPendingRef,
+    focusTerminal,
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
@@ -779,6 +785,7 @@ export function useTerminal(args: {
     terminalMode,
     terminalPlaceholderMessage,
     statusMessage,
+    focusTerminal,
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
