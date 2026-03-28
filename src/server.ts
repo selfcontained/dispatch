@@ -1353,7 +1353,9 @@ async function registerRoutes() {
     const agentId = body?.agentId;
 
     if (agentId === null || agentId === undefined) {
-      // No specific agent focused — let existing focus entries expire via TTL
+      // User is no longer focused on any agent — clear all focus immediately
+      // so notifications resume without waiting for TTL expiry.
+      focusTracker.clearAll();
       return reply.code(204).send();
     }
 
