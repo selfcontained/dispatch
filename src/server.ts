@@ -36,6 +36,7 @@ import { handleMcpRequest } from "./mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
+import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 
@@ -46,7 +47,9 @@ const app = Fastify({
 });
 const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
+const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
+slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 
@@ -1343,6 +1346,23 @@ async function registerRoutes() {
       clearInterval(heartbeat);
       unsubscribe();
     });
+  });
+
+  app.post("/api/v1/focus", async (request, reply) => {
+    const body = request.body as { agentId?: unknown };
+    const agentId = body?.agentId;
+
+    if (agentId === null || agentId === undefined) {
+      // No specific agent focused — let existing focus entries expire via TTL
+      return reply.code(204).send();
+    }
+
+    if (typeof agentId !== "string" || !agentId.trim()) {
+      return reply.code(400).send({ error: "agentId must be a non-empty string or null." });
+    }
+
+    focusTracker.setFocused(agentId.trim());
+    return reply.code(204).send();
   });
 
   app.get("/api/v1/agents/:id", async (request, reply) => {
