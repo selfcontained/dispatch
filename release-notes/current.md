@@ -1,6 +1,6 @@
 ## What's Changed
-* Suppress Slack notifications when user is focused on agent by @selfcontained in https://github.com/selfcontained/dispatch/pull/131
-* Fix truncated file names in uncommitted changes display by @selfcontained in https://github.com/selfcontained/dispatch/pull/132
+* Pin agent Bash tool cwd to worktree root to prevent drift by @selfcontained in https://github.com/selfcontained/dispatch/pull/133
+* Add text file sharing with syntax-highlighted viewer by @selfcontained in https://github.com/selfcontained/dispatch/pull/134
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.12...v0.5.13
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.13...v0.5.14
