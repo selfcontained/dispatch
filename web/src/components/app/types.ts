@@ -38,7 +38,7 @@ export type MediaFile = {
   updatedAt: string;
   url: string;
   seen?: boolean;
-  source?: "screenshot" | "stream" | "simulator";
+  source?: "screenshot" | "stream" | "simulator" | "text";
   description?: string | null;
 };
 

@@ -284,21 +284,25 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       "dispatch_share",
       {
         description:
-          "Upload a media file to Dispatch for sharing. Supports png, jpg, jpeg, gif, webp, and mp4. Use source 'simulator' with a simulator UDID to capture a screenshot directly from an iOS Simulator.",
+          "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first.",
         inputSchema: {
           filePath: z
             .string()
             .optional()
-            .describe("Absolute path to the media file to upload. Not required when source is 'simulator'."),
+            .describe("Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."),
+          content: z
+            .string()
+            .optional()
+            .describe("Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."),
           description: z.string().describe("A short description of the shared media."),
           source: z
-            .enum(["screenshot", "simulator"])
+            .enum(["screenshot", "simulator", "text"])
             .default("screenshot")
-            .describe("The source type of the media."),
+            .describe("The source type of the media. Automatically set to 'text' when sharing text files."),
           name: z
             .string()
             .optional()
-            .describe("Preferred file name for the upload. Derived from the file path if omitted."),
+            .describe("Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."),
           simulatorUdid: z
             .string()
             .optional()
@@ -309,7 +313,25 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         try {
           let filePath = args.filePath;
 
-          if (args.source === "simulator") {
+          if (args.content !== undefined) {
+            const MAX_CONTENT_BYTES = 32 * 1024;
+            if (Buffer.byteLength(args.content, "utf-8") > MAX_CONTENT_BYTES) {
+              return toToolError(new Error("content exceeds 32KB limit. Write to a file and use filePath instead."));
+            }
+            if (!args.name) {
+              return toToolError(new Error("name is required when using content param (e.g. 'snippet.ts')."));
+            }
+            const { writeFile: writeFileTmp } = await import("node:fs/promises");
+            const tmpDir = process.env.TMPDIR ?? "/tmp";
+            const timestamp = new Date()
+              .toISOString()
+              .replace(/[:.]/g, "-")
+              .replace("T", "-")
+              .replace("Z", "");
+            const tmpPath = `${tmpDir}/dispatch-text-${timestamp}-${args.name}`;
+            await writeFileTmp(tmpPath, args.content, "utf-8");
+            filePath = tmpPath;
+          } else if (args.source === "simulator") {
             const { execFile } = await import("node:child_process");
             const { promisify } = await import("node:util");
             const execFileAsync = promisify(execFile);
@@ -325,7 +347,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           }
 
           if (!filePath) {
-            return toToolError(new Error("filePath is required when source is not 'simulator'."));
+            return toToolError(new Error("filePath is required when source is not 'simulator' and content is not provided."));
           }
 
           const result = await shareMedia(agentId, {

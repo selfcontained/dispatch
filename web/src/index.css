@@ -391,6 +391,146 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
+/* ── Syntax highlighting (highlight.js) ─────────────────────────────
+   Uses Dispatch theme variables so colors adapt to every theme. */
+.hljs {
+  background: hsl(var(--surface));
+  color: hsl(var(--foreground));
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-deletion {
+  color: hsl(var(--primary));
+}
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp,
+.hljs-addition {
+  color: hsl(var(--status-working));
+}
+.hljs-number,
+.hljs-literal {
+  color: hsl(var(--status-done));
+}
+.hljs-comment,
+.hljs-quote {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+.hljs-type,
+.hljs-built_in {
+  color: hsl(var(--status-waiting));
+}
+.hljs-title,
+.hljs-title\.class_,
+.hljs-title\.function_ {
+  color: hsl(var(--ring));
+}
+.hljs-attr,
+.hljs-attribute {
+  color: hsl(var(--primary));
+  opacity: 0.85;
+}
+.hljs-variable,
+.hljs-template-variable {
+  color: hsl(var(--foreground));
+}
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: hsl(var(--destructive));
+}
+.hljs-symbol,
+.hljs-bullet {
+  color: hsl(var(--status-done));
+}
+.hljs-section {
+  color: hsl(var(--ring));
+  font-weight: bold;
+}
+.hljs-name,
+.hljs-tag {
+  color: hsl(var(--primary));
+}
+.hljs-params {
+  color: hsl(var(--foreground));
+  opacity: 0.8;
+}
+.hljs-punctuation {
+  color: hsl(var(--muted-foreground));
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Midnight: blue primary, pink destructive — lean into blues and pinks */
+[data-theme="midnight"] .hljs-keyword,
+[data-theme="midnight"] .hljs-selector-tag,
+[data-theme="midnight"] .hljs-deletion {
+  color: hsl(var(--primary));             /* blue */
+}
+[data-theme="midnight"] .hljs-string,
+[data-theme="midnight"] .hljs-doctag,
+[data-theme="midnight"] .hljs-regexp,
+[data-theme="midnight"] .hljs-addition {
+  color: hsl(var(--destructive));         /* pink */
+}
+[data-theme="midnight"] .hljs-title,
+[data-theme="midnight"] .hljs-title\.class_,
+[data-theme="midnight"] .hljs-title\.function_ {
+  color: hsl(var(--status-waiting));      /* yellow */
+}
+[data-theme="midnight"] .hljs-attr,
+[data-theme="midnight"] .hljs-attribute {
+  color: hsl(var(--primary));
+  opacity: 0.75;
+}
+[data-theme="midnight"] .hljs-name,
+[data-theme="midnight"] .hljs-tag {
+  color: hsl(var(--destructive));         /* pink for tags */
+}
+[data-theme="midnight"] .hljs-meta,
+[data-theme="midnight"] .hljs-meta .hljs-keyword {
+  color: hsl(var(--status-working));      /* green for meta only */
+}
+
+/* OLED Black: green primary is too monochrome — use blue/yellow/red accents */
+[data-theme="oled-black"] .hljs-keyword,
+[data-theme="oled-black"] .hljs-selector-tag,
+[data-theme="oled-black"] .hljs-deletion {
+  color: hsl(var(--status-done));         /* blue */
+}
+[data-theme="oled-black"] .hljs-string,
+[data-theme="oled-black"] .hljs-doctag,
+[data-theme="oled-black"] .hljs-regexp,
+[data-theme="oled-black"] .hljs-addition {
+  color: hsl(var(--destructive));         /* red */
+}
+[data-theme="oled-black"] .hljs-title,
+[data-theme="oled-black"] .hljs-title\.class_,
+[data-theme="oled-black"] .hljs-title\.function_ {
+  color: hsl(var(--status-waiting));      /* yellow */
+}
+[data-theme="oled-black"] .hljs-type,
+[data-theme="oled-black"] .hljs-built_in {
+  color: hsl(var(--primary));             /* green — just for types */
+}
+[data-theme="oled-black"] .hljs-attr,
+[data-theme="oled-black"] .hljs-attribute {
+  color: hsl(var(--status-done));         /* blue */
+  opacity: 0.8;
+}
+[data-theme="oled-black"] .hljs-name,
+[data-theme="oled-black"] .hljs-tag {
+  color: hsl(var(--status-done));         /* blue */
+}
+[data-theme="oled-black"] .hljs-meta,
+[data-theme="oled-black"] .hljs-meta .hljs-keyword {
+  color: hsl(var(--status-waiting));      /* yellow for meta */
+}
+
 /* Pause GPU-composited animations when the page is hidden to reduce energy */
 html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;
