@@ -383,8 +383,8 @@ export function AgentSidebarContent({
                           {agent.gitContext?.isWorktree ? (
                             <>
                               <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
-                              <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
                               <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                              <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
                             </>
                           ) : (
                             <>
