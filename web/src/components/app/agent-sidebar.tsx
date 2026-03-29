@@ -1,15 +1,15 @@
 import {
   AlertTriangle,
+  Archive,
   BookOpenText,
   ChevronDown,
   ChevronLeft,
-  EllipsisVertical,
+  Eye,
+  EyeOff,
   Loader2,
-  Monitor,
-  MonitorOff,
   Play,
-  Settings,
   Square,
+  Settings,
   X
 } from "lucide-react";
 
@@ -61,13 +61,13 @@ type AgentSidebarContentProps = AgentSidebarSharedProps & {
 export function AgentSidebarContent({
   agents,
   selectedAgentId,
-  overflowAgentId,
+  overflowAgentId: _overflowAgentId,
   onOpenCreateDialog,
   enabledAgentTypes,
   lastUsedAgentType,
   onOpenDocs,
   onOpenSettings,
-  setOverflowAgentId,
+  setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
   agentVisualState,
@@ -265,7 +265,7 @@ export function AgentSidebarContent({
                             <Play className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Play (start session)</TooltipContent>
+                        <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
                       </Tooltip>
                     ) : (
                       <>
@@ -278,17 +278,17 @@ export function AgentSidebarContent({
                                 data-agent-control="true"
                                 onClick={detachTerminal}
                               >
-                                <MonitorOff className="h-3.5 w-3.5" />
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Detach from session</TooltipContent>
+                            <TooltipContent>Unfocus<br /><span className="text-muted-foreground">Agent keeps running</span></TooltipContent>
                           </Tooltip>
                         ) : (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
-                                variant="ghost-primary"
+                                variant="ghost"
                                 data-agent-control="true"
                                 onClick={() => {
                                   if (closeOnSessionAction) {
@@ -297,10 +297,10 @@ export function AgentSidebarContent({
                                   void attachToAgent(agent);
                                 }}
                               >
-                                <Monitor className="h-3.5 w-3.5" />
+                                <EyeOff className="h-3.5 w-3.5 opacity-40" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Attach to session</TooltipContent>
+                            <TooltipContent>Focus<br /><span className="text-muted-foreground">Watch this agent</span></TooltipContent>
                           </Tooltip>
                         )}
 
@@ -308,60 +308,35 @@ export function AgentSidebarContent({
                           <TooltipTrigger asChild>
                             <Button
                               size="icon"
-                              variant="ghost-destructive"
+                              variant="ghost-warning"
                               data-agent-control="true"
                               onClick={() => void stopAgent(agent)}
                             >
                               <Square className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Stop session</TooltipContent>
+                          <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
                         </Tooltip>
                       </>
                     )}
 
-                    <DropdownMenu
-                      open={overflowAgentId === agent.id}
-                      onOpenChange={(open: boolean) =>
-                        setOverflowAgentId(open ? agent.id : null)
-                      }
-                    >
-                      <DropdownMenuTrigger asChild>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <Button
                           size="icon"
-                          variant="ghost"
+                          variant="ghost-destructive"
                           data-agent-control="true"
                           className="ml-auto"
-                          title="More actions"
-                        >
-                          <EllipsisVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-
-                      <DropdownMenuContent align="end">
-                        {!isStopped ? (
-                          <DropdownMenuItem
-                            data-agent-control="true"
-                            onClick={() => {
-                              setOverflowAgentId(null);
-                              void stopAgent(agent);
-                            }}
-                          >
-                            Stop session
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem
-                          data-agent-control="true"
                           onClick={() => {
-                            setOverflowAgentId(null);
                             setDeleteTarget(agent);
                             setDeleteConfirmOpen(true);
                           }}
                         >
-                          Delete agent
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Archive<br /><span className="text-muted-foreground">Remove agent</span></TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {agent.status === "creating" && agent.setupPhase ? (

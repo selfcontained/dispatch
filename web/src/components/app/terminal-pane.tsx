@@ -57,7 +57,7 @@ export const TerminalPane = memo(function TerminalPane({
         <div data-testid="terminal-empty-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
-            <p className="text-sm">Select an agent and press Play to start and attach to a session.</p>
+            <p className="text-sm">Select an agent and press Resume to start.</p>
           </div>
         </div>
       ) : null}
