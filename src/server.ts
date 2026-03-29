@@ -58,6 +58,9 @@ const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
+const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
+type ActivityRange = (typeof ACTIVITY_RANGES)[number];
+type ActivityGranularity = "day" | "week" | "month";
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
@@ -138,6 +141,46 @@ const GIT_CONTEXT_REFRESH_CONCURRENCY = 1;
 const GIT_CONTEXT_MIN_REQUEUE_MS = 60_000;
 const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 const pendingGitRefreshAgentIds = new Set<string>();
+
+function parseActivityRange(input: unknown): ActivityRange {
+  return typeof input === "string" && (ACTIVITY_RANGES as readonly string[]).includes(input)
+    ? (input as ActivityRange)
+    : "7d";
+}
+
+function currentYearStart(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+}
+
+function getRangeLowerBound(range: ActivityRange): Date | null {
+  if (range === "all") return null;
+  if (range === "year") return currentYearStart();
+  if (range === "7d") return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+}
+
+function rangeWhereClause(range: ActivityRange, column: string): {
+  clause: string;
+  params: unknown[];
+} {
+  const lowerBound = getRangeLowerBound(range);
+  if (!lowerBound) {
+    return { clause: "", params: [] };
+  }
+  return { clause: `WHERE ${column} >= $1`, params: [lowerBound] };
+}
+
+function getBucketGranularity(range: ActivityRange): ActivityGranularity {
+  if (range === "7d" || range === "30d") return "day";
+  if (range === "year") return "month";
+  return "month";
+}
+
+function bucketExpression(range: ActivityRange, column: string): string {
+  const granularity = getBucketGranularity(range);
+  return `date_trunc('${granularity}', ${column})::date::text`;
+}
 const activeGitRefreshAgentIds = new Set<string>();
 const pendingGitRefreshEnqueuedAt = new Map<string, number>();
 const gitRefreshDurationsMs: number[] = [];
@@ -1349,7 +1392,11 @@ async function registerRoutes() {
     return { days: result.rows };
   });
 
-  app.get("/api/v1/activity/stats", async () => {
+  app.get("/api/v1/activity/stats", async (request) => {
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const eventFilter = rangeWhereClause(range, "created_at");
+
     // Fetch all events ordered by agent then time so we can compute durations
     const allEvents = await pool.query<{
       agent_id: string;
@@ -1357,12 +1404,18 @@ async function registerRoutes() {
       created_at: Date;
     }>(
       `SELECT agent_id, event_type, created_at
-       FROM agent_events ORDER BY agent_id, created_at`
+       FROM agent_events
+       ${eventFilter.clause}
+       ORDER BY agent_id, created_at`,
+      eventFilter.params
     );
 
     const busiestDayResult = await pool.query<{ day: string; count: number }>(
       `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
-       FROM agent_events GROUP BY day ORDER BY count DESC LIMIT 1`
+       FROM agent_events
+       ${eventFilter.clause}
+       GROUP BY day ORDER BY count DESC LIMIT 1`,
+      eventFilter.params
     );
 
     // Compute per-state durations across all agents.
@@ -1446,13 +1499,10 @@ async function registerRoutes() {
     const avg = (arr: number[]) =>
       arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
 
-    const totalTime = Object.values(stateDurations).reduce((a, b) => a + b, 0);
-
     return {
       totalWorkingMs: stateDurations.working ?? 0,
       avgBlockedMs: avg(sessionBlockedTimes),
       avgWaitingMs: avg(sessionWaitingTimes),
-      blockedRatio: totalTime > 0 ? Math.round((stateDurations.blocked / totalTime) * 100) : 0,
       busiestDay: busiestDayResult.rows[0]?.day ?? null,
       busiestDayCount: busiestDayResult.rows[0]?.count ?? 0,
       stateDurations,
@@ -1460,8 +1510,10 @@ async function registerRoutes() {
   });
 
   app.get("/api/v1/activity/daily-status", async (request) => {
-    const query = request.query as { days?: string };
-    const days = Math.min(Math.max(parseInt(query.days ?? "30", 10) || 30, 1), 90);
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const eventFilter = rangeWhereClause(range, "created_at");
+    const granularity = getBucketGranularity(range);
 
     // Get all events in the period, ordered by agent then time
     const result = await pool.query<{
@@ -1471,9 +1523,9 @@ async function registerRoutes() {
     }>(
       `SELECT agent_id, event_type, created_at
        FROM agent_events
-       WHERE created_at >= NOW() - make_interval(days => $1)
+       ${eventFilter.clause}
        ORDER BY agent_id, created_at`,
-      [days]
+      eventFilter.params
     );
 
     // Build daily duration breakdown
@@ -1492,8 +1544,15 @@ async function registerRoutes() {
         continue;
       }
       if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
-        // Attribute duration to the day the segment started
-        const dayKey = new Date(prevTime).toISOString().slice(0, 10);
+        const bucket = new Date(prevTime);
+        if (granularity === "week") {
+          const day = bucket.getUTCDay();
+          const diff = day === 0 ? -6 : 1 - day;
+          bucket.setUTCDate(bucket.getUTCDate() + diff);
+        } else if (granularity === "month") {
+          bucket.setUTCDate(1);
+        }
+        const dayKey = bucket.toISOString().slice(0, 10);
         const dur = t - prevTime;
         let entry = dailyMap.get(dayKey);
         if (!entry) {
@@ -1510,12 +1569,15 @@ async function registerRoutes() {
       .map(([day, durations]) => ({ day, ...durations }))
       .sort((a, b) => a.day.localeCompare(b.day));
 
-    return { days: dailyStatus };
+    return { days: dailyStatus, granularity };
   });
 
   // ── Token usage ──────────────────────────────────────────────────
 
-  app.get("/api/v1/activity/token-stats", async () => {
+  app.get("/api/v1/activity/token-stats", async (request) => {
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
     const result = await pool.query<{
       total_input: number;
       total_cache_creation: number;
@@ -1531,14 +1593,18 @@ async function registerRoutes() {
         COALESCE(SUM(output_tokens), 0)::int AS total_output,
         COALESCE(SUM(message_count), 0)::int AS total_messages,
         COUNT(DISTINCT session_id)::int AS total_sessions
-       FROM agent_token_usage`
+       FROM agent_token_usage
+       ${tokenFilter.clause}`,
+      tokenFilter.params
     );
     return result.rows[0];
   });
 
   app.get("/api/v1/activity/token-daily", async (request) => {
-    const query = request.query as { days?: string };
-    const days = Math.min(Math.max(parseInt(query.days ?? "30", 10) || 30, 1), 90);
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const granularity = getBucketGranularity(range);
+    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
 
     const result = await pool.query<{
       day: string;
@@ -1549,21 +1615,24 @@ async function registerRoutes() {
       messages: number;
     }>(
       `SELECT
-        date_trunc('day', COALESCE(session_start, harvested_at))::date::text AS day,
+        ${bucketExpression(range, "COALESCE(session_start, harvested_at)")} AS day,
         SUM(input_tokens)::int AS input_tokens,
         SUM(cache_creation_tokens)::int AS cache_creation_tokens,
         SUM(cache_read_tokens)::int AS cache_read_tokens,
         SUM(output_tokens)::int AS output_tokens,
         SUM(message_count)::int AS messages
        FROM agent_token_usage
-       WHERE COALESCE(session_start, harvested_at) >= NOW() - make_interval(days => $1)
+       ${tokenFilter.clause}
        GROUP BY day ORDER BY day`,
-      [days]
+      tokenFilter.params
     );
-    return { days: result.rows };
+    return { days: result.rows, granularity };
   });
 
-  app.get("/api/v1/activity/token-by-project", async () => {
+  app.get("/api/v1/activity/token-by-project", async (request) => {
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const tokenFilter = rangeWhereClause(range, "COALESCE(t.session_start, t.harvested_at)");
     const result = await pool.query<{
       project_dir: string;
       total_input: number;
@@ -1577,14 +1646,19 @@ async function registerRoutes() {
         SUM(t.message_count)::int AS messages
        FROM agent_token_usage t
        JOIN agents a ON a.id = t.agent_id
+       ${tokenFilter.clause}
        GROUP BY project_dir
        ORDER BY total_input DESC
-       LIMIT 20`
+       LIMIT 20`,
+      tokenFilter.params
     );
     return { projects: result.rows };
   });
 
-  app.get("/api/v1/activity/token-by-model", async () => {
+  app.get("/api/v1/activity/token-by-model", async (request) => {
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
     const result = await pool.query<{
       model: string;
       total_input: number;
@@ -1599,10 +1673,12 @@ async function registerRoutes() {
         COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
         COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
         COALESCE(SUM(output_tokens), 0)::int AS total_output,
-        COUNT(DISTINCT session_id)::int AS sessions
+       COUNT(DISTINCT session_id)::int AS sessions
        FROM agent_token_usage
+       ${tokenFilter.clause}
        GROUP BY model
-       ORDER BY (SUM(input_tokens) + SUM(cache_creation_tokens) + SUM(cache_read_tokens) + SUM(output_tokens)) DESC`
+       ORDER BY (SUM(input_tokens) + SUM(cache_creation_tokens) + SUM(cache_read_tokens) + SUM(output_tokens)) DESC`,
+      tokenFilter.params
     );
     return { models: result.rows };
   });

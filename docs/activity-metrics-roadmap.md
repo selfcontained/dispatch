@@ -2,47 +2,68 @@
 
 High-level plan for expanding Dispatch's activity tracking and usage metrics.
 
-## Current State (PR #140)
+## Shipped
+
+The following work is already in the product and should be treated as baseline, not future roadmap:
 
 - `agent_events` history table with `agent_type`, `agent_name`, `project_dir`
-- Stat cards: total working time, avg blocked time, avg waiting time, busiest day
-- Yearly activity heatmap (Jan–Dec)
-- Daily stacked bar chart (last 30 days, recharts)
+- Stat cards for total working time, avg blocked time, avg waiting time, busiest day
+- Yearly activity heatmap
+- Daily status stacked bar chart for the last 30 days
 - Delete/stop events captured in history
+- Soft delete via `agents.deleted_at`, with active-agent queries filtering deleted rows
+- Token harvesting into `agent_token_usage`
+- Token dashboards for totals, daily usage, by model, and by project
 
-## Phase 1: Low-Hanging Fruit from Existing Data
+## Next Up: Event-Derived Metrics
 
-Derive new metrics from `agent_events` without schema changes.
+Derive more value from existing `agent_events` data before adding new ingestion paths.
 
-- **Agent count over time** — agents created per day/week (first event per agent_id)
-- **Success rate** — ratio of agents reaching `done` vs `idle`/stopped
+- **Time period selector** — scope activity queries and charts to last 30d / this year / all time
+- **Agent count over time** — agents created per day/week using the first event per `agent_id`
 - **Per-project breakdown** — group by `project_dir`, show working time per project
-- **Active hours heatmap** — hour-of-day × day-of-week grid from event timestamps
-- **Time period selector** — scope all metrics to last 30d / this year / all time
+- **Active hours heatmap** — hour-of-day x day-of-week grid from event timestamps
 
-## Phase 2: Soft Delete
+Why this phase goes first:
 
-Add `deleted_at` column to `agents` table, filter from list/UI queries.
+- no schema changes required
+- no new background harvesting required
+- unlocks a better information architecture for the activity pane
 
-Unlocks:
-- Agent session history (see past agents, what they worked on)
-- Total agents ever created (not just currently existing)
+## Follow-On: History Views Enabled By Soft Delete
+
+Soft delete is already implemented, but the analytics surface does not yet expose the richer history it enables.
+
+Potential additions:
+
+- Agent session history for deleted agents
+- Total agents ever created
 - Per-agent timelines and lifetime metrics
-- Richer stats: avg agent lifetime, most productive agents
+- Richer stats such as avg agent lifetime and most productive agents
 
-## Phase 3: Token Tracking
+## Follow-On: Token Analytics Expansion
 
-Parse Claude Code JSONL session logs at agent stop/delete.
+Token tracking is already implemented. Remaining work here is higher-order analytics rather than ingestion.
 
-- New `agent_token_usage` table (agent_id, session, input_tokens, output_tokens, model, timestamp)
-- Harvest from `~/.claude/sessions/` JSONL files
-- Display: total tokens used, tokens per day, tokens per project
-- Cost estimation: tokens × model pricing (configurable rates)
+Potential additions:
 
-## Phase 4: Tool & PR Tracking
+- Cost estimation using configurable model pricing
+- Per-agent token history and lifetime rollups
+- Better attribution for multi-project or worktree-heavy usage patterns
 
-Log MCP tool calls and PR events for workflow insights.
+## Later: Tool And PR Tracking
 
-- Record MCP tool calls in event history or separate table (tool name, agent_id, timestamp)
-- Track PR creation events (already flows through MCP `create_pr` tool)
-- Display: PRs created per week, most-used tools, tool call volume over time
+Add workflow analytics once the event-derived dashboards are in place.
+
+- Record MCP tool calls in `agent_events` or a dedicated table
+- Track PR creation events from the GitHub MCP tools
+- Display PRs created per week, most-used tools, and tool-call volume over time
+
+## Recommended Build Order
+
+1. Add a shared time period selector and thread it through existing activity queries.
+2. Ship event-derived metrics from `agent_events`: agent-count-over-time and per-project working time.
+3. Add the active-hours heatmap.
+4. Expose deleted-agent history views now that soft delete exists.
+5. Add token cost estimation and deeper token analysis.
+6. Add MCP tool and PR tracking.
