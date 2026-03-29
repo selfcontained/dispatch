@@ -36,6 +36,33 @@ if (import.meta.env.PROD) {
   });
 }
 
+// iOS/iPadOS Safari: prevent the viewport from rubber-banding when the user
+// drags on non-scrollable areas (header, terminal canvas, footer, etc.).
+// Allow the gesture only when it starts inside a container that can actually
+// scroll in the drag direction.
+if ("ontouchstart" in window) {
+  document.addEventListener(
+    "touchmove",
+    (e: TouchEvent) => {
+      let node = e.target as HTMLElement | null;
+      while (node && node !== document.documentElement) {
+        const style = getComputedStyle(node);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === "auto" || overflowY === "scroll") &&
+          node.scrollHeight > node.clientHeight
+        ) {
+          // This container is scrollable — let the browser handle it.
+          return;
+        }
+        node = node.parentElement;
+      }
+      e.preventDefault();
+    },
+    { passive: false },
+  );
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
