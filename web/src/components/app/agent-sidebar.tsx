@@ -213,9 +213,8 @@ export function AgentSidebarContent({
                   className={cn(
                     "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
                     borderForAgentState(state),
-                    isActive && "bg-status-working/10",
-                    isStopped && "opacity-60",
-                    isSelected && "bg-muted/60"
+                    isActive ? "bg-status-done/10" : isSelected && "bg-muted/60",
+                    isStopped && "opacity-60"
                   )}
                 >
                   <div
@@ -382,7 +381,7 @@ export function AgentSidebarContent({
                     )}
                   >
                     <div className="min-h-0 overflow-hidden">
-                      <div className="px-3 pt-1">
+                      <div className="px-3 pb-2 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           {agent.gitContext?.isWorktree ? (
                             <>
@@ -403,20 +402,17 @@ export function AgentSidebarContent({
                               )}
                             </>
                           )}
-                          <AgentMeta label="Agent type" value={AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"} />
-                          <div className="grid gap-1">
-                            <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
-                              Full access
-                            </div>
+                          <div className="flex items-center justify-between">
+                            <div className="text-foreground">{AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"}</div>
                             <div
                               className={cn(
-                                "inline-flex w-fit items-center gap-1.5 px-1.5 py-0.5 text-foreground",
+                                "inline-flex items-center gap-1 px-1.5 py-0.5 text-foreground text-[11px]",
                                 fullAccessEnabled &&
                                   "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
                               )}
                             >
-                              {fullAccessEnabled ? <AlertTriangle className="h-3.5 w-3.5" /> : null}
-                              <span>{fullAccessEnabled ? "Enabled" : "Disabled"}</span>
+                              {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
+                              <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
                             </div>
                           </div>
                           {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
