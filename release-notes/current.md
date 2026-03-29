@@ -1,5 +1,5 @@
 ## What's Changed
-* Tone down sidebar create button by @selfcontained in https://github.com/selfcontained/dispatch/pull/139
+* Add activity tracking with event history and Activity pane by @selfcontained in https://github.com/selfcontained/dispatch/pull/140
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.17...v0.5.18
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.5.18...v0.6.0
