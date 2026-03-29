@@ -715,7 +715,9 @@ export function App(): JSX.Element {
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
-      <ActivityPane open={activityPaneOpen} onClose={() => setActivityPaneOpen(false)} />
+      {activityPaneOpen ? (
+        <ActivityPane open={activityPaneOpen} onClose={() => setActivityPaneOpen(false)} />
+      ) : null}
       <SettingsPane
         open={settingsPaneOpen}
         onClose={() => setSettingsPaneOpen(false)}

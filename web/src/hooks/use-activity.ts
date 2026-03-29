@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+const ACTIVITY_QUERY_OPTIONS = {
+  staleTime: 60_000,
+  refetchOnMount: "always" as const,
+};
+
 type HeatmapDay = { day: string; count: number };
 
 export type ActivityStats = {
@@ -31,7 +36,7 @@ export function useActivityHeatmap(days = 365) {
       );
       return payload.days;
     },
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -39,7 +44,7 @@ export function useActivityStats() {
   return useQuery<ActivityStats>({
     queryKey: ["activity", "stats"],
     queryFn: () => api<ActivityStats>("/api/v1/activity/stats"),
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -52,7 +57,7 @@ export function useDailyStatus(days = 30) {
       );
       return payload.days;
     },
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -80,7 +85,7 @@ export function useTokenStats() {
   return useQuery<TokenStats>({
     queryKey: ["activity", "token-stats"],
     queryFn: () => api<TokenStats>("/api/v1/activity/token-stats"),
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -93,7 +98,7 @@ export function useTokenDaily(days = 30) {
       );
       return payload.days;
     },
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -120,7 +125,7 @@ export function useTokenByModel() {
       const payload = await api<{ models: TokenByModel[] }>("/api/v1/activity/token-by-model");
       return payload.models;
     },
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
@@ -131,7 +136,6 @@ export function useTokenByProject() {
       const payload = await api<{ projects: TokenByProject[] }>("/api/v1/activity/token-by-project");
       return payload.projects;
     },
-    staleTime: 60_000,
+    ...ACTIVITY_QUERY_OPTIONS,
   });
 }
-
