@@ -150,4 +150,27 @@ test.describe("Agent CRUD", () => {
     // Agent should disappear from sidebar
     await expect(sidebar.getByText(agent.name)).not.toBeVisible({ timeout: 5_000 });
   });
+
+  test("archiving the selected attached agent resets the terminal to empty state", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-${Date.now()}` });
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await expect(agentCard).toBeVisible({ timeout: 5_000 });
+
+    await agentCard.getByText(agent.name).click();
+    await page.getByTestId("attach-button").click();
+    await expect(page.getByTestId("terminal-inert-state")).toBeVisible({ timeout: 5_000 });
+
+    await agentCard.locator('[data-agent-control="true"]').last().click();
+    await page.getByTestId("delete-agent-confirm").click();
+
+    await expect(agentCard).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-empty-state")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-empty-state")).toContainText("Select an agent");
+    await expect(page.getByTestId("terminal-inert-state")).not.toBeVisible();
+  });
 });

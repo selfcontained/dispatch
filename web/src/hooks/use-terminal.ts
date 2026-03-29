@@ -228,6 +228,13 @@ export function useTerminal(args: {
     attachNonceRef.current += 1;
   }, []);
 
+  const resetTerminalSurface = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term) return;
+    term.reset();
+    term.clear();
+  }, []);
+
   const closeSocketTransport = useCallback(() => {
     if (wsRef.current) {
       try { wsRef.current.close(); } catch {}
@@ -319,6 +326,7 @@ export function useTerminal(args: {
           shouldKeepAttachedRef.current = false;
           clearReconnectTimer();
           closeSocket(false);
+          resetTerminalSurface();
           setConnState("disconnected");
           setStatusMessage("Session ended.");
           return;
@@ -443,6 +451,7 @@ export function useTerminal(args: {
               shouldKeepAttachedRef.current = false;
               setConnectedAgentId(null);
               setTerminalMode(null);
+              resetTerminalSurface();
               setConnState("disconnected");
               return;
             }
@@ -464,6 +473,7 @@ export function useTerminal(args: {
             shouldKeepAttachedRef.current = false;
             clearReconnectTimer();
             closeSocket(false);
+            resetTerminalSurface();
             setConnState("disconnected");
             setStatusMessage(message);
             return;
@@ -495,6 +505,7 @@ export function useTerminal(args: {
       markSocketHealthy,
       noteTerminalError,
       probeSocket,
+      resetTerminalSurface,
       restoreConnectedState,
       selectedAgentId,
       sendResize,
@@ -508,9 +519,10 @@ export function useTerminal(args: {
     setRestoreShellAgentId(null);
     clearReconnectTimer();
     closeSocket(false);
+    resetTerminalSurface();
     setConnState("disconnected");
     setStatusMessage("Detached from session.");
-  }, [clearReconnectTimer, closeSocket, invalidateAttachAttempt]);
+  }, [clearReconnectTimer, closeSocket, invalidateAttachAttempt, resetTerminalSurface]);
 
   const sendTerminalInput = useCallback((data: string) => {
     const ws = wsRef.current;
