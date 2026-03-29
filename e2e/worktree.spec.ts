@@ -161,7 +161,7 @@ test.describe("Worktree", () => {
 
     // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
-    await agentCard.locator('[data-agent-control="true"]').last().click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // Should show standard archive confirmation (not worktree choice)
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
@@ -434,7 +434,7 @@ test.describe("Worktree filesystem", () => {
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
     // Click the Archive button
-    await agentCard.locator('[data-agent-control="true"]').last().click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
@@ -482,7 +482,7 @@ test.describe("Worktree filesystem", () => {
     await expect(agentCard2).toBeVisible({ timeout: 5_000 });
 
     // Click the Archive button
-    await agentCard2.locator('[data-agent-control="true"]').last().click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });

@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 
 type TerminalPaneProps = {
   isAttached: boolean;
-  hasSelectedAgent: boolean;
   connState: ConnState;
   statusMessage: string;
   terminalMode: "tmux" | "inert" | null;
@@ -16,7 +15,6 @@ type TerminalPaneProps = {
 
 export const TerminalPane = memo(function TerminalPane({
   isAttached,
-  hasSelectedAgent,
   connState,
   statusMessage,
   terminalMode,
@@ -38,7 +36,7 @@ export const TerminalPane = memo(function TerminalPane({
     return () => window.clearTimeout(timer);
   }, [connState]);
 
-  const showEmptyState = connState === "disconnected" && !isAttached && !hasSelectedAgent;
+  const showEmptyState = connState === "disconnected" && !isAttached;
   const showInertState = terminalMode === "inert" && isAttached;
 
   return (
@@ -57,7 +55,7 @@ export const TerminalPane = memo(function TerminalPane({
         <div data-testid="terminal-empty-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
-            <p className="text-sm">Select an agent and press Resume to start.</p>
+            <p className="text-sm">Tap an agent row to focus it.</p>
           </div>
         </div>
       ) : null}

@@ -79,14 +79,9 @@ test.describe("Terminal live connection", () => {
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
 
-    // Select the agent and click play/attach
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await agentCard.getByText(agent.name).click();
-
-    // The agent is already running, so we should see "Attach to session" button
-    const attachBtn = agentCard.locator('[data-agent-control="true"]').first();
-    await attachBtn.click();
+    await page.getByTestId(`agent-row-${agent.id}`).click();
 
     // Terminal should connect within 3 seconds
     await waitForTerminalConnected(page, 3_000);
@@ -101,9 +96,7 @@ test.describe("Terminal live connection", () => {
     // Attach to the agent's terminal
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await agentCard.getByText(agent.name).click();
-    const attachBtn = agentCard.locator('[data-agent-control="true"]').first();
-    await attachBtn.click();
+    await page.getByTestId(`agent-row-${agent.id}`).click();
     await waitForTerminalConnected(page, 5_000);
 
     // Now create 3 agents rapidly to trigger SSE agent.upsert events
@@ -130,9 +123,7 @@ test.describe("Terminal live connection", () => {
     // Attach to terminal
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await agentCard.getByText(agent.name).click();
-    const attachBtn = agentCard.locator('[data-agent-control="true"]').first();
-    await attachBtn.click();
+    await page.getByTestId(`agent-row-${agent.id}`).click();
     await waitForTerminalConnected(page, 5_000);
 
     // Stop the agent
@@ -146,12 +137,9 @@ test.describe("Terminal live connection", () => {
       headers: authHeaders(),
     });
 
-    // Re-attach — click the agent card again and attach
-    await agentCard.getByText(agent.name).click();
-    // Wait for the play/attach button to appear after status update
+    // Re-attach by tapping the row again after the status update.
     await page.waitForTimeout(500);
-    const reattachBtn = agentCard.locator('[data-agent-control="true"]').first();
-    await reattachBtn.click();
+    await page.getByTestId(`agent-row-${agent.id}`).click();
 
     // Should reconnect within a reasonable time
     await waitForTerminalConnected(page, 5_000);
@@ -171,11 +159,8 @@ test.describe("Terminal live connection", () => {
 
     // Switch back and forth 5 times
     for (let i = 0; i < 5; i++) {
-      const card = i % 2 === 0 ? cardA : cardB;
-      const name = i % 2 === 0 ? agentA.name : agentB.name;
-      await card.getByText(name).click();
-      const btn = card.locator('[data-agent-control="true"]').first();
-      await btn.click();
+      const targetAgentId = i % 2 === 0 ? agentA.id : agentB.id;
+      await page.getByTestId(`agent-row-${targetAgentId}`).click();
       await page.waitForTimeout(300);
     }
 
@@ -198,9 +183,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await agentCard.getByText(agent.name).click();
-    const attachBtn = agentCard.locator('[data-agent-control="true"]').first();
-    await attachBtn.click();
+    await page.getByTestId(`agent-row-${agent.id}`).click();
     await waitForTerminalConnected(page, 5_000);
     await expect.poll(() => tokenRequests).toBe(1);
 

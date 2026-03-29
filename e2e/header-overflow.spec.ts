@@ -18,13 +18,11 @@ test.describe("Header overflow", () => {
     await loadApp(page);
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
-    await agentCard.getByText(agent.name).click();
-
-    const attachButton = page.getByTestId("attach-button");
-    await expect(attachButton).toBeVisible({ timeout: 10_000 });
-    await attachButton.click();
+    await agentCard.waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
 
     const status = page.getByTestId("app-header-status");
+    await expect(status).toBeVisible({ timeout: 10_000 });
     await expect(status).toHaveAttribute("title", longMessage);
     await expect(status).toContainText("This is a deliberately long agent description");
 
