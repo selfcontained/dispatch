@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
+import { ActivityPane } from "@/components/app/activity-pane";
 import { DocsPane } from "@/components/app/docs-pane";
 import { LoginPage } from "@/components/app/login-page";
 import { SettingsPane } from "@/components/app/settings-pane";
@@ -148,6 +149,7 @@ export function App(): JSX.Element {
   // ── Panes ─────────────────────────────────────────────────────────────
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
   const [docsPaneOpen, setDocsPaneOpen] = useState(false);
+  const [activityPaneOpen, setActivityPaneOpen] = useState(false);
 
   // ── Agents (placeholder connectedAgentId — filled by terminal hook) ──
   // We use a temporary variable; useAgents only needs connectedAgentId for
@@ -517,6 +519,7 @@ export function App(): JSX.Element {
               enabledAgentTypes={enabledAgentTypes}
               lastUsedAgentType={lastUsedAgentType}
               onOpenDocs={() => setDocsPaneOpen(true)}
+              onOpenActivity={() => setActivityPaneOpen(true)}
               onOpenSettings={() => setSettingsPaneOpen(true)}
               setOverflowAgentId={setOverflowAgentId}
               setDeleteTarget={setDeleteTarget}
@@ -613,6 +616,7 @@ export function App(): JSX.Element {
             enabledAgentTypes={enabledAgentTypes}
             lastUsedAgentType={lastUsedAgentType}
             onOpenDocs={() => { setMobileLeftOpen(false); setDocsPaneOpen(true); }}
+            onOpenActivity={() => { setMobileLeftOpen(false); setActivityPaneOpen(true); }}
             onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
@@ -689,6 +693,7 @@ export function App(): JSX.Element {
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
+      <ActivityPane open={activityPaneOpen} onClose={() => setActivityPaneOpen(false)} />
       <SettingsPane
         open={settingsPaneOpen}
         onClose={() => setSettingsPaneOpen(false)}

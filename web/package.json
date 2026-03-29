@@ -30,6 +30,7 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "recharts": "^3.8.1",
     "simple-icons": "^16.11.0",
     "tailwind-merge": "^2.5.4"
   },

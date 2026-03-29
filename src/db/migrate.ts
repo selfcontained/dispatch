@@ -109,6 +109,28 @@ export async function runMigrations(): Promise<void> {
 
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS setup_phase TEXT;
+
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_events_agent_id ON agent_events(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_created_at ON agent_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_type ON agent_events(event_type);
+
+    ALTER TABLE agent_events
+      ADD COLUMN IF NOT EXISTS agent_type TEXT;
+
+    ALTER TABLE agent_events
+      ADD COLUMN IF NOT EXISTS agent_name TEXT;
+
+    ALTER TABLE agent_events
+      ADD COLUMN IF NOT EXISTS project_dir TEXT;
   `;
 
   try {
