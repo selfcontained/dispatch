@@ -41,7 +41,6 @@ import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { harvestTokenUsage } from "./agents/token-harvester.js";
 import {
-  computeActiveHours,
   computeActivityStats,
   computeDailyStatus,
   type ActivityEventRow,
@@ -185,140 +184,6 @@ function getBucketGranularity(range: ActivityRange): "day" | "week" | "month" {
 function bucketExpression(range: ActivityRange, column: string): string {
   const granularity = getBucketGranularity(range);
   return `date_trunc('${granularity}', ${column})::date::text`;
-}
-
-function isDemoSeedEnabled(): boolean {
-  return process.env.NODE_ENV !== "production";
-}
-
-function mulberry32(seed: number): () => number {
-  return () => {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-type DemoSeedRow = {
-  agent_id: string;
-  event_type: AgentLatestEventType;
-  message: string;
-  metadata: string;
-  created_at: Date;
-  agent_type: string;
-  agent_name: string;
-  project_dir: string;
-};
-
-function buildDemoActivitySeed(now = new Date()): DemoSeedRow[] {
-  const projects = [
-    { dir: "/Users/brad/dev/apps/dispatch", agentType: "codex" },
-    { dir: "/Users/brad/dev/apps/ios-client", agentType: "claude" },
-    { dir: "/Users/brad/dev/apps/marketing-site", agentType: "opencode" },
-  ];
-  const dayCount = 420;
-  const rows: DemoSeedRow[] = [];
-  const start = new Date(now.getTime() - dayCount * 24 * 60 * 60 * 1000);
-
-  for (let dayOffset = 0; dayOffset < dayCount; dayOffset += 1) {
-    const day = new Date(start.getTime() + dayOffset * 24 * 60 * 60 * 1000);
-    const weekday = day.getUTCDay();
-    const weekend = weekday === 0 || weekday === 6;
-    const projectIndex = weekend ? dayOffset % 2 : dayOffset % projects.length;
-    const project = projects[projectIndex];
-    const seed = dayOffset * 97 + projectIndex * 131 + 17;
-    const random = mulberry32(seed);
-
-    const activeAgents = weekend ? (random() > 0.58 ? 1 : 0) : (random() > 0.82 ? 3 : 2);
-    for (let agentIndex = 0; agentIndex < activeAgents; agentIndex += 1) {
-      const startHour =
-        weekend
-          ? 9 + Math.floor(random() * 6)
-          : 8 + Math.floor(random() * 3) + (agentIndex === 2 ? 1 : 0);
-      const startMinute = Math.floor(random() * 40);
-      const workingBlockMinutes = weekend
-        ? 70 + Math.floor(random() * 80)
-        : 105 + Math.floor(random() * 85);
-      const blockedMinutes = random() > (weekend ? 0.78 : 0.55) ? 0 : 10 + Math.floor(random() * 35);
-      const waitingMinutes = random() > (weekend ? 0.88 : 0.68) ? 0 : 8 + Math.floor(random() * 28);
-      const reviewBlockMinutes = weekend ? 20 + Math.floor(random() * 40) : 45 + Math.floor(random() * 55);
-      const agentId = `seed-active-hours-${projectIndex}-${agentIndex}`;
-      const agentName = weekend ? `Weekend ${agentIndex + 1}` : `Builder ${projectIndex + 1}-${agentIndex + 1}`;
-
-      const workingAt = new Date(Date.UTC(
-        day.getUTCFullYear(),
-        day.getUTCMonth(),
-        day.getUTCDate(),
-        startHour,
-        startMinute,
-      ));
-      rows.push({
-        agent_id: agentId,
-        event_type: "working",
-        message: "Deep work block",
-        metadata: JSON.stringify({ seed: "activity-demo", phase: "working" }),
-        created_at: workingAt,
-        agent_type: project.agentType,
-        agent_name: agentName,
-        project_dir: project.dir,
-      });
-
-      let cursor = new Date(workingAt.getTime() + workingBlockMinutes * 60 * 1000);
-      if (blockedMinutes > 0) {
-        rows.push({
-          agent_id: agentId,
-          event_type: "blocked",
-          message: "Waiting on review feedback",
-          metadata: JSON.stringify({ seed: "activity-demo", phase: "blocked" }),
-          created_at: cursor,
-          agent_type: project.agentType,
-          agent_name: agentName,
-          project_dir: project.dir,
-        });
-        cursor = new Date(cursor.getTime() + blockedMinutes * 60 * 1000);
-      }
-
-      if (waitingMinutes > 0) {
-        rows.push({
-          agent_id: agentId,
-          event_type: "waiting_user",
-          message: "Need a product call",
-          metadata: JSON.stringify({ seed: "activity-demo", phase: "waiting" }),
-          created_at: cursor,
-          agent_type: project.agentType,
-          agent_name: agentName,
-          project_dir: project.dir,
-        });
-        cursor = new Date(cursor.getTime() + waitingMinutes * 60 * 1000);
-      }
-
-      rows.push({
-        agent_id: agentId,
-        event_type: "working",
-        message: "Afternoon execution",
-        metadata: JSON.stringify({ seed: "activity-demo", phase: "wrap-up" }),
-        created_at: cursor,
-        agent_type: project.agentType,
-        agent_name: agentName,
-        project_dir: project.dir,
-      });
-      cursor = new Date(cursor.getTime() + reviewBlockMinutes * 60 * 1000);
-
-      rows.push({
-        agent_id: agentId,
-        event_type: "done",
-        message: "Shipped for the day",
-        metadata: JSON.stringify({ seed: "activity-demo", phase: "done" }),
-        created_at: cursor,
-        agent_type: project.agentType,
-        agent_name: agentName,
-        project_dir: project.dir,
-      });
-    }
-  }
-
-  return rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
 }
 
 async function loadScopedActivityEvents(
@@ -1604,63 +1469,16 @@ async function registerRoutes() {
   app.get("/api/v1/activity/active-hours", async (request) => {
     const query = request.query as { range?: string };
     const range = parseActivityRange(query.range);
-    const { rows, rangeStart } = await loadScopedActivityEvents(range);
-    const cells = computeActiveHours(rows, rangeStart);
-
-    return { cells };
-  });
-
-  app.post("/api/v1/activity/demo-seed", async (_request, reply) => {
-    if (!isDemoSeedEnabled()) {
-      return reply.code(404).send({ error: "Not found" });
-    }
-
-    const rows = buildDemoActivitySeed();
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(
-        `DELETE FROM agent_events
-         WHERE metadata::text LIKE '%"seed":"activity-demo"%'`
-      );
-
-      const insertSql = `INSERT INTO agent_events
-        (agent_id, event_type, message, metadata, created_at, agent_type, agent_name, project_dir)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)`;
-
-      for (const row of rows) {
-        await client.query(insertSql, [
-          row.agent_id,
-          row.event_type,
-          row.message,
-          row.metadata,
-          row.created_at,
-          row.agent_type,
-          row.agent_name,
-          row.project_dir,
-        ]);
-      }
-
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-
-    const seeded = computeActiveHours(
-      rows.map((row) => ({ event_type: row.event_type, created_at: row.created_at })),
-      getRangeLowerBound("all")
+    const eventFilter = rangeWhereClause(range, "created_at");
+    const result = await pool.query<{ created_at: string }>(
+      `SELECT created_at::text AS created_at
+       FROM agent_events
+       ${eventFilter.clause ? `${eventFilter.clause} AND` : "WHERE"} event_type IN ('working', 'blocked', 'waiting_user')
+       ORDER BY created_at`,
+      eventFilter.params
     );
-    const maxAvgPerWeek = Math.max(...seeded.map((cell) => cell.avgPerWeek), 0);
 
-    return {
-      insertedEvents: rows.length,
-      activeHourCells: seeded.filter((cell) => cell.count > 0).length,
-      maxAvgPerWeek,
-      seededThrough: rows.at(-1)?.created_at.toISOString() ?? null,
-    };
+    return { events: result.rows };
   });
 
   // ── Token usage ──────────────────────────────────────────────────

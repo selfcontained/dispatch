@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { buildActiveHours, type ActiveHourEvent, type ActiveHoursCell } from "@/lib/active-hours";
+
+export type { ActiveHoursCell } from "@/lib/active-hours";
 
 const ACTIVITY_QUERY_OPTIONS = {
   staleTime: 60_000,
@@ -7,12 +10,6 @@ const ACTIVITY_QUERY_OPTIONS = {
 };
 
 type HeatmapDay = { day: string; count: number };
-export type ActiveHoursCell = {
-  dayOfWeek: number;
-  hour: number;
-  count: number;
-  avgPerWeek: number;
-};
 
 export const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
 export type ActivityRange = (typeof ACTIVITY_RANGES)[number];
@@ -95,10 +92,10 @@ export function useActiveHours(range: ActivityRange) {
   return useQuery<ActiveHoursCell[]>({
     queryKey: ["activity", "active-hours", range],
     queryFn: async () => {
-      const payload = await api<{ cells: ActiveHoursCell[] }>(
+      const payload = await api<{ events: ActiveHourEvent[] }>(
         scopedActivityPath("/api/v1/activity/active-hours", range)
       );
-      return payload.cells;
+      return buildActiveHours(payload.events, range);
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });

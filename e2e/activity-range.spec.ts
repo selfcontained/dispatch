@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loadApp, seedActivityDemoViaAPI } from "./helpers";
+import { loadApp, seedActivityDemoViaDB } from "./helpers";
 
 const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
 
@@ -45,24 +45,22 @@ test.describe("Activity range API", () => {
   });
 
   test("active-hours endpoint returns a full 7x24 grid", async ({ request }) => {
-    await seedActivityDemoViaAPI(request);
+    await seedActivityDemoViaDB();
 
     const res = await request.get("/api/v1/activity/active-hours?range=30d", {
       headers: authHeader,
     });
     expect(res.ok()).toBeTruthy();
 
-    const body = (await res.json()) as {
-      cells: Array<{ dayOfWeek: number; hour: number; count: number; avgPerWeek: number }>;
-    };
-    expect(body.cells).toHaveLength(7 * 24);
-    expect(body.cells.some((cell) => cell.avgPerWeek > 0)).toBe(true);
+    const body = (await res.json()) as { events: Array<{ created_at: string }> };
+    expect(body.events.length).toBeGreaterThan(0);
+    expect(body.events.every((event) => typeof event.created_at === "string")).toBe(true);
   });
 });
 
 test.describe("Active hours UI", () => {
-  test("activity pane renders the active-hours heatmap with seeded data", async ({ page, request }) => {
-    await seedActivityDemoViaAPI(request);
+  test("activity pane renders the active-hours heatmap with seeded data", async ({ page }) => {
+    await seedActivityDemoViaDB();
     await loadApp(page);
 
     await page.getByTestId("activity-button").click();
