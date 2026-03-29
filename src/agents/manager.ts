@@ -528,6 +528,16 @@ export class AgentManager {
       throw new AgentError("Agent not found.", 404);
     }
 
+    // Append to event history (fire-and-forget)
+    this.pool
+      .query(
+        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
+         SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
+         FROM agents WHERE id = $1`,
+        [id, input.type, message, JSON.stringify(input.metadata ?? {})]
+      )
+      .catch((err) => this.logger.warn({ err }, "Failed to insert agent event history"));
+
     const agent = (await this.getAgent(id)) as AgentRecord;
     for (const listener of this.eventListeners) {
       try {

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Activity,
   BookOpenText,
   ChevronLeft,
   EllipsisVertical,
@@ -29,6 +30,7 @@ type AgentSidebarSharedProps = {
   overflowAgentId: string | null;
   onOpenCreateDialog: () => void;
   onOpenDocs: () => void;
+  onOpenActivity: () => void;
   onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
@@ -61,6 +63,7 @@ export function AgentSidebarContent({
   overflowAgentId,
   onOpenCreateDialog,
   onOpenDocs,
+  onOpenActivity,
   onOpenSettings,
   setOverflowAgentId,
   setDeleteTarget,
@@ -433,6 +436,14 @@ export function AgentSidebarContent({
         >
           <BookOpenText className="h-4 w-4 md:h-3.5 md:w-3.5" />
           Documentation
+        </button>
+        <button
+          onClick={onOpenActivity}
+          data-testid="activity-button"
+          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
+        >
+          <Activity className="h-4 w-4 md:h-3.5 md:w-3.5" />
+          Activity
         </button>
         <button
           onClick={onOpenSettings}

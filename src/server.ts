@@ -1331,6 +1331,189 @@ async function registerRoutes() {
     };
   });
 
+  // ── Activity tracking ──────────────────────────────────────────────
+
+  app.get("/api/v1/activity/heatmap", async (request) => {
+    const query = request.query as { days?: string };
+    const days = Math.min(Math.max(parseInt(query.days ?? "365", 10) || 365, 1), 730);
+
+    const result = await pool.query<{ day: string; count: number }>(
+      `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
+       FROM agent_events
+       WHERE created_at >= NOW() - make_interval(days => $1)
+       GROUP BY day ORDER BY day`,
+      [days]
+    );
+
+    return { days: result.rows };
+  });
+
+  app.get("/api/v1/activity/stats", async () => {
+    // Fetch all events ordered by agent then time so we can compute durations
+    const allEvents = await pool.query<{
+      agent_id: string;
+      event_type: string;
+      created_at: Date;
+    }>(
+      `SELECT agent_id, event_type, created_at
+       FROM agent_events ORDER BY agent_id, created_at`
+    );
+
+    const busiestDayResult = await pool.query<{ day: string; count: number }>(
+      `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
+       FROM agent_events GROUP BY day ORDER BY count DESC LIMIT 1`
+    );
+
+    // Compute per-state durations across all agents.
+    // A "session" is a sequence of events for one agent, ending at done/idle.
+    // Time in done/idle states is NOT counted (terminal states).
+    const stateDurations: Record<string, number> = {
+      working: 0,
+      blocked: 0,
+      waiting_user: 0,
+    };
+    const sessionDoneTimes: number[] = [];
+    const sessionBlockedTimes: number[] = [];
+    const sessionWaitingTimes: number[] = [];
+
+    let prevAgentId: string | null = null;
+    let prevType: string | null = null;
+    let prevTime: number | null = null;
+    let sessionStart: number | null = null;
+    let sessionBlocked = 0;
+    let sessionWaiting = 0;
+
+    const flushSession = (isDone: boolean, endTime: number | null) => {
+      if (isDone && sessionStart !== null && endTime !== null) {
+        sessionDoneTimes.push(endTime - sessionStart);
+      }
+      sessionBlockedTimes.push(sessionBlocked);
+      sessionWaitingTimes.push(sessionWaiting);
+      sessionStart = null;
+      sessionBlocked = 0;
+      sessionWaiting = 0;
+    };
+
+    for (const row of allEvents.rows) {
+      const t = row.created_at.getTime();
+
+      // New agent — flush previous session if any
+      if (row.agent_id !== prevAgentId) {
+        if (prevAgentId && sessionStart !== null) {
+          flushSession(prevType === "done", prevTime);
+        }
+        prevAgentId = row.agent_id;
+        prevType = row.event_type;
+        prevTime = t;
+        sessionStart = t;
+        sessionBlocked = 0;
+        sessionWaiting = 0;
+        continue;
+      }
+
+      // Same agent — accumulate duration for previous state
+      if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
+        const dur = t - prevTime;
+        stateDurations[prevType] = (stateDurations[prevType] ?? 0) + dur;
+        if (prevType === "blocked") sessionBlocked += dur;
+        if (prevType === "waiting_user") sessionWaiting += dur;
+      }
+
+      // If this event is done/idle, flush this session
+      if (row.event_type === "done" || row.event_type === "idle") {
+        flushSession(row.event_type === "done", t);
+        prevType = row.event_type;
+        prevTime = t;
+        continue;
+      }
+
+      // If previous was done/idle, this starts a new session
+      if (prevType === "done" || prevType === "idle") {
+        sessionStart = t;
+        sessionBlocked = 0;
+        sessionWaiting = 0;
+      }
+
+      prevType = row.event_type;
+      prevTime = t;
+    }
+    // Flush last session
+    if (prevAgentId && sessionStart !== null) {
+      flushSession(prevType === "done", prevTime);
+    }
+
+    const avg = (arr: number[]) =>
+      arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+
+    const totalTime = Object.values(stateDurations).reduce((a, b) => a + b, 0);
+
+    return {
+      avgTimeToDoneMs: avg(sessionDoneTimes),
+      avgBlockedMs: avg(sessionBlockedTimes),
+      avgWaitingMs: avg(sessionWaitingTimes),
+      blockedRatio: totalTime > 0 ? Math.round((stateDurations.blocked / totalTime) * 100) : 0,
+      busiestDay: busiestDayResult.rows[0]?.day ?? null,
+      busiestDayCount: busiestDayResult.rows[0]?.count ?? 0,
+      stateDurations,
+    };
+  });
+
+  app.get("/api/v1/activity/daily-status", async (request) => {
+    const query = request.query as { days?: string };
+    const days = Math.min(Math.max(parseInt(query.days ?? "30", 10) || 30, 1), 90);
+
+    // Get all events in the period, ordered by agent then time
+    const result = await pool.query<{
+      agent_id: string;
+      event_type: string;
+      created_at: Date;
+    }>(
+      `SELECT agent_id, event_type, created_at
+       FROM agent_events
+       WHERE created_at >= NOW() - make_interval(days => $1)
+       ORDER BY agent_id, created_at`,
+      [days]
+    );
+
+    // Build daily duration breakdown
+    const dailyMap = new Map<string, Record<string, number>>();
+
+    let prevAgentId: string | null = null;
+    let prevType: string | null = null;
+    let prevTime: number | null = null;
+
+    for (const row of result.rows) {
+      const t = row.created_at.getTime();
+      if (row.agent_id !== prevAgentId) {
+        prevAgentId = row.agent_id;
+        prevType = row.event_type;
+        prevTime = t;
+        continue;
+      }
+      if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
+        // Attribute duration to the day the segment started
+        const dayKey = new Date(prevTime).toISOString().slice(0, 10);
+        const dur = t - prevTime;
+        let entry = dailyMap.get(dayKey);
+        if (!entry) {
+          entry = {};
+          dailyMap.set(dayKey, entry);
+        }
+        entry[prevType] = (entry[prevType] ?? 0) + dur;
+      }
+      prevType = row.event_type;
+      prevTime = t;
+    }
+
+    const dailyStatus = Array.from(dailyMap.entries())
+      .map(([day, durations]) => ({ day, ...durations }))
+      .sort((a, b) => a.day.localeCompare(b.day));
+
+    return { days: dailyStatus };
+  });
+
+  // ── Agents ────────────────────────────────────────────────────────
+
   app.get("/api/v1/agents", async () => {
     const agents = await agentManager.listAgents();
     return { agents: agents.map(withStreamFlag) };
