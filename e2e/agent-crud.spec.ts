@@ -161,16 +161,15 @@ test.describe("Agent CRUD", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    await agentCard.getByText(agent.name).click();
-    await page.getByTestId("attach-button").click();
-    await expect(page.getByTestId("terminal-inert-state")).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await expect(page.getByTestId("detach-button")).toBeVisible({ timeout: 5_000 });
 
-    await agentCard.locator('[data-agent-control="true"]').last().click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
     await page.getByTestId("delete-agent-confirm").click();
 
     await expect(agentCard).not.toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByTestId("terminal-empty-state")).toContainText("Select an agent");
+    await expect(page.getByTestId("terminal-empty-state")).toContainText("Tap an agent row to focus it.");
     await expect(page.getByTestId("terminal-inert-state")).not.toBeVisible();
   });
 });
