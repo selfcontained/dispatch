@@ -440,6 +440,13 @@ export function App(): JSX.Element {
 
   const deleteAgent = useCallback(
     async (agent: Agent, cleanupWorktree?: string) => {
+      if (connectedAgentId === agent.id) {
+        detachTerminal();
+      }
+      if (selectedAgentId === agent.id) {
+        setSelectedAgentId(null);
+        refreshMedia(null);
+      }
       if (agent.status === "running") {
         await api(`/api/v1/agents/${agent.id}/stop`, {
           method: "POST",
@@ -453,7 +460,7 @@ export function App(): JSX.Element {
       const qs = params.toString();
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
-    []
+    [connectedAgentId, detachTerminal, refreshMedia, selectedAgentId, setSelectedAgentId]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {

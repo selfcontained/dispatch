@@ -150,4 +150,26 @@ test.describe("Agent CRUD", () => {
     // Agent should disappear from sidebar
     await expect(sidebar.getByText(agent.name)).not.toBeVisible({ timeout: 5_000 });
   });
+
+  test("archiving the selected attached agent resets the terminal to empty state", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-${Date.now()}` });
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await expect(agentCard).toBeVisible({ timeout: 5_000 });
+
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await expect(page.getByTestId("detach-button")).toBeVisible({ timeout: 5_000 });
+
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
+    await page.getByTestId("delete-agent-confirm").click();
+
+    await expect(agentCard).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-empty-state")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("terminal-empty-state")).toContainText("Tap an agent row to focus it.");
+    await expect(page.getByTestId("terminal-inert-state")).not.toBeVisible();
+  });
 });

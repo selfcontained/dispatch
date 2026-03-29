@@ -161,8 +161,8 @@ export function DeleteAgentDialog({
             <p className="text-sm text-muted-foreground">The agent will be archived either way.</p>
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={close} disabled={deleting}>
+          <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
+            <Button variant="ghost" onClick={close} disabled={deleting} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button
@@ -170,6 +170,7 @@ export function DeleteAgentDialog({
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("keep")}
               data-testid="delete-agent-keep-worktree"
+              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
               <GitBranch className="mr-1.5 h-4 w-4" />
               Archive, keep worktree
@@ -179,6 +180,7 @@ export function DeleteAgentDialog({
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("force")}
               data-testid="delete-agent-force-worktree"
+              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
               {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               Archive and remove worktree
