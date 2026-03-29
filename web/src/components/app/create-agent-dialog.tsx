@@ -208,16 +208,6 @@ export function CreateAgentDialog({
         </DialogHeader>
 
         <form data-testid="create-agent-form" className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Name</label>
-            <Input
-              value={createName}
-              onChange={(event) => setCreateName(event.target.value)}
-              placeholder="agent name (optional)"
-              data-testid="create-agent-name"
-            />
-          </div>
-
           <div className="relative space-y-1" ref={typeCmdRef}>
             <label className="text-sm text-muted-foreground">Type</label>
             <button
@@ -265,6 +255,17 @@ export function CreateAgentDialog({
                 </Command>
               </div>
             ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Name</label>
+            <Input
+              autoFocus
+              value={createName}
+              onChange={(event) => setCreateName(event.target.value)}
+              placeholder="agent name (optional)"
+              data-testid="create-agent-name"
+            />
           </div>
 
           <div className="relative" ref={cwdCmdRef}>
