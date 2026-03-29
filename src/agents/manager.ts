@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -136,7 +136,7 @@ export class AgentManager {
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
-    const result = await this.pool.query(`${this.baseAgentSelectSql()} WHERE id = $1`, [id]);
+    const result = await this.pool.query(`${this.baseAgentSelectSql()} AND id = $1`, [id]);
     return (result.rows[0] as AgentRecord | undefined) ?? null;
   }
 
@@ -467,10 +467,7 @@ export class AgentManager {
       )
       .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
 
-    await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
-
-    const mediaDir = agent.mediaDir ?? path.join(this.config.mediaRoot, id);
-    await rm(mediaDir, { recursive: true, force: true }).catch(() => {});
+    await this.pool.query("UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
   }
 
   async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
@@ -570,7 +567,7 @@ export class AgentManager {
     await this.maybeCaptureTmuxInventory();
 
     const result = await this.pool.query(
-      "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE status IN ('running', 'stopping', 'creating')"
+      "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating')"
     );
 
     const reconciled: AgentRecord[] = [];
@@ -662,7 +659,7 @@ export class AgentManager {
     // Query DB for these agent IDs
     const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
     const dbResult = await this.pool.query(
-      `SELECT id, status FROM agents WHERE id IN (${placeholders})`,
+      `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id IN (${placeholders})`,
       agentIds
     );
     const dbAgents = new Map<string, string>();
@@ -1221,6 +1218,7 @@ export class AgentManager {
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents
+      WHERE deleted_at IS NULL
     `;
   }
 

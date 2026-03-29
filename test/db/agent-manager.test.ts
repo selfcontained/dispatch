@@ -327,18 +327,33 @@ describe("AgentManager", () => {
   });
 
   describe("deleteAgent", () => {
-    it("should delete an agent", async () => {
+    it("should soft-delete an agent", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       // Stop first so delete doesn't need force
       await manager.stopAgent(agent.id, { force: true });
       await manager.deleteAgent(agent.id);
 
+      // getAgent filters out soft-deleted agents
       const fetched = await manager.getAgent(agent.id);
       expect(fetched).toBeNull();
+
+      // But the row still exists in the database with deleted_at set
+      const row = await pool.query("SELECT deleted_at FROM agents WHERE id = $1", [agent.id]);
+      expect(row.rowCount).toBe(1);
+      expect(row.rows[0].deleted_at).not.toBeNull();
     });
 
-    it("should cascade-delete media and media_seen", async () => {
+    it("should exclude soft-deleted agents from listAgents", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await manager.stopAgent(agent.id, { force: true });
+      await manager.deleteAgent(agent.id);
+
+      const agents = await manager.listAgents();
+      expect(agents.find((a) => a.id === agent.id)).toBeUndefined();
+    });
+
+    it("should preserve media rows after soft delete", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       // Insert media directly
@@ -353,10 +368,11 @@ describe("AgentManager", () => {
 
       await manager.deleteAgent(agent.id, true);
 
+      // Media rows are preserved since soft delete doesn't trigger CASCADE
       const media = await pool.query("SELECT * FROM media WHERE agent_id = $1", [agent.id]);
       const seen = await pool.query("SELECT * FROM media_seen WHERE agent_id = $1", [agent.id]);
-      expect(media.rowCount).toBe(0);
-      expect(seen.rowCount).toBe(0);
+      expect(media.rowCount).toBe(1);
+      expect(seen.rowCount).toBe(1);
     });
 
     it("should throw 404 for non-existent agent", async () => {
