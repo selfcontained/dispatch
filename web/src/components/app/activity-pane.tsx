@@ -115,31 +115,39 @@ function buildHeatmapGrid(
   }
 
   const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - start.getDay() - 52 * 7);
+  const year = today.getFullYear();
+  // Start from Jan 1, aligned to the preceding Sunday
+  const jan1 = new Date(year, 0, 1);
+  const start = new Date(jan1);
+  start.setDate(start.getDate() - start.getDay());
+  // End at Dec 31, aligned to the following Saturday
+  const dec31 = new Date(year, 11, 31);
+  const end = new Date(dec31);
+  end.setDate(end.getDate() + (6 - end.getDay()));
 
   const cols: HeatmapCell[][] = [];
   const months: Array<{ label: string; col: number }> = [];
   let lastMonth = -1;
   const cursor = new Date(start);
 
-  while (cursor <= today) {
+  while (cursor <= end) {
     const week: HeatmapCell[] = [];
     for (let dow = 0; dow < 7; dow++) {
-      if (cursor > today) {
+      const inYear = cursor.getFullYear() === year;
+      const inFuture = cursor > today;
+      if (!inYear) {
         week.push({ date: "", count: 0, label: "" });
       } else {
         const iso = cursor.toISOString().slice(0, 10);
-        const count = countMap.get(iso) ?? 0;
+        const count = inFuture ? 0 : (countMap.get(iso) ?? 0);
         const dateLabel = cursor.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
-          year: "numeric",
         });
         week.push({
           date: iso,
           count,
-          label: `${dateLabel}: ${count} event${count !== 1 ? "s" : ""}`,
+          label: inFuture ? dateLabel : `${dateLabel}: ${count} event${count !== 1 ? "s" : ""}`,
         });
 
         if (cursor.getMonth() !== lastMonth && dow <= 3) {
@@ -159,7 +167,7 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
   const { cells, months, max } = useMemo(() => buildHeatmapGrid(data), [data]);
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-hidden">
       <div className="flex pl-8 mb-1">
         {months.map((m, i) => {
           const nextCol = months[i + 1]?.col ?? cells.length;
@@ -270,17 +278,23 @@ function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              formatter={(value, name) => {
-                const label = chartConfig[name as string]?.label ?? name;
-                return (
-                  <div className="flex items-center justify-between gap-8">
-                    <span className="text-muted-foreground">{label as string}</span>
-                    <span className="font-mono font-medium tabular-nums">
+              indicator="dot"
+              formatter={(value, name, item) => (
+                <>
+                  <div
+                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                    style={{ backgroundColor: item.color }}
+                  />
+                  <div className="flex flex-1 items-center justify-between gap-8">
+                    <span className="text-muted-foreground">
+                      {chartConfig[name as string]?.label ?? name}
+                    </span>
+                    <span className="font-mono font-medium text-foreground tabular-nums">
                       {formatDuration((value as number) * 60_000)}
                     </span>
                   </div>
-                );
-              }}
+                </>
+              )}
               labelFormatter={(label) => label as string}
             />
           }
@@ -365,7 +379,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
               {/* Heatmap */}
               <div>
                 <h2 className="mb-3 text-sm font-medium text-foreground">
-                  Activity over the last year
+                  Activity this year
                 </h2>
                 {heatmapData ? (
                   <Heatmap data={heatmapData} />
