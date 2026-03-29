@@ -616,6 +616,9 @@ export function useTerminal(args: {
     };
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1 || !screenEl) return;
+      // Prevent the touch scroll from escaping the terminal and moving the
+      // viewport (iOS Safari rubber-band overscroll).
+      e.preventDefault();
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
@@ -632,7 +635,7 @@ export function useTerminal(args: {
       }
     };
     host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: true });
+    host.addEventListener("touchmove", onTouchMove, { passive: false });
 
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
