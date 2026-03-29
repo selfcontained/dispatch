@@ -480,9 +480,8 @@ export function App(): JSX.Element {
   }, [attachToAgent, selectedAgent]);
 
   const borderForAgentState = (state: AgentVisualState): string => {
-    if (state === "active") return "border-r-status-working";
-    if (state === "idle") return "border-r-status-done";
-    return "border-r-status-idle";
+    if (state === "active") return "border-r-status-done";
+    return "border-r-transparent";
   };
 
   const serviceDotClass = (state: ServiceState): string => {
