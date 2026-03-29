@@ -1,16 +1,16 @@
 import {
   AlertTriangle,
   Activity,
+  Archive,
   BookOpenText,
+  ChevronDown,
   ChevronLeft,
-  EllipsisVertical,
+  Eye,
+  EyeOff,
   Loader2,
-  Monitor,
-  MonitorOff,
   Play,
-  Plus,
-  Settings,
   Square,
+  Settings,
   X
 } from "lucide-react";
 
@@ -22,13 +22,16 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LayoutGroup, motion } from "framer-motion";
+import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type AgentSidebarSharedProps = {
   agents: Agent[];
   selectedAgentId: string | null;
   overflowAgentId: string | null;
-  onOpenCreateDialog: () => void;
+  onOpenCreateDialog: (type?: AgentType) => void;
+  enabledAgentTypes: AgentType[];
+  lastUsedAgentType: AgentType | null;
   onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenSettings: () => void;
@@ -60,12 +63,14 @@ type AgentSidebarContentProps = AgentSidebarSharedProps & {
 export function AgentSidebarContent({
   agents,
   selectedAgentId,
-  overflowAgentId,
+  overflowAgentId: _overflowAgentId,
   onOpenCreateDialog,
+  enabledAgentTypes,
+  lastUsedAgentType,
   onOpenDocs,
   onOpenActivity,
   onOpenSettings,
-  setOverflowAgentId,
+  setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
   agentVisualState,
@@ -81,18 +86,9 @@ export function AgentSidebarContent({
   closeButtonIcon = "x",
   className
 }: AgentSidebarContentProps): JSX.Element {
-  const agentTypeLabel = (type?: string): string => {
-    if (type === "claude") {
-      return "Claude";
-    }
-    if (type === "codex" || !type) {
-      return "Codex";
-    }
-    if (type === "opencode") {
-      return "OpenCode";
-    }
-    return type;
-  };
+  const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
+    ? lastUsedAgentType
+    : enabledAgentTypes[0] ?? "codex";
 
   const latestEventLabel = (type: NonNullable<Agent["latestEvent"]>["type"]): string => {
     if (type === "waiting_user") {
@@ -155,9 +151,41 @@ export function AgentSidebarContent({
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
-          <Button size="sm" variant="primary" onClick={onOpenCreateDialog} data-testid="create-agent-button">
-            <Plus className="mr-1 h-3.5 w-3.5" /> Create
-          </Button>
+            <Button
+              size="sm"
+              variant="default"
+              className="rounded-r-none border-r-0 bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+              onClick={() => onOpenCreateDialog(defaultCreateType)}
+              data-testid="create-agent-button"
+            >
+              <AgentTypeIcon type={defaultCreateType} className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/80" />
+              Create
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="rounded-l-none border-l border-border/80 bg-muted/35 px-1 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+                  data-testid="create-agent-type-dropdown"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {enabledAgentTypes.map((agentType) => (
+                  <DropdownMenuItem
+                    key={agentType}
+                    className="text-foreground"
+                    onClick={() => onOpenCreateDialog(agentType)}
+                    data-testid={`create-agent-type-${agentType}`}
+                  >
+                    <AgentTypeIcon type={agentType} className="mr-2 h-4 w-4" />
+                    {AGENT_TYPE_LABELS[agentType]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
       </div>
 
@@ -240,7 +268,7 @@ export function AgentSidebarContent({
                             <Play className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Play (start session)</TooltipContent>
+                        <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
                       </Tooltip>
                     ) : (
                       <>
@@ -253,17 +281,17 @@ export function AgentSidebarContent({
                                 data-agent-control="true"
                                 onClick={detachTerminal}
                               >
-                                <MonitorOff className="h-3.5 w-3.5" />
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Detach from session</TooltipContent>
+                            <TooltipContent>Unfocus<br /><span className="text-muted-foreground">Agent keeps running</span></TooltipContent>
                           </Tooltip>
                         ) : (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
-                                variant="ghost-primary"
+                                variant="ghost"
                                 data-agent-control="true"
                                 onClick={() => {
                                   if (closeOnSessionAction) {
@@ -272,10 +300,10 @@ export function AgentSidebarContent({
                                   void attachToAgent(agent);
                                 }}
                               >
-                                <Monitor className="h-3.5 w-3.5" />
+                                <EyeOff className="h-3.5 w-3.5 opacity-40" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Attach to session</TooltipContent>
+                            <TooltipContent>Focus<br /><span className="text-muted-foreground">Watch this agent</span></TooltipContent>
                           </Tooltip>
                         )}
 
@@ -283,60 +311,35 @@ export function AgentSidebarContent({
                           <TooltipTrigger asChild>
                             <Button
                               size="icon"
-                              variant="ghost-destructive"
+                              variant="ghost-warning"
                               data-agent-control="true"
                               onClick={() => void stopAgent(agent)}
                             >
                               <Square className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Stop session</TooltipContent>
+                          <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
                         </Tooltip>
                       </>
                     )}
 
-                    <DropdownMenu
-                      open={overflowAgentId === agent.id}
-                      onOpenChange={(open: boolean) =>
-                        setOverflowAgentId(open ? agent.id : null)
-                      }
-                    >
-                      <DropdownMenuTrigger asChild>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <Button
                           size="icon"
-                          variant="ghost"
+                          variant="ghost-destructive"
                           data-agent-control="true"
                           className="ml-auto"
-                          title="More actions"
-                        >
-                          <EllipsisVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-
-                      <DropdownMenuContent align="end">
-                        {!isStopped ? (
-                          <DropdownMenuItem
-                            data-agent-control="true"
-                            onClick={() => {
-                              setOverflowAgentId(null);
-                              void stopAgent(agent);
-                            }}
-                          >
-                            Stop session
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem
-                          data-agent-control="true"
                           onClick={() => {
-                            setOverflowAgentId(null);
                             setDeleteTarget(agent);
                             setDeleteConfirmOpen(true);
                           }}
                         >
-                          Delete agent
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Archive<br /><span className="text-muted-foreground">Remove agent</span></TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {agent.status === "creating" && agent.setupPhase ? (
@@ -400,7 +403,7 @@ export function AgentSidebarContent({
                               )}
                             </>
                           )}
-                          <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
+                          <AgentMeta label="Agent type" value={AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"} />
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
                               Full access

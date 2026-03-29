@@ -1,4 +1,4 @@
-import { Monitor, MonitorOff, PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { Eye, EyeOff, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -102,22 +102,22 @@ export function AppHeader({
             size="sm"
             variant="ghost-info"
             onClick={detachTerminal}
-            title="Detach from session"
+            title="Unfocus"
             data-testid="detach-button"
           >
-            <MonitorOff className="mr-1 h-3.5 w-3.5" />
-            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Detach</span>
+            <Eye className="mr-1 h-3.5 w-3.5" />
+            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Unfocus</span>
           </Button>
         ) : canAttachSelected ? (
           <Button
             size="sm"
-            variant="ghost-primary"
+            variant="ghost"
             onClick={attachSelectedAgent}
-            title="Attach to session"
+            title="Focus on this agent"
             data-testid="attach-button"
           >
-            <Monitor className="mr-1 h-3.5 w-3.5" />
-            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Attach</span>
+            <EyeOff className="mr-1 h-3.5 w-3.5" />
+            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Focus</span>
           </Button>
         ) : null}
 

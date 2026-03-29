@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronDown, GitBranch, Loader2, Plus, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronDown, GitBranch, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandLoading } from "@/components/ui/command";
@@ -208,16 +208,6 @@ export function CreateAgentDialog({
         </DialogHeader>
 
         <form data-testid="create-agent-form" className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Name</label>
-            <Input
-              value={createName}
-              onChange={(event) => setCreateName(event.target.value)}
-              placeholder="agent name (optional)"
-              data-testid="create-agent-name"
-            />
-          </div>
-
           <div className="relative space-y-1" ref={typeCmdRef}>
             <label className="text-sm text-muted-foreground">Type</label>
             <button
@@ -265,6 +255,17 @@ export function CreateAgentDialog({
                 </Command>
               </div>
             ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Name</label>
+            <Input
+              autoFocus
+              value={createName}
+              onChange={(event) => setCreateName(event.target.value)}
+              placeholder="agent name (optional)"
+              data-testid="create-agent-name"
+            />
           </div>
 
           <div className="relative" ref={cwdCmdRef}>
@@ -539,7 +540,7 @@ export function CreateAgentDialog({
               Cancel
             </Button>
             <Button type="submit" variant="primary" tabIndex={0} disabled={creating} data-testid="create-agent-submit">
-              {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
+              {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               Create
             </Button>
           </div>

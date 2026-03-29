@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
+import { AlertTriangle, Archive, GitBranch, Loader2 } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -158,7 +158,7 @@ export function DeleteAgentDialog({
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground">The agent will be deleted either way.</p>
+            <p className="text-sm text-muted-foreground">The agent will be archived either way.</p>
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
@@ -172,7 +172,7 @@ export function DeleteAgentDialog({
               data-testid="delete-agent-keep-worktree"
             >
               <GitBranch className="mr-1.5 h-4 w-4" />
-              Delete agent, keep worktree
+              Archive, keep worktree
             </Button>
             <Button
               variant="destructive"
@@ -181,7 +181,7 @@ export function DeleteAgentDialog({
               data-testid="delete-agent-force-worktree"
             >
               {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
-              Delete both
+              Archive and remove worktree
             </Button>
           </div>
         </DialogContent>
@@ -193,11 +193,11 @@ export function DeleteAgentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Agent</DialogTitle>
+          <DialogTitle>Archive Agent</DialogTitle>
           <DialogDescription>
             {deleteTarget
-              ? `Delete "${deleteTarget.name}"? This permanently removes the agent record and all media files.`
-              : "Delete this agent?"}
+              ? `Archive "${deleteTarget.name}"? This removes the agent record and all media files.`
+              : "Archive this agent?"}
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">
@@ -214,8 +214,8 @@ export function DeleteAgentDialog({
             disabled={loading || deleting}
             onClick={() => void handleConfirmDelete()}
           >
-            {loading || deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
-            Delete
+            {loading || deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Archive className="mr-1.5 h-4 w-4" />}
+            Archive
           </Button>
         </div>
       </DialogContent>

@@ -31,11 +31,12 @@ import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import { AGENT_TYPES, type AgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
+import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
 const CWD_HISTORY_KEY = "dispatch:cwdHistory";
 const CWD_HISTORY_MAX = 20;
 
@@ -48,6 +49,12 @@ function readLastUsedCwd(): string {
   if (typeof window === "undefined") return "";
   const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
   return stored && stored.length > 0 ? stored : "~/";
+}
+
+function readLastUsedAgentType(): AgentType | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(LAST_USED_TYPE_KEY)?.trim();
+  return stored && isAgentType(stored) ? stored : null;
 }
 
 function readCwdHistory(): string[] {
@@ -126,6 +133,7 @@ export function App(): JSX.Element {
   const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
   const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
+  const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useState(false);
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
@@ -348,9 +356,13 @@ export function App(): JSX.Element {
     return readLastUsedCwd();
   }, [agents, connectedAgent, selectedAgent]);
 
-  const openCreateDialog = useCallback(() => {
+  const openCreateDialog = useCallback((typeOverride?: AgentType) => {
     setCreateCwd(resolveCreateDefaultCwd());
-    setCreateType((current) => (enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex"));
+    if (typeOverride && enabledAgentTypes.includes(typeOverride)) {
+      setCreateType(typeOverride);
+    } else {
+      setCreateType((current) => (enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex"));
+    }
     setCreateOpen(true);
   }, [enabledAgentTypes, resolveCreateDefaultCwd]);
 
@@ -448,6 +460,8 @@ export function App(): JSX.Element {
         setCreateWorktreeBranch("");
         setCreateBaseBranch("main");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
+        window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
+        setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
         refreshMedia(payload.agent.id);
@@ -502,6 +516,8 @@ export function App(): JSX.Element {
               overflowAgentId={overflowAgentId}
               setLeftOpen={setLeftOpen}
               onOpenCreateDialog={openCreateDialog}
+              enabledAgentTypes={enabledAgentTypes}
+              lastUsedAgentType={lastUsedAgentType}
               onOpenDocs={() => setDocsPaneOpen(true)}
               onOpenActivity={() => setActivityPaneOpen(true)}
               onOpenSettings={() => setSettingsPaneOpen(true)}
@@ -596,7 +612,9 @@ export function App(): JSX.Element {
             agents={agents}
             selectedAgentId={selectedAgentId}
             overflowAgentId={overflowAgentId}
-            onOpenCreateDialog={() => { setMobileLeftOpen(false); openCreateDialog(); }}
+            onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
+            enabledAgentTypes={enabledAgentTypes}
+            lastUsedAgentType={lastUsedAgentType}
             onOpenDocs={() => { setMobileLeftOpen(false); setDocsPaneOpen(true); }}
             onOpenActivity={() => { setMobileLeftOpen(false); setActivityPaneOpen(true); }}
             onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
