@@ -1466,6 +1466,21 @@ async function registerRoutes() {
     return { days: dailyStatus, granularity };
   });
 
+  app.get("/api/v1/activity/active-hours", async (request) => {
+    const query = request.query as { range?: string };
+    const range = parseActivityRange(query.range);
+    const eventFilter = rangeWhereClause(range, "created_at");
+    const result = await pool.query<{ created_at: string }>(
+      `SELECT created_at::text AS created_at
+       FROM agent_events
+       ${eventFilter.clause ? `${eventFilter.clause} AND` : "WHERE"} event_type IN ('working', 'blocked', 'waiting_user')
+       ORDER BY created_at`,
+      eventFilter.params
+    );
+
+    return { events: result.rows };
+  });
+
   // ── Token usage ──────────────────────────────────────────────────
 
   app.get("/api/v1/activity/token-stats", async (request) => {

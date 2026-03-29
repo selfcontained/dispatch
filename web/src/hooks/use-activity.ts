@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { buildActiveHours, type ActiveHourEvent, type ActiveHoursCell } from "@/lib/active-hours";
+
+export type { ActiveHoursCell } from "@/lib/active-hours";
 
 const ACTIVITY_QUERY_OPTIONS = {
   staleTime: 60_000,
@@ -80,6 +83,19 @@ export function useDailyStatus(range: ActivityRange) {
       return api<BucketedActivityResponse<DailyStatusEntry>>(
         scopedActivityPath("/api/v1/activity/daily-status", range)
       );
+    },
+    ...ACTIVITY_QUERY_OPTIONS,
+  });
+}
+
+export function useActiveHours(range: ActivityRange) {
+  return useQuery<ActiveHoursCell[]>({
+    queryKey: ["activity", "active-hours", range],
+    queryFn: async () => {
+      const payload = await api<{ events: ActiveHourEvent[] }>(
+        scopedActivityPath("/api/v1/activity/active-hours", range)
+      );
+      return buildActiveHours(payload.events, range);
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import {
@@ -27,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ACTIVITY_RANGES,
+  useActiveHours,
   useActivityHeatmap,
   useActivityStats,
   useDailyStatus,
@@ -36,6 +37,7 @@ import {
   useTokenByProject,
   rangeLabel,
   type ActivityGranularity,
+  type ActiveHoursCell,
   type ActivityRange,
   type DailyStatusEntry,
   type TokenDailyEntry,
@@ -252,6 +254,103 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
         <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-500/70" />
         <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-400" />
         <span>More</span>
+      </div>
+    </div>
+  );
+}
+
+const ACTIVE_HOURS_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const ACTIVE_HOURS_DAY_LABELS: Record<number, string> = {
+  0: "Sun",
+  1: "Mon",
+  2: "Tue",
+  3: "Wed",
+  4: "Thu",
+  5: "Fri",
+  6: "Sat",
+};
+
+function activeHoursIntensity(value: number, max: number): string {
+  if (value <= 0) return "bg-muted/40";
+  const ratio = value / max;
+  if (ratio <= 0.2) return "bg-sky-100/80";
+  if (ratio <= 0.4) return "bg-cyan-200/80";
+  if (ratio <= 0.6) return "bg-sky-300/80";
+  if (ratio <= 0.8) return "bg-cyan-500/80";
+  return "bg-sky-700/85";
+}
+
+function formatHour(hour: number): string {
+  const suffix = hour >= 12 ? "p" : "a";
+  const normalized = hour % 12 === 0 ? 12 : hour % 12;
+  return `${normalized}${suffix}`;
+}
+
+function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: ActivityRange }) {
+  const cellMap = useMemo(
+    () => new Map(data.map((cell) => [`${cell.dayOfWeek}:${cell.hour}`, cell])),
+    [data]
+  );
+  const max = Math.max(...data.map((cell) => cell.avgPerWeek), 0.01);
+  const cadenceLabel = range === "7d" ? "events" : "avg events / week";
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-x-auto">
+        <div className="grid min-w-[760px] grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2">
+          <div />
+          {Array.from({ length: 24 }, (_, hour) => (
+            <div
+              key={`label-${hour}`}
+              className="text-center text-[10px] font-medium text-muted-foreground"
+            >
+              {hour % 2 === 0 ? formatHour(hour) : ""}
+            </div>
+          ))}
+
+          {ACTIVE_HOURS_DAY_ORDER.map((dayOfWeek) => (
+            <Fragment key={`row-${dayOfWeek}`}>
+              <div className="flex items-center text-xs font-medium text-muted-foreground">
+                {ACTIVE_HOURS_DAY_LABELS[dayOfWeek]}
+              </div>
+              {Array.from({ length: 24 }, (_, hour) => {
+                const cell = cellMap.get(`${dayOfWeek}:${hour}`) ?? {
+                  dayOfWeek,
+                  hour,
+                  count: 0,
+                  avgPerWeek: 0,
+                };
+                const title =
+                  range === "7d"
+                    ? `${ACTIVE_HOURS_DAY_LABELS[dayOfWeek]} ${formatHour(hour)}: ${cell.count} active events`
+                    : `${ACTIVE_HOURS_DAY_LABELS[dayOfWeek]} ${formatHour(hour)}: ${cell.avgPerWeek} avg events/week (${cell.count} total)`;
+                return (
+                  <div
+                    key={`${dayOfWeek}-${hour}`}
+                    title={title}
+                    data-testid={dayOfWeek === 1 && hour === 9 ? "active-hours-cell-sample" : undefined}
+                    className={cn(
+                      "h-5 rounded-[6px] border border-border/40 transition-colors",
+                      activeHoursIntensity(cell.avgPerWeek, max)
+                    )}
+                  />
+                );
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <span>Less</span>
+        <div className="h-2.5 w-5 rounded-full bg-muted/40" />
+        <div className="h-2.5 w-5 rounded-full bg-sky-100/80" />
+        <div className="h-2.5 w-5 rounded-full bg-cyan-200/80" />
+        <div className="h-2.5 w-5 rounded-full bg-sky-300/80" />
+        <div className="h-2.5 w-5 rounded-full bg-cyan-500/80" />
+        <div className="h-2.5 w-5 rounded-full bg-sky-700/85" />
+        <span>More</span>
+        <span className="ml-2">{cadenceLabel}</span>
       </div>
     </div>
   );
@@ -562,6 +661,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats(range);
   const { data: dailyStatus } = useDailyStatus(range);
+  const { data: activeHours } = useActiveHours(range);
   const { data: tokenStats } = useTokenStats(range);
   const { data: tokenDaily } = useTokenDaily(range);
   const { data: tokenByModel } = useTokenByModel(range);
@@ -572,6 +672,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
     ? tokenStats.total_input + tokenStats.total_cache_creation + tokenStats.total_cache_read + tokenStats.total_output
     : 0;
   const hasTokenData = totalTokens > 0;
+  const hasActiveHourData = activeHours?.some((cell) => cell.count > 0) ?? false;
 
   return (
     <DialogPrimitive.Root
@@ -619,7 +720,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* Body */}
           <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 sm:space-y-8 px-3 py-4 sm:px-5 sm:py-6 md:px-8">
+            <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Stats row */}
               {stats && hasData && (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -665,6 +766,20 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                     data={dailyStatus.days}
                     granularity={dailyStatus.granularity}
                   />
+                </div>
+              )}
+
+              {activeHours && activeHours.length > 0 && hasActiveHourData && (
+                <div>
+                  <h2 className="mb-1 text-sm font-medium text-foreground">
+                    Active hours
+                  </h2>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    {range === "7d"
+                      ? "Active-state events by weekday and hour for the last 7 days."
+                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
+                  </p>
+                  <ActiveHoursGrid data={activeHours} range={range} />
                 </div>
               )}
 

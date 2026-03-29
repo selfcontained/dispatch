@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  computeActivityStats,
-  computeDailyStatus,
-  type ActivityEventRow,
-} from "../src/activity-metrics.js";
+import { computeActivityStats, computeDailyStatus, type ActivityEventRow } from "../src/activity-metrics.js";
 
 function row(agent_id: string, event_type: string, created_at: string): ActivityEventRow {
   return { agent_id, event_type, created_at: new Date(created_at) };
