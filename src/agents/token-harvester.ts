@@ -44,10 +44,14 @@ const UPSERT_SQL = `INSERT INTO agent_token_usage
 
 // ── Claude Code harvesting ────────────────────────────────────────
 
-/** Map an agent's working directory to the corresponding Claude projects directory. */
+function claudeProjectRoot(): string {
+  return path.join(os.homedir(), ".claude", "projects");
+}
+
+/** Map an agent's working directory to the current Claude projects directory encoding. */
 export function cwdToClaudeProjectDir(cwd: string): string {
-  const encoded = cwd.replaceAll("/", "-");
-  return path.join(os.homedir(), ".claude", "projects", encoded);
+  const encoded = cwd.replaceAll(/[^a-zA-Z0-9_-]/g, "-");
+  return path.join(claudeProjectRoot(), encoded);
 }
 
 async function discoverSessionFiles(dir: string): Promise<string[]> {
@@ -118,7 +122,6 @@ async function harvestClaudeTokenUsage(
 ): Promise<void> {
   const effectiveCwd = agent.worktreePath ?? agent.cwd;
   const projectDir = cwdToClaudeProjectDir(effectiveCwd);
-
   const files = await discoverSessionFiles(projectDir);
   if (files.length === 0) return;
 

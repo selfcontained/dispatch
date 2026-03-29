@@ -7,7 +7,7 @@ import { cwdToClaudeProjectDir } from "../src/agents/token-harvester.js";
 
 describe("token-harvester", () => {
   describe("cwdToClaudeProjectDir", () => {
-    it("encodes a simple path by replacing / with -", () => {
+    it("encodes a simple path by sanitizing non-alphanumeric path chars", () => {
       const result = cwdToClaudeProjectDir("/Users/brad/dev/apps/dispatch");
       expect(result).toBe(
         path.join(os.homedir(), ".claude", "projects", "-Users-brad-dev-apps-dispatch")
@@ -23,7 +23,7 @@ describe("token-harvester", () => {
           os.homedir(),
           ".claude",
           "projects",
-          "-Users-brad-dev-apps-dispatch-.dispatch-worktrees-agt-abc123"
+          "-Users-brad-dev-apps-dispatch--dispatch-worktrees-agt-abc123"
         )
       );
     });
