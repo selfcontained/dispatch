@@ -1,6 +1,5 @@
 ## What's Changed
-* Add activity metrics roadmap by @selfcontained in https://github.com/selfcontained/dispatch/pull/141
-* Tighten agent details in sidebar by @selfcontained in https://github.com/selfcontained/dispatch/pull/142
+* Add soft delete for agents by @selfcontained in https://github.com/selfcontained/dispatch/pull/143
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.0...v0.6.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.1...v0.6.2
