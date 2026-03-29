@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import {
@@ -10,6 +10,13 @@ import {
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
@@ -19,6 +26,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import {
+  ACTIVITY_RANGES,
   useActivityHeatmap,
   useActivityStats,
   useDailyStatus,
@@ -26,6 +34,9 @@ import {
   useTokenDaily,
   useTokenByModel,
   useTokenByProject,
+  rangeLabel,
+  type ActivityGranularity,
+  type ActivityRange,
   type DailyStatusEntry,
   type TokenDailyEntry,
   type TokenStats,
@@ -57,6 +68,17 @@ function formatDuration(ms: number): string {
 function formatDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatBucketLabel(iso: string, granularity: ActivityGranularity): string {
+  const d = new Date(iso + "T00:00:00");
+  if (granularity === "month") {
+    return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  }
+  if (granularity === "week") {
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  return formatDate(iso);
 }
 
 function msToMinutes(ms: number): number {
@@ -237,7 +259,12 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
 
 // ── Daily stacked bar chart (recharts) ──────────────────────────────
 
-function fillGaps<T extends { day: string }>(data: T[], defaultEntry: (day: string) => T): T[] {
+function fillGaps<T extends { day: string }>(
+  data: T[],
+  granularity: ActivityGranularity,
+  defaultEntry: (day: string) => T
+): T[] {
+  if (granularity !== "day") return data;
   if (data.length < 2) return data;
   const filled: T[] = [];
   const dataMap = new Map(data.map((d) => [d.day, d]));
@@ -252,17 +279,23 @@ function fillGaps<T extends { day: string }>(data: T[], defaultEntry: (day: stri
   return filled;
 }
 
-function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
+function DailyStackedBarChart({
+  data: rawData,
+  granularity,
+}: {
+  data: DailyStatusEntry[];
+  granularity: ActivityGranularity;
+}) {
   const chartData = useMemo(() => {
-    const filled = fillGaps<DailyStatusEntry>(rawData, (day) => ({ day }));
+    const filled = fillGaps<DailyStatusEntry>(rawData, granularity, (day) => ({ day }));
     return filled.map((d) => ({
       day: d.day,
-      label: formatDate(d.day),
+      label: formatBucketLabel(d.day, granularity),
       working: msToMinutes(d.working ?? 0),
       blocked: msToMinutes(d.blocked ?? 0),
       waiting_user: msToMinutes(d.waiting_user ?? 0),
     }));
-  }, [rawData]);
+  }, [granularity, rawData]);
 
   if (chartData.length === 0) {
     return (
@@ -370,11 +403,17 @@ const EMPTY_TOKEN_ENTRY = (day: string): TokenDailyEntry => ({
   messages: 0,
 });
 
-function DailyTokenChart({ data: rawData }: { data: TokenDailyEntry[] }) {
+function DailyTokenChart({
+  data: rawData,
+  granularity,
+}: {
+  data: TokenDailyEntry[];
+  granularity: ActivityGranularity;
+}) {
   const chartData = useMemo(() => {
-    const filled = fillGaps(rawData, EMPTY_TOKEN_ENTRY);
-    return filled.map((d) => ({ ...d, label: formatDate(d.day) }));
-  }, [rawData]);
+    const filled = fillGaps(rawData, granularity, EMPTY_TOKEN_ENTRY);
+    return filled.map((d) => ({ ...d, label: formatBucketLabel(d.day, granularity) }));
+  }, [granularity, rawData]);
 
   if (chartData.length === 0) {
     return (
@@ -519,13 +558,14 @@ function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
 // ── Main pane ───────────────────────────────────────────────────────
 
 export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
+  const [range, setRange] = useState<ActivityRange>("7d");
   const { data: heatmapData } = useActivityHeatmap();
-  const { data: stats } = useActivityStats();
-  const { data: dailyStatus } = useDailyStatus(30);
-  const { data: tokenStats } = useTokenStats();
-  const { data: tokenDaily } = useTokenDaily(30);
-  const { data: tokenByModel } = useTokenByModel();
-  const { data: tokenByProject } = useTokenByProject();
+  const { data: stats } = useActivityStats(range);
+  const { data: dailyStatus } = useDailyStatus(range);
+  const { data: tokenStats } = useTokenStats(range);
+  const { data: tokenDaily } = useTokenDaily(range);
+  const { data: tokenByModel } = useTokenByModel(range);
+  const { data: tokenByProject } = useTokenByProject(range);
 
   const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
   const totalTokens = tokenStats
@@ -549,11 +589,29 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
           </DialogPrimitive.Description>
 
           {/* Header */}
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-5">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
             <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Activity
             </span>
-            <DialogPrimitive.Close className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
+            <div className="ml-auto flex items-center gap-2">
+              <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+                <SelectTrigger
+                  className="h-8 w-[132px] bg-muted/30 text-xs"
+                  data-testid="activity-range-select"
+                  aria-label="Activity time range"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_RANGES.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {rangeLabel(option)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogPrimitive.Close className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
               <X className="h-4 w-4" />
               <span className="sr-only">Close</span>
             </DialogPrimitive.Close>
@@ -572,7 +630,6 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                   <StatCard
                     label="Avg blocked time"
                     value={formatDuration(stats.avgBlockedMs)}
-                    sub={`${stats.blockedRatio}% of total time`}
                   />
                   <StatCard
                     label="Avg waiting time"
@@ -599,12 +656,15 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
               </div>
 
               {/* Daily status bar chart */}
-              {dailyStatus && dailyStatus.length > 0 && (
+              {dailyStatus && dailyStatus.days.length > 0 && (
                 <div>
                   <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Daily status breakdown (last 30 days)
+                    Status breakdown ({rangeLabel(range).toLowerCase()})
                   </h2>
-                  <DailyStackedBarChart data={dailyStatus} />
+                  <DailyStackedBarChart
+                    data={dailyStatus.days}
+                    granularity={dailyStatus.granularity}
+                  />
                 </div>
               )}
 
@@ -638,12 +698,15 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
               )}
 
               {/* Daily token chart */}
-              {tokenDaily && tokenDaily.length > 0 && (
+              {tokenDaily && tokenDaily.days.length > 0 && (
                 <div>
                   <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Daily token usage (last 30 days)
+                    Token usage ({rangeLabel(range).toLowerCase()})
                   </h2>
-                  <DailyTokenChart data={tokenDaily} />
+                  <DailyTokenChart
+                    data={tokenDaily.days}
+                    granularity={tokenDaily.granularity}
+                  />
                 </div>
               )}
 

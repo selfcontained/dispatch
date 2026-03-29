@@ -8,11 +8,31 @@ const ACTIVITY_QUERY_OPTIONS = {
 
 type HeatmapDay = { day: string; count: number };
 
+export const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
+export type ActivityRange = (typeof ACTIVITY_RANGES)[number];
+export type ActivityGranularity = "day" | "week" | "month";
+
+export function rangeLabel(range: ActivityRange): string {
+  switch (range) {
+    case "7d":
+      return "Last 7 days";
+    case "30d":
+      return "Last 30 days";
+    case "year":
+      return "This year";
+    case "all":
+      return "All time";
+  }
+}
+
+function scopedActivityPath(path: string, range: ActivityRange): string {
+  return `${path}?range=${range}`;
+}
+
 export type ActivityStats = {
   totalWorkingMs: number;
   avgBlockedMs: number;
   avgWaitingMs: number;
-  blockedRatio: number;
   busiestDay: string | null;
   busiestDayCount: number;
   stateDurations: Record<string, number>;
@@ -25,6 +45,11 @@ export type DailyStatusEntry = {
   waiting_user?: number;
   done?: number;
   idle?: number;
+};
+
+export type BucketedActivityResponse<T> = {
+  days: T[];
+  granularity: ActivityGranularity;
 };
 
 export function useActivityHeatmap(days = 365) {
@@ -40,22 +65,21 @@ export function useActivityHeatmap(days = 365) {
   });
 }
 
-export function useActivityStats() {
+export function useActivityStats(range: ActivityRange) {
   return useQuery<ActivityStats>({
-    queryKey: ["activity", "stats"],
-    queryFn: () => api<ActivityStats>("/api/v1/activity/stats"),
+    queryKey: ["activity", "stats", range],
+    queryFn: () => api<ActivityStats>(scopedActivityPath("/api/v1/activity/stats", range)),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
-export function useDailyStatus(days = 30) {
-  return useQuery<DailyStatusEntry[]>({
-    queryKey: ["activity", "daily-status", days],
+export function useDailyStatus(range: ActivityRange) {
+  return useQuery<BucketedActivityResponse<DailyStatusEntry>>({
+    queryKey: ["activity", "daily-status", range],
     queryFn: async () => {
-      const payload = await api<{ days: DailyStatusEntry[] }>(
-        `/api/v1/activity/daily-status?days=${days}`
+      return api<BucketedActivityResponse<DailyStatusEntry>>(
+        scopedActivityPath("/api/v1/activity/daily-status", range)
       );
-      return payload.days;
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });
@@ -81,22 +105,21 @@ export type TokenDailyEntry = {
   messages: number;
 };
 
-export function useTokenStats() {
+export function useTokenStats(range: ActivityRange) {
   return useQuery<TokenStats>({
-    queryKey: ["activity", "token-stats"],
-    queryFn: () => api<TokenStats>("/api/v1/activity/token-stats"),
+    queryKey: ["activity", "token-stats", range],
+    queryFn: () => api<TokenStats>(scopedActivityPath("/api/v1/activity/token-stats", range)),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
-export function useTokenDaily(days = 30) {
-  return useQuery<TokenDailyEntry[]>({
-    queryKey: ["activity", "token-daily", days],
+export function useTokenDaily(range: ActivityRange) {
+  return useQuery<BucketedActivityResponse<TokenDailyEntry>>({
+    queryKey: ["activity", "token-daily", range],
     queryFn: async () => {
-      const payload = await api<{ days: TokenDailyEntry[] }>(
-        `/api/v1/activity/token-daily?days=${days}`
+      return api<BucketedActivityResponse<TokenDailyEntry>>(
+        scopedActivityPath("/api/v1/activity/token-daily", range)
       );
-      return payload.days;
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });
@@ -118,22 +141,26 @@ export type TokenByProject = {
   messages: number;
 };
 
-export function useTokenByModel() {
+export function useTokenByModel(range: ActivityRange) {
   return useQuery<TokenByModel[]>({
-    queryKey: ["activity", "token-by-model"],
+    queryKey: ["activity", "token-by-model", range],
     queryFn: async () => {
-      const payload = await api<{ models: TokenByModel[] }>("/api/v1/activity/token-by-model");
+      const payload = await api<{ models: TokenByModel[] }>(
+        scopedActivityPath("/api/v1/activity/token-by-model", range)
+      );
       return payload.models;
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
 
-export function useTokenByProject() {
+export function useTokenByProject(range: ActivityRange) {
   return useQuery<TokenByProject[]>({
-    queryKey: ["activity", "token-by-project"],
+    queryKey: ["activity", "token-by-project", range],
     queryFn: async () => {
-      const payload = await api<{ projects: TokenByProject[] }>("/api/v1/activity/token-by-project");
+      const payload = await api<{ projects: TokenByProject[] }>(
+        scopedActivityPath("/api/v1/activity/token-by-project", range)
+      );
       return payload.projects;
     },
     ...ACTIVITY_QUERY_OPTIONS,
