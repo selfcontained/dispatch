@@ -295,6 +295,16 @@ html[data-theme="matrix"] body::after {
   z-index: 1;
 }
 
+/* Prevent any scrollable container from chaining scroll to the viewport
+   (iOS Safari rubber-band overscroll). */
+[style*="overflow"]:not([style*="hidden"]),
+.overflow-y-auto,
+.overflow-auto,
+.overflow-y-scroll,
+.overflow-scroll {
+  overscroll-behavior: contain;
+}
+
 .terminal-font {
   font-family: "JetBrains Mono", Menlo, monospace;
 }
