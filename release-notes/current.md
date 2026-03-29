@@ -1,5 +1,5 @@
 ## What's Changed
-* Add soft delete for agents by @selfcontained in https://github.com/selfcontained/dispatch/pull/143
+* Add token usage tracking with Claude and Codex support by @selfcontained in https://github.com/selfcontained/dispatch/pull/144
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.1...v0.6.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.2...v0.6.3
