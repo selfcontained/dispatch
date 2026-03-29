@@ -150,20 +150,20 @@ export function AgentSidebarContent({
         <div className="ml-auto flex items-center">
             <Button
               size="sm"
-              variant="primary"
-              className="rounded-r-none"
+              variant="default"
+              className="rounded-r-none border-r-0 bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
               onClick={() => onOpenCreateDialog(defaultCreateType)}
               data-testid="create-agent-button"
             >
-              <AgentTypeIcon type={defaultCreateType} className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-primary-foreground" />
+              <AgentTypeIcon type={defaultCreateType} className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/80" />
               Create
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   size="sm"
-                  variant="primary"
-                  className="rounded-l-none border-l border-primary-foreground/20 px-1"
+                  variant="default"
+                  className="rounded-l-none border-l border-border/80 bg-muted/35 px-1 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
                   data-testid="create-agent-type-dropdown"
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
