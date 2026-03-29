@@ -1,8 +1,8 @@
 import {
   AlertTriangle,
   BookOpenText,
-  ChevronDown,
   ChevronLeft,
+  BotMessageSquare,
   EllipsisVertical,
   Loader2,
   Monitor,
@@ -21,16 +21,13 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LayoutGroup, motion } from "framer-motion";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type AgentSidebarSharedProps = {
   agents: Agent[];
   selectedAgentId: string | null;
   overflowAgentId: string | null;
-  onOpenCreateDialog: (type?: AgentType) => void;
-  enabledAgentTypes: AgentType[];
-  lastUsedAgentType: AgentType | null;
+  onOpenCreateDialog: () => void;
   onOpenDocs: () => void;
   onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
@@ -63,8 +60,6 @@ export function AgentSidebarContent({
   selectedAgentId,
   overflowAgentId,
   onOpenCreateDialog,
-  enabledAgentTypes,
-  lastUsedAgentType,
   onOpenDocs,
   onOpenSettings,
   setOverflowAgentId,
@@ -83,9 +78,18 @@ export function AgentSidebarContent({
   closeButtonIcon = "x",
   className
 }: AgentSidebarContentProps): JSX.Element {
-  const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
-    ? lastUsedAgentType
-    : enabledAgentTypes[0] ?? "codex";
+  const agentTypeLabel = (type?: string): string => {
+    if (type === "claude") {
+      return "Claude";
+    }
+    if (type === "codex" || !type) {
+      return "Codex";
+    }
+    if (type === "opencode") {
+      return "OpenCode";
+    }
+    return type;
+  };
 
   const latestEventLabel = (type: NonNullable<Agent["latestEvent"]>["type"]): string => {
     if (type === "waiting_user") {
@@ -148,41 +152,9 @@ export function AgentSidebarContent({
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
-            <Button
-              size="sm"
-              variant="primary"
-              className="rounded-r-none"
-              onClick={() => onOpenCreateDialog(defaultCreateType)}
-              data-testid="create-agent-button"
-            >
-              <AgentTypeIcon type={defaultCreateType} className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-primary-foreground" />
-              Create
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  className="rounded-l-none border-l border-primary-foreground/20 px-1"
-                  data-testid="create-agent-type-dropdown"
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {enabledAgentTypes.map((agentType) => (
-                  <DropdownMenuItem
-                    key={agentType}
-                    className="text-foreground"
-                    onClick={() => onOpenCreateDialog(agentType)}
-                    data-testid={`create-agent-type-${agentType}`}
-                  >
-                    <AgentTypeIcon type={agentType} className="mr-2 h-4 w-4" />
-                    {AGENT_TYPE_LABELS[agentType]}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <Button size="sm" variant="primary" onClick={onOpenCreateDialog} data-testid="create-agent-button">
+            <BotMessageSquare className="mr-1 h-3.5 w-3.5" /> Create
+          </Button>
         </div>
       </div>
 
@@ -425,7 +397,7 @@ export function AgentSidebarContent({
                               )}
                             </>
                           )}
-                          <AgentMeta label="Agent type" value={AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"} />
+                          <AgentMeta label="Agent type" value={agentTypeLabel(agent.type)} />
                           <div className="grid gap-1">
                             <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
                               Full access
