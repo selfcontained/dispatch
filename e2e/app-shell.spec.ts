@@ -22,7 +22,7 @@ test.describe("App shell", () => {
 
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
     await expect(page.getByTestId("terminal-empty-state")).toContainText(
-      "Select an agent"
+      "Tap an agent row to focus it."
     );
   });
 

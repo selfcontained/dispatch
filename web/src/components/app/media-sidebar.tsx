@@ -119,7 +119,7 @@ export function MediaSidebarContent({
       <div ref={mediaViewportRef} className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         {mediaFiles.length === 0 && !hasStream ? (
           <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
-            {selectedAgentId ? "No media yet." : "Select an agent to view media."}
+            {selectedAgentId ? "No media yet." : "Focus an agent to view media."}
           </div>
         ) : mediaFiles.length === 0 ? null : (
           mediaFiles.map((file) => {

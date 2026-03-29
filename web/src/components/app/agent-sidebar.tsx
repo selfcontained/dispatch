@@ -5,8 +5,6 @@ import {
   BookOpenText,
   ChevronDown,
   ChevronLeft,
-  Eye,
-  EyeOff,
   Loader2,
   Play,
   Square,
@@ -28,6 +26,7 @@ import { cn } from "@/lib/utils";
 type AgentSidebarSharedProps = {
   agents: Agent[];
   selectedAgentId: string | null;
+  expandedAgentId: string | null;
   overflowAgentId: string | null;
   onOpenCreateDialog: (type?: AgentType) => void;
   enabledAgentTypes: AgentType[];
@@ -63,6 +62,7 @@ type AgentSidebarContentProps = AgentSidebarSharedProps & {
 export function AgentSidebarContent({
   agents,
   selectedAgentId,
+  expandedAgentId,
   overflowAgentId: _overflowAgentId,
   onOpenCreateDialog,
   enabledAgentTypes,
@@ -200,7 +200,7 @@ export function AgentSidebarContent({
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
               const isActive = state === "active";
-              const isExpanded = isSelected;
+              const isExpanded = isActive || expandedAgentId === agent.id;
               const fullAccessEnabled = isFullAccessEnabled(agent);
               const needsAttention = agent.status === "error";
 
@@ -218,25 +218,32 @@ export function AgentSidebarContent({
                   )}
                 >
                   <div
-                    className="flex cursor-pointer items-center gap-1.5"
+                    className={cn("flex items-center gap-1.5", !isStopped && "cursor-pointer")}
+                    data-testid={`agent-row-${agent.id}`}
                     onClick={(event) => {
                       const target = event.target as HTMLElement;
                       if (target.closest("[data-agent-control='true']")) {
                         return;
                       }
-                      toggleAgentDetails(agent.id);
+                      if (isStopped) {
+                        return;
+                      }
+                      if (isActive) {
+                        detachTerminal();
+                        return;
+                      }
+                      if (closeOnSessionAction) {
+                        onRequestClose?.();
+                      }
+                      void attachToAgent(agent);
                     }}
                   >
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
-                          data-agent-control="true"
-                          className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold"
-                          onClick={() => toggleAgentDetails(agent.id)}
-                        >
+                        <div className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold">
                           <AgentTypeIcon type={agent.type} eventType={agent.status === "running" ? agent.latestEvent?.type : null} />
                           <span className="truncate">{agent.name}</span>
-                        </button>
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent>{agent.cwd}</TooltipContent>
                     </Tooltip>
@@ -270,56 +277,19 @@ export function AgentSidebarContent({
                         <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
                       </Tooltip>
                     ) : (
-                      <>
-                        {isActive ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                size="icon"
-                                variant="ghost-info"
-                                data-agent-control="true"
-                                onClick={detachTerminal}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Unfocus<br /><span className="text-muted-foreground">Agent keeps running</span></TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                data-agent-control="true"
-                                onClick={() => {
-                                  if (closeOnSessionAction) {
-                                    onRequestClose?.();
-                                  }
-                                  void attachToAgent(agent);
-                                }}
-                              >
-                                <EyeOff className="h-3.5 w-3.5 opacity-40" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Focus<br /><span className="text-muted-foreground">Watch this agent</span></TooltipContent>
-                          </Tooltip>
-                        )}
-
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost-warning"
-                              data-agent-control="true"
-                              onClick={() => void stopAgent(agent)}
-                            >
-                              <Square className="h-3.5 w-3.5" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
-                        </Tooltip>
-                      </>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost-warning"
+                            data-agent-control="true"
+                            onClick={() => void stopAgent(agent)}
+                          >
+                            <Square className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
+                      </Tooltip>
                     )}
 
                     <Tooltip>
@@ -328,6 +298,7 @@ export function AgentSidebarContent({
                           size="icon"
                           variant="ghost-destructive"
                           data-agent-control="true"
+                          data-testid={`agent-archive-${agent.id}`}
                           className="ml-auto"
                           onClick={() => {
                             setDeleteTarget(agent);
@@ -338,6 +309,27 @@ export function AgentSidebarContent({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>Archive<br /><span className="text-muted-foreground">Remove agent</span></TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          data-agent-control="true"
+                          data-testid={`agent-expand-toggle-${agent.id}`}
+                          disabled={isActive}
+                          onClick={() => {
+                            if (isActive) {
+                              return;
+                            }
+                            toggleAgentDetails(agent.id);
+                          }}
+                        >
+                          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", isExpanded && "rotate-180", isActive && "opacity-40")} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{isActive ? "Attached agent stays open" : isExpanded ? "Hide details" : "Show details"}</TooltipContent>
                     </Tooltip>
                   </div>
 

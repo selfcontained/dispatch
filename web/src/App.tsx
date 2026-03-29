@@ -150,6 +150,7 @@ export function App(): JSX.Element {
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
   const [docsPaneOpen, setDocsPaneOpen] = useState(false);
   const [activityPaneOpen, setActivityPaneOpen] = useState(false);
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
 
   // ── Agents (placeholder connectedAgentId — filled by terminal hook) ──
   // We use a temporary variable; useAgents only needs connectedAgentId for
@@ -175,6 +176,13 @@ export function App(): JSX.Element {
 
   selectedAgentIdRef.current = selectedAgentId;
 
+  const focusedAgentId = sharedConnState === "connected" || sharedConnState === "reconnecting"
+    ? (sharedConnectedAgentId ?? selectedAgentId)
+    : null;
+  const focusedAgent = focusedAgentId
+    ? agents.find((agent) => agent.id === focusedAgentId) ?? null
+    : null;
+
   const {
     mediaFiles,
     animatingMediaKeys,
@@ -186,17 +194,27 @@ export function App(): JSX.Element {
     mediaViewportRef,
     refreshMedia,
     markSeenInCache,
-  } = useMedia(selectedAgentId, mediaPanelOpen);
+  } = useMedia(focusedAgentId, mediaPanelOpen);
 
-  const selectedAgentHasStream = selectedAgentId ? streamingAgentIds.has(selectedAgentId) : false;
-  const selectedAgentStreamUrl = selectedAgentId ? `/api/v1/agents/${selectedAgentId}/stream` : null;
+  const focusedAgentHasStream = focusedAgentId ? streamingAgentIds.has(focusedAgentId) : false;
+  const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
+
+  const ensureAuxExpanded = useCallback((agentId: string) => {
+    setExpandedAgentId((current) => {
+      if (current === null || current === agentId) {
+        return agentId;
+      }
+      return current;
+    });
+  }, []);
 
   // ── Terminal ──────────────────────────────────────────────────────────
   const onAgentSelected = useCallback(
     (agentId: string) => {
       setSelectedAgentId(agentId);
+      ensureAuxExpanded(agentId);
     },
-    [setSelectedAgentId]
+    [ensureAuxExpanded, setSelectedAgentId]
   );
 
   const {
@@ -233,6 +251,13 @@ export function App(): JSX.Element {
     setSharedConnState(connState);
   }, [connState]);
 
+  useEffect(() => {
+    if (expandedAgentId && agents.some((agent) => agent.id === expandedAgentId)) {
+      return;
+    }
+    setExpandedAgentId(null);
+  }, [agents, expandedAgentId]);
+
   // Re-sort agents when connected agent changes.
   useEffect(() => {
     resortAgents();
@@ -242,7 +267,7 @@ export function App(): JSX.Element {
   connectedAgentIdRef.current = connectedAgentId;
 
   // ── Focus tracking (notification suppression) ─────────────────────────
-  useAgentFocus(selectedAgentId, authState);
+  useAgentFocus(focusedAgentId, authState);
 
   // ── SSE ───────────────────────────────────────────────────────────────
   useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
@@ -281,7 +306,7 @@ export function App(): JSX.Element {
 
   // ── Persist last-used CWD ─────────────────────────────────────────────
   useEffect(() => {
-    const lastUsedCwd = agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
+    const lastUsedCwd = agentProjectRoot(connectedAgent) || agentProjectRoot(selectedAgent);
     if (lastUsedCwd) {
       window.localStorage.setItem(LAST_USED_CWD_KEY, lastUsedCwd);
     }
@@ -330,7 +355,6 @@ export function App(): JSX.Element {
 
   // ── Derived values ────────────────────────────────────────────────────
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
-  const canAttachSelected = Boolean(selectedAgent && selectedAgent.status === "running" && !isAttached);
   const showHeaderStatus = connState !== "disconnected";
 
   const statusText = useMemo(() => {
@@ -343,9 +367,8 @@ export function App(): JSX.Element {
       return `Connected to session ${connectedAgent.name}`;
     }
     if (apiState === "down") return "Unable to reach API service.";
-    if (selectedAgent) return `Ready to attach to session ${selectedAgent.name}`;
-    return "Select an agent to open a session.";
-  }, [apiState, connectedAgent, connState, selectedAgent]);
+    return "Tap an agent row to focus it.";
+  }, [apiState, connectedAgent, connState]);
 
   // ── Agent action callbacks ────────────────────────────────────────────
   const resolveCreateDefaultCwd = useCallback((): string => {
@@ -368,25 +391,25 @@ export function App(): JSX.Element {
 
   const toggleAgentDetails = useCallback(
     (agentId: string) => {
-      const nextId = selectedAgentId === agentId ? null : agentId;
-      setSelectedAgentId(nextId);
-      refreshMedia(nextId);
+      setExpandedAgentId((current) => (current === agentId ? null : agentId));
     },
-    [refreshMedia, selectedAgentId, setSelectedAgentId]
+    []
   );
 
   const attachToAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
+      ensureAuxExpanded(agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
 
   const startAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
+      ensureAuxExpanded(agent.id);
       await api(`/api/v1/agents/${agent.id}/start`, {
         method: "POST",
         body: JSON.stringify({}),
@@ -394,20 +417,25 @@ export function App(): JSX.Element {
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
+
+  const detachAndClearSelection = useCallback(() => {
+    detachTerminal();
+    setSelectedAgentId(null);
+  }, [detachTerminal, setSelectedAgentId]);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
       if (connectedAgentId === agent.id) {
-        detachTerminal();
+        detachAndClearSelection();
       }
       await api(`/api/v1/agents/${agent.id}/stop`, {
         method: "POST",
         body: JSON.stringify({ force: true }),
       });
     },
-    [connectedAgentId, detachTerminal]
+    [connectedAgentId, detachAndClearSelection]
   );
 
   const deleteAgent = useCallback(
@@ -464,6 +492,7 @@ export function App(): JSX.Element {
         setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
+        ensureAuxExpanded(payload.agent.id);
         refreshMedia(payload.agent.id);
         // Small delay to let tmux session start before connecting
         setTimeout(() => void ensureTerminalConnected(true, true, payload.agent.id), 300);
@@ -471,13 +500,8 @@ export function App(): JSX.Element {
         setCreating(false);
       }
     },
-    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
   );
-
-  const attachSelectedAgent = useCallback(() => {
-    if (!selectedAgent || (selectedAgent.status !== "running" && selectedAgent.status !== "creating")) return;
-    void attachToAgent(selectedAgent);
-  }, [attachToAgent, selectedAgent]);
 
   const borderForAgentState = (state: AgentVisualState): string => {
     if (state === "active") return "border-r-status-done";
@@ -512,6 +536,7 @@ export function App(): JSX.Element {
               leftOpen={leftOpen}
               agents={agents}
               selectedAgentId={selectedAgentId}
+              expandedAgentId={expandedAgentId}
               overflowAgentId={overflowAgentId}
               setLeftOpen={setLeftOpen}
               onOpenCreateDialog={openCreateDialog}
@@ -552,17 +577,14 @@ export function App(): JSX.Element {
               statusText={statusText}
               showReconnectIndicator={connState === "reconnecting"}
               isAttached={isAttached}
-              canAttachSelected={canAttachSelected}
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={handleSetLeftPanelOpen}
               setMediaOpen={handleSetMediaPanelOpen}
-              attachSelectedAgent={attachSelectedAgent}
-              detachTerminal={detachTerminal}
+              detachTerminal={detachAndClearSelection}
             />
 
             <TerminalPane
               isAttached={isAttached}
-              hasSelectedAgent={Boolean(selectedAgentId)}
               connState={connState}
               statusMessage={statusMessage}
               terminalMode={terminalMode}
@@ -584,14 +606,14 @@ export function App(): JSX.Element {
           <MediaSidebar
             mediaOpen={mediaOpen}
             mediaFiles={mediaFiles}
-            selectedAgentId={selectedAgentId}
-            selectedAgentName={selectedAgent?.name ?? null}
+            selectedAgentId={focusedAgentId}
+            selectedAgentName={focusedAgent?.name ?? null}
             animatingMediaKeys={animatingMediaKeys}
 
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
-            hasStream={selectedAgentHasStream}
-            streamUrl={selectedAgentStreamUrl}
+            hasStream={focusedAgentHasStream}
+            streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
           />
         </div>
@@ -610,6 +632,7 @@ export function App(): JSX.Element {
           <AgentSidebarContent
             agents={agents}
             selectedAgentId={selectedAgentId}
+            expandedAgentId={expandedAgentId}
             overflowAgentId={overflowAgentId}
             onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
             enabledAgentTypes={enabledAgentTypes}
@@ -624,7 +647,7 @@ export function App(): JSX.Element {
             borderForAgentState={borderForAgentState}
             toggleAgentDetails={toggleAgentDetails}
             isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={detachTerminal}
+            detachTerminal={detachAndClearSelection}
             attachToAgent={attachToAgent}
             stopAgent={stopAgent}
             startAgent={startAgent}
@@ -646,13 +669,13 @@ export function App(): JSX.Element {
         >
             <MediaSidebarContent
               mediaFiles={mediaFiles}
-              selectedAgentId={selectedAgentId}
-              selectedAgentName={selectedAgent?.name ?? null}
+              selectedAgentId={focusedAgentId}
+              selectedAgentName={focusedAgent?.name ?? null}
               animatingMediaKeys={animatingMediaKeys}
   
               mediaViewportRef={mediaViewportRef}
-              hasStream={selectedAgentHasStream}
-              streamUrl={selectedAgentStreamUrl}
+              hasStream={focusedAgentHasStream}
+              streamUrl={focusedAgentStreamUrl}
               openLightbox={openLightbox}
               onRequestClose={() => setMobileMediaOpen(false)}
             />

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { Eye, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,11 +11,9 @@ type AppHeaderProps = {
   statusText: string;
   showReconnectIndicator: boolean;
   isAttached: boolean;
-  canAttachSelected: boolean;
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
   setMediaOpen: (open: boolean) => void;
-  attachSelectedAgent: () => void;
   detachTerminal: () => void;
 };
 
@@ -27,11 +25,9 @@ export function AppHeader({
   statusText,
   showReconnectIndicator,
   isAttached,
-  canAttachSelected,
   unseenMediaCount,
   setLeftOpen,
   setMediaOpen,
-  attachSelectedAgent,
   detachTerminal
 }: AppHeaderProps): JSX.Element {
   const compactSessionAction = mediaOpen && !isMobile;
@@ -107,17 +103,6 @@ export function AppHeader({
           >
             <Eye className="mr-1 h-3.5 w-3.5" />
             <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Unfocus</span>
-          </Button>
-        ) : canAttachSelected ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={attachSelectedAgent}
-            title="Focus on this agent"
-            data-testid="attach-button"
-          >
-            <EyeOff className="mr-1 h-3.5 w-3.5" />
-            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Focus</span>
           </Button>
         ) : null}
 
