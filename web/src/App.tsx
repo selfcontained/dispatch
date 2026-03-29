@@ -8,6 +8,7 @@ import { LoginPage } from "@/components/app/login-page";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
+import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
@@ -145,6 +146,8 @@ export function App(): JSX.Element {
   // ── Delete dialog state ───────────────────────────────────────────────
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [stopTarget, setStopTarget] = useState<Agent | null>(null);
 
   // ── Panes ─────────────────────────────────────────────────────────────
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
@@ -555,13 +558,14 @@ export function App(): JSX.Element {
               setOverflowAgentId={setOverflowAgentId}
               setDeleteTarget={setDeleteTarget}
               setDeleteConfirmOpen={setDeleteConfirmOpen}
+              setStopTarget={setStopTarget}
+              setStopConfirmOpen={setStopConfirmOpen}
               agentVisualState={agentVisualState}
               borderForAgentState={borderForAgentState}
               toggleAgentDetails={toggleAgentDetails}
               isFullAccessEnabled={isFullAccessEnabled}
               detachTerminal={detachTerminal}
               attachToAgent={attachToAgent}
-              stopAgent={stopAgent}
               startAgent={startAgent}
             />
           </div>
@@ -650,13 +654,14 @@ export function App(): JSX.Element {
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setStopConfirmOpen(open); }}
             agentVisualState={agentVisualState}
             borderForAgentState={borderForAgentState}
             toggleAgentDetails={toggleAgentDetails}
             isFullAccessEnabled={isFullAccessEnabled}
             detachTerminal={detachAndClearSelection}
             attachToAgent={attachToAgent}
-            stopAgent={stopAgent}
             startAgent={startAgent}
             closeOnSessionAction={true}
             onRequestClose={() => setMobileLeftOpen(false)}
@@ -719,6 +724,14 @@ export function App(): JSX.Element {
         setOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}
+      />
+
+      <StopAgentDialog
+        open={stopConfirmOpen}
+        stopTarget={stopTarget}
+        setOpen={setStopConfirmOpen}
+        setStopTarget={setStopTarget}
+        onStop={stopAgent}
       />
 
       <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />

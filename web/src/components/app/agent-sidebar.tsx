@@ -37,13 +37,14 @@ type AgentSidebarSharedProps = {
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
+  setStopTarget: (agent: Agent | null) => void;
+  setStopConfirmOpen: (open: boolean) => void;
   agentVisualState: (agent: Agent) => AgentVisualState;
   borderForAgentState: (state: AgentVisualState) => string;
   toggleAgentDetails: (agentId: string) => void;
   isFullAccessEnabled: (agent: Pick<Agent, "agentArgs" | "fullAccess">) => boolean;
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
-  stopAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
 };
 
@@ -73,13 +74,14 @@ export function AgentSidebarContent({
   setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
+  setStopTarget,
+  setStopConfirmOpen,
   agentVisualState,
   borderForAgentState,
   toggleAgentDetails,
   isFullAccessEnabled,
   detachTerminal,
   attachToAgent,
-  stopAgent,
   startAgent,
   onRequestClose,
   closeOnSessionAction = false,
@@ -283,7 +285,10 @@ export function AgentSidebarContent({
                             size="icon"
                             variant="ghost-warning"
                             data-agent-control="true"
-                            onClick={() => void stopAgent(agent)}
+                            onClick={() => {
+                              setStopTarget(agent);
+                              setStopConfirmOpen(true);
+                            }}
                           >
                             <Square className="h-3.5 w-3.5" />
                           </Button>
