@@ -562,6 +562,36 @@ export function useTerminal(args: {
     };
     host.addEventListener("copy", handleCopy, true);
 
+    // Upload a clipboard image to the host pasteboard, then send Ctrl+V so CLI
+    // tools read it natively. This bridges the browser clipboard to the server.
+    const syncClipboardImage = (blob: File): void => {
+      const form = new FormData();
+      form.append("file", blob, `clipboard.${blob.type === "image/png" ? "png" : "jpg"}`);
+      fetch("/api/v1/clipboard/image", { method: "POST", body: form, credentials: "include" })
+        .then((res) => {
+          if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "input", data: "\x16" }));
+          }
+        })
+        .catch((err) => console.warn("Clipboard image paste failed:", err));
+    };
+
+    // Intercept paste events (Cmd+V) — clipboard data is available directly.
+    const handlePaste = (e: ClipboardEvent) => {
+      const imageItem = Array.from(e.clipboardData?.items ?? []).find(
+        (item) => item.type.startsWith("image/"),
+      );
+      if (!imageItem) return; // no image — let xterm handle text paste normally
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+      e.preventDefault();
+      e.stopPropagation();
+      syncClipboardImage(blob);
+    };
+    host.addEventListener("paste", handlePaste, true);
+
     const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
     let touchY = 0;
     let touchAccum = 0;
@@ -646,6 +676,7 @@ export function useTerminal(args: {
       invalidateAttachAttempt();
       disposable.dispose();
       host.removeEventListener("copy", handleCopy, true);
+      host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) screenEl.removeEventListener("mousedown", onMouseDown, true);
