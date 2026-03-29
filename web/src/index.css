@@ -242,6 +242,8 @@
 
 html,
 body {
+  position: fixed;
+  width: 100%;
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
@@ -291,6 +293,21 @@ html[data-theme="matrix"] body::after {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  /* Disable all browser-handled touch gestures at the app root so iOS Safari
+     cannot rubber-band/scroll the viewport.  Scrollable children opt back in
+     with touch-action: pan-y. */
+  touch-action: none;
+}
+
+/* Re-enable vertical touch scrolling and contain overscroll inside every
+   scrollable container so gestures never chain to the viewport. */
+[style*="overflow"]:not([style*="hidden"]),
+.overflow-y-auto,
+.overflow-auto,
+.overflow-y-scroll,
+.overflow-scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .terminal-font {
