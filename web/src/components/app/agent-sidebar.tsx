@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   Archive,
   BotMessageSquare,
-  EllipsisVertical,
   Eye,
   EyeOff,
   Loader2,
@@ -19,7 +18,6 @@ import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LayoutGroup, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -261,7 +259,7 @@ export function AgentSidebarContent({
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
-                                variant="ghost-primary"
+                                variant="ghost"
                                 data-agent-control="true"
                                 onClick={() => {
                                   if (closeOnSessionAction) {
@@ -293,48 +291,23 @@ export function AgentSidebarContent({
                       </>
                     )}
 
-                    <DropdownMenu
-                      open={overflowAgentId === agent.id}
-                      onOpenChange={(open: boolean) =>
-                        setOverflowAgentId(open ? agent.id : null)
-                      }
-                    >
-                      <DropdownMenuTrigger asChild>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
                         <Button
                           size="icon"
                           variant="ghost"
                           data-agent-control="true"
                           className="ml-auto"
-                          title="More actions"
-                        >
-                          <EllipsisVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-
-                      <DropdownMenuContent align="end">
-                        {!isStopped ? (
-                          <DropdownMenuItem
-                            data-agent-control="true"
-                            onClick={() => {
-                              setOverflowAgentId(null);
-                              void stopAgent(agent);
-                            }}
-                          >
-                            Pause
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem
-                          data-agent-control="true"
                           onClick={() => {
-                            setOverflowAgentId(null);
                             setDeleteTarget(agent);
                             setDeleteConfirmOpen(true);
                           }}
                         >
-                          Archive
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                          <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Archive</TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {agent.status === "creating" && agent.setupPhase ? (

@@ -114,12 +114,9 @@ test.describe("Agent CRUD", () => {
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agent.name)).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu on the agent card
+    // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.locator('[data-agent-control="true"]').last().click();
-
-    // Click "Archive" from the overflow menu
-    await page.getByText("Archive").click();
 
     // Confirm the archive
     await page.getByTestId("delete-agent-confirm").click();

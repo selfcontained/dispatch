@@ -159,12 +159,9 @@ test.describe("Worktree", () => {
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agent.name)).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu on the agent card
+    // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.locator('[data-agent-control="true"]').last().click();
-
-    // Click "Archive" from the overflow menu
-    await page.getByText("Archive").click();
 
     // Should show standard archive confirmation (not worktree choice)
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
@@ -436,9 +433,8 @@ test.describe("Worktree filesystem", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu and click Archive
+    // Click the Archive button
     await agentCard.locator('[data-agent-control="true"]').last().click();
-    await page.getByText("Archive").click();
 
     // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
@@ -485,9 +481,8 @@ test.describe("Worktree filesystem", () => {
     const agentCard2 = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard2).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu and click Archive
+    // Click the Archive button
     await agentCard2.locator('[data-agent-control="true"]').last().click();
-    await page.getByText("Archive").click();
 
     // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });

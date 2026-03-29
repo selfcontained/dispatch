@@ -111,7 +111,7 @@ export function AppHeader({
         ) : canAttachSelected ? (
           <Button
             size="sm"
-            variant="ghost-primary"
+            variant="ghost"
             onClick={attachSelectedAgent}
             title="Focus on this agent"
             data-testid="attach-button"
