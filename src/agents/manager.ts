@@ -9,6 +9,7 @@ import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
 import { createGitWorktree, cleanupGitWorktree } from "../git/worktree.js";
 import { runCommand } from "../lib/run-command.js";
+import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
 type AgentType = "codex" | "claude" | "opencode";
@@ -404,6 +405,16 @@ export class AgentManager {
         type: "idle",
         message: "Session stopped."
       });
+
+      // Harvest token usage from session logs (fire-and-forget)
+      harvestTokenUsage(this.pool, {
+        id: agent.id,
+        type: agent.type,
+        cwd: agent.cwd,
+        worktreePath: agent.worktreePath,
+      }, this.logger).catch((err) =>
+        this.logger.warn({ err, agentId: id }, "Token harvest failed on stop")
+      );
     } catch (error) {
       const message = this.errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession ?? undefined);
@@ -456,6 +467,16 @@ export class AgentManager {
         this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
       }
     }
+
+    // Harvest token usage before soft-deleting
+    await harvestTokenUsage(this.pool, {
+      id: agent.id,
+      type: agent.type,
+      cwd: agent.cwd,
+      worktreePath: agent.worktreePath,
+    }, this.logger).catch((err) =>
+      this.logger.warn({ err, agentId: id }, "Token harvest failed on delete")
+    );
 
     // Record a final stopped event in history before deleting the agent row
     await this.pool
@@ -1008,6 +1029,7 @@ export class AgentManager {
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance =
+      `[dispatch:${agentId}] ` +
       "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
       "Capture at least one screenshot per UI validation flow; publish every screenshot with the dispatch_share MCP tool (filePath + description for Playwright, or source 'simulator' for iOS Simulator) — never leave screenshots local-only. " +
       "Call the dispatch_event MCP tool at the start of each turn (working), when blocked or waiting for input (blocked/waiting_user), and before your final response (done on success, idle for no-op turns). Never send a final response without a terminal status event. " +

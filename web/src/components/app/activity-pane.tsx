@@ -22,7 +22,15 @@ import {
   useActivityHeatmap,
   useActivityStats,
   useDailyStatus,
+  useTokenStats,
+  useTokenDaily,
+  useTokenByModel,
+  useTokenByProject,
   type DailyStatusEntry,
+  type TokenDailyEntry,
+  type TokenStats,
+  type TokenByModel,
+  type TokenByProject,
 } from "@/hooks/use-activity";
 
 type ActivityPaneProps = {
@@ -77,10 +85,10 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
+    <div className="min-w-0 rounded-md border border-border bg-muted/40 px-2.5 py-2 sm:px-4 sm:py-3">
+      <p className="text-[10px] sm:text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 sm:mt-1 text-lg sm:text-2xl font-semibold text-foreground">{value}</p>
+      {sub && <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">{sub}</p>}
     </div>
   );
 }
@@ -167,8 +175,8 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
   const { cells, months, max } = useMemo(() => buildHeatmapGrid(data), [data]);
 
   return (
-    <div className="overflow-hidden">
-      <div className="flex pl-8 mb-1">
+    <div style={{ maxWidth: "calc(100vw - 24px)" }} className="overflow-x-auto">
+      <div className="flex pl-8 mb-1 w-max">
         {months.map((m, i) => {
           const nextCol = months[i + 1]?.col ?? cells.length;
           const span = nextCol - m.col;
@@ -184,7 +192,7 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
         })}
       </div>
 
-      <div className="flex gap-0">
+      <div className="flex gap-0 w-max">
         <div className="flex flex-col gap-[2px] pr-1.5 pt-0">
           {DAY_LABELS.map((label, i) => (
             <span
@@ -229,16 +237,16 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
 
 // ── Daily stacked bar chart (recharts) ──────────────────────────────
 
-function fillGaps(data: DailyStatusEntry[]): DailyStatusEntry[] {
+function fillGaps<T extends { day: string }>(data: T[], defaultEntry: (day: string) => T): T[] {
   if (data.length < 2) return data;
-  const filled: DailyStatusEntry[] = [];
+  const filled: T[] = [];
   const dataMap = new Map(data.map((d) => [d.day, d]));
   const start = new Date(data[0].day + "T00:00:00");
   const end = new Date(data[data.length - 1].day + "T00:00:00");
   const cursor = new Date(start);
   while (cursor <= end) {
     const iso = cursor.toISOString().slice(0, 10);
-    filled.push(dataMap.get(iso) ?? { day: iso });
+    filled.push(dataMap.get(iso) ?? defaultEntry(iso));
     cursor.setDate(cursor.getDate() + 1);
   }
   return filled;
@@ -246,7 +254,7 @@ function fillGaps(data: DailyStatusEntry[]): DailyStatusEntry[] {
 
 function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
   const chartData = useMemo(() => {
-    const filled = fillGaps(rawData);
+    const filled = fillGaps<DailyStatusEntry>(rawData, (day) => ({ day }));
     return filled.map((d) => ({
       day: d.day,
       label: formatDate(d.day),
@@ -265,7 +273,7 @@ function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
   }
 
   return (
-    <ChartContainer config={chartConfig} className="aspect-[2.5/1] w-full">
+    <ChartContainer config={chartConfig} className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full">
       <BarChart data={chartData} barCategoryGap="20%">
         <CartesianGrid vertical={false} />
         <XAxis
@@ -299,7 +307,7 @@ function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
             />
           }
         />
-        <ChartLegend content={<ChartLegendContent />} />
+        <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />} />
         {STATUS_ORDER.map((key) => (
           <Bar
             key={key}
@@ -314,14 +322,216 @@ function DailyStackedBarChart({ data: rawData }: { data: DailyStatusEntry[] }) {
   );
 }
 
+// ── Token helpers ──────────────────────────────────────────────────
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return String(n);
+}
+
+function cacheHitRate(stats: TokenStats): number {
+  const totalInput = stats.total_input + stats.total_cache_creation + stats.total_cache_read;
+  if (totalInput === 0) return 0;
+  return Math.round((stats.total_cache_read / totalInput) * 100);
+}
+
+function shortModelName(model: string): string {
+  if (model.includes("opus")) return "Opus";
+  if (model.includes("sonnet")) return "Sonnet";
+  if (model.includes("haiku")) return "Haiku";
+  if (model.includes("gpt-5")) return "GPT-5";
+  if (model.includes("gpt-4")) return "GPT-4";
+  return model;
+}
+
+function shortProjectName(projectDir: string): string {
+  const parts = projectDir.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : projectDir;
+}
+
+// ── Token daily chart ─────────────────────────────────────────────
+
+const TOKEN_ORDER = ["input_tokens", "cache_read_tokens", "cache_creation_tokens", "output_tokens"];
+
+const tokenChartConfig: ChartConfig = {
+  input_tokens: { label: "Input", color: "hsl(217, 91%, 60%)" },
+  cache_read_tokens: { label: "Cache read", color: "hsl(172, 66%, 50%)" },
+  cache_creation_tokens: { label: "Cache write", color: "hsl(189, 94%, 43%)" },
+  output_tokens: { label: "Output", color: "hsl(38, 92%, 50%)" },
+};
+
+const EMPTY_TOKEN_ENTRY = (day: string): TokenDailyEntry => ({
+  day,
+  input_tokens: 0,
+  cache_creation_tokens: 0,
+  cache_read_tokens: 0,
+  output_tokens: 0,
+  messages: 0,
+});
+
+function DailyTokenChart({ data: rawData }: { data: TokenDailyEntry[] }) {
+  const chartData = useMemo(() => {
+    const filled = fillGaps(rawData, EMPTY_TOKEN_ENTRY);
+    return filled.map((d) => ({ ...d, label: formatDate(d.day) }));
+  }, [rawData]);
+
+  if (chartData.length === 0) {
+    return (
+      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        No token data yet
+      </div>
+    );
+  }
+
+  return (
+    <ChartContainer config={tokenChartConfig} className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full">
+      <BarChart data={chartData} barCategoryGap="20%">
+        <CartesianGrid vertical={false} />
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          interval="preserveStartEnd"
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              indicator="dot"
+              formatter={(value, name) => (
+                <>
+                  <div
+                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                    style={{
+                      backgroundColor: tokenChartConfig[name as string]?.color,
+                    }}
+                  />
+                  <div className="flex flex-1 items-center justify-between gap-8">
+                    <span className="text-muted-foreground">
+                      {tokenChartConfig[name as string]?.label ?? name}
+                    </span>
+                    <span className="font-mono font-medium text-foreground tabular-nums">
+                      {formatTokenCount(value as number)}
+                    </span>
+                  </div>
+                </>
+              )}
+              labelFormatter={(label) => label as string}
+            />
+          }
+        />
+        <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />} />
+        {TOKEN_ORDER.map((key) => (
+          <Bar
+            key={key}
+            dataKey={key}
+            stackId="tokens"
+            fill={tokenChartConfig[key]?.color}
+            radius={key === "output_tokens" ? [2, 2, 0, 0] : 0}
+          />
+        ))}
+      </BarChart>
+    </ChartContainer>
+  );
+}
+
+// ── Horizontal bar helper ──────────────────────────────────────────
+
+function HorizontalBar({
+  label,
+  value,
+  maxValue,
+  color = "bg-emerald-500/70",
+  sub,
+}: {
+  label: string;
+  value: number;
+  maxValue: number;
+  color?: string;
+  sub?: string;
+}) {
+  const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="truncate text-foreground">{label}</span>
+        <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
+          {formatTokenCount(value)}{sub ? ` ${sub}` : ""}
+        </span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted/60">
+        <div
+          className={cn("h-2 rounded-full transition-all", color)}
+          style={{ width: `${Math.max(pct, 1)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Per-model breakdown ───────────────────────────────────────────
+
+function ModelBreakdown({ data }: { data: TokenByModel[] }) {
+  if (data.length === 0) return null;
+  const max = Math.max(...data.map((m) => m.total_input + m.total_cache_creation + m.total_cache_read + m.total_output));
+
+  return (
+    <div className="space-y-3">
+      {data.map((m) => {
+        const total = m.total_input + m.total_cache_creation + m.total_cache_read + m.total_output;
+        return (
+          <HorizontalBar
+            key={m.model}
+            label={shortModelName(m.model)}
+            value={total}
+            maxValue={max}
+            color="bg-blue-500/70"
+            sub={`· ${m.sessions} session${m.sessions !== 1 ? "s" : ""}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Per-project breakdown ─────────────────────────────────────────
+
+function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
+  if (data.length === 0) return null;
+  const max = Math.max(...data.map((p) => p.total_input + p.total_output));
+
+  return (
+    <div className="space-y-3">
+      {data.map((p) => (
+        <HorizontalBar
+          key={p.project_dir}
+          label={shortProjectName(p.project_dir)}
+          value={p.total_input + p.total_output}
+          maxValue={max}
+          color="bg-emerald-500/70"
+        />
+      ))}
+    </div>
+  );
+}
+
 // ── Main pane ───────────────────────────────────────────────────────
 
 export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats();
   const { data: dailyStatus } = useDailyStatus(30);
+  const { data: tokenStats } = useTokenStats();
+  const { data: tokenDaily } = useTokenDaily(30);
+  const { data: tokenByModel } = useTokenByModel();
+  const { data: tokenByProject } = useTokenByProject();
 
   const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
+  const totalTokens = tokenStats
+    ? tokenStats.total_input + tokenStats.total_cache_creation + tokenStats.total_cache_read + tokenStats.total_output
+    : 0;
+  const hasTokenData = totalTokens > 0;
 
   return (
     <DialogPrimitive.Root
@@ -351,7 +561,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* Body */}
           <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-3xl space-y-8 px-5 py-6 md:px-8">
+            <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 sm:space-y-8 px-3 py-4 sm:px-5 sm:py-6 md:px-8">
               {/* Stats row */}
               {stats && hasData && (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -398,8 +608,69 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                 </div>
               )}
 
+              {/* Token usage stats */}
+              {hasTokenData && tokenStats && (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+                  <StatCard
+                    label="Total tokens"
+                    value={formatTokenCount(totalTokens)}
+                    sub={`${formatTokenCount(tokenStats.total_output)} output`}
+                  />
+                  <StatCard
+                    label="Cache hit rate"
+                    value={`${cacheHitRate(tokenStats)}%`}
+                    sub="of input from cache"
+                  />
+                  <StatCard
+                    label="Avg tokens / session"
+                    value={
+                      tokenStats.total_sessions > 0
+                        ? formatTokenCount(Math.round(totalTokens / tokenStats.total_sessions))
+                        : "—"
+                    }
+                  />
+                  <StatCard
+                    label="Sessions"
+                    value={tokenStats.total_sessions}
+                    sub={`${tokenStats.total_messages} messages`}
+                  />
+                </div>
+              )}
+
+              {/* Daily token chart */}
+              {tokenDaily && tokenDaily.length > 0 && (
+                <div>
+                  <h2 className="mb-3 text-sm font-medium text-foreground">
+                    Daily token usage (last 30 days)
+                  </h2>
+                  <DailyTokenChart data={tokenDaily} />
+                </div>
+              )}
+
+              {/* Model & project breakdowns side by side */}
+              {hasTokenData && (tokenByModel?.length || tokenByProject?.length) ? (
+                <div className="grid gap-6 sm:grid-cols-2">
+                  {tokenByModel && tokenByModel.length > 0 && (
+                    <div>
+                      <h2 className="mb-3 text-sm font-medium text-foreground">
+                        Tokens by model
+                      </h2>
+                      <ModelBreakdown data={tokenByModel} />
+                    </div>
+                  )}
+                  {tokenByProject && tokenByProject.length > 0 && (
+                    <div>
+                      <h2 className="mb-3 text-sm font-medium text-foreground">
+                        Tokens by project
+                      </h2>
+                      <ProjectBreakdown data={tokenByProject} />
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
               {/* Empty state */}
-              {stats && !hasData && (!heatmapData || heatmapData.length === 0) && (
+              {stats && !hasData && (!heatmapData || heatmapData.length === 0) && !hasTokenData && (
                 <div className="py-12 text-center text-sm text-muted-foreground">
                   No activity yet. Stats will appear here as agents run.
                 </div>

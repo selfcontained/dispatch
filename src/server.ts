@@ -39,6 +39,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
+import { harvestTokenUsage } from "./agents/token-harvester.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -1510,6 +1511,115 @@ async function registerRoutes() {
       .sort((a, b) => a.day.localeCompare(b.day));
 
     return { days: dailyStatus };
+  });
+
+  // ── Token usage ──────────────────────────────────────────────────
+
+  app.get("/api/v1/activity/token-stats", async () => {
+    const result = await pool.query<{
+      total_input: number;
+      total_cache_creation: number;
+      total_cache_read: number;
+      total_output: number;
+      total_messages: number;
+      total_sessions: number;
+    }>(
+      `SELECT
+        COALESCE(SUM(input_tokens), 0)::int AS total_input,
+        COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
+        COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
+        COALESCE(SUM(output_tokens), 0)::int AS total_output,
+        COALESCE(SUM(message_count), 0)::int AS total_messages,
+        COUNT(DISTINCT session_id)::int AS total_sessions
+       FROM agent_token_usage`
+    );
+    return result.rows[0];
+  });
+
+  app.get("/api/v1/activity/token-daily", async (request) => {
+    const query = request.query as { days?: string };
+    const days = Math.min(Math.max(parseInt(query.days ?? "30", 10) || 30, 1), 90);
+
+    const result = await pool.query<{
+      day: string;
+      input_tokens: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      output_tokens: number;
+      messages: number;
+    }>(
+      `SELECT
+        date_trunc('day', COALESCE(session_start, harvested_at))::date::text AS day,
+        SUM(input_tokens)::int AS input_tokens,
+        SUM(cache_creation_tokens)::int AS cache_creation_tokens,
+        SUM(cache_read_tokens)::int AS cache_read_tokens,
+        SUM(output_tokens)::int AS output_tokens,
+        SUM(message_count)::int AS messages
+       FROM agent_token_usage
+       WHERE COALESCE(session_start, harvested_at) >= NOW() - make_interval(days => $1)
+       GROUP BY day ORDER BY day`,
+      [days]
+    );
+    return { days: result.rows };
+  });
+
+  app.get("/api/v1/activity/token-by-project", async () => {
+    const result = await pool.query<{
+      project_dir: string;
+      total_input: number;
+      total_output: number;
+      messages: number;
+    }>(
+      `SELECT
+        COALESCE(a.git_context->>'repoRoot', a.cwd) AS project_dir,
+        SUM(t.input_tokens + t.cache_creation_tokens + t.cache_read_tokens)::int AS total_input,
+        SUM(t.output_tokens)::int AS total_output,
+        SUM(t.message_count)::int AS messages
+       FROM agent_token_usage t
+       JOIN agents a ON a.id = t.agent_id
+       GROUP BY project_dir
+       ORDER BY total_input DESC
+       LIMIT 20`
+    );
+    return { projects: result.rows };
+  });
+
+  app.get("/api/v1/activity/token-by-model", async () => {
+    const result = await pool.query<{
+      model: string;
+      total_input: number;
+      total_cache_creation: number;
+      total_cache_read: number;
+      total_output: number;
+      sessions: number;
+    }>(
+      `SELECT
+        model,
+        COALESCE(SUM(input_tokens), 0)::int AS total_input,
+        COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
+        COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
+        COALESCE(SUM(output_tokens), 0)::int AS total_output,
+        COUNT(DISTINCT session_id)::int AS sessions
+       FROM agent_token_usage
+       GROUP BY model
+       ORDER BY (SUM(input_tokens) + SUM(cache_creation_tokens) + SUM(cache_read_tokens) + SUM(output_tokens)) DESC`
+    );
+    return { models: result.rows };
+  });
+
+  app.post("/api/v1/agents/:id/harvest-tokens", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agent = await agentManager.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: "Agent not found" });
+
+    await harvestTokenUsage(pool, {
+      id: agent.id,
+      type: agent.type,
+      cwd: agent.cwd,
+      worktreePath: agent.worktreePath,
+    }, app.log);
+
+    return { ok: true };
   });
 
   // ── Agents ────────────────────────────────────────────────────────
