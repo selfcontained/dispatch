@@ -7,8 +7,8 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  Pause,
   Play,
+  Square,
   Settings,
   X
 } from "lucide-react";
@@ -236,7 +236,7 @@ export function AgentSidebarContent({
                             <Play className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Resume</TooltipContent>
+                        <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
                       </Tooltip>
                     ) : (
                       <>
@@ -249,10 +249,10 @@ export function AgentSidebarContent({
                                 data-agent-control="true"
                                 onClick={detachTerminal}
                               >
-                                <EyeOff className="h-3.5 w-3.5" />
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Unfocus</TooltipContent>
+                            <TooltipContent>Unfocus<br /><span className="text-muted-foreground">Agent keeps running</span></TooltipContent>
                           </Tooltip>
                         ) : (
                           <Tooltip>
@@ -268,10 +268,10 @@ export function AgentSidebarContent({
                                   void attachToAgent(agent);
                                 }}
                               >
-                                <Eye className="h-3.5 w-3.5" />
+                                <EyeOff className="h-3.5 w-3.5 opacity-40" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Focus</TooltipContent>
+                            <TooltipContent>Focus<br /><span className="text-muted-foreground">Watch this agent</span></TooltipContent>
                           </Tooltip>
                         )}
 
@@ -279,14 +279,14 @@ export function AgentSidebarContent({
                           <TooltipTrigger asChild>
                             <Button
                               size="icon"
-                              variant="ghost-destructive"
+                              variant="ghost-warning"
                               data-agent-control="true"
                               onClick={() => void stopAgent(agent)}
                             >
-                              <Pause className="h-3.5 w-3.5" />
+                              <Square className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Pause</TooltipContent>
+                          <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
                         </Tooltip>
                       </>
                     )}
@@ -295,7 +295,7 @@ export function AgentSidebarContent({
                       <TooltipTrigger asChild>
                         <Button
                           size="icon"
-                          variant="ghost"
+                          variant="ghost-destructive"
                           data-agent-control="true"
                           className="ml-auto"
                           onClick={() => {
@@ -306,7 +306,7 @@ export function AgentSidebarContent({
                           <Archive className="h-3.5 w-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Archive</TooltipContent>
+                      <TooltipContent>Archive<br /><span className="text-muted-foreground">Remove agent</span></TooltipContent>
                     </Tooltip>
                   </div>
 

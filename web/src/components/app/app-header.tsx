@@ -105,7 +105,7 @@ export function AppHeader({
             title="Unfocus"
             data-testid="detach-button"
           >
-            <EyeOff className="mr-1 h-3.5 w-3.5" />
+            <Eye className="mr-1 h-3.5 w-3.5" />
             <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Unfocus</span>
           </Button>
         ) : canAttachSelected ? (
@@ -116,7 +116,7 @@ export function AppHeader({
             title="Focus on this agent"
             data-testid="attach-button"
           >
-            <Eye className="mr-1 h-3.5 w-3.5" />
+            <EyeOff className="mr-1 h-3.5 w-3.5" />
             <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Focus</span>
           </Button>
         ) : null}

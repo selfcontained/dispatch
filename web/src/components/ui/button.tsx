@@ -18,7 +18,9 @@ const buttonVariants = cva(
         "ghost-info":
           "text-status-done hover:bg-status-done/15 hover:text-status-done",
         "ghost-destructive":
-          "text-status-blocked hover:bg-status-blocked/15 hover:text-status-blocked"
+          "text-status-blocked hover:bg-status-blocked/15 hover:text-status-blocked",
+        "ghost-warning":
+          "text-status-waiting hover:bg-status-waiting/15 hover:text-status-waiting"
       },
       size: {
         default: "h-9 px-3 py-2",
