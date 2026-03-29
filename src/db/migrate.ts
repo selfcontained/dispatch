@@ -131,6 +131,9 @@ export async function runMigrations(): Promise<void> {
 
     ALTER TABLE agent_events
       ADD COLUMN IF NOT EXISTS project_dir TEXT;
+
+    ALTER TABLE agents
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
   `;
 
   try {

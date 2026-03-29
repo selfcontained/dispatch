@@ -117,6 +117,21 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
 
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS setup_phase TEXT;
+
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message TEXT,
+      metadata JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS agent_type TEXT;
+    ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS agent_name TEXT;
+    ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS project_dir TEXT;
   `;
 
   await pool.query(sql);
