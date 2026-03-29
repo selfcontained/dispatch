@@ -684,6 +684,15 @@ export function useTerminal(args: {
 
     window.addEventListener("resize", onResize);
 
+    // iOS/iPadOS Safari PWA: keyboard input in xterm's hidden textarea can
+    // trigger scrollIntoView, jumping the entire viewport.  Reset immediately.
+    const onScroll = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
       invalidateAttachAttempt();
       disposable.dispose();
@@ -693,6 +702,7 @@ export function useTerminal(args: {
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) screenEl.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
       try { wsRef.current?.close(); } catch {}
       wsRef.current = null;
       term.dispose();
