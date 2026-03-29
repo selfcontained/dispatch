@@ -1,5 +1,6 @@
 ## What's Changed
-* Add analytics time range selector by @selfcontained in https://github.com/selfcontained/dispatch/pull/150
+* Fix iPad PWA viewport jump when typing space in terminal by @selfcontained in https://github.com/selfcontained/dispatch/pull/149
+* Add active hours analytics heatmap by @selfcontained in https://github.com/selfcontained/dispatch/pull/151
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.7...v0.6.8
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.8...v0.6.9
