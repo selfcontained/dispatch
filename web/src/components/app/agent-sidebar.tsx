@@ -57,11 +57,11 @@ type AgentSidebarContentProps = AgentSidebarSharedProps & {
 export function AgentSidebarContent({
   agents,
   selectedAgentId,
-  overflowAgentId,
+  overflowAgentId: _overflowAgentId,
   onOpenCreateDialog,
   onOpenDocs,
   onOpenSettings,
-  setOverflowAgentId,
+  setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
   agentVisualState,
