@@ -321,7 +321,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
   const { data: stats } = useActivityStats();
   const { data: dailyStatus } = useDailyStatus(30);
 
-  const hasData = stats && (stats.avgTimeToDoneMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
+  const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
 
   return (
     <DialogPrimitive.Root
@@ -356,8 +356,8 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
               {stats && hasData && (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <StatCard
-                    label="Avg time to done"
-                    value={formatDuration(stats.avgTimeToDoneMs)}
+                    label="Total working time"
+                    value={formatDuration(stats.totalWorkingMs)}
                   />
                   <StatCard
                     label="Avg blocked time"

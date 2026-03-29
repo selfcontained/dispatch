@@ -1448,7 +1448,7 @@ async function registerRoutes() {
     const totalTime = Object.values(stateDurations).reduce((a, b) => a + b, 0);
 
     return {
-      avgTimeToDoneMs: avg(sessionDoneTimes),
+      totalWorkingMs: stateDurations.working ?? 0,
       avgBlockedMs: avg(sessionBlockedTimes),
       avgWaitingMs: avg(sessionWaitingTimes),
       blockedRatio: totalTime > 0 ? Math.round((stateDurations.blocked / totalTime) * 100) : 0,

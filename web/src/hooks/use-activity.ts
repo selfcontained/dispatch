@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 type HeatmapDay = { day: string; count: number };
 
 export type ActivityStats = {
-  avgTimeToDoneMs: number;
+  totalWorkingMs: number;
   avgBlockedMs: number;
   avgWaitingMs: number;
   blockedRatio: number;

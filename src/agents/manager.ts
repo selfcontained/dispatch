@@ -457,6 +457,16 @@ export class AgentManager {
       }
     }
 
+    // Record a final stopped event in history before deleting the agent row
+    await this.pool
+      .query(
+        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
+         SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
+         FROM agents WHERE id = $1`,
+        [id]
+      )
+      .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
+
     await this.pool.query("DELETE FROM agents WHERE id = $1", [id]);
 
     const mediaDir = agent.mediaDir ?? path.join(this.config.mediaRoot, id);
