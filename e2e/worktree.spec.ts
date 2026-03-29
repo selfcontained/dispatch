@@ -163,12 +163,12 @@ test.describe("Worktree", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.locator('[data-agent-control="true"]').last().click();
 
-    // Click "Delete agent" from the overflow menu
-    await page.getByText("Delete agent").click();
+    // Click "Archive" from the overflow menu
+    await page.getByText("Archive").click();
 
-    // Should show standard delete confirmation (not worktree choice)
+    // Should show standard archive confirmation (not worktree choice)
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByText("permanently removes")).toBeVisible();
+    await expect(page.getByText("removes the agent record")).toBeVisible();
 
     // Confirm deletion
     await page.getByTestId("delete-agent-confirm").click();
@@ -436,11 +436,11 @@ test.describe("Worktree filesystem", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu and click Delete
+    // Open the overflow menu and click Archive
     await agentCard.locator('[data-agent-control="true"]').last().click();
-    await page.getByText("Delete agent").click();
+    await page.getByText("Archive").click();
 
-    // First step: standard delete confirmation
+    // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
     await page.getByTestId("delete-agent-confirm").click();
 
@@ -485,18 +485,18 @@ test.describe("Worktree filesystem", () => {
     const agentCard2 = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard2).toBeVisible({ timeout: 5_000 });
 
-    // Open the overflow menu and click Delete
+    // Open the overflow menu and click Archive
     await agentCard2.locator('[data-agent-control="true"]').last().click();
-    await page.getByText("Delete agent").click();
+    await page.getByText("Archive").click();
 
-    // First step: standard delete confirmation
+    // First step: standard archive confirmation
     await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog
     await expect(page.getByText("Worktree Has Outstanding Changes")).toBeVisible({ timeout: 5_000 });
 
-    // Choose "Delete worktree"
+    // Choose "Archive and remove worktree"
     const wtPath = agent.worktreePath!;
     await page.getByTestId("delete-agent-force-worktree").click();
 

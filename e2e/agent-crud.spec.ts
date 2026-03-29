@@ -118,10 +118,10 @@ test.describe("Agent CRUD", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.locator('[data-agent-control="true"]').last().click();
 
-    // Click "Delete agent" from the overflow menu
-    await page.getByText("Delete agent").click();
+    // Click "Archive" from the overflow menu
+    await page.getByText("Archive").click();
 
-    // Confirm the deletion
+    // Confirm the archive
     await page.getByTestId("delete-agent-confirm").click();
 
     // Agent should disappear from sidebar

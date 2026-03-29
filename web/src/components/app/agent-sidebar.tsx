@@ -2,14 +2,15 @@ import {
   AlertTriangle,
   BookOpenText,
   ChevronLeft,
+  Archive,
   BotMessageSquare,
   EllipsisVertical,
+  Eye,
+  EyeOff,
   Loader2,
-  Monitor,
-  MonitorOff,
+  Pause,
   Play,
   Settings,
-  Square,
   X
 } from "lucide-react";
 
@@ -237,7 +238,7 @@ export function AgentSidebarContent({
                             <Play className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Play (start session)</TooltipContent>
+                        <TooltipContent>Resume</TooltipContent>
                       </Tooltip>
                     ) : (
                       <>
@@ -250,10 +251,10 @@ export function AgentSidebarContent({
                                 data-agent-control="true"
                                 onClick={detachTerminal}
                               >
-                                <MonitorOff className="h-3.5 w-3.5" />
+                                <EyeOff className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Detach from session</TooltipContent>
+                            <TooltipContent>Unfocus</TooltipContent>
                           </Tooltip>
                         ) : (
                           <Tooltip>
@@ -269,10 +270,10 @@ export function AgentSidebarContent({
                                   void attachToAgent(agent);
                                 }}
                               >
-                                <Monitor className="h-3.5 w-3.5" />
+                                <Eye className="h-3.5 w-3.5" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Attach to session</TooltipContent>
+                            <TooltipContent>Focus</TooltipContent>
                           </Tooltip>
                         )}
 
@@ -284,10 +285,10 @@ export function AgentSidebarContent({
                               data-agent-control="true"
                               onClick={() => void stopAgent(agent)}
                             >
-                              <Square className="h-3.5 w-3.5" />
+                              <Pause className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Stop session</TooltipContent>
+                          <TooltipContent>Pause</TooltipContent>
                         </Tooltip>
                       </>
                     )}
@@ -319,7 +320,7 @@ export function AgentSidebarContent({
                               void stopAgent(agent);
                             }}
                           >
-                            Stop session
+                            Pause
                           </DropdownMenuItem>
                         ) : null}
                         <DropdownMenuItem
@@ -330,7 +331,7 @@ export function AgentSidebarContent({
                             setDeleteConfirmOpen(true);
                           }}
                         >
-                          Delete agent
+                          Archive
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
