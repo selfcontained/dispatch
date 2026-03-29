@@ -134,6 +134,25 @@ export async function runMigrations(): Promise<void> {
 
     ALTER TABLE agents
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS agent_token_usage (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      harvested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      session_start TIMESTAMPTZ,
+      session_end TIMESTAMPTZ,
+      UNIQUE (agent_id, session_id, model)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_atu_agent_id ON agent_token_usage(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_atu_session_start ON agent_token_usage(session_start);
   `;
 
   try {
