@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 
@@ -1017,6 +1017,43 @@ async function registerRoutes() {
       db: "ok",
       now: result.rows[0]?.now
     };
+  });
+
+  // Write an image from the browser clipboard to the host's macOS pasteboard.
+  // This bridges remote browser sessions to the local system clipboard so that
+  // CLI tools (e.g. Claude CLI) can read pasted images via native APIs.
+  app.post("/api/v1/clipboard/image", async (request, reply) => {
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ error: "An image file field is required." });
+    }
+    const mime = data.mimetype;
+    if (!mime.startsWith("image/")) {
+      return reply.code(400).send({ error: "Only image files are accepted." });
+    }
+
+    const buffer = await data.toBuffer();
+    const ext = mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
+    const tmpPath = `/tmp/dispatch-clipboard-${Date.now()}.${ext}`;
+    await writeFile(tmpPath, buffer);
+
+    try {
+      const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn("osascript", [
+          "-e",
+          `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
+        ]);
+        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
+        proc.on("error", reject);
+      });
+      return reply.code(200).send({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(500).send({ error: `Failed to write to pasteboard: ${message}` });
+    } finally {
+      await unlink(tmpPath).catch(() => {});
+    }
   });
 
   app.get("/api/v1/system/defaults", async () => {
