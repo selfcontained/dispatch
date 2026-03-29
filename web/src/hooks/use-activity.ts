@@ -7,6 +7,12 @@ const ACTIVITY_QUERY_OPTIONS = {
 };
 
 type HeatmapDay = { day: string; count: number };
+export type ActiveHoursCell = {
+  dayOfWeek: number;
+  hour: number;
+  count: number;
+  avgPerWeek: number;
+};
 
 export const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
 export type ActivityRange = (typeof ACTIVITY_RANGES)[number];
@@ -80,6 +86,19 @@ export function useDailyStatus(range: ActivityRange) {
       return api<BucketedActivityResponse<DailyStatusEntry>>(
         scopedActivityPath("/api/v1/activity/daily-status", range)
       );
+    },
+    ...ACTIVITY_QUERY_OPTIONS,
+  });
+}
+
+export function useActiveHours(range: ActivityRange) {
+  return useQuery<ActiveHoursCell[]>({
+    queryKey: ["activity", "active-hours", range],
+    queryFn: async () => {
+      const payload = await api<{ cells: ActiveHoursCell[] }>(
+        scopedActivityPath("/api/v1/activity/active-hours", range)
+      );
+      return payload.cells;
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });

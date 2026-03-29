@@ -154,6 +154,16 @@ export async function cleanupE2EAgents(request: APIRequestContext): Promise<void
   }
 }
 
+export async function seedActivityDemoViaAPI(request: APIRequestContext): Promise<void> {
+  const res = await request.post(`${API}/activity/demo-seed`, {
+    headers: authHeaders(),
+  });
+
+  if (!res.ok()) {
+    throw new Error(`Activity demo seed failed with ${res.status()}`);
+  }
+}
+
 /**
  * Navigate to the app root and wait for the shell to be ready
  * (sidebar rendered + health polling started).
