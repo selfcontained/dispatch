@@ -296,8 +296,8 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
-        <div className="grid min-w-[760px] grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2">
+      <div style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full overflow-x-auto">
+        <div className="grid min-w-[760px] w-max grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2">
           <div />
           {Array.from({ length: 24 }, (_, hour) => (
             <div
@@ -770,7 +770,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
               )}
 
               {activeHours && activeHours.length > 0 && hasActiveHourData && (
-                <div>
+                <div className="min-w-0">
                   <h2 className="mb-1 text-sm font-medium text-foreground">
                     Active hours
                   </h2>
