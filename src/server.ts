@@ -40,6 +40,11 @@ import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { harvestTokenUsage } from "./agents/token-harvester.js";
+import {
+  computeActivityStats,
+  computeDailyStatus,
+  type ActivityEventRow,
+} from "./activity-metrics.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -60,7 +65,6 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
 type ActivityRange = (typeof ACTIVITY_RANGES)[number];
-type ActivityGranularity = "day" | "week" | "month";
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
@@ -171,7 +175,7 @@ function rangeWhereClause(range: ActivityRange, column: string): {
   return { clause: `WHERE ${column} >= $1`, params: [lowerBound] };
 }
 
-function getBucketGranularity(range: ActivityRange): ActivityGranularity {
+function getBucketGranularity(range: ActivityRange): "day" | "week" | "month" {
   if (range === "7d" || range === "30d") return "day";
   if (range === "year") return "month";
   return "month";
@@ -180,6 +184,41 @@ function getBucketGranularity(range: ActivityRange): ActivityGranularity {
 function bucketExpression(range: ActivityRange, column: string): string {
   const granularity = getBucketGranularity(range);
   return `date_trunc('${granularity}', ${column})::date::text`;
+}
+
+async function loadScopedActivityEvents(
+  range: ActivityRange
+): Promise<{ rows: ActivityEventRow[]; rangeStart: Date | null }> {
+  const rangeStart = getRangeLowerBound(range);
+  const eventFilter = rangeWhereClause(range, "created_at");
+
+  const inRangeResult = await pool.query<ActivityEventRow>(
+    `SELECT agent_id, event_type, created_at
+     FROM agent_events
+     ${eventFilter.clause}
+     ORDER BY agent_id, created_at`,
+    eventFilter.params
+  );
+
+  if (!rangeStart) {
+    return { rows: inRangeResult.rows, rangeStart: null };
+  }
+
+  const boundaryResult = await pool.query<ActivityEventRow>(
+    `SELECT DISTINCT ON (agent_id) agent_id, event_type, created_at
+     FROM agent_events
+     WHERE created_at < $1
+     ORDER BY agent_id, created_at DESC`,
+    [rangeStart]
+  );
+
+  const rows = [...boundaryResult.rows, ...inRangeResult.rows].sort((a, b) => {
+    const agentCompare = a.agent_id.localeCompare(b.agent_id);
+    if (agentCompare !== 0) return agentCompare;
+    return a.created_at.getTime() - b.created_at.getTime();
+  });
+
+  return { rows, rangeStart };
 }
 const activeGitRefreshAgentIds = new Set<string>();
 const pendingGitRefreshEnqueuedAt = new Map<string, number>();
@@ -1395,179 +1434,34 @@ async function registerRoutes() {
   app.get("/api/v1/activity/stats", async (request) => {
     const query = request.query as { range?: string };
     const range = parseActivityRange(query.range);
+    const { rows, rangeStart } = await loadScopedActivityEvents(range);
     const eventFilter = rangeWhereClause(range, "created_at");
-
-    // Fetch all events ordered by agent then time so we can compute durations
-    const allEvents = await pool.query<{
-      agent_id: string;
-      event_type: string;
-      created_at: Date;
-    }>(
-      `SELECT agent_id, event_type, created_at
-       FROM agent_events
-       ${eventFilter.clause}
-       ORDER BY agent_id, created_at`,
-      eventFilter.params
-    );
 
     const busiestDayResult = await pool.query<{ day: string; count: number }>(
       `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
        FROM agent_events
        ${eventFilter.clause}
-       GROUP BY day ORDER BY count DESC LIMIT 1`,
+      GROUP BY day ORDER BY count DESC LIMIT 1`,
       eventFilter.params
     );
-
-    // Compute per-state durations across all agents.
-    // A "session" is a sequence of events for one agent, ending at done/idle.
-    // Time in done/idle states is NOT counted (terminal states).
-    const stateDurations: Record<string, number> = {
-      working: 0,
-      blocked: 0,
-      waiting_user: 0,
-    };
-    const sessionDoneTimes: number[] = [];
-    const sessionBlockedTimes: number[] = [];
-    const sessionWaitingTimes: number[] = [];
-
-    let prevAgentId: string | null = null;
-    let prevType: string | null = null;
-    let prevTime: number | null = null;
-    let sessionStart: number | null = null;
-    let sessionBlocked = 0;
-    let sessionWaiting = 0;
-
-    const flushSession = (isDone: boolean, endTime: number | null) => {
-      if (isDone && sessionStart !== null && endTime !== null) {
-        sessionDoneTimes.push(endTime - sessionStart);
-      }
-      sessionBlockedTimes.push(sessionBlocked);
-      sessionWaitingTimes.push(sessionWaiting);
-      sessionStart = null;
-      sessionBlocked = 0;
-      sessionWaiting = 0;
-    };
-
-    for (const row of allEvents.rows) {
-      const t = row.created_at.getTime();
-
-      // New agent — flush previous session if any
-      if (row.agent_id !== prevAgentId) {
-        if (prevAgentId && sessionStart !== null) {
-          flushSession(prevType === "done", prevTime);
-        }
-        prevAgentId = row.agent_id;
-        prevType = row.event_type;
-        prevTime = t;
-        sessionStart = t;
-        sessionBlocked = 0;
-        sessionWaiting = 0;
-        continue;
-      }
-
-      // Same agent — accumulate duration for previous state
-      if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
-        const dur = t - prevTime;
-        stateDurations[prevType] = (stateDurations[prevType] ?? 0) + dur;
-        if (prevType === "blocked") sessionBlocked += dur;
-        if (prevType === "waiting_user") sessionWaiting += dur;
-      }
-
-      // If this event is done/idle, flush this session
-      if (row.event_type === "done" || row.event_type === "idle") {
-        flushSession(row.event_type === "done", t);
-        prevType = row.event_type;
-        prevTime = t;
-        continue;
-      }
-
-      // If previous was done/idle, this starts a new session
-      if (prevType === "done" || prevType === "idle") {
-        sessionStart = t;
-        sessionBlocked = 0;
-        sessionWaiting = 0;
-      }
-
-      prevType = row.event_type;
-      prevTime = t;
-    }
-    // Flush last session
-    if (prevAgentId && sessionStart !== null) {
-      flushSession(prevType === "done", prevTime);
-    }
-
-    const avg = (arr: number[]) =>
-      arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    const stats = computeActivityStats(rows, rangeStart);
 
     return {
-      totalWorkingMs: stateDurations.working ?? 0,
-      avgBlockedMs: avg(sessionBlockedTimes),
-      avgWaitingMs: avg(sessionWaitingTimes),
+      totalWorkingMs: stats.totalWorkingMs,
+      avgBlockedMs: stats.avgBlockedMs,
+      avgWaitingMs: stats.avgWaitingMs,
       busiestDay: busiestDayResult.rows[0]?.day ?? null,
       busiestDayCount: busiestDayResult.rows[0]?.count ?? 0,
-      stateDurations,
+      stateDurations: stats.stateDurations,
     };
   });
 
   app.get("/api/v1/activity/daily-status", async (request) => {
     const query = request.query as { range?: string };
     const range = parseActivityRange(query.range);
-    const eventFilter = rangeWhereClause(range, "created_at");
     const granularity = getBucketGranularity(range);
-
-    // Get all events in the period, ordered by agent then time
-    const result = await pool.query<{
-      agent_id: string;
-      event_type: string;
-      created_at: Date;
-    }>(
-      `SELECT agent_id, event_type, created_at
-       FROM agent_events
-       ${eventFilter.clause}
-       ORDER BY agent_id, created_at`,
-      eventFilter.params
-    );
-
-    // Build daily duration breakdown
-    const dailyMap = new Map<string, Record<string, number>>();
-
-    let prevAgentId: string | null = null;
-    let prevType: string | null = null;
-    let prevTime: number | null = null;
-
-    for (const row of result.rows) {
-      const t = row.created_at.getTime();
-      if (row.agent_id !== prevAgentId) {
-        prevAgentId = row.agent_id;
-        prevType = row.event_type;
-        prevTime = t;
-        continue;
-      }
-      if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
-        const bucket = new Date(prevTime);
-        if (granularity === "week") {
-          const day = bucket.getUTCDay();
-          const diff = day === 0 ? -6 : 1 - day;
-          bucket.setUTCDate(bucket.getUTCDate() + diff);
-        } else if (granularity === "month") {
-          bucket.setUTCDate(1);
-        }
-        const dayKey = bucket.toISOString().slice(0, 10);
-        const dur = t - prevTime;
-        let entry = dailyMap.get(dayKey);
-        if (!entry) {
-          entry = {};
-          dailyMap.set(dayKey, entry);
-        }
-        entry[prevType] = (entry[prevType] ?? 0) + dur;
-      }
-      prevType = row.event_type;
-      prevTime = t;
-    }
-
-    const dailyStatus = Array.from(dailyMap.entries())
-      .map(([day, durations]) => ({ day, ...durations }))
-      .sort((a, b) => a.day.localeCompare(b.day));
+    const { rows, rangeStart } = await loadScopedActivityEvents(range);
+    const dailyStatus = computeDailyStatus(rows, rangeStart, granularity);
 
     return { days: dailyStatus, granularity };
   });

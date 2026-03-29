@@ -4,7 +4,7 @@ const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-tok
 
 test.describe("Activity range API", () => {
   test("stats endpoint accepts the shared range values", async ({ request }) => {
-    for (const range of ["30d", "year", "all"]) {
+    for (const range of ["7d", "30d", "year", "all"]) {
       const res = await request.get(`/api/v1/activity/stats?range=${range}`, {
         headers: authHeader,
       });
