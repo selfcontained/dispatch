@@ -175,40 +175,26 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
   }, []);
 
   const handleCopy = useCallback(() => {
-    // Safari/iOS requires ClipboardItem to be created synchronously within
-    // the click handler to preserve the user-gesture chain. The blob data
-    // can be a Promise — this lets us fetch content without losing the
-    // gesture context.
-    if (typeof ClipboardItem !== "undefined") {
-      const blobPromise = fetch(src)
-        .then((res) => res.blob())
-        .then((blob) => {
-          if (blob.type.startsWith("image/png")) return blob;
-          // Convert everything else to text/plain for clipboard
-          return blob.text().then((t) => new Blob([t], { type: "text/plain" }));
-        });
+    // iOS Safari requires ClipboardItem to be created synchronously in the
+    // click handler. The blob value can be a Promise — the browser resolves
+    // it internally without losing the user-gesture context.
+    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+      const textBlob = fetch(src)
+        .then((r) => r.text())
+        .then((t) => new Blob([t], { type: "text/plain" }));
 
       void navigator.clipboard
-        .write([new ClipboardItem({ [isTextFile(fileName) ? "text/plain" : "image/png"]: blobPromise })])
-        .then(markCopied)
-        .catch(() => {
-          // If image/png write fails (e.g. non-PNG), retry as text
-          const textBlob = fetch(src)
-            .then((r) => r.text())
-            .then((t) => new Blob([t], { type: "text/plain" }));
-          return navigator.clipboard.write([new ClipboardItem({ "text/plain": textBlob })]);
-        })
+        .write([new ClipboardItem({ "text/plain": textBlob })])
         .then(markCopied)
         .catch(() => {});
-    } else {
-      // Fallback for browsers without ClipboardItem
+    } else if (navigator.clipboard?.writeText) {
       void fetch(src)
-        .then((res) => res.text())
-        .then((text) => navigator.clipboard.writeText(text))
+        .then((r) => r.text())
+        .then((t) => navigator.clipboard.writeText(t))
         .then(markCopied)
         .catch(() => {});
     }
-  }, [src, fileName, markCopied]);
+  }, [src, markCopied]);
 
   return (
     <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
