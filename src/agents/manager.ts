@@ -1039,7 +1039,6 @@ export class AgentManager {
       cwd: repoRoot,
       env: {
         DISPATCH_AGENT_ID: agent.id,
-        HOSTESS_AGENT_ID: agent.id,
       },
       timeoutMs: 15_000,
     });
@@ -1080,13 +1079,8 @@ export class AgentManager {
       `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `DISPATCH_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
-      `HOSTESS_AGENT_ID=${this.shellEscape(agentId)}`,
-      `HOSTESS_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
       `DISPATCH_SCHEME=${this.config.tls ? "https" : "http"}`,
-      `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
-      // Compatibility alias for common typo to keep screenshot sharing reliable.
-      `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
       // Pin the Bash tool's cwd to the project root (worktree) after every command.
       // Prevents cwd drift back to the original repo root during long conversations.
@@ -1284,8 +1278,8 @@ export class AgentManager {
 
   /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task". */
   private agentIdFromSessionName(sessionName: string): string {
-    const match = sessionName.match(/(?:dispatch|hostess)_(agt_[a-f0-9]{12})/);
-    return match?.[1] ?? sessionName.replace(/^(dispatch|hostess)_/, "");
+    const match = sessionName.match(/dispatch_(agt_[a-f0-9]{12})/);
+    return match?.[1] ?? sessionName.replace(/^dispatch_/, "");
   }
 
   private toSessionName(agentId: string, agentName?: string): string {

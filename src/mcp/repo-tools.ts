@@ -91,7 +91,6 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           cwd: currentRepoRoot,
           env: {
             DISPATCH_AGENT_ID: agentId,
-            HOSTESS_AGENT_ID: agentId
           }
         });
 

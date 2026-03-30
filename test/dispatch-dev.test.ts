@@ -21,7 +21,6 @@ function run(args: string, options?: { expectFail?: boolean }): string {
         ...process.env,
         // Clear agent ID so it doesn't leak into suffix
         DISPATCH_AGENT_ID: "",
-        HOSTESS_AGENT_ID: ""
       }
     }).trim();
   } catch (error) {

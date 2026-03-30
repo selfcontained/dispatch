@@ -25,7 +25,7 @@
 
 ## tmux Session Contract
 
-- Session name: `hostess_<agentId>`
+- Session name: `dispatch_agt_<agentId>_<name>`
 - Window name: `main`
 - Agent process starts in configured `cwd`
 - Closing browser terminal must only detach client, not terminate tmux
@@ -35,13 +35,13 @@
 Example launch command:
 
 ```bash
-tmux new-session -d -s hostess_<agentId> -c "<cwd>" "codex"
+tmux new-session -d -s dispatch_<agentId> -c "<cwd>" "codex"
 ```
 
 Optional with args:
 
 ```bash
-tmux new-session -d -s hostess_<agentId> -c "<cwd>" "codex <args>"
+tmux new-session -d -s dispatch_<agentId> -c "<cwd>" "codex <args>"
 ```
 
 ## Stop Contract
@@ -49,13 +49,13 @@ tmux new-session -d -s hostess_<agentId> -c "<cwd>" "codex <args>"
 Preferred soft stop:
 
 ```bash
-tmux send-keys -t hostess_<agentId> C-c
+tmux send-keys -t dispatch_<agentId> C-c
 ```
 
 Fallback hard stop:
 
 ```bash
-tmux kill-session -t hostess_<agentId>
+tmux kill-session -t dispatch_<agentId>
 ```
 
 ## Reconciliation Routine (on startup)

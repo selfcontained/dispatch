@@ -52,17 +52,14 @@ export function loadConfig(): AppConfig {
     dispatchBinDir: path.resolve(__dirname, "..", "bin"),
     codexBin:
       process.env.DISPATCH_CODEX_BIN ??
-      process.env.HOSTESS_CODEX_BIN ??
       process.env.CODEX_BIN ??
       "codex",
     claudeBin:
       process.env.DISPATCH_CLAUDE_BIN ??
-      process.env.HOSTESS_CLAUDE_BIN ??
       process.env.CLAUDE_BIN ??
       "claude",
     opencodeBin:
       process.env.DISPATCH_OPENCODE_BIN ??
-      process.env.HOSTESS_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
     agentRuntime: process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert",

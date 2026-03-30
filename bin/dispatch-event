@@ -35,7 +35,7 @@ if [ -z "$MESSAGE" ]; then
   exit 1
 fi
 
-AGENT_ID="${DISPATCH_AGENT_ID:-${HOSTESS_AGENT_ID:-}}"
+AGENT_ID="${DISPATCH_AGENT_ID:-}"
 if [ -z "$AGENT_ID" ]; then
   echo "DISPATCH_AGENT_ID is not set. Run this command inside a Dispatch agent session." >&2
   exit 1

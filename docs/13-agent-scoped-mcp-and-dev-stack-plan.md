@@ -66,7 +66,7 @@ Current design:
 - repo tools must be named under `project.*`
 - handlers are declarative command wrappers, not arbitrary in-process plugins
 - commands run in the resolved repo root
-- commands inherit `DISPATCH_AGENT_ID` and `HOSTESS_AGENT_ID`
+- commands inherit `DISPATCH_AGENT_ID`
 
 Current example:
 

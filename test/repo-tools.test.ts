@@ -49,7 +49,6 @@ describe("loadRepoTools", () => {
       cwd: repoRoot,
       env: expect.objectContaining({
         DISPATCH_AGENT_ID: "agt_test",
-        HOSTESS_AGENT_ID: "agt_test"
       })
     }));
   });
