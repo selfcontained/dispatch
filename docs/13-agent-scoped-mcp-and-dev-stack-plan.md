@@ -72,20 +72,72 @@ Current example:
 
 ```json
 {
+  "hooks": {
+    "stop": {
+      "command": ["./bin/dispatch-dev", "down"],
+      "description": "Tear down the agent's isolated dev environment on stop."
+    }
+  },
   "tools": [
     {
-      "name": "project.dev_up",
+      "name": "dev_up",
       "description": "Start the repo's isolated Dispatch development environment.",
-      "command": ["dispatch-dev", "up"]
+      "command": ["./bin/dispatch-dev", "up"]
     },
     {
-      "name": "project.dev_down",
+      "name": "dev_down",
       "description": "Stop the repo's isolated Dispatch development environment.",
-      "command": ["dispatch-dev", "down"]
+      "command": ["./bin/dispatch-dev", "down"]
     }
   ]
 }
 ```
+
+## Lifecycle Hooks
+
+Repos can define lifecycle hooks in `.dispatch/tools.json` under the `hooks` key. Unlike tools (which agents call on demand via MCP), hooks are invoked automatically by Dispatch at specific points in the agent lifecycle.
+
+### Supported hooks
+
+| Hook | When it runs |
+|------|-------------|
+| `stop` | When an agent is stopped (including when deletion triggers a stop) |
+
+### Hook definition
+
+Each hook has:
+
+- `command` (string[], required): The command to execute. First element is the executable, rest are static args.
+- `description` (string, optional): Human-readable description of what the hook does.
+
+### Execution context
+
+- Hooks run in the agent's working directory (`worktreePath` or `cwd`).
+- `DISPATCH_AGENT_ID` is set in the environment, so commands like `dispatch-dev down` can resolve the correct agent-scoped resources.
+- Hooks are best-effort with a 15-second timeout. A failing hook does not block the lifecycle transition.
+- Hook results (including non-zero exit codes) are logged but do not affect agent status.
+- Parsed hooks are cached per manifest path and invalidated by file mtime.
+
+### Example: automatic dev stack cleanup
+
+The Dispatch repo itself uses a stop hook to tear down agent dev stacks:
+
+```json
+{
+  "hooks": {
+    "stop": {
+      "command": ["./bin/dispatch-dev", "down"],
+      "description": "Tear down the agent's isolated dev environment on stop."
+    }
+  }
+}
+```
+
+When an agent stops, Dispatch runs `./bin/dispatch-dev down` with `DISPATCH_AGENT_ID` in the environment. `dispatch-dev` uses that to find the matching state file (`/tmp/dispatch-dev-<agentId>.env`) and tears down the DB container, API server, and Vite server.
+
+### Future hooks
+
+The `hooks` object is extensible. Planned hooks include `start`, `resume`, and `delete`.
 
 ## What We Learned About `dispatch-dev`
 
