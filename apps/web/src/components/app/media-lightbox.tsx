@@ -195,8 +195,19 @@ function copyViaExecCommand(text: string): boolean {
 function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
+  const cachedTextRef = useRef<string | null>(null);
 
   const displayName = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
+
+  // Pre-fetch text content so it's available synchronously on click.
+  // iOS Safari's execCommand fallback requires content in the gesture handler.
+  useEffect(() => {
+    cachedTextRef.current = null;
+    void fetch(src)
+      .then((r) => r.text())
+      .then((t) => { cachedTextRef.current = t; })
+      .catch(() => {});
+  }, [src]);
 
   const markCopied = useCallback(() => {
     setCopied(true);
@@ -205,52 +216,39 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
   }, []);
 
   const handleCopy = useCallback(() => {
-    // iOS Safari requires ClipboardItem to be created synchronously in the
-    // click handler. The blob value can be a Promise — the browser resolves
-    // it internally without losing the user-gesture context.
+    // Strategy 1: ClipboardItem with Promise blob (preserves iOS Safari gesture chain)
     if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      const textBlob = fetch(src)
-        .then((r) => r.text())
-        .then((t) => new Blob([t], { type: "text/plain" }));
+      const textBlob = cachedTextRef.current
+        ? Promise.resolve(new Blob([cachedTextRef.current], { type: "text/plain" }))
+        : fetch(src).then((r) => r.text()).then((t) => new Blob([t], { type: "text/plain" }));
 
       void navigator.clipboard
         .write([new ClipboardItem({ "text/plain": textBlob })])
         .then(markCopied)
-        .catch((err) => {
-          console.warn("[copy] ClipboardItem write failed:", err);
-          // Fallback: fetch then try execCommand (works on iOS non-secure contexts)
-          void fetch(src)
-            .then((r) => r.text())
-            .then((t) => {
-              copyViaExecCommand(t);
-              markCopied();
-            })
-            .catch((e) => console.warn("[copy] execCommand fallback failed:", e));
+        .catch(() => {
+          // Strategy 2: execCommand with pre-fetched content (synchronous, no gesture issue)
+          if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
+            markCopied();
+          }
         });
-    } else if (navigator.clipboard?.writeText) {
-      void fetch(src)
-        .then((r) => r.text())
-        .then((t) => navigator.clipboard.writeText(t))
+      return;
+    }
+
+    // Strategy 2: writeText (may fail on iOS if not secure context)
+    if (navigator.clipboard?.writeText && cachedTextRef.current) {
+      void navigator.clipboard.writeText(cachedTextRef.current)
         .then(markCopied)
-        .catch((err) => {
-          console.warn("[copy] writeText failed:", err);
-          void fetch(src)
-            .then((r) => r.text())
-            .then((t) => {
-              copyViaExecCommand(t);
-              markCopied();
-            })
-            .catch((e) => console.warn("[copy] execCommand fallback failed:", e));
+        .catch(() => {
+          if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
+            markCopied();
+          }
         });
-    } else {
-      // No clipboard API at all — use execCommand directly
-      void fetch(src)
-        .then((r) => r.text())
-        .then((t) => {
-          copyViaExecCommand(t);
-          markCopied();
-        })
-        .catch((e) => console.warn("[copy] all methods failed:", e));
+      return;
+    }
+
+    // Strategy 3: execCommand with cached content (synchronous, works everywhere)
+    if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
+      markCopied();
     }
   }, [src, markCopied]);
 
