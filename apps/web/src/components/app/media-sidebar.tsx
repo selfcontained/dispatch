@@ -187,7 +187,7 @@ export function MediaSidebarContent({
                   {file.description ? <div>{file.description}</div> : null}
                   <div className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}>
                     <span>{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                    <MediaActions src={cacheBustUrl} fileName={file.name} />
+                    <MediaActions src={cacheBustUrl} fileName={file.name} isText={isText} />
                   </div>
                 </div>
               </article>

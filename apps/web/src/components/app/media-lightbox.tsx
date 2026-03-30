@@ -184,22 +184,22 @@ function copyViaExecCommand(text: string): boolean {
   return ok;
 }
 
-function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX.Element {
+function MediaActions({ src, fileName, isText }: { src: string; fileName: string; isText?: boolean }): JSX.Element {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
   const cachedTextRef = useRef<string | null>(null);
 
   const displayName = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
 
-  // Pre-fetch text content so it's available synchronously on click.
-  // iOS Safari's execCommand fallback requires content in the gesture handler.
+  // Pre-fetch text content so it's available synchronously for execCommand copy.
   useEffect(() => {
     cachedTextRef.current = null;
+    if (!isText) return;
     void fetch(src)
       .then((r) => r.text())
       .then((t) => { cachedTextRef.current = t; })
       .catch(() => {});
-  }, [src]);
+  }, [src, isText]);
 
   const markCopied = useCallback(() => {
     setCopied(true);
@@ -208,27 +208,31 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
   }, []);
 
   const handleCopy = useCallback(() => {
-    // If content is pre-fetched, use execCommand (works everywhere including
-    // iOS Safari on non-secure contexts — the only reliable method there).
-    if (cachedTextRef.current) {
-      if (copyViaExecCommand(cachedTextRef.current)) {
+    if (isText) {
+      // Text files: use execCommand with pre-fetched content (works on iOS Safari
+      // non-secure contexts). Fall back to Clipboard API on secure contexts.
+      if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
         markCopied();
         return;
       }
+      if (navigator.clipboard?.writeText && cachedTextRef.current) {
+        void navigator.clipboard.writeText(cachedTextRef.current).then(markCopied).catch(() => {});
+      }
+    } else {
+      // Images: use Clipboard API (only works on secure contexts / desktop).
+      // On mobile non-secure contexts, users can long-press to copy images.
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        const blobPromise = fetch(src).then((r) => r.blob());
+        void navigator.clipboard
+          .write([new ClipboardItem({ "image/png": blobPromise })])
+          .then(markCopied)
+          .catch(() => {});
+      }
     }
+  }, [src, isText, markCopied]);
 
-    // Secure context: try Clipboard API with ClipboardItem + Promise blob
-    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      const textBlob = cachedTextRef.current
-        ? Promise.resolve(new Blob([cachedTextRef.current], { type: "text/plain" }))
-        : fetch(src).then((r) => r.text()).then((t) => new Blob([t], { type: "text/plain" }));
-
-      void navigator.clipboard
-        .write([new ClipboardItem({ "text/plain": textBlob })])
-        .then(markCopied)
-        .catch(() => {});
-    }
-  }, [src, markCopied]);
+  // Hide copy button for non-text on non-secure contexts (won't work)
+  const showCopy = isText || (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write);
 
   return (
     <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -241,16 +245,18 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
         <Download className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">Download</span>
       </a>
-      <Button
-        size="sm"
-        variant={copied ? "default" : "ghost"}
-        className={copied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
-        onClick={handleCopy}
-        title="Copy"
-      >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        <span className="hidden sm:inline">{copied ? "Copied!" : "Copy"}</span>
-      </Button>
+      {showCopy && (
+        <Button
+          size="sm"
+          variant={copied ? "default" : "ghost"}
+          className={copied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
+          onClick={handleCopy}
+          title="Copy"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{copied ? "Copied!" : "Copy"}</span>
+        </Button>
+      )}
     </div>
   );
 }
@@ -319,7 +325,7 @@ export function MediaLightbox({
       <div className="mx-auto flex w-full max-w-4xl items-center gap-1 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-2 py-1.5 sm:px-4 sm:py-2">
         <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
         <div className="ml-auto flex shrink-0 items-center">
-          <MediaActions src={item.src} fileName={item.file.name} />
+          <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
           <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
           <Button
             aria-label="Previous media item"
