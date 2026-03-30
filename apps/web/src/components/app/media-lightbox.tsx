@@ -162,7 +162,7 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   );
 }
 
-/** iOS Safari compatible copy via execCommand. Uses Range/getSelection instead of textarea.select(). */
+/** Copy text via hidden textarea + execCommand. Works on iOS Safari non-secure contexts. */
 function copyViaExecCommand(text: string): boolean {
   const textarea = document.createElement("textarea");
   textarea.value = text;
@@ -171,16 +171,8 @@ function copyViaExecCommand(text: string): boolean {
   textarea.style.top = "0";
   textarea.style.opacity = "0";
   document.body.appendChild(textarea);
-
-  // iOS Safari requires Range-based selection, not textarea.select()
-  const range = document.createRange();
-  range.selectNodeContents(textarea);
-  const selection = window.getSelection();
-  if (selection) {
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-  textarea.setSelectionRange(0, text.length);
+  textarea.focus();
+  textarea.select();
 
   let ok = false;
   try {
@@ -216,7 +208,16 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
   }, []);
 
   const handleCopy = useCallback(() => {
-    // Strategy 1: ClipboardItem with Promise blob (preserves iOS Safari gesture chain)
+    // If content is pre-fetched, use execCommand (works everywhere including
+    // iOS Safari on non-secure contexts — the only reliable method there).
+    if (cachedTextRef.current) {
+      if (copyViaExecCommand(cachedTextRef.current)) {
+        markCopied();
+        return;
+      }
+    }
+
+    // Secure context: try Clipboard API with ClipboardItem + Promise blob
     if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
       const textBlob = cachedTextRef.current
         ? Promise.resolve(new Blob([cachedTextRef.current], { type: "text/plain" }))
@@ -225,30 +226,7 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
       void navigator.clipboard
         .write([new ClipboardItem({ "text/plain": textBlob })])
         .then(markCopied)
-        .catch(() => {
-          // Strategy 2: execCommand with pre-fetched content (synchronous, no gesture issue)
-          if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
-            markCopied();
-          }
-        });
-      return;
-    }
-
-    // Strategy 2: writeText (may fail on iOS if not secure context)
-    if (navigator.clipboard?.writeText && cachedTextRef.current) {
-      void navigator.clipboard.writeText(cachedTextRef.current)
-        .then(markCopied)
-        .catch(() => {
-          if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
-            markCopied();
-          }
-        });
-      return;
-    }
-
-    // Strategy 3: execCommand with cached content (synchronous, works everywhere)
-    if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
-      markCopied();
+        .catch(() => {});
     }
   }, [src, markCopied]);
 
