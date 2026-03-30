@@ -1,5 +1,5 @@
-import { type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, Download } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, X } from "lucide-react";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -82,17 +82,28 @@ const TEXT_EXTENSIONS = new Set([
   ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
 ]);
 
-function isTextFile(name: string): boolean {
+export function isTextFile(name: string): boolean {
   const dot = name.lastIndexOf(".");
   if (dot === -1) return false;
   return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
 }
+
+const TIMESTAMP_RE = /-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/;
+
+/** Strip the timestamp suffix that the server appends to media filenames. */
+export function stripTimestamp(name: string): string {
+  return name.replace(TIMESTAMP_RE, "");
+}
+
+const HAS_CLIPBOARD_WRITE = typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;
 
 type MediaLightboxItem = {
   src: string;
   caption: string;
   file: {
     name: string;
+    size: number;
+    updatedAt: string;
     source?: "screenshot" | "stream" | "simulator" | "text";
   };
 };
@@ -107,8 +118,6 @@ type MediaLightboxProps = {
 function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.Element {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setContent(null);
@@ -123,28 +132,6 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
       .catch((err) => { if (!cancelled) setError(String(err)); });
     return () => { cancelled = true; };
   }, [src]);
-
-  const handleCopy = useCallback(() => {
-    if (!content) return;
-    void navigator.clipboard.writeText(content).then(() => {
-      setCopied(true);
-      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-    });
-  }, [content]);
-
-  const handleDownload = useCallback(() => {
-    if (!content) return;
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [content, fileName]);
-
-  const displayName = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
 
   const highlightedHtml = useMemo(() => {
     if (!content) return null;
@@ -174,42 +161,122 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-        <span className="truncate text-sm font-medium text-foreground">{displayName}</span>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-            onClick={handleDownload}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </Button>
-          <Button
-            size="sm"
-            variant={copied ? "default" : "ghost"}
-            className={copied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
-            onClick={handleCopy}
-          >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            {copied ? "Copied!" : "Copy"}
-          </Button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {highlightedHtml ? (
-          <pre className="p-4 text-sm leading-relaxed"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} /></pre>
-        ) : (
-          <pre className="p-4 text-sm leading-relaxed text-foreground"><code>{content}</code></pre>
-        )}
-      </div>
+    <div className="min-h-0 flex-1 overflow-auto">
+      {highlightedHtml ? (
+        <pre className="p-4 text-sm leading-relaxed"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} /></pre>
+      ) : (
+        <pre className="p-4 text-sm leading-relaxed text-foreground"><code>{content}</code></pre>
+      )}
     </div>
   );
 }
 
-const SWIPE_THRESHOLD_PX = 48;
+/** Copy text via hidden textarea + execCommand. Works on iOS Safari non-secure contexts. */
+function copyViaExecCommand(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "0";
+  textarea.style.top = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
+function MediaActions({ src, fileName, isText }: { src: string; fileName: string; isText?: boolean }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+  const cachedTextRef = useRef<string | null>(null);
+
+  const displayName = stripTimestamp(fileName);
+
+  // Pre-fetch text content so it's available synchronously for execCommand copy.
+  useEffect(() => {
+    cachedTextRef.current = null;
+    if (!isText) return;
+    const controller = new AbortController();
+    void fetch(src, { signal: controller.signal })
+      .then((r) => r.text())
+      .then((t) => { cachedTextRef.current = t; })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [src, isText]);
+
+  // Clean up the "Copied!" timer on unmount.
+  useEffect(() => () => {
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+  }, []);
+
+  const markCopied = useCallback(() => {
+    setCopied(true);
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    if (isText) {
+      // Text files: use execCommand with pre-fetched content (works on iOS Safari
+      // non-secure contexts). Fall back to Clipboard API on secure contexts.
+      if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
+        markCopied();
+        return;
+      }
+      if (navigator.clipboard?.writeText && cachedTextRef.current) {
+        void navigator.clipboard.writeText(cachedTextRef.current).then(markCopied).catch(() => {});
+      }
+    } else {
+      // Images: use Clipboard API (only works on secure contexts / desktop).
+      // On mobile non-secure contexts, users can long-press to copy images.
+      if (HAS_CLIPBOARD_WRITE) {
+        const blobPromise = fetch(src).then((r) => r.blob());
+        void navigator.clipboard
+          .write([new ClipboardItem({ "image/png": blobPromise })])
+          .then(markCopied)
+          .catch(() => {});
+      }
+    }
+  }, [src, isText, markCopied]);
+
+  const showCopy = isText || HAS_CLIPBOARD_WRITE;
+
+  return (
+    <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <a
+        href={src}
+        download={displayName}
+        className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+        title="Download"
+      >
+        <Download className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">Download</span>
+      </a>
+      {showCopy && (
+        <Button
+          size="sm"
+          variant={copied ? "default" : "ghost"}
+          className={copied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
+          onClick={handleCopy}
+          title="Copy"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{copied ? "Copied!" : "Copy"}</span>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export { MediaActions };
 
 export function MediaLightbox({
   item,
@@ -217,8 +284,6 @@ export function MediaLightbox({
   totalItems,
   setLightboxIndex
 }: MediaLightboxProps): JSX.Element | null {
-  const touchStartXRef = useRef<number | null>(null);
-
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
 
@@ -259,114 +324,84 @@ export function MediaLightbox({
     return null;
   }
 
-  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    touchStartXRef.current = event.changedTouches[0]?.clientX ?? null;
-  };
+  const isText = item.file.source === "text" || isTextFile(item.file.name);
+  const isVideo = /\.mp4/i.test(item.src);
+  const displayName = stripTimestamp(item.file.name);
 
-  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
-    if (touchStartXRef.current === null) {
-      return;
-    }
-
-    const endX = event.changedTouches[0]?.clientX ?? touchStartXRef.current;
-    const deltaX = endX - touchStartXRef.current;
-    touchStartXRef.current = null;
-
-    if (deltaX <= -SWIPE_THRESHOLD_PX && canGoNext) {
-      setLightboxIndex(currentIndex + 1);
-      return;
-    }
-
-    if (deltaX >= SWIPE_THRESHOLD_PX && canGoPrev) {
-      setLightboxIndex(currentIndex - 1);
-    }
-  };
+  const sizeLabel = item.file.size >= 1024 * 1024
+    ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(item.file.size / 1024))} KB`;
 
   return (
     <div
-      className="fixed inset-0 z-[120] grid grid-rows-[auto_1fr_auto] gap-3 bg-black/90 p-4 sm:p-6"
+      className="fixed inset-0 z-[120] grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] bg-black/90 p-2 sm:p-6"
       data-testid="media-lightbox"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
-          setLightboxIndex(null);
-        }
-      }}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-          {totalItems > 0 ? `${currentIndex + 1} / ${totalItems}` : ""}
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-1 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-2 py-1.5 sm:px-4 sm:py-2">
+        <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
+        <div className="ml-auto flex shrink-0 items-center">
+          <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
+          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
           <Button
             aria-label="Previous media item"
             data-testid="media-lightbox-prev"
             disabled={!canGoPrev}
             size="icon"
             variant="ghost"
+            className="h-7 w-7"
             onClick={() => setLightboxIndex(currentIndex - 1)}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-3.5 w-3.5" />
           </Button>
-          <Button onClick={() => setLightboxIndex(null)}>Close</Button>
+          <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+            {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
+          </span>
           <Button
             aria-label="Next media item"
             data-testid="media-lightbox-next"
             disabled={!canGoNext}
             size="icon"
             variant="ghost"
+            className="h-7 w-7"
             onClick={() => setLightboxIndex(currentIndex + 1)}
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <Button
+            aria-label="Close"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => setLightboxIndex(null)}
+          >
+            <X className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
-      <div
-        className="relative grid min-h-0 grid-cols-[minmax(0,1fr)] place-items-center overflow-hidden"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        <button
-          aria-label="Previous media item"
-          className="absolute left-0 top-0 z-10 hidden h-full w-1/5 min-w-12 items-center justify-start bg-gradient-to-r from-black/35 to-transparent pl-2 text-white/70 transition hover:text-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
-          disabled={!canGoPrev}
-          onClick={() => setLightboxIndex(currentIndex - 1)}
-          type="button"
-        >
-          <ChevronLeft className="h-8 w-8" />
-        </button>
-
-        {item.file.source === "text" || isTextFile(item.file.name) ? (
-          <div className="h-full w-full max-w-4xl overflow-hidden rounded-lg border border-border bg-surface">
-            <TextViewer src={item.src} fileName={item.file.name} />
-          </div>
-        ) : /\.mp4/i.test(item.src) ? (
+      <div className="mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border bg-black touch-pinch-zoom">
+        {isText ? (
+          <TextViewer src={item.src} fileName={item.file.name} />
+        ) : isVideo ? (
           <video
             src={item.src}
             controls
             playsInline
-            className="max-h-[calc(100vh-10rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain sm:max-h-[calc(100vh-9rem)] sm:max-w-[calc(100vw-6rem)]"
+            className="max-h-[calc(100vh-12rem)] w-full object-contain"
           />
         ) : (
           <img
             src={item.src}
             alt={item.caption}
-            className="max-h-[calc(100vh-10rem)] max-w-[calc(100vw-2rem)] h-auto w-auto object-contain sm:max-h-[calc(100vh-9rem)] sm:max-w-[calc(100vw-6rem)]"
+            className="max-h-[calc(100vh-12rem)] w-full object-contain"
           />
         )}
-
-        <button
-          aria-label="Next media item"
-          className="absolute right-0 top-0 z-10 hidden h-full w-1/5 min-w-12 items-center justify-end bg-gradient-to-l from-black/35 to-transparent pr-2 text-white/70 transition hover:text-white disabled:pointer-events-none disabled:opacity-0 sm:flex"
-          disabled={!canGoNext}
-          onClick={() => setLightboxIndex(currentIndex + 1)}
-          type="button"
-        >
-          <ChevronRight className="h-8 w-8" />
-        </button>
       </div>
-      <div className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-        <span>{item.caption}</span>
-        {item.file.source ? <span className="text-xs uppercase tracking-wide">{item.file.source}</span> : null}
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
+        {item.caption ? <span className="min-w-0 truncate">{item.caption}</span> : null}
+        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source}</span> : null}
+        <span className="ml-auto flex-none">{sizeLabel}</span>
+        <span className="hidden flex-none sm:inline">{new Date(item.file.updatedAt).toLocaleString()}</span>
       </div>
     </div>
   );

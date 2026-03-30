@@ -2,22 +2,10 @@ import { type RefObject, useCallback, useEffect } from "react";
 import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
 
 import { type MediaFile } from "@/components/app/types";
+import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media-lightbox";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".xml",
-  ".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".sh",
-  ".sql", ".diff", ".patch", ".env", ".ini", ".cfg", ".conf", ".swift",
-  ".kt", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".lua",
-  ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
-]);
-
-function isTextFileName(name: string): boolean {
-  const dot = name.lastIndexOf(".");
-  if (dot === -1) return false;
-  return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
-}
 
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -129,7 +117,7 @@ export function MediaSidebarContent({
             const unseen = !file.seen;
 
             const isStream = file.source === "stream";
-            const isText = file.source === "text" || isTextFileName(file.name);
+            const isText = file.source === "text" || isTextFile(file.name);
 
             return (
               <article
@@ -160,7 +148,7 @@ export function MediaSidebarContent({
                   >
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 flex-none text-muted-foreground" />
-                      <span className="truncate text-xs font-medium text-foreground">{file.name.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "")}</span>
+                      <span className="truncate text-xs font-medium text-foreground">{stripTimestamp(file.name)}</span>
                       <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{fileExtension(file.name)}</span>
                     </div>
                   </button>
@@ -184,7 +172,10 @@ export function MediaSidebarContent({
                 )}
                 <div className="mt-2 text-xs text-muted-foreground">
                   {file.description ? <div>{file.description}</div> : null}
-                  <div className={file.description ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
+                  <div className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}>
+                    <span>{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                    <MediaActions src={cacheBustUrl} fileName={file.name} isText={isText} />
+                  </div>
                 </div>
               </article>
             );
