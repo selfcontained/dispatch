@@ -623,27 +623,18 @@ const agentsCreatedChartConfig: ChartConfig = {
 function AgentsCreatedCard({
   data,
   total,
-  range,
 }: {
   data: AgentsCreatedEntry[];
   total: number;
-  range: ActivityRange;
 }) {
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] sm:text-xs text-muted-foreground">Agents created</p>
-          <p className="mt-0.5 sm:mt-1 text-lg sm:text-2xl font-semibold text-foreground">
-            {total}
-          </p>
-          <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">
-            {rangeLabel(range).toLowerCase()}
-          </p>
-        </div>
+    <div className="min-w-0 rounded-md border border-border bg-muted/40 px-2.5 py-2 sm:px-4 sm:py-3">
+      <p className="text-[10px] sm:text-xs text-muted-foreground">Agents created</p>
+      <div className="mt-0.5 sm:mt-1 flex items-end justify-between gap-2">
+        <p className="text-lg sm:text-2xl font-semibold text-foreground">{total}</p>
         {data.length > 1 && (
-          <ChartContainer config={agentsCreatedChartConfig} className="h-12 w-32 sm:h-14 sm:w-40">
-            <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <ChartContainer config={agentsCreatedChartConfig} className="h-8 w-20 sm:h-9 sm:w-24">
+            <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="agentsCreatedFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--color-count)" stopOpacity={0.4} />
@@ -835,16 +826,13 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                     value={tokenStats.total_sessions}
                     sub={`${tokenStats.total_messages} messages`}
                   />
+                  {agentsCreated && agentsCreated.total > 0 && (
+                    <AgentsCreatedCard
+                      data={agentsCreated.days}
+                      total={agentsCreated.total}
+                    />
+                  )}
                 </div>
-              )}
-
-              {/* Agents created sparkline */}
-              {agentsCreated && agentsCreated.total > 0 && (
-                <AgentsCreatedCard
-                  data={agentsCreated.days}
-                  total={agentsCreated.total}
-                  range={range}
-                />
               )}
 
               {/* Daily token chart */}
