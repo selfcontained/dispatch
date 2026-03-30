@@ -52,19 +52,19 @@ test.describe("Media sidebar", () => {
 
     const lightbox = page.getByTestId("media-lightbox");
     await expect(lightbox).toBeVisible();
-    await expect(lightbox).toContainText("1 / 2");
+    await expect(lightbox).toContainText("1/2");
     await expect(lightbox).toContainText("Second image");
 
     await page.getByTestId("media-lightbox-next").click();
-    await expect(lightbox).toContainText("2 / 2");
+    await expect(lightbox).toContainText("2/2");
     await expect(lightbox).toContainText("First image");
 
     await page.getByTestId("media-lightbox-prev").click();
-    await expect(lightbox).toContainText("1 / 2");
+    await expect(lightbox).toContainText("1/2");
     await expect(lightbox).toContainText("Second image");
 
     await page.keyboard.press("ArrowRight");
-    await expect(lightbox).toContainText("2 / 2");
+    await expect(lightbox).toContainText("2/2");
 
     await lightbox.getByRole("button", { name: "Close" }).click();
     await expect(lightbox).toBeHidden();

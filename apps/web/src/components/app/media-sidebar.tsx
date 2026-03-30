@@ -2,6 +2,7 @@ import { type RefObject, useCallback, useEffect } from "react";
 import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
 
 import { type MediaFile } from "@/components/app/types";
+import { MediaActions } from "@/components/app/media-lightbox";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -184,7 +185,10 @@ export function MediaSidebarContent({
                 )}
                 <div className="mt-2 text-xs text-muted-foreground">
                   {file.description ? <div>{file.description}</div> : null}
-                  <div className={file.description ? "mt-1" : ""}>{Math.max(1, Math.round(file.size / 1024))} KB</div>
+                  <div className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}>
+                    <span>{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                    <MediaActions src={cacheBustUrl} fileName={file.name} />
+                  </div>
                 </div>
               </article>
             );
