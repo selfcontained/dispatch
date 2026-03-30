@@ -2,12 +2,13 @@ import { Fragment, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
   XAxis,
+  YAxis,
 } from "recharts";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -497,6 +498,7 @@ const tokenChartConfig: ChartConfig = {
   cache_read_tokens: { label: "Cache read", color: "hsl(var(--chart-3))" },
   cache_creation_tokens: { label: "Cache write", color: "hsl(var(--chart-4))" },
   output_tokens: { label: "Output", color: "hsl(var(--chart-2))" },
+  agents_created: { label: "Agents created", color: "hsl(var(--foreground))" },
 };
 
 const EMPTY_TOKEN_ENTRY = (day: string): TokenDailyEntry => ({
@@ -511,14 +513,23 @@ const EMPTY_TOKEN_ENTRY = (day: string): TokenDailyEntry => ({
 function DailyTokenChart({
   data: rawData,
   granularity,
+  agentsCreatedData,
 }: {
   data: TokenDailyEntry[];
   granularity: ActivityGranularity;
+  agentsCreatedData?: AgentsCreatedEntry[];
 }) {
   const chartData = useMemo(() => {
     const filled = fillGaps(rawData, granularity, EMPTY_TOKEN_ENTRY);
-    return filled.map((d) => ({ ...d, label: formatBucketLabel(d.day, granularity) }));
-  }, [granularity, rawData]);
+    const agentsMap = new Map(agentsCreatedData?.map((d) => [d.day, d.count]) ?? []);
+    return filled.map((d) => ({
+      ...d,
+      label: formatBucketLabel(d.day, granularity),
+      agents_created: agentsMap.get(d.day) ?? 0,
+    }));
+  }, [granularity, rawData, agentsCreatedData]);
+
+  const hasAgentsLine = chartData.some((d) => d.agents_created > 0);
 
   if (chartData.length === 0) {
     return (
@@ -530,7 +541,7 @@ function DailyTokenChart({
 
   return (
     <ChartContainer config={tokenChartConfig} className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full">
-      <BarChart data={chartData} barCategoryGap="20%">
+      <ComposedChart data={chartData} barCategoryGap="20%">
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="label"
@@ -539,6 +550,10 @@ function DailyTokenChart({
           tickMargin={8}
           interval="preserveStartEnd"
         />
+        <YAxis yAxisId="tokens" hide />
+        {hasAgentsLine && (
+          <YAxis yAxisId="agents" orientation="right" hide />
+        )}
         <ChartTooltip
           content={
             <ChartTooltipContent
@@ -556,7 +571,9 @@ function DailyTokenChart({
                       {tokenChartConfig[name as string]?.label ?? name}
                     </span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
-                      {formatTokenCount(value as number)}
+                      {name === "agents_created"
+                        ? String(value)
+                        : formatTokenCount(value as number)}
                     </span>
                   </div>
                 </>
@@ -570,12 +587,23 @@ function DailyTokenChart({
           <Bar
             key={key}
             dataKey={key}
+            yAxisId="tokens"
             stackId="tokens"
             fill={tokenChartConfig[key]?.color}
             radius={key === "output_tokens" ? [2, 2, 0, 0] : 0}
           />
         ))}
-      </BarChart>
+        {hasAgentsLine && (
+          <Line
+            type="monotone"
+            dataKey="agents_created"
+            yAxisId="agents"
+            stroke="var(--color-agents_created)"
+            strokeWidth={2}
+            dot={{ r: 3, fill: "var(--color-agents_created)" }}
+          />
+        )}
+      </ComposedChart>
     </ChartContainer>
   );
 }
@@ -609,48 +637,6 @@ function HorizontalBar({
           className={cn("h-2 rounded-full transition-all", color)}
           style={{ width: `${Math.max(pct, 1)}%` }}
         />
-      </div>
-    </div>
-  );
-}
-
-// ── Agents created sparkline card ─────────────────────────────────
-
-const agentsCreatedChartConfig: ChartConfig = {
-  count: { label: "Agents", color: "hsl(var(--chart-3))" },
-};
-
-function AgentsCreatedCard({
-  data,
-  total,
-}: {
-  data: AgentsCreatedEntry[];
-  total: number;
-}) {
-  return (
-    <div className="min-w-0 rounded-md border border-border bg-muted/40 px-2.5 py-2 sm:px-4 sm:py-3">
-      <p className="text-[10px] sm:text-xs text-muted-foreground">Agents created</p>
-      <div className="mt-0.5 sm:mt-1 flex items-end justify-between gap-2">
-        <p className="text-lg sm:text-2xl font-semibold text-foreground">{total}</p>
-        {data.length > 1 && (
-          <ChartContainer config={agentsCreatedChartConfig} className="h-8 w-20 sm:h-9 sm:w-24">
-            <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="agentsCreatedFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--color-count)" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="var(--color-count)" stopOpacity={0.05} />
-                </linearGradient>
-              </defs>
-              <Area
-                type="monotone"
-                dataKey="count"
-                stroke="var(--color-count)"
-                strokeWidth={1.5}
-                fill="url(#agentsCreatedFill)"
-              />
-            </AreaChart>
-          </ChartContainer>
-        )}
       </div>
     </div>
   );
@@ -824,18 +810,16 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                   <StatCard
                     label="Sessions"
                     value={tokenStats.total_sessions}
-                    sub={`${tokenStats.total_messages} messages`}
+                    sub={
+                      agentsCreated && agentsCreated.total > 0
+                        ? `${agentsCreated.total} agents · ${tokenStats.total_messages} msgs`
+                        : `${tokenStats.total_messages} messages`
+                    }
                   />
-                  {agentsCreated && agentsCreated.total > 0 && (
-                    <AgentsCreatedCard
-                      data={agentsCreated.days}
-                      total={agentsCreated.total}
-                    />
-                  )}
                 </div>
               )}
 
-              {/* Daily token chart */}
+              {/* Daily token chart + agents created line */}
               {tokenDaily && tokenDaily.days.length > 0 && (
                 <div>
                   <h2 className="mb-3 text-sm font-medium text-foreground">
@@ -844,6 +828,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                   <DailyTokenChart
                     data={tokenDaily.days}
                     granularity={tokenDaily.granularity}
+                    agentsCreatedData={agentsCreated?.days}
                   />
                 </div>
               )}
