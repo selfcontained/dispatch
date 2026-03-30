@@ -16,19 +16,8 @@ The following work is already in the product and should be treated as baseline, 
 - Soft delete via `agents.deleted_at`, with active-agent queries filtering deleted rows
 - Token harvesting into `agent_token_usage`
 - Token dashboards for totals, daily usage, by model, and by project
-
-## Next Up: Event-Derived Metrics
-
-Derive more value from existing `agent_events` data before adding new ingestion paths.
-
-- **Agent count over time** — agents created per day/week using the first event per `agent_id`
-- **Per-project breakdown** — group by `project_dir`, show working time per project
-
-Why this phase goes first:
-
-- no schema changes required
-- no new background harvesting required
-- unlocks a better information architecture for the activity pane
+- Agents-created sparkline card (total + trend) derived from first event per `agent_id`
+- Per-project working time breakdown merged into the project breakdown view
 
 ## Follow-On: History Views Enabled By Soft Delete
 
