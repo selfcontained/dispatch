@@ -14,10 +14,10 @@ Usage: bin/dispatch-server <command>
 
 Commands:
   start     Load and start the launchd service
-  stop      Send SIGTERM to the running service
+  stop      Unload the launchd service
   restart   Kill and restart the launchd service
   status    Show launchd service state and health check
-  logs      Tail the service log file
+  logs [-f] Show recent log output (use -f to follow)
   build     Run a fresh production build
   update    Fresh build + restart + health check
 USAGE
@@ -100,8 +100,9 @@ cmd_stop() {
     echo "service is not loaded"
     return
   fi
-  launchctl kill SIGTERM "${SERVICE_TARGET}/${SERVICE_LABEL}"
-  echo "sent SIGTERM to $SERVICE_LABEL"
+  # bootout fully unloads the service so KeepAlive doesn't restart it
+  launchctl bootout "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  echo "service unloaded"
 }
 
 cmd_restart() {
@@ -143,7 +144,11 @@ cmd_logs() {
     echo "log file not found: $LOG_FILE" >&2
     exit 1
   fi
-  tail -n 200 -f "$LOG_FILE"
+  if [[ "${1:-}" == "-f" || "${1:-}" == "--follow" ]]; then
+    tail -n 200 -f "$LOG_FILE"
+  else
+    tail -n 200 "$LOG_FILE"
+  fi
 }
 
 cmd_build() {
@@ -174,7 +179,7 @@ main() {
     stop) cmd_stop ;;
     restart) cmd_restart ;;
     status) cmd_status ;;
-    logs) cmd_logs ;;
+    logs) shift; cmd_logs "$@" ;;
     build) cmd_build ;;
     update) cmd_update ;;
     *) usage; exit 1 ;;
