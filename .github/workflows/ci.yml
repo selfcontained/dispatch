@@ -11,6 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -37,27 +41,24 @@ jobs:
           done
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Install web dependencies
-        run: npm --prefix web ci
+        run: pnpm install --frozen-lockfile
 
       - name: Type check
-        run: npm run check
+        run: pnpm run check
 
       - name: Lint
-        run: npm run lint:web
+        run: pnpm run lint:web
 
       - name: Test
-        run: npm test
+        run: pnpm run test
         env:
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Install Playwright browsers
-        run: npx playwright install chromium
+        run: pnpm exec playwright install chromium
 
       - name: Create CI test database
         run: |
@@ -71,7 +72,7 @@ jobs:
           echo "port=$PORT" >> "$GITHUB_OUTPUT"
 
       - name: E2E tests
-        run: npx playwright test
+        run: pnpm exec playwright test
         env:
           CI: "true"
           E2E_PORT: "${{ steps.e2e.outputs.port }}"

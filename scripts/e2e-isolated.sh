@@ -54,7 +54,7 @@ echo "==> Starting isolated Postgres (project: ${PROJECT}, port: ${DB_PORT})"
 $COMPOSE -p "$PROJECT" up -d --wait
 
 echo "==> Building web bundle"
-npm run build:web
+pnpm run build:web
 
 echo "==> Running Playwright tests (API port: ${API_PORT})"
-DISPATCH_AGENT_RUNTIME=inert E2E_SKIP_WEB_BUILD=1 npx playwright test "$@"
+DISPATCH_AGENT_RUNTIME=inert E2E_SKIP_WEB_BUILD=1 pnpm exec playwright test "$@"

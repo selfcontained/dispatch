@@ -2,6 +2,31 @@
 
 <!-- Keep behavioral rules in sync with AGENTS.md (used by Codex agents). -->
 
+## Project Structure (pnpm monorepo)
+```
+dispatch/
+├── pnpm-workspace.yaml       # workspace config
+├── apps/
+│   ├── server/                # Fastify API server (@dispatch/server)
+│   │   ├── src/               # backend source
+│   │   └── test/              # unit tests (vitest)
+│   └── web/                   # Vite React frontend (@dispatch/web)
+│       └── src/
+├── packages/
+│   └── shared/                # Shared code (@dispatch/shared)
+│       └── src/
+│           ├── git/           # git worktree operations
+│           ├── github/        # GitHub PR operations
+│           ├── mcp/           # MCP server + repo tools
+│           └── lib/           # run-command utility
+├── e2e/                       # Playwright E2E tests
+├── bin/                       # dispatch-dev, dispatch-server
+├── scripts/                   # e2e-isolated.sh
+└── docs/
+```
+- Use `pnpm` (not npm) for all package management.
+- Import shared code as `@dispatch/shared/lib/run-command.js`, `@dispatch/shared/git/worktree.js`, etc.
+
 ## CRITICAL: Dispatch Status Events (Mandatory)
 - You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.
 - **Event types and when to use them:**
@@ -34,16 +59,16 @@
 
 ## Pre-Completion Checks (Mandatory)
 Before marking any task as done, run the following checks and fix any failures:
-1. **Type checking**: `npm run check` (runs `tsc --noEmit` for backend + web).
-2. **Web finalization**: If any files under `web/` changed, run `npm run finalize:web` (type check + production build).
-3. **E2E tests**: `npm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
-4. **Unit tests**: `npm test` (Vitest) if backend logic changed.
+1. **Type checking**: `pnpm run check` (runs `tsc --noEmit` for backend + web).
+2. **Web finalization**: If any files under `apps/web/` changed, run `pnpm run finalize:web` (type check + production build).
+3. **E2E tests**: `pnpm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
+4. **Unit tests**: `pnpm run test` (Vitest) if backend logic changed.
 - Do not consider a task complete until all applicable checks pass.
 - If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
 
 ## Web Finalization
-- If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
-- After running `npm run finalize:web`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
+- If any files under `apps/web/` changed, run `pnpm run finalize:web` before marking the task complete.
+- After running `pnpm run finalize:web`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
 - After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
 - In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 
@@ -53,7 +78,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - Playwright screenshots should be published via the `dispatch_share` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
-- **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
+- **NEVER run `pnpm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
 - Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and Vite frontend, all on auto-selected free ports. The suffix is derived from `DISPATCH_AGENT_ID` automatically in agent sessions.
 - **Prefer `dispatch-dev restart` over `down` + `up`** when you need to pick up code changes. Restart reuses the same ports and DB — no wasted time recreating containers. Only use `down` when the user asks or you're done for good.

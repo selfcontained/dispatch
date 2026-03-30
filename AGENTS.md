@@ -33,16 +33,16 @@
 
 ## Pre-Completion Checks (Mandatory)
 Before marking any task as done, run the following checks and fix any failures:
-1. **Type checking**: `npm run check` (runs `tsc --noEmit` for backend + web).
-2. **Web finalization**: If any files under `web/` changed, run `npm run finalize:web` (type check + production build).
-3. **E2E tests**: `npm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
-4. **Unit tests**: `npm test` (Vitest) if backend logic changed.
+1. **Type checking**: `pnpm run check` (runs `tsc --noEmit` for backend + web).
+2. **Web finalization**: If any files under `apps/web/` changed, run `pnpm run finalize:web` (type check + production build).
+3. **E2E tests**: `pnpm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
+4. **Unit tests**: `pnpm run test` (Vitest) if backend logic changed.
 - Do not consider a task complete until all applicable checks pass.
 - If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
 
 ## Web Finalization
-- If any files under `web/` changed, run `npm run finalize:web` before marking the task complete.
-- After running `npm run finalize:web`, verify the served app via an explicitly started local dev stack when the task affects UI/theme/rendering behavior.
+- If any files under `apps/web/` changed, run `pnpm run finalize:web` before marking the task complete.
+- After running `pnpm run finalize:web`, verify the served app via an explicitly started local dev stack when the task affects UI/theme/rendering behavior.
 - After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
 - In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 
@@ -52,7 +52,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - Playwright screenshots should be published via the `dispatch_share` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
-- **NEVER run `npm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
+- **NEVER run `pnpm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
 - Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and Vite frontend, all on auto-selected free ports.
 - When `DISPATCH_AGENT_ID` is set (normal agent sessions), the suffix is derived automatically. Otherwise pass `--suffix <name>` or let the script generate one.

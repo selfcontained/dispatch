@@ -7,9 +7,9 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
-import { createGitWorktree, cleanupGitWorktree } from "../git/worktree.js";
-import { runCommand } from "../lib/run-command.js";
-import { loadRepoHooks } from "../mcp/repo-tools.js";
+import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
+import { runCommand } from "@dispatch/shared/lib/run-command.js";
+import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { runCommand } from "../lib/run-command.js";
+import { runCommand } from "@dispatch/shared/lib/run-command.js";
 
 export class TmuxTerminal {
   private readonly sessionName: string;

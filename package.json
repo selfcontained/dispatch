@@ -8,43 +8,22 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "npm run build:web && tsc -p tsconfig.json",
-    "build:web": "npm --prefix web run build",
-    "check:web": "npm --prefix web run check",
-    "lint:web": "npm --prefix web run lint",
-    "finalize:web": "npm run check:web && npm run build:web",
-    "start": "node dist/server.js",
+    "dev": "pnpm --filter @dispatch/server dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @dispatch/web build",
+    "check:web": "pnpm --filter @dispatch/web check",
+    "lint:web": "pnpm --filter @dispatch/web lint",
+    "finalize:web": "pnpm run check:web && pnpm run build:web",
+    "start": "pnpm --filter @dispatch/server start",
     "release": "bin/dispatch-server update",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "check": "tsc --noEmit && npm run check:web",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "bash scripts/e2e-isolated.sh",
-    "postinstall": "npm --prefix web install"
-  },
-  "dependencies": {
-    "@fastify/cookie": "^9.4.0",
-    "@fastify/multipart": "^8.3.1",
-    "@fastify/static": "^6.12.0",
-    "@fastify/websocket": "^8.3.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "bcryptjs": "^3.0.3",
-    "dotenv": "^17.3.1",
-    "fastify": "^4.29.1",
-    "node-pty": "^1.0.0",
-    "pg": "^8.20.0",
-    "zod": "^4.3.6"
+    "db:migrate": "pnpm --filter @dispatch/server db:migrate",
+    "check": "pnpm --filter @dispatch/shared build && pnpm --filter @dispatch/server check && pnpm run check:web",
+    "test": "pnpm --filter @dispatch/server test",
+    "test:watch": "pnpm --filter @dispatch/server test:watch",
+    "test:e2e": "bash scripts/e2e-isolated.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^24.10.0",
-    "@types/pg": "^8.18.0",
-    "@types/ws": "^8.18.1",
-    "playwright": "^1.54.2",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "playwright": "^1.54.2"
   }
 }

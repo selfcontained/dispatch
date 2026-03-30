@@ -4,7 +4,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
-import type { AgentRecord } from "../agents/manager.js";
 import {
   createPr,
   enablePrAutomerge,
@@ -19,6 +18,8 @@ import {
 } from "../git/worktree.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 
+export type McpAgent = { id: string; cwd: string };
+
 export type MediaResult = {
   fileName: string;
   url: string;
@@ -28,7 +29,7 @@ export type MediaResult = {
 };
 
 export type McpRequestContext = {
-  agent: AgentRecord | null;
+  agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
   upsertEvent?: (

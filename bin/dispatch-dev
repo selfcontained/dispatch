@@ -228,7 +228,7 @@ cmd_up() {
       export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
     fi
 
-    npm run dev >> "$(log_dir)/api.log" 2>&1 &
+    pnpm run dev >> "$(log_dir)/api.log" 2>&1 &
     echo $! > "$(log_dir)/api.pid"
   )
 
@@ -254,12 +254,12 @@ cmd_up() {
   DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
 
   # Clear stale Vite dep optimizer cache to prevent white-page on fresh worktrees
-  rm -rf "${cwd}/web/node_modules/.vite" 2>/dev/null || true
+  rm -rf "${cwd}/apps/web/node_modules/.vite" 2>/dev/null || true
 
   (
     cd "$cwd"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" npm --prefix web run dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    DISPATCH_PORT="$DEV_API_PORT" pnpm --filter @dispatch/web dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 

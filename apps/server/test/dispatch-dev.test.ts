@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BIN = path.join(REPO_ROOT, "bin", "dispatch-dev");
 const SUFFIX = `test-${process.pid}-${Date.now()}`;
 const STATE_FILE = `/tmp/dispatch-dev-${SUFFIX}.env`;
