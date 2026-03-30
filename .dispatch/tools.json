@@ -1,4 +1,9 @@
 {
+  "hooks": {
+    "stop": {
+      "command": ["./bin/dispatch-dev", "down"]
+    }
+  },
   "tools": [
     {
       "name": "dev_up",

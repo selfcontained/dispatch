@@ -9,6 +9,7 @@ import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
 import { createGitWorktree, cleanupGitWorktree } from "../git/worktree.js";
 import { runCommand } from "../lib/run-command.js";
+import { loadRepoHooks } from "../mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
@@ -394,6 +395,11 @@ export class AgentManager {
     }
 
     await this.setAgentStatus(id, "stopping", null, tmuxSession ?? undefined);
+
+    // Run repo-defined stop hook (best-effort, non-blocking)
+    await this.runLifecycleHook("stop", agent).catch((err) =>
+      this.logger.warn({ err, agentId: id }, "Stop hook failed; continuing shutdown")
+    );
 
     try {
       if (tmuxSession && (await this.hasAgentSession(tmuxSession))) {
@@ -1015,6 +1021,34 @@ export class AgentManager {
 
     if (await this.hasAgentSession(sessionName)) {
       await runCommand("tmux", ["kill-session", "-t", sessionName]);
+    }
+  }
+
+  private async runLifecycleHook(hookName: "stop", agent: AgentRecord): Promise<void> {
+    const repoRoot = agent.worktreePath ?? agent.cwd;
+    if (!repoRoot) return;
+
+    const hooks = await loadRepoHooks(repoRoot);
+    const hook = hooks[hookName];
+    if (!hook) return;
+
+    const [command, ...args] = hook.command;
+    this.logger.info({ agentId: agent.id, hook: hookName, command: hook.command }, "Running lifecycle hook");
+
+    const result = await runCommand(command, args, {
+      cwd: repoRoot,
+      env: {
+        DISPATCH_AGENT_ID: agent.id,
+        HOSTESS_AGENT_ID: agent.id,
+      },
+      timeoutMs: 15_000,
+    });
+
+    if (result.exitCode !== 0) {
+      this.logger.warn(
+        { agentId: agent.id, hook: hookName, exitCode: result.exitCode, stderr: result.stderr },
+        "Lifecycle hook exited with non-zero code"
+      );
     }
   }
 

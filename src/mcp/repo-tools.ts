@@ -18,6 +18,15 @@ const BUILTIN_TOOL_NAMES = new Set([
 
 type RepoToolFile = {
   tools?: unknown;
+  hooks?: unknown;
+};
+
+export type RepoHookDefinition = {
+  command: string[];
+};
+
+export type RepoHooks = {
+  stop?: RepoHookDefinition;
 };
 
 export type RepoToolParam = {
@@ -139,6 +148,38 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   const params = parseRepoToolParams(rawTool.params);
 
   return { name, description, command, params };
+}
+
+export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
+  const config = await readRepoToolFile(path.join(repoRoot, REPO_TOOL_MANIFEST_PATH));
+  if (!config?.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+    return {};
+  }
+
+  const hooks: RepoHooks = {};
+  const raw = config.hooks as Record<string, unknown>;
+
+  if (raw.stop) {
+    hooks.stop = parseHookDefinition(raw.stop, "stop");
+  }
+
+  return hooks;
+}
+
+function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid hook definition for "${name}".`);
+  }
+  const raw = value as Record<string, unknown>;
+  const command = Array.isArray(raw.command) && raw.command.every((part) => typeof part === "string")
+    ? raw.command.map((part) => (part as string).trim()).filter(Boolean)
+    : [];
+
+  if (command.length === 0) {
+    throw new Error(`Hook "${name}" must include a non-empty command array.`);
+  }
+
+  return { command };
 }
 
 function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {
