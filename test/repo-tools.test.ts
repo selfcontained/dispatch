@@ -119,6 +119,15 @@ describe("loadRepoHooks", () => {
     expect(hooks).toEqual({});
   });
 
+  it("parses optional description field", async () => {
+    const repoRoot = await createToolsRepo([], {
+      stop: { command: ["./bin/cleanup"], description: "Clean up resources" }
+    });
+
+    const hooks = await loadRepoHooks(repoRoot);
+    expect(hooks.stop).toEqual({ command: ["./bin/cleanup"], description: "Clean up resources" });
+  });
+
   it("throws on hook with empty command", async () => {
     const repoRoot = await createToolsRepo([], {
       stop: { command: [] }

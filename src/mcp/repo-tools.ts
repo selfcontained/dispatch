@@ -1,9 +1,12 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
+
+// Cache parsed hooks keyed by manifest path, invalidated by mtime.
+const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
   "create_worktree",
@@ -23,6 +26,7 @@ type RepoToolFile = {
 
 export type RepoHookDefinition = {
   command: string[];
+  description?: string;
 };
 
 export type RepoHooks = {
@@ -150,9 +154,26 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
 }
 
 export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
-  const config = await readRepoToolFile(path.join(repoRoot, REPO_TOOL_MANIFEST_PATH));
-  if (!config?.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+  const manifestPath = path.join(repoRoot, REPO_TOOL_MANIFEST_PATH);
+
+  // Check mtime for cache invalidation.
+  let mtime: number;
+  try {
+    mtime = (await stat(manifestPath)).mtimeMs;
+  } catch {
     return {};
+  }
+
+  const cached = hooksCache.get(manifestPath);
+  if (cached && cached.mtime === mtime) {
+    return cached.hooks;
+  }
+
+  const config = await readRepoToolFile(manifestPath);
+  if (!config?.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+    const empty = {};
+    hooksCache.set(manifestPath, { mtime, hooks: empty });
+    return empty;
   }
 
   const hooks: RepoHooks = {};
@@ -162,6 +183,7 @@ export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
     hooks.stop = parseHookDefinition(raw.stop, "stop");
   }
 
+  hooksCache.set(manifestPath, { mtime, hooks });
   return hooks;
 }
 
@@ -178,7 +200,9 @@ function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {
     throw new Error(`Hook "${name}" must include a non-empty command array.`);
   }
 
-  return { command };
+  const description = typeof raw.description === "string" ? raw.description.trim() : undefined;
+
+  return { command, ...(description ? { description } : {}) };
 }
 
 function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {

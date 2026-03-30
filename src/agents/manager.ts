@@ -444,12 +444,13 @@ export class AgentManager {
       throw new AgentError("Agent is running. Stop it first or use force delete.", 409);
     }
 
-    if (agent.status === "running" && !sessionExists) {
-      await this.setAgentStatus(id, "stopped", null, agent.tmuxSession ?? undefined);
-    }
-
-    if (agent.tmuxSession && sessionExists) {
-      await this.stopAgentSession(agent.tmuxSession, true);
+    // Run full stop lifecycle (hooks, graceful shutdown, token harvest) for non-stopped agents.
+    if (agent.status !== "stopped") {
+      try {
+        await this.stopAgent(id, { force: true });
+      } catch (err) {
+        this.logger.warn({ err, agentId: id }, "Stop during delete failed; continuing with deletion");
+      }
     }
 
     // Worktree cleanup
@@ -473,16 +474,6 @@ export class AgentManager {
         this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
       }
     }
-
-    // Harvest token usage before soft-deleting
-    await harvestTokenUsage(this.pool, {
-      id: agent.id,
-      type: agent.type,
-      cwd: agent.cwd,
-      worktreePath: agent.worktreePath,
-    }, this.logger).catch((err) =>
-      this.logger.warn({ err, agentId: id }, "Token harvest failed on delete")
-    );
 
     // Record a final stopped event in history before deleting the agent row
     await this.pool
