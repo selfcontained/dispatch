@@ -168,46 +168,47 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
 
   const displayName = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
 
-  const handleCopy = useCallback(async () => {
-    try {
-      const res = await fetch(src);
-      const ct = res.headers.get("content-type") ?? "";
+  const markCopied = useCallback(() => {
+    setCopied(true);
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+  }, []);
 
-      if (ct.startsWith("image/png") && typeof ClipboardItem !== "undefined") {
-        const blob = await res.blob();
-        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-      } else if (ct.startsWith("text/") || isTextFile(fileName)) {
-        const text = await res.text();
-        await navigator.clipboard.writeText(text);
-      } else {
-        await navigator.clipboard.writeText(window.location.origin + src);
-      }
+  const handleCopy = useCallback(() => {
+    // Safari/iOS requires ClipboardItem to be created synchronously within
+    // the click handler to preserve the user-gesture chain. The blob data
+    // can be a Promise — this lets us fetch content without losing the
+    // gesture context.
+    if (typeof ClipboardItem !== "undefined") {
+      const blobPromise = fetch(src)
+        .then((res) => res.blob())
+        .then((blob) => {
+          if (blob.type.startsWith("image/png")) return blob;
+          // Convert everything else to text/plain for clipboard
+          return blob.text().then((t) => new Blob([t], { type: "text/plain" }));
+        });
 
-      setCopied(true);
-      if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API may not be available (e.g. non-HTTPS on mobile).
-      // Fall back to legacy execCommand for text content.
-      try {
-        const res = await fetch(src);
-        const text = await res.text();
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-        setCopied(true);
-        if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-        copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
-      } catch {
-        // Silent fail — nothing more we can do
-      }
+      void navigator.clipboard
+        .write([new ClipboardItem({ [isTextFile(fileName) ? "text/plain" : "image/png"]: blobPromise })])
+        .then(markCopied)
+        .catch(() => {
+          // If image/png write fails (e.g. non-PNG), retry as text
+          const textBlob = fetch(src)
+            .then((r) => r.text())
+            .then((t) => new Blob([t], { type: "text/plain" }));
+          return navigator.clipboard.write([new ClipboardItem({ "text/plain": textBlob })]);
+        })
+        .then(markCopied)
+        .catch(() => {});
+    } else {
+      // Fallback for browsers without ClipboardItem
+      void fetch(src)
+        .then((res) => res.text())
+        .then((text) => navigator.clipboard.writeText(text))
+        .then(markCopied)
+        .catch(() => {});
     }
-  }, [src, fileName]);
+  }, [src, fileName, markCopied]);
 
   return (
     <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
