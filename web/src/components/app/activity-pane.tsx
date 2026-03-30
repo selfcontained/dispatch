@@ -2,6 +2,8 @@ import { Fragment, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -30,13 +32,16 @@ import {
   useActiveHours,
   useActivityHeatmap,
   useActivityStats,
+  useAgentsCreated,
   useDailyStatus,
   useTokenStats,
   useTokenDaily,
   useTokenByModel,
   useTokenByProject,
+  useWorkingTimeByProject,
   rangeLabel,
   type ActivityGranularity,
+  type AgentsCreatedEntry,
   type ActiveHoursCell,
   type ActivityRange,
   type DailyStatusEntry,
@@ -44,6 +49,7 @@ import {
   type TokenStats,
   type TokenByModel,
   type TokenByProject,
+  type WorkingTimeByProject,
 } from "@/hooks/use-activity";
 
 type ActivityPaneProps = {
@@ -608,6 +614,57 @@ function HorizontalBar({
   );
 }
 
+// ── Agents created sparkline card ─────────────────────────────────
+
+const agentsCreatedChartConfig: ChartConfig = {
+  count: { label: "Agents", color: "hsl(var(--chart-3))" },
+};
+
+function AgentsCreatedCard({
+  data,
+  total,
+  range,
+}: {
+  data: AgentsCreatedEntry[];
+  total: number;
+  range: ActivityRange;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-muted/40 px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[10px] sm:text-xs text-muted-foreground">Agents created</p>
+          <p className="mt-0.5 sm:mt-1 text-lg sm:text-2xl font-semibold text-foreground">
+            {total}
+          </p>
+          <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">
+            {rangeLabel(range).toLowerCase()}
+          </p>
+        </div>
+        {data.length > 1 && (
+          <ChartContainer config={agentsCreatedChartConfig} className="h-12 w-32 sm:h-14 sm:w-40">
+            <AreaChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+              <defs>
+                <linearGradient id="agentsCreatedFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--color-count)" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="var(--color-count)" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <Area
+                type="monotone"
+                dataKey="count"
+                stroke="var(--color-count)"
+                strokeWidth={1.5}
+                fill="url(#agentsCreatedFill)"
+              />
+            </AreaChart>
+          </ChartContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Per-model breakdown ───────────────────────────────────────────
 
 function ModelBreakdown({ data }: { data: TokenByModel[] }) {
@@ -635,21 +692,50 @@ function ModelBreakdown({ data }: { data: TokenByModel[] }) {
 
 // ── Per-project breakdown ─────────────────────────────────────────
 
-function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
+function ProjectBreakdown({
+  data,
+  workingTime,
+}: {
+  data: TokenByProject[];
+  workingTime?: WorkingTimeByProject[];
+}) {
   if (data.length === 0) return null;
   const max = Math.max(...data.map((p) => p.total_input + p.total_output));
+  const wtMap = new Map(workingTime?.map((w) => [w.project_dir, w.working_time_ms]) ?? []);
+  const maxWt = Math.max(...(workingTime?.map((w) => w.working_time_ms) ?? [0]));
 
   return (
-    <div className="space-y-3">
-      {data.map((p) => (
-        <HorizontalBar
-          key={p.project_dir}
-          label={shortProjectName(p.project_dir)}
-          value={p.total_input + p.total_output}
-          maxValue={max}
-          color="bg-chart-6"
-        />
-      ))}
+    <div className="space-y-4">
+      {data.map((p) => {
+        const wt = wtMap.get(p.project_dir);
+        return (
+          <div key={p.project_dir} className="space-y-1.5">
+            <HorizontalBar
+              label={shortProjectName(p.project_dir)}
+              value={p.total_input + p.total_output}
+              maxValue={max}
+              color="bg-chart-6"
+              sub="tokens"
+            />
+            {wt != null && wt > 0 && (
+              <div className="pl-0">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-transparent">{shortProjectName(p.project_dir)}</span>
+                  <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
+                    {formatDuration(wt)} working
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-muted/60">
+                  <div
+                    className="h-2 rounded-full transition-all bg-chart-3/70"
+                    style={{ width: `${Math.max((wt / maxWt) * 100, 1)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -666,6 +752,8 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
   const { data: tokenDaily } = useTokenDaily(range);
   const { data: tokenByModel } = useTokenByModel(range);
   const { data: tokenByProject } = useTokenByProject(range);
+  const { data: agentsCreated } = useAgentsCreated(range);
+  const { data: workingTimeByProject } = useWorkingTimeByProject(range);
 
   const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
   const totalTokens = tokenStats
@@ -750,6 +838,15 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                 </div>
               )}
 
+              {/* Agents created sparkline */}
+              {agentsCreated && agentsCreated.total > 0 && (
+                <AgentsCreatedCard
+                  data={agentsCreated.days}
+                  total={agentsCreated.total}
+                  range={range}
+                />
+              )}
+
               {/* Daily token chart */}
               {tokenDaily && tokenDaily.days.length > 0 && (
                 <div>
@@ -777,9 +874,9 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                   {tokenByProject && tokenByProject.length > 0 && (
                     <div>
                       <h2 className="mb-3 text-sm font-medium text-foreground">
-                        Tokens by project
+                        By project
                       </h2>
-                      <ProjectBreakdown data={tokenByProject} />
+                      <ProjectBreakdown data={tokenByProject} workingTime={workingTimeByProject} />
                     </div>
                   )}
                 </div>

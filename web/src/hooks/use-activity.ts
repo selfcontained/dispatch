@@ -215,3 +215,41 @@ export function useTokenByProject(range: ActivityRange) {
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
+
+// ── Event-derived metrics ────────────────────────────────────────
+
+export type AgentsCreatedEntry = { day: string; count: number };
+export type AgentsCreatedResponse = {
+  days: AgentsCreatedEntry[];
+  total: number;
+  granularity: ActivityGranularity;
+};
+
+export function useAgentsCreated(range: ActivityRange) {
+  return useQuery<AgentsCreatedResponse>({
+    queryKey: ["activity", "agents-created", range],
+    queryFn: () =>
+      api<AgentsCreatedResponse>(
+        `/api/v1/activity/agents-created?${activityParams(range)}`
+      ),
+    ...ACTIVITY_QUERY_OPTIONS,
+  });
+}
+
+export type WorkingTimeByProject = {
+  project_dir: string;
+  working_time_ms: number;
+};
+
+export function useWorkingTimeByProject(range: ActivityRange) {
+  return useQuery<WorkingTimeByProject[]>({
+    queryKey: ["activity", "working-time-by-project", range],
+    queryFn: async () => {
+      const payload = await api<{ projects: WorkingTimeByProject[] }>(
+        `/api/v1/activity/working-time-by-project?${activityParams(range)}`
+      );
+      return payload.projects;
+    },
+    ...ACTIVITY_QUERY_OPTIONS,
+  });
+}

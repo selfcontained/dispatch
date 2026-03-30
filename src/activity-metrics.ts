@@ -4,6 +4,7 @@ export type ActivityEventRow = {
   agent_id: string;
   event_type: string;
   created_at: Date;
+  project_dir?: string | null;
 };
 
 export type ActivityStatsResult = {
@@ -164,4 +165,51 @@ export function computeDailyStatus(
   return Array.from(dailyMap.entries())
     .map(([day, durations]) => ({ day, ...durations }))
     .sort((a, b) => String(a.day).localeCompare(String(b.day)));
+}
+
+export type WorkingTimeByProjectEntry = {
+  project_dir: string;
+  working_time_ms: number;
+};
+
+export function computeWorkingTimeByProject(
+  rows: ActivityEventRow[],
+  rangeStart: Date | null
+): WorkingTimeByProjectEntry[] {
+  const rangeStartMs = rangeStart?.getTime() ?? null;
+  const projectMap = new Map<string, number>();
+
+  let prevAgentId: string | null = null;
+  let prevType: string | null = null;
+  let prevTime: number | null = null;
+  let prevProject: string | null = null;
+
+  for (const row of rows) {
+    const t = row.created_at.getTime();
+
+    if (row.agent_id !== prevAgentId) {
+      prevAgentId = row.agent_id;
+      prevType = row.event_type;
+      prevTime = t;
+      prevProject = row.project_dir ?? null;
+      continue;
+    }
+
+    if (prevType === "working" && prevTime !== null && prevProject) {
+      const segmentStart = rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
+      const dur = t - segmentStart;
+      if (dur > 0) {
+        projectMap.set(prevProject, (projectMap.get(prevProject) ?? 0) + dur);
+      }
+    }
+
+    prevType = row.event_type;
+    prevTime = t;
+    prevProject = row.project_dir ?? prevProject;
+  }
+
+  return Array.from(projectMap.entries())
+    .map(([project_dir, working_time_ms]) => ({ project_dir, working_time_ms }))
+    .sort((a, b) => b.working_time_ms - a.working_time_ms)
+    .slice(0, 20);
 }
