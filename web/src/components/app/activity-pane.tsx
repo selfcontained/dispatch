@@ -721,68 +721,6 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
           {/* Body */}
           <ScrollArea className="flex-1">
             <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
-              {/* Stats row */}
-              {stats && hasData && (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <StatCard
-                    label="Total working time"
-                    value={formatDuration(stats.totalWorkingMs)}
-                  />
-                  <StatCard
-                    label="Avg blocked time"
-                    value={formatDuration(stats.avgBlockedMs)}
-                  />
-                  <StatCard
-                    label="Avg waiting time"
-                    value={formatDuration(stats.avgWaitingMs)}
-                  />
-                  <StatCard
-                    label="Busiest day"
-                    value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"}
-                    sub={stats.busiestDayCount > 0 ? `${stats.busiestDayCount} events` : undefined}
-                  />
-                </div>
-              )}
-
-              {/* Heatmap */}
-              <div>
-                <h2 className="mb-3 text-sm font-medium text-foreground">
-                  Activity this year
-                </h2>
-                {heatmapData ? (
-                  <Heatmap data={heatmapData} />
-                ) : (
-                  <div className="h-24 animate-pulse rounded-md bg-muted/30" />
-                )}
-              </div>
-
-              {/* Daily status bar chart */}
-              {dailyStatus && dailyStatus.days.length > 0 && (
-                <div>
-                  <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Status breakdown ({rangeLabel(range).toLowerCase()})
-                  </h2>
-                  <DailyStackedBarChart
-                    data={dailyStatus.days}
-                    granularity={dailyStatus.granularity}
-                  />
-                </div>
-              )}
-
-              {activeHours && activeHours.length > 0 && hasActiveHourData && (
-                <div className="min-w-0">
-                  <h2 className="mb-1 text-sm font-medium text-foreground">
-                    Active hours
-                  </h2>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    {range === "7d"
-                      ? "Active-state events by weekday and hour for the last 7 days."
-                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
-                  </p>
-                  <ActiveHoursGrid data={activeHours} range={range} />
-                </div>
-              )}
-
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
@@ -846,6 +784,69 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                   )}
                 </div>
               ) : null}
+
+              {/* Yearly activity heatmap */}
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-foreground">
+                  Activity this year
+                </h2>
+                {heatmapData ? (
+                  <Heatmap data={heatmapData} />
+                ) : (
+                  <div className="h-24 animate-pulse rounded-md bg-muted/30" />
+                )}
+              </div>
+
+              {/* Active hours */}
+              {activeHours && activeHours.length > 0 && hasActiveHourData && (
+                <div className="min-w-0">
+                  <h2 className="mb-1 text-sm font-medium text-foreground">
+                    Active hours
+                  </h2>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    {range === "7d"
+                      ? "Active-state events by weekday and hour for the last 7 days."
+                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
+                  </p>
+                  <ActiveHoursGrid data={activeHours} range={range} />
+                </div>
+              )}
+
+              {/* Status summary cards */}
+              {stats && hasData && (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <StatCard
+                    label="Total working time"
+                    value={formatDuration(stats.totalWorkingMs)}
+                  />
+                  <StatCard
+                    label="Avg blocked time"
+                    value={formatDuration(stats.avgBlockedMs)}
+                  />
+                  <StatCard
+                    label="Avg waiting time"
+                    value={formatDuration(stats.avgWaitingMs)}
+                  />
+                  <StatCard
+                    label="Busiest day"
+                    value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"}
+                    sub={stats.busiestDayCount > 0 ? `${stats.busiestDayCount} events` : undefined}
+                  />
+                </div>
+              )}
+
+              {/* Daily status bar chart */}
+              {dailyStatus && dailyStatus.days.length > 0 && (
+                <div>
+                  <h2 className="mb-3 text-sm font-medium text-foreground">
+                    Status breakdown ({rangeLabel(range).toLowerCase()})
+                  </h2>
+                  <DailyStackedBarChart
+                    data={dailyStatus.days}
+                    granularity={dailyStatus.granularity}
+                  />
+                </div>
+              )}
 
               {/* Empty state */}
               {stats && !hasData && (!heatmapData || heatmapData.length === 0) && !hasTokenData && (
