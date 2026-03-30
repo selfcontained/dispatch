@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix activity date bucketing and use theme-aware chart colors by @selfcontained in https://github.com/selfcontained/dispatch/pull/155
+* Rearrange activity page section order by @selfcontained in https://github.com/selfcontained/dispatch/pull/156
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.11...v0.6.12
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.6.12...v0.6.13
