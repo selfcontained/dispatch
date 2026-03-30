@@ -63,8 +63,7 @@ const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
-const ACTIVITY_RANGES = ["7d", "30d", "year", "all"] as const;
-type ActivityRange = (typeof ACTIVITY_RANGES)[number];
+type ActivityGranularity = "day" | "week" | "month";
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
@@ -146,51 +145,65 @@ const GIT_CONTEXT_MIN_REQUEUE_MS = 60_000;
 const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 const pendingGitRefreshAgentIds = new Set<string>();
 
-function parseActivityRange(input: unknown): ActivityRange {
-  return typeof input === "string" && (ACTIVITY_RANGES as readonly string[]).includes(input)
-    ? (input as ActivityRange)
-    : "7d";
+type ActivityQuery = {
+  start: Date | null;
+  end: Date | null;
+  tz: string;
+  granularity: ActivityGranularity;
+};
+
+const VALID_GRANULARITIES = new Set<ActivityGranularity>(["day", "week", "month"]);
+const FALLBACK_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function parseActivityQuery(query: Record<string, unknown>): ActivityQuery {
+  const startStr = typeof query.start === "string" ? query.start : "";
+  const endStr = typeof query.end === "string" ? query.end : "";
+  const tz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+  const gran = typeof query.granularity === "string" ? query.granularity : "day";
+
+  const start = startStr ? new Date(startStr) : null;
+  const end = endStr ? new Date(endStr) : null;
+
+  return {
+    start: start && !Number.isNaN(start.getTime()) ? start : null,
+    end: end && !Number.isNaN(end.getTime()) ? end : null,
+    tz,
+    granularity: VALID_GRANULARITIES.has(gran as ActivityGranularity)
+      ? (gran as ActivityGranularity)
+      : "day",
+  };
 }
 
-function currentYearStart(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
-}
-
-function getRangeLowerBound(range: ActivityRange): Date | null {
-  if (range === "all") return null;
-  if (range === "year") return currentYearStart();
-  if (range === "7d") return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-}
-
-function rangeWhereClause(range: ActivityRange, column: string): {
-  clause: string;
-  params: unknown[];
-} {
-  const lowerBound = getRangeLowerBound(range);
-  if (!lowerBound) {
-    return { clause: "", params: [] };
+function timeRangeClause(
+  aq: ActivityQuery,
+  column: string,
+  paramOffset = 0
+): { clause: string; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (aq.start) {
+    params.push(aq.start);
+    conditions.push(`${column} >= $${paramOffset + params.length}`);
   }
-  return { clause: `WHERE ${column} >= $1`, params: [lowerBound] };
+  if (aq.end) {
+    params.push(aq.end);
+    conditions.push(`${column} <= $${paramOffset + params.length}`);
+  }
+  return {
+    clause: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
+    params,
+  };
 }
 
-function getBucketGranularity(range: ActivityRange): "day" | "week" | "month" {
-  if (range === "7d" || range === "30d") return "day";
-  if (range === "year") return "month";
-  return "month";
-}
-
-function bucketExpression(range: ActivityRange, column: string): string {
-  const granularity = getBucketGranularity(range);
-  return `date_trunc('${granularity}', ${column})::date::text`;
+function dateTruncTz(granularity: ActivityGranularity, column: string, tz: string): string {
+  return `date_trunc('${granularity}', ${column} AT TIME ZONE '${tz.replace(/'/g, "''")}')::date::text`;
 }
 
 async function loadScopedActivityEvents(
-  range: ActivityRange
+  aq: ActivityQuery
 ): Promise<{ rows: ActivityEventRow[]; rangeStart: Date | null }> {
-  const rangeStart = getRangeLowerBound(range);
-  const eventFilter = rangeWhereClause(range, "created_at");
+  const rangeStart = aq.start;
+  const eventFilter = timeRangeClause(aq, "created_at");
 
   const inRangeResult = await pool.query<ActivityEventRow>(
     `SELECT agent_id, event_type, created_at
@@ -1417,11 +1430,12 @@ async function registerRoutes() {
   // ── Activity tracking ──────────────────────────────────────────────
 
   app.get("/api/v1/activity/heatmap", async (request) => {
-    const query = request.query as { days?: string };
-    const days = Math.min(Math.max(parseInt(query.days ?? "365", 10) || 365, 1), 730);
+    const query = request.query as Record<string, unknown>;
+    const days = Math.min(Math.max(parseInt((query.days as string) ?? "365", 10) || 365, 1), 730);
+    const tz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
 
     const result = await pool.query<{ day: string; count: number }>(
-      `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
+      `SELECT ${dateTruncTz("day", "created_at", tz)} AS day, COUNT(*)::int AS count
        FROM agent_events
        WHERE created_at >= NOW() - make_interval(days => $1)
        GROUP BY day ORDER BY day`,
@@ -1432,13 +1446,12 @@ async function registerRoutes() {
   });
 
   app.get("/api/v1/activity/stats", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const { rows, rangeStart } = await loadScopedActivityEvents(range);
-    const eventFilter = rangeWhereClause(range, "created_at");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const { rows, rangeStart } = await loadScopedActivityEvents(aq);
+    const eventFilter = timeRangeClause(aq, "created_at");
 
     const busiestDayResult = await pool.query<{ day: string; count: number }>(
-      `SELECT date_trunc('day', created_at)::date::text AS day, COUNT(*)::int AS count
+      `SELECT ${dateTruncTz("day", "created_at", aq.tz)} AS day, COUNT(*)::int AS count
        FROM agent_events
        ${eventFilter.clause}
       GROUP BY day ORDER BY count DESC LIMIT 1`,
@@ -1457,19 +1470,16 @@ async function registerRoutes() {
   });
 
   app.get("/api/v1/activity/daily-status", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const granularity = getBucketGranularity(range);
-    const { rows, rangeStart } = await loadScopedActivityEvents(range);
-    const dailyStatus = computeDailyStatus(rows, rangeStart, granularity);
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const { rows, rangeStart } = await loadScopedActivityEvents(aq);
+    const dailyStatus = computeDailyStatus(rows, rangeStart, aq.granularity);
 
-    return { days: dailyStatus, granularity };
+    return { days: dailyStatus, granularity: aq.granularity };
   });
 
   app.get("/api/v1/activity/active-hours", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const eventFilter = rangeWhereClause(range, "created_at");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const eventFilter = timeRangeClause(aq, "created_at");
     const result = await pool.query<{ created_at: string }>(
       `SELECT created_at::text AS created_at
        FROM agent_events
@@ -1484,9 +1494,8 @@ async function registerRoutes() {
   // ── Token usage ──────────────────────────────────────────────────
 
   app.get("/api/v1/activity/token-stats", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
     const result = await pool.query<{
       total_input: number;
       total_cache_creation: number;
@@ -1510,10 +1519,8 @@ async function registerRoutes() {
   });
 
   app.get("/api/v1/activity/token-daily", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const granularity = getBucketGranularity(range);
-    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
 
     const result = await pool.query<{
       day: string;
@@ -1524,7 +1531,7 @@ async function registerRoutes() {
       messages: number;
     }>(
       `SELECT
-        ${bucketExpression(range, "COALESCE(session_start, harvested_at)")} AS day,
+        ${dateTruncTz(aq.granularity, "COALESCE(session_start, harvested_at)", aq.tz)} AS day,
         SUM(input_tokens)::int AS input_tokens,
         SUM(cache_creation_tokens)::int AS cache_creation_tokens,
         SUM(cache_read_tokens)::int AS cache_read_tokens,
@@ -1535,13 +1542,12 @@ async function registerRoutes() {
        GROUP BY day ORDER BY day`,
       tokenFilter.params
     );
-    return { days: result.rows, granularity };
+    return { days: result.rows, granularity: aq.granularity };
   });
 
   app.get("/api/v1/activity/token-by-project", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const tokenFilter = rangeWhereClause(range, "COALESCE(t.session_start, t.harvested_at)");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const tokenFilter = timeRangeClause(aq, "COALESCE(t.session_start, t.harvested_at)");
     const result = await pool.query<{
       project_dir: string;
       total_input: number;
@@ -1565,9 +1571,8 @@ async function registerRoutes() {
   });
 
   app.get("/api/v1/activity/token-by-model", async (request) => {
-    const query = request.query as { range?: string };
-    const range = parseActivityRange(query.range);
-    const tokenFilter = rangeWhereClause(range, "COALESCE(session_start, harvested_at)");
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
     const result = await pool.query<{
       model: string;
       total_input: number;

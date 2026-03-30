@@ -13,16 +13,23 @@ export type ActivityStatsResult = {
   stateDurations: Record<string, number>;
 };
 
+function localDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function bucketStart(timeMs: number, granularity: ActivityGranularity): string {
   const bucket = new Date(timeMs);
   if (granularity === "week") {
-    const day = bucket.getUTCDay();
+    const day = bucket.getDay();
     const diff = day === 0 ? -6 : 1 - day;
-    bucket.setUTCDate(bucket.getUTCDate() + diff);
+    bucket.setDate(bucket.getDate() + diff);
   } else if (granularity === "month") {
-    bucket.setUTCDate(1);
+    bucket.setDate(1);
   }
-  return bucket.toISOString().slice(0, 10);
+  return localDateString(bucket);
 }
 
 export function computeActivityStats(

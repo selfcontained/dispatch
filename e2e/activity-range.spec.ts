@@ -3,10 +3,26 @@ import { loadApp, seedActivityDemoViaDB } from "./helpers";
 
 const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
 
+function activityParams(opts: { daysBack?: number; granularity?: string } = {}): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = new Date();
+  const params = new URLSearchParams({ tz, granularity: opts.granularity ?? "day" });
+  if (opts.daysBack !== undefined) {
+    params.set("start", new Date(now.getTime() - opts.daysBack * 86400000).toISOString());
+    params.set("end", now.toISOString());
+  }
+  return params.toString();
+}
+
 test.describe("Activity range API", () => {
-  test("stats endpoint accepts the shared range values", async ({ request }) => {
-    for (const range of ["7d", "30d", "year", "all"]) {
-      const res = await request.get(`/api/v1/activity/stats?range=${range}`, {
+  test("stats endpoint accepts start/end/tz params", async ({ request }) => {
+    const testCases = [
+      { daysBack: 7, granularity: "day" },
+      { daysBack: 30, granularity: "day" },
+      { granularity: "month" }, // no start = all time
+    ];
+    for (const tc of testCases) {
+      const res = await request.get(`/api/v1/activity/stats?${activityParams(tc)}`, {
         headers: authHeader,
       });
       expect(res.ok()).toBeTruthy();
@@ -24,32 +40,33 @@ test.describe("Activity range API", () => {
     }
   });
 
-  test("daily-status endpoint returns matching granularity for each range", async ({ request }) => {
-    const expected = {
-      "7d": "day",
-      "30d": "day",
-      year: "month",
-      all: "month",
-    } as const;
+  test("daily-status endpoint returns matching granularity", async ({ request }) => {
+    const testCases = [
+      { daysBack: 7, granularity: "day" },
+      { daysBack: 30, granularity: "day" },
+      { granularity: "month" },
+    ] as const;
 
-    for (const [range, granularity] of Object.entries(expected)) {
-      const res = await request.get(`/api/v1/activity/daily-status?range=${range}`, {
-        headers: authHeader,
-      });
+    for (const tc of testCases) {
+      const res = await request.get(
+        `/api/v1/activity/daily-status?${activityParams(tc)}`,
+        { headers: authHeader }
+      );
       expect(res.ok()).toBeTruthy();
 
       const body = (await res.json()) as { days: unknown[]; granularity: string };
       expect(Array.isArray(body.days)).toBe(true);
-      expect(body.granularity).toBe(granularity);
+      expect(body.granularity).toBe(tc.granularity);
     }
   });
 
-  test("active-hours endpoint returns a full 7x24 grid", async ({ request }) => {
+  test("active-hours endpoint returns events", async ({ request }) => {
     await seedActivityDemoViaDB();
 
-    const res = await request.get("/api/v1/activity/active-hours?range=30d", {
-      headers: authHeader,
-    });
+    const res = await request.get(
+      `/api/v1/activity/active-hours?${activityParams({ daysBack: 30 })}`,
+      { headers: authHeader }
+    );
     expect(res.ok()).toBeTruthy();
 
     const body = (await res.json()) as { events: Array<{ created_at: string }> };
