@@ -299,8 +299,6 @@
 
 html,
 body {
-  position: fixed;
-  width: 100%;
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
@@ -350,19 +348,27 @@ html[data-theme="matrix"] body::after {
   overflow: hidden;
   position: relative;
   z-index: 1;
-  /* Disable all browser-handled touch gestures at the app root so iOS Safari
-     cannot rubber-band/scroll the viewport.  Scrollable children opt back in
-     with touch-action: pan-y. */
+}
+
+/* iPad PWA: prevent viewport jump when typing space in terminal.
+   The class is added by JS in main.tsx when navigator.standalone is true
+   on an iPad-class device. */
+html.ipad-pwa,
+html.ipad-pwa body {
+  position: fixed;
+  width: 100%;
+  overflow: clip;
+}
+
+html.ipad-pwa #root {
   touch-action: none;
 }
 
-/* Re-enable vertical touch scrolling and contain overscroll inside every
-   scrollable container so gestures never chain to the viewport. */
-[style*="overflow"]:not([style*="hidden"]),
-.overflow-y-auto,
-.overflow-auto,
-.overflow-y-scroll,
-.overflow-scroll {
+html.ipad-pwa [style*="overflow"]:not([style*="hidden"]),
+html.ipad-pwa .overflow-y-auto,
+html.ipad-pwa .overflow-auto,
+html.ipad-pwa .overflow-y-scroll,
+html.ipad-pwa .overflow-scroll {
   touch-action: pan-y;
   overscroll-behavior: contain;
 }

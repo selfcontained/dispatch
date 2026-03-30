@@ -6,6 +6,18 @@ import { registerSW } from "virtual:pwa-register";
 import { App } from "./App";
 import "./index.css";
 
+// Detect iPad PWA (standalone mode on iPad-class device) and apply targeted
+// scroll-prevention styles.  iPad Safari in PWA mode jumps the viewport when
+// typing space in xterm's hidden textarea; the .ipad-pwa class gates the fix
+// so it doesn't affect phones where the keyboard must be able to push content.
+const isIPad =
+  navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent);
+const isStandalone =
+  "standalone" in navigator && (navigator as Record<string, unknown>).standalone === true;
+if (isIPad && isStandalone) {
+  document.documentElement.classList.add("ipad-pwa");
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
