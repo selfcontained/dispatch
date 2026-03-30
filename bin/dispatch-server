@@ -2,20 +2,22 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SESSION_NAME="dispatch-server"
 DEFAULT_PORT="6767"
+SERVICE_LABEL="com.dispatch.server"
+SERVICE_TARGET="gui/$(id -u)"
+PLIST="$HOME/Library/LaunchAgents/${SERVICE_LABEL}.plist"
+LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
 
 usage() {
   cat <<USAGE
 Usage: bin/dispatch-server <command>
 
 Commands:
-  start     Start Dispatch in a tmux session (production mode)
-  stop      Stop the tmux session
-  restart   Restart the tmux session
-  status    Show tmux/session/health status
-  attach    Attach to the tmux session
-  logs      Show recent tmux pane output
+  start     Load and start the launchd service
+  stop      Send SIGTERM to the running service
+  restart   Kill and restart the launchd service
+  status    Show launchd service state and health check
+  logs      Tail the service log file
   build     Run a fresh production build
   update    Fresh build + restart + health check
 USAGE
@@ -30,16 +32,6 @@ load_nvm() {
     echo "nvm not found at $NVM_DIR/nvm.sh" >&2
     exit 1
   fi
-}
-
-node_in_tmux_command() {
-  cat <<CMD
-cd '$ROOT_DIR' && source "$HOME/.nvm/nvm.sh" && nvm use >/dev/null && pnpm run start
-CMD
-}
-
-is_running() {
-  tmux has-session -t "$SESSION_NAME" 2>/dev/null
 }
 
 resolve_port() {
@@ -76,42 +68,65 @@ wait_for_health() {
   return 1
 }
 
+is_loaded() {
+  launchctl print "${SERVICE_TARGET}/${SERVICE_LABEL}" &>/dev/null
+}
+
 cmd_start() {
-  if is_running; then
-    echo "dispatch-server session already running"
-    return
+  if ! [[ -f "$PLIST" ]]; then
+    echo "error: plist not found at $PLIST" >&2
+    exit 1
   fi
-  tmux new-session -d -s "$SESSION_NAME" "$(node_in_tmux_command)"
-  echo "started tmux session: $SESSION_NAME"
+
+  if is_loaded; then
+    echo "service already loaded, kickstarting..."
+    launchctl kickstart "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  else
+    launchctl bootstrap "$SERVICE_TARGET" "$PLIST"
+    echo "service loaded"
+  fi
+
   if wait_for_health 15 1; then
     cmd_status
   else
-    echo "warning: server session started but health check is still down" >&2
-    cmd_logs | tail -n 40 >&2 || true
+    echo "warning: service started but health check is still down" >&2
+    tail -n 40 "$LOG_FILE" >&2 || true
     exit 1
   fi
 }
 
 cmd_stop() {
-  if ! is_running; then
-    echo "dispatch-server session is not running"
+  if ! is_loaded; then
+    echo "service is not loaded"
     return
   fi
-  tmux kill-session -t "$SESSION_NAME"
-  echo "stopped tmux session: $SESSION_NAME"
+  launchctl kill SIGTERM "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  echo "sent SIGTERM to $SERVICE_LABEL"
 }
 
 cmd_restart() {
-  cmd_stop || true
-  cmd_start
+  if ! is_loaded; then
+    echo "service is not loaded, starting..."
+    cmd_start
+    return
+  fi
+  launchctl kickstart -k "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  echo "restarting $SERVICE_LABEL"
+  if wait_for_health 15 1; then
+    cmd_status
+  else
+    echo "warning: service restarted but health check is still down" >&2
+    tail -n 40 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
 }
 
 cmd_status() {
-  if is_running; then
-    echo "tmux: running ($SESSION_NAME)"
-    tmux list-sessions | rg "^${SESSION_NAME}:" || true
+  if is_loaded; then
+    echo "launchd: loaded ($SERVICE_LABEL)"
+    launchctl list "$SERVICE_LABEL" 2>/dev/null || true
   else
-    echo "tmux: stopped ($SESSION_NAME)"
+    echo "launchd: not loaded ($SERVICE_LABEL)"
   fi
 
   if health_check >/tmp/dispatch-health.json 2>/dev/null; then
@@ -123,20 +138,12 @@ cmd_status() {
   fi
 }
 
-cmd_attach() {
-  if ! is_running; then
-    echo "dispatch-server session is not running"
-    exit 1
-  fi
-  exec tmux attach-session -t "$SESSION_NAME"
-}
-
 cmd_logs() {
-  if ! is_running; then
-    echo "dispatch-server session is not running"
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "log file not found: $LOG_FILE" >&2
     exit 1
   fi
-  tmux capture-pane -p -S -200 -t "$SESSION_NAME:0"
+  tail -n 200 -f "$LOG_FILE"
 }
 
 cmd_build() {
@@ -167,7 +174,6 @@ main() {
     stop) cmd_stop ;;
     restart) cmd_restart ;;
     status) cmd_status ;;
-    attach) cmd_attach ;;
     logs) cmd_logs ;;
     build) cmd_build ;;
     update) cmd_update ;;
