@@ -42,6 +42,7 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-auth-flow`:
           return { exitCode: 1, stdout: "", stderr: "" };
         case `-C ${repoRoot} worktree add -b feature-auth-flow ${expectedWorktreePath} origin/main`:
+        case `-C ${expectedWorktreePath} branch --set-upstream-to origin/main feature-auth-flow`:
           return { exitCode: 0, stdout: "", stderr: "" };
         default:
           throw new Error(`Unexpected command: ${key}`);

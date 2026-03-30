@@ -1435,6 +1435,7 @@ export class AgentManager {
         ``,
         `  if git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF" 2>&1; then`,
         `    ok "Worktree created at $WT_PATH"`,
+        `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`,
         `    EFFECTIVE_CWD="$WT_PATH"`,
         `    WORKTREE_PATH="\\"$WT_PATH\\""`,
         `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
@@ -1560,14 +1561,35 @@ export class AgentManager {
 
   private async getUnmergedChanges(worktreePath: string): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
     try {
-      // Fetch origin/main so we detect commits that were merged via PR
+      // Discover the upstream tracking branch (set at worktree creation time).
+      // Falls back to origin/main for older worktrees that don't have one.
+      let upstreamRef: string | null = null;
+      try {
+        const upstream = await runCommand(
+          "git", ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
+          { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
+        );
+        if (upstream.exitCode === 0 && upstream.stdout) {
+          upstreamRef = upstream.stdout;
+        }
+      } catch {
+        // No upstream set — will fall back below
+      }
+
+      // Determine which remote branch to fetch
+      const remoteBranch = upstreamRef?.startsWith("origin/")
+        ? upstreamRef.slice("origin/".length)
+        : "main";
+
       await runCommand(
-        "git", ["-C", worktreePath, "fetch", "origin", "main", "--quiet"],
+        "git", ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
         { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
       );
 
-      // Compare against origin/main (falls back to local main if fetch failed)
-      const baseRef = await this.resolveRef(worktreePath, "origin/main") ?? await this.resolveRef(worktreePath, "main");
+      // Resolve the base ref: prefer upstream, fall back to origin/main → main
+      const baseRef = (upstreamRef ? await this.resolveRef(worktreePath, upstreamRef) : null)
+        ?? await this.resolveRef(worktreePath, "origin/main")
+        ?? await this.resolveRef(worktreePath, "main");
       if (!baseRef) {
         return { hasUnmergedCommits: false, changedFiles: [] };
       }
