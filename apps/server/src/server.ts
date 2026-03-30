@@ -560,6 +560,7 @@ async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMet
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
 async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "deploying");
+  appendReleaseLog(job, `==> deploying ${tag} via pnpm`);
 
   appendReleaseLog(job, `==> checking out ${tag}`);
   await runCommand("git", ["-C", serverDir, "checkout", tag]);
