@@ -565,11 +565,10 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   await runCommand("git", ["-C", serverDir, "checkout", tag]);
 
   appendReleaseLog(job, "==> installing dependencies");
-  await streamProcess("npm", ["ci", "--silent"], { cwd: serverDir }, job);
-  await streamProcess("npm", ["--prefix", "web", "ci", "--silent"], { cwd: serverDir }, job);
+  await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
 
   appendReleaseLog(job, "==> building");
-  await streamProcess("npm", ["run", "build"], { cwd: serverDir }, job);
+  await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
 
   // Write release record BEFORE the restart — after the restart our
   // process is dead and can't write anything.
