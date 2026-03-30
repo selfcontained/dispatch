@@ -82,11 +82,20 @@ const TEXT_EXTENSIONS = new Set([
   ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
 ]);
 
-function isTextFile(name: string): boolean {
+export function isTextFile(name: string): boolean {
   const dot = name.lastIndexOf(".");
   if (dot === -1) return false;
   return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
 }
+
+const TIMESTAMP_RE = /-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/;
+
+/** Strip the timestamp suffix that the server appends to media filenames. */
+export function stripTimestamp(name: string): string {
+  return name.replace(TIMESTAMP_RE, "");
+}
+
+const HAS_CLIPBOARD_WRITE = typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;
 
 type MediaLightboxItem = {
   src: string;
@@ -189,17 +198,24 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
   const copiedTimerRef = useRef<number | null>(null);
   const cachedTextRef = useRef<string | null>(null);
 
-  const displayName = fileName.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
+  const displayName = stripTimestamp(fileName);
 
   // Pre-fetch text content so it's available synchronously for execCommand copy.
   useEffect(() => {
     cachedTextRef.current = null;
     if (!isText) return;
-    void fetch(src)
+    const controller = new AbortController();
+    void fetch(src, { signal: controller.signal })
       .then((r) => r.text())
       .then((t) => { cachedTextRef.current = t; })
       .catch(() => {});
+    return () => controller.abort();
   }, [src, isText]);
+
+  // Clean up the "Copied!" timer on unmount.
+  useEffect(() => () => {
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+  }, []);
 
   const markCopied = useCallback(() => {
     setCopied(true);
@@ -221,7 +237,7 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
     } else {
       // Images: use Clipboard API (only works on secure contexts / desktop).
       // On mobile non-secure contexts, users can long-press to copy images.
-      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+      if (HAS_CLIPBOARD_WRITE) {
         const blobPromise = fetch(src).then((r) => r.blob());
         void navigator.clipboard
           .write([new ClipboardItem({ "image/png": blobPromise })])
@@ -231,8 +247,7 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
     }
   }, [src, isText, markCopied]);
 
-  // Hide copy button for non-text on non-secure contexts (won't work)
-  const showCopy = isText || (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write);
+  const showCopy = isText || HAS_CLIPBOARD_WRITE;
 
   return (
     <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -311,7 +326,7 @@ export function MediaLightbox({
 
   const isText = item.file.source === "text" || isTextFile(item.file.name);
   const isVideo = /\.mp4/i.test(item.src);
-  const displayName = item.file.name.replace(/-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/, "");
+  const displayName = stripTimestamp(item.file.name);
 
   const sizeLabel = item.file.size >= 1024 * 1024
     ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
