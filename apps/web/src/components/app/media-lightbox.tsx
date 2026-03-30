@@ -162,6 +162,36 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   );
 }
 
+/** iOS Safari compatible copy via execCommand. Uses Range/getSelection instead of textarea.select(). */
+function copyViaExecCommand(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "0";
+  textarea.style.top = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+
+  // iOS Safari requires Range-based selection, not textarea.select()
+  const range = document.createRange();
+  range.selectNodeContents(textarea);
+  const selection = window.getSelection();
+  if (selection) {
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+  textarea.setSelectionRange(0, text.length);
+
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
 function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<number | null>(null);
@@ -186,13 +216,41 @@ function MediaActions({ src, fileName }: { src: string; fileName: string }): JSX
       void navigator.clipboard
         .write([new ClipboardItem({ "text/plain": textBlob })])
         .then(markCopied)
-        .catch(() => {});
+        .catch((err) => {
+          console.warn("[copy] ClipboardItem write failed:", err);
+          // Fallback: fetch then try execCommand (works on iOS non-secure contexts)
+          void fetch(src)
+            .then((r) => r.text())
+            .then((t) => {
+              copyViaExecCommand(t);
+              markCopied();
+            })
+            .catch((e) => console.warn("[copy] execCommand fallback failed:", e));
+        });
     } else if (navigator.clipboard?.writeText) {
       void fetch(src)
         .then((r) => r.text())
         .then((t) => navigator.clipboard.writeText(t))
         .then(markCopied)
-        .catch(() => {});
+        .catch((err) => {
+          console.warn("[copy] writeText failed:", err);
+          void fetch(src)
+            .then((r) => r.text())
+            .then((t) => {
+              copyViaExecCommand(t);
+              markCopied();
+            })
+            .catch((e) => console.warn("[copy] execCommand fallback failed:", e));
+        });
+    } else {
+      // No clipboard API at all — use execCommand directly
+      void fetch(src)
+        .then((r) => r.text())
+        .then((t) => {
+          copyViaExecCommand(t);
+          markCopied();
+        })
+        .catch((e) => console.warn("[copy] all methods failed:", e));
     }
   }, [src, markCopied]);
 
