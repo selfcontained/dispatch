@@ -87,9 +87,7 @@ jobs:
           PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
           NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
           # Bump all workspace packages to keep versions in sync
-          npm --prefix apps/server version ${{ inputs.version }} --no-git-tag-version
-          npm --prefix apps/web version ${{ inputs.version }} --no-git-tag-version
-          npm --prefix packages/shared version ${{ inputs.version }} --no-git-tag-version
+          pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
           if [ -n "$PREV_TAG" ]; then
             gh api "repos/${{ github.repository }}/releases/generate-notes" \
               -X POST \
@@ -104,7 +102,7 @@ jobs:
               -f target_commitish="main" \
               --jq '.body' > release-notes/current.md
           fi
-          git add package.json apps/server/package.json apps/web/package.json packages/shared/package.json pnpm-lock.yaml release-notes/current.md
+          git add package.json apps/*/package.json packages/*/package.json pnpm-lock.yaml release-notes/current.md
           git commit -m "Release ${NEW_VERSION}"
           git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
           git push origin main --follow-tags
