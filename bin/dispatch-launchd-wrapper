@@ -12,4 +12,4 @@
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$ROOT_DIR"
-exec node "$ROOT_DIR/dist/server.js"
+exec node "$ROOT_DIR/apps/server/dist/server.js"
