@@ -43,6 +43,7 @@ import { harvestTokenUsage } from "./agents/token-harvester.js";
 import {
   computeActivityStats,
   computeDailyStatus,
+  computeWorkingTimeByProject,
   type ActivityEventRow,
 } from "./activity-metrics.js";
 
@@ -1489,6 +1490,61 @@ async function registerRoutes() {
     );
 
     return { events: result.rows };
+  });
+
+  app.get("/api/v1/activity/agents-created", async (request) => {
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const eventFilter = timeRangeClause(aq, "first_seen");
+    const result = await pool.query<{ day: string; count: number }>(
+      `SELECT ${dateTruncTz(aq.granularity, "first_seen", aq.tz)} AS day, COUNT(*)::int AS count
+       FROM (
+         SELECT agent_id, MIN(created_at) AS first_seen
+         FROM agent_events
+         GROUP BY agent_id
+       ) per_agent
+       ${eventFilter.clause}
+       GROUP BY day ORDER BY day`,
+      eventFilter.params
+    );
+    const total = result.rows.reduce((sum, r) => sum + r.count, 0);
+    return { days: result.rows, total, granularity: aq.granularity };
+  });
+
+  app.get("/api/v1/activity/working-time-by-project", async (request) => {
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const rangeStart = aq.start;
+    const eventFilter = timeRangeClause(aq, "ae.created_at");
+
+    const inRangeResult = await pool.query<ActivityEventRow>(
+      `SELECT ae.agent_id, ae.event_type, ae.created_at,
+              COALESCE(ae.project_dir, a.cwd) AS project_dir
+       FROM agent_events ae
+       LEFT JOIN agents a ON a.id = ae.agent_id
+       ${eventFilter.clause}
+       ORDER BY ae.agent_id, ae.created_at`,
+      eventFilter.params
+    );
+
+    let rows = inRangeResult.rows;
+    if (rangeStart) {
+      const boundaryResult = await pool.query<ActivityEventRow>(
+        `SELECT DISTINCT ON (ae.agent_id) ae.agent_id, ae.event_type, ae.created_at,
+                COALESCE(ae.project_dir, a.cwd) AS project_dir
+         FROM agent_events ae
+         LEFT JOIN agents a ON a.id = ae.agent_id
+         WHERE ae.created_at < $1
+         ORDER BY ae.agent_id, ae.created_at DESC`,
+        [rangeStart]
+      );
+      rows = [...boundaryResult.rows, ...inRangeResult.rows].sort((a, b) => {
+        const agentCompare = a.agent_id.localeCompare(b.agent_id);
+        if (agentCompare !== 0) return agentCompare;
+        return a.created_at.getTime() - b.created_at.getTime();
+      });
+    }
+
+    const projects = computeWorkingTimeByProject(rows, rangeStart);
+    return { projects };
   });
 
   // ── Token usage ──────────────────────────────────────────────────
