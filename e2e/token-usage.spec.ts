@@ -3,6 +3,17 @@ import { loadApp } from "./helpers";
 
 const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
 
+function activityParams(opts: { daysBack?: number; granularity?: string } = {}): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = new Date();
+  const params = new URLSearchParams({ tz, granularity: opts.granularity ?? "day" });
+  if (opts.daysBack !== undefined) {
+    params.set("start", new Date(now.getTime() - opts.daysBack * 86400000).toISOString());
+    params.set("end", now.toISOString());
+  }
+  return params.toString();
+}
+
 test.describe("Token usage API", () => {
   test("GET /api/v1/activity/token-stats returns zeroes when empty", async ({ request }) => {
     const res = await request.get("/api/v1/activity/token-stats", { headers: authHeader });
@@ -22,7 +33,10 @@ test.describe("Token usage API", () => {
   });
 
   test("GET /api/v1/activity/token-daily returns empty days array when no data", async ({ request }) => {
-    const res = await request.get("/api/v1/activity/token-daily?range=30d", { headers: authHeader });
+    const res = await request.get(
+      `/api/v1/activity/token-daily?${activityParams({ daysBack: 30, granularity: "day" })}`,
+      { headers: authHeader }
+    );
     expect(res.ok()).toBeTruthy();
 
     const body = (await res.json()) as { days: unknown[]; granularity: string };
@@ -47,30 +61,44 @@ test.describe("Token usage API", () => {
     expect(res.status()).toBe(404);
   });
 
-  test("token endpoints accept shared range values", async ({ request }) => {
-    const daily7 = await request.get("/api/v1/activity/token-daily?range=7d", { headers: authHeader });
+  test("token endpoints accept start/end/tz params", async ({ request }) => {
+    const daily7 = await request.get(
+      `/api/v1/activity/token-daily?${activityParams({ daysBack: 7, granularity: "day" })}`,
+      { headers: authHeader }
+    );
     expect(daily7.ok()).toBeTruthy();
     expect(((await daily7.json()) as { granularity: string }).granularity).toBe("day");
 
-    const daily30 = await request.get("/api/v1/activity/token-daily?range=30d", { headers: authHeader });
+    const daily30 = await request.get(
+      `/api/v1/activity/token-daily?${activityParams({ daysBack: 30, granularity: "day" })}`,
+      { headers: authHeader }
+    );
     expect(daily30.ok()).toBeTruthy();
     expect(((await daily30.json()) as { granularity: string }).granularity).toBe("day");
 
-    const dailyYear = await request.get("/api/v1/activity/token-daily?range=year", { headers: authHeader });
-    expect(dailyYear.ok()).toBeTruthy();
-    expect(((await dailyYear.json()) as { granularity: string }).granularity).toBe("month");
+    const dailyMonth = await request.get(
+      `/api/v1/activity/token-daily?${activityParams({ granularity: "month" })}`,
+      { headers: authHeader }
+    );
+    expect(dailyMonth.ok()).toBeTruthy();
+    expect(((await dailyMonth.json()) as { granularity: string }).granularity).toBe("month");
 
-    const dailyAll = await request.get("/api/v1/activity/token-daily?range=all", { headers: authHeader });
-    expect(dailyAll.ok()).toBeTruthy();
-    expect(((await dailyAll.json()) as { granularity: string }).granularity).toBe("month");
-
-    const totals = await request.get("/api/v1/activity/token-stats?range=year", { headers: authHeader });
+    const totals = await request.get(
+      `/api/v1/activity/token-stats?${activityParams({ granularity: "month" })}`,
+      { headers: authHeader }
+    );
     expect(totals.ok()).toBeTruthy();
 
-    const byProject = await request.get("/api/v1/activity/token-by-project?range=all", { headers: authHeader });
+    const byProject = await request.get(
+      `/api/v1/activity/token-by-project?${activityParams()}`,
+      { headers: authHeader }
+    );
     expect(byProject.ok()).toBeTruthy();
 
-    const byModel = await request.get("/api/v1/activity/token-by-model?range=30d", { headers: authHeader });
+    const byModel = await request.get(
+      `/api/v1/activity/token-by-model?${activityParams({ daysBack: 30 })}`,
+      { headers: authHeader }
+    );
     expect(byModel.ok()).toBeTruthy();
   });
 });
@@ -97,8 +125,9 @@ test.describe("Token usage UI", () => {
 
     await expect(page.getByTestId("activity-range-select")).toContainText("This year");
 
+    // After switching to "This year", requests should include tz and granularity params
     await expect.poll(
-      () => requests.filter((url) => url.includes("range=year")).length
+      () => requests.filter((url) => url.includes("tz=") && url.includes("granularity=")).length
     ).toBeGreaterThanOrEqual(6);
 
     // Close dialog

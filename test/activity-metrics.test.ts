@@ -32,13 +32,17 @@ describe("activity metrics boundary carry-in", () => {
   });
 
   it("attributes carried-in status time to the in-range daily bucket", () => {
+    // Use midday timestamps so the local-date bucket is the same across timezones
     const rows = [
-      row("a1", "working", "2026-03-20T23:50:00Z"),
-      row("a1", "done", "2026-03-21T00:20:00Z"),
+      row("a1", "working", "2026-03-20T12:00:00Z"),
+      row("a1", "done", "2026-03-21T12:20:00Z"),
     ];
 
-    const days = computeDailyStatus(rows, new Date("2026-03-21T00:00:00Z"), "day");
+    const rangeStart = new Date("2026-03-21T12:00:00Z");
+    const days = computeDailyStatus(rows, rangeStart, "day");
 
-    expect(days).toEqual([{ day: "2026-03-21", working: 20 * 60 * 1000 }]);
+    // The segment starts at rangeStart (Mar 21 local) and lasts 20 minutes
+    const expectedDay = new Date(rangeStart).toLocaleDateString("en-CA"); // YYYY-MM-DD
+    expect(days).toEqual([{ day: expectedDay, working: 20 * 60 * 1000 }]);
   });
 });

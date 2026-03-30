@@ -28,8 +28,38 @@ export function rangeLabel(range: ActivityRange): string {
   }
 }
 
-function scopedActivityPath(path: string, range: ActivityRange): string {
-  return `${path}?range=${range}`;
+const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function getGranularity(range: ActivityRange): ActivityGranularity {
+  if (range === "7d" || range === "30d") return "day";
+  return "month";
+}
+
+function getRangeBounds(range: ActivityRange): { start: string; end: string } {
+  const now = new Date();
+  const end = now.toISOString();
+
+  if (range === "year") {
+    const yearStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+    return { start: yearStart.toISOString(), end };
+  }
+  if (range === "7d") {
+    return { start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), end };
+  }
+  if (range === "30d") {
+    return { start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), end };
+  }
+  // "all" — no bounds
+  return { start: "", end: "" };
+}
+
+function activityParams(range: ActivityRange): string {
+  const { start, end } = getRangeBounds(range);
+  const granularity = getGranularity(range);
+  const params = new URLSearchParams({ tz: LOCAL_TZ, granularity });
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+  return params.toString();
 }
 
 export type ActivityStats = {
@@ -59,8 +89,9 @@ export function useActivityHeatmap(days = 365) {
   return useQuery<HeatmapDay[]>({
     queryKey: ["activity", "heatmap", days],
     queryFn: async () => {
+      const params = new URLSearchParams({ days: String(days), tz: LOCAL_TZ });
       const payload = await api<{ days: HeatmapDay[] }>(
-        `/api/v1/activity/heatmap?days=${days}`
+        `/api/v1/activity/heatmap?${params}`
       );
       return payload.days;
     },
@@ -71,7 +102,7 @@ export function useActivityHeatmap(days = 365) {
 export function useActivityStats(range: ActivityRange) {
   return useQuery<ActivityStats>({
     queryKey: ["activity", "stats", range],
-    queryFn: () => api<ActivityStats>(scopedActivityPath("/api/v1/activity/stats", range)),
+    queryFn: () => api<ActivityStats>(`/api/v1/activity/stats?${activityParams(range)}`),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -79,11 +110,10 @@ export function useActivityStats(range: ActivityRange) {
 export function useDailyStatus(range: ActivityRange) {
   return useQuery<BucketedActivityResponse<DailyStatusEntry>>({
     queryKey: ["activity", "daily-status", range],
-    queryFn: async () => {
-      return api<BucketedActivityResponse<DailyStatusEntry>>(
-        scopedActivityPath("/api/v1/activity/daily-status", range)
-      );
-    },
+    queryFn: () =>
+      api<BucketedActivityResponse<DailyStatusEntry>>(
+        `/api/v1/activity/daily-status?${activityParams(range)}`
+      ),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -92,10 +122,14 @@ export function useActiveHours(range: ActivityRange) {
   return useQuery<ActiveHoursCell[]>({
     queryKey: ["activity", "active-hours", range],
     queryFn: async () => {
+      const { start, end } = getRangeBounds(range);
+      const params = new URLSearchParams({ tz: LOCAL_TZ });
+      if (start) params.set("start", start);
+      if (end) params.set("end", end);
       const payload = await api<{ events: ActiveHourEvent[] }>(
-        scopedActivityPath("/api/v1/activity/active-hours", range)
+        `/api/v1/activity/active-hours?${params}`
       );
-      return buildActiveHours(payload.events, range);
+      return buildActiveHours(payload.events);
     },
     ...ACTIVITY_QUERY_OPTIONS,
   });
@@ -124,7 +158,7 @@ export type TokenDailyEntry = {
 export function useTokenStats(range: ActivityRange) {
   return useQuery<TokenStats>({
     queryKey: ["activity", "token-stats", range],
-    queryFn: () => api<TokenStats>(scopedActivityPath("/api/v1/activity/token-stats", range)),
+    queryFn: () => api<TokenStats>(`/api/v1/activity/token-stats?${activityParams(range)}`),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -132,11 +166,10 @@ export function useTokenStats(range: ActivityRange) {
 export function useTokenDaily(range: ActivityRange) {
   return useQuery<BucketedActivityResponse<TokenDailyEntry>>({
     queryKey: ["activity", "token-daily", range],
-    queryFn: async () => {
-      return api<BucketedActivityResponse<TokenDailyEntry>>(
-        scopedActivityPath("/api/v1/activity/token-daily", range)
-      );
-    },
+    queryFn: () =>
+      api<BucketedActivityResponse<TokenDailyEntry>>(
+        `/api/v1/activity/token-daily?${activityParams(range)}`
+      ),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -162,7 +195,7 @@ export function useTokenByModel(range: ActivityRange) {
     queryKey: ["activity", "token-by-model", range],
     queryFn: async () => {
       const payload = await api<{ models: TokenByModel[] }>(
-        scopedActivityPath("/api/v1/activity/token-by-model", range)
+        `/api/v1/activity/token-by-model?${activityParams(range)}`
       );
       return payload.models;
     },
@@ -175,7 +208,7 @@ export function useTokenByProject(range: ActivityRange) {
     queryKey: ["activity", "token-by-project", range],
     queryFn: async () => {
       const payload = await api<{ projects: TokenByProject[] }>(
-        scopedActivityPath("/api/v1/activity/token-by-project", range)
+        `/api/v1/activity/token-by-project?${activityParams(range)}`
       );
       return payload.projects;
     },

@@ -28,6 +28,14 @@
   --status-done: 198 93% 60%;
   --status-idle: 240 4% 46%;
 
+  /* Chart colors */
+  --chart-1: 158 64% 52%;   /* teal — input tokens */
+  --chart-2: 45 96% 64%;    /* amber — output tokens */
+  --chart-3: 200 80% 55%;   /* sky — cache read */
+  --chart-4: 280 60% 60%;   /* purple — cache write */
+  --chart-5: 158 64% 42%;   /* deep teal — model bars */
+  --chart-6: 45 96% 54%;    /* deep amber — project bars */
+
   /* Surface & terminal */
   --surface: 50 15% 5%;
   --terminal-bg: 0 0% 8%;
@@ -58,6 +66,13 @@
   --status-done: 207 100% 67%;
   --status-idle: 220 8% 50%;
 
+  --chart-1: 207 100% 67%;
+  --chart-2: 55 87% 63%;
+  --chart-3: 170 60% 50%;
+  --chart-4: 280 70% 65%;
+  --chart-5: 207 80% 55%;
+  --chart-6: 150 57% 49%;
+
   --surface: 225 16% 7%;
   --terminal-bg: 225 16% 7%;
 }
@@ -86,6 +101,13 @@
   --status-waiting: 45 93% 58%;
   --status-done: 198 93% 60%;
   --status-idle: 0 0% 35%;
+
+  --chart-1: 160 72% 52%;
+  --chart-2: 45 93% 58%;
+  --chart-3: 198 93% 60%;
+  --chart-4: 280 60% 58%;
+  --chart-5: 160 60% 42%;
+  --chart-6: 45 80% 48%;
 
   --surface: 0 0% 2%;
   --terminal-bg: 0 0% 0%;
@@ -116,6 +138,13 @@
   --status-done: 205 82% 45%;
   --status-idle: 194 14% 40%;
 
+  --chart-1: 205 82% 45%;
+  --chart-2: 45 100% 35%;
+  --chart-3: 68 100% 30%;
+  --chart-4: 330 60% 45%;
+  --chart-5: 205 70% 40%;
+  --chart-6: 68 80% 25%;
+
   --surface: 192 100% 8%;
   --terminal-bg: 192 100% 11%;
 }
@@ -144,6 +173,13 @@
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
   --status-idle: 0 0% 60%;
+
+  --chart-1: 217 91% 50%;
+  --chart-2: 46 97% 42%;
+  --chart-3: 142 71% 35%;
+  --chart-4: 280 60% 50%;
+  --chart-5: 217 80% 45%;
+  --chart-6: 142 60% 30%;
 
   --surface: 40 20% 96%;
   --terminal-bg: 40 10% 96%;
@@ -174,6 +210,13 @@
   --status-done: 191 99% 50%;
   --status-idle: 262 20% 45%;
 
+  --chart-1: 191 99% 50%;
+  --chart-2: 57 100% 79%;
+  --chart-3: 325 100% 62%;
+  --chart-4: 262 70% 65%;
+  --chart-5: 191 80% 40%;
+  --chart-6: 160 100% 40%;
+
   --surface: 262 52% 4%;
   --terminal-bg: 262 52% 6%;
 }
@@ -203,6 +246,13 @@
   --status-done: 207 100% 67%;
   --status-idle: 220 8% 40%;
 
+  --chart-1: 207 100% 67%;
+  --chart-2: 55 87% 63%;
+  --chart-3: 170 60% 50%;
+  --chart-4: 280 70% 65%;
+  --chart-5: 207 80% 55%;
+  --chart-6: 150 57% 49%;
+
   --surface: 0 0% 2%;
   --terminal-bg: 0 0% 0%;
 }
@@ -231,6 +281,13 @@
   --status-waiting: 46 52% 54%;
   --status-done: 153 76% 64%;
   --status-idle: 132 12% 40%;
+
+  --chart-1: 136 100% 71%;
+  --chart-2: 46 52% 54%;
+  --chart-3: 153 76% 64%;
+  --chart-4: 100 50% 45%;
+  --chart-5: 136 80% 50%;
+  --chart-6: 46 40% 44%;
 
   --surface: 145 24% 2%;
   --terminal-bg: 150 20% 1.5%;

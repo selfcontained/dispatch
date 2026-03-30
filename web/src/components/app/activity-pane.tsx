@@ -128,10 +128,10 @@ const MONTH_NAMES = [
 function intensityClass(count: number, max: number): string {
   if (count === 0) return "bg-muted/60";
   const ratio = count / max;
-  if (ratio <= 0.25) return "bg-emerald-900/50";
-  if (ratio <= 0.5) return "bg-emerald-700/60";
-  if (ratio <= 0.75) return "bg-emerald-500/70";
-  return "bg-emerald-400";
+  if (ratio <= 0.25) return "bg-status-working/25";
+  if (ratio <= 0.5) return "bg-status-working/45";
+  if (ratio <= 0.75) return "bg-status-working/65";
+  return "bg-status-working/90";
 }
 
 type HeatmapCell = { date: string; count: number; label: string };
@@ -249,10 +249,10 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
       <div className="mt-2 flex items-center gap-1.5 pl-8 text-[10px] text-muted-foreground">
         <span>Less</span>
         <div className="h-[11px] w-[11px] rounded-[2px] bg-muted/60" />
-        <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-900/50" />
-        <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-700/60" />
-        <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-500/70" />
-        <div className="h-[11px] w-[11px] rounded-[2px] bg-emerald-400" />
+        <div className="h-[11px] w-[11px] rounded-[2px] bg-status-working/25" />
+        <div className="h-[11px] w-[11px] rounded-[2px] bg-status-working/45" />
+        <div className="h-[11px] w-[11px] rounded-[2px] bg-status-working/65" />
+        <div className="h-[11px] w-[11px] rounded-[2px] bg-status-working/90" />
         <span>More</span>
       </div>
     </div>
@@ -273,11 +273,11 @@ const ACTIVE_HOURS_DAY_LABELS: Record<number, string> = {
 function activeHoursIntensity(value: number, max: number): string {
   if (value <= 0) return "bg-muted/40";
   const ratio = value / max;
-  if (ratio <= 0.2) return "bg-sky-100/80";
-  if (ratio <= 0.4) return "bg-cyan-200/80";
-  if (ratio <= 0.6) return "bg-sky-300/80";
-  if (ratio <= 0.8) return "bg-cyan-500/80";
-  return "bg-sky-700/85";
+  if (ratio <= 0.2) return "bg-chart-3/20";
+  if (ratio <= 0.4) return "bg-chart-3/40";
+  if (ratio <= 0.6) return "bg-chart-3/55";
+  if (ratio <= 0.8) return "bg-chart-3/70";
+  return "bg-chart-3/90";
 }
 
 function formatHour(hour: number): string {
@@ -344,11 +344,11 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span>Less</span>
         <div className="h-2.5 w-5 rounded-full bg-muted/40" />
-        <div className="h-2.5 w-5 rounded-full bg-sky-100/80" />
-        <div className="h-2.5 w-5 rounded-full bg-cyan-200/80" />
-        <div className="h-2.5 w-5 rounded-full bg-sky-300/80" />
-        <div className="h-2.5 w-5 rounded-full bg-cyan-500/80" />
-        <div className="h-2.5 w-5 rounded-full bg-sky-700/85" />
+        <div className="h-2.5 w-5 rounded-full bg-chart-3/20" />
+        <div className="h-2.5 w-5 rounded-full bg-chart-3/40" />
+        <div className="h-2.5 w-5 rounded-full bg-chart-3/55" />
+        <div className="h-2.5 w-5 rounded-full bg-chart-3/70" />
+        <div className="h-2.5 w-5 rounded-full bg-chart-3/90" />
         <span>More</span>
         <span className="ml-2">{cadenceLabel}</span>
       </div>
@@ -487,10 +487,10 @@ function shortProjectName(projectDir: string): string {
 const TOKEN_ORDER = ["input_tokens", "cache_read_tokens", "cache_creation_tokens", "output_tokens"];
 
 const tokenChartConfig: ChartConfig = {
-  input_tokens: { label: "Input", color: "hsl(217, 91%, 60%)" },
-  cache_read_tokens: { label: "Cache read", color: "hsl(172, 66%, 50%)" },
-  cache_creation_tokens: { label: "Cache write", color: "hsl(189, 94%, 43%)" },
-  output_tokens: { label: "Output", color: "hsl(38, 92%, 50%)" },
+  input_tokens: { label: "Input", color: "hsl(var(--chart-1))" },
+  cache_read_tokens: { label: "Cache read", color: "hsl(var(--chart-3))" },
+  cache_creation_tokens: { label: "Cache write", color: "hsl(var(--chart-4))" },
+  output_tokens: { label: "Output", color: "hsl(var(--chart-2))" },
 };
 
 const EMPTY_TOKEN_ENTRY = (day: string): TokenDailyEntry => ({
@@ -624,7 +624,7 @@ function ModelBreakdown({ data }: { data: TokenByModel[] }) {
             label={shortModelName(m.model)}
             value={total}
             maxValue={max}
-            color="bg-blue-500/70"
+            color="bg-chart-5"
             sub={`· ${m.sessions} session${m.sessions !== 1 ? "s" : ""}`}
           />
         );
@@ -647,7 +647,7 @@ function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
           label={shortProjectName(p.project_dir)}
           value={p.total_input + p.total_output}
           maxValue={max}
-          color="bg-emerald-500/70"
+          color="bg-chart-6"
         />
       ))}
     </div>
