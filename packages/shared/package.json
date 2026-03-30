@@ -3,7 +3,11 @@
   "version": "0.6.14",
   "type": "module",
   "exports": {
-    "./*": "./dist/*"
+    "./lib/run-command.js": "./dist/lib/run-command.js",
+    "./git/worktree.js": "./dist/git/worktree.js",
+    "./github/pr.js": "./dist/github/pr.js",
+    "./mcp/server.js": "./dist/mcp/server.js",
+    "./mcp/repo-tools.js": "./dist/mcp/repo-tools.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json"

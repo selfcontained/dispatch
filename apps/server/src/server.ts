@@ -268,6 +268,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appRootDir = path.resolve(__dirname, "..");
 const repoRootDir = path.resolve(appRootDir, "../..");
+if (!existsSync(path.join(repoRootDir, "pnpm-workspace.yaml"))) {
+  throw new Error(`repoRootDir "${repoRootDir}" does not contain pnpm-workspace.yaml — monorepo layout may have changed`);
+}
 const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
 const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
 const legacyPublicDir = path.resolve(repoRootDir, "public");

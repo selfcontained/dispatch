@@ -257,9 +257,9 @@ cmd_up() {
   rm -rf "${cwd}/apps/web/node_modules/.vite" 2>/dev/null || true
 
   (
-    cd "$cwd"
+    cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" pnpm --filter @dispatch/web dev -- --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    DISPATCH_PORT="$DEV_API_PORT" npx vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 

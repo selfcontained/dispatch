@@ -17,7 +17,7 @@
     "start": "pnpm --filter @dispatch/server start",
     "release": "bin/dispatch-server update",
     "db:migrate": "pnpm --filter @dispatch/server db:migrate",
-    "check": "pnpm --filter @dispatch/shared build && pnpm --filter @dispatch/server check & pnpm run check:web & wait",
+    "check": "pnpm --filter @dispatch/shared build && pnpm --filter @dispatch/server check && pnpm run check:web",
     "test": "pnpm --filter @dispatch/server test",
     "test:watch": "pnpm --filter @dispatch/server test:watch",
     "test:e2e": "bash scripts/e2e-isolated.sh"
