@@ -105,6 +105,12 @@ export async function createGitWorktree(
     baseRef
   ]);
 
+  // Set upstream tracking so archival checks know which branch to compare against
+  await commandRunner("git", [
+    "-C", worktreePath,
+    "branch", "--set-upstream-to", baseRef, branchName
+  ], { allowedExitCodes: [0, 1, 128] });
+
   return {
     repoRoot,
     worktreePath,
