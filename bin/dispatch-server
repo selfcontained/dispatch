@@ -143,6 +143,7 @@ cmd_build() {
   load_nvm
   cd "$ROOT_DIR"
   nvm use >/dev/null
+  pnpm install --frozen-lockfile
   pnpm run build
 }
 
