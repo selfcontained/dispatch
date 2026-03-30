@@ -31,8 +31,8 @@ import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { getSetting, setSetting } from "./db/settings.js";
-import { runCommand } from "./lib/run-command.js";
-import { handleMcpRequest } from "./mcp/server.js";
+import { runCommand } from "@dispatch/shared/lib/run-command.js";
+import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
@@ -267,9 +267,13 @@ let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appRootDir = path.resolve(__dirname, "..");
-const releaseNotesFile = path.join(appRootDir, "release-notes", "current.md");
-const webDistDir = path.resolve(__dirname, "../web/dist");
-const legacyPublicDir = path.resolve(__dirname, "../public");
+const repoRootDir = path.resolve(appRootDir, "../..");
+if (!existsSync(path.join(repoRootDir, "pnpm-workspace.yaml"))) {
+  throw new Error(`repoRootDir "${repoRootDir}" does not contain pnpm-workspace.yaml — monorepo layout may have changed`);
+}
+const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
+const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
+const legacyPublicDir = path.resolve(repoRootDir, "public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 
 function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boolean } {
@@ -306,7 +310,7 @@ async function getAppVersionInfo(): Promise<{
   try {
     const gitResult = await runCommand(
       "git",
-      ["-C", appRootDir, "rev-parse", "--short=12", "HEAD"],
+      ["-C", repoRootDir, "rev-parse", "--short=12", "HEAD"],
       { allowedExitCodes: [0, 128] }
     );
     if (gitResult.exitCode === 0) {

@@ -49,7 +49,7 @@ export function loadConfig(): AppConfig {
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
     authToken: process.env.AUTH_TOKEN ?? "dev-token",
     mediaRoot: process.env.MEDIA_ROOT ?? path.join(process.env.HOME ?? "/tmp", ".dispatch", "media"),
-    dispatchBinDir: path.resolve(__dirname, "..", "bin"),
+    dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
       process.env.DISPATCH_CODEX_BIN ??
       process.env.CODEX_BIN ??

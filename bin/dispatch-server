@@ -34,7 +34,7 @@ load_nvm() {
 
 node_in_tmux_command() {
   cat <<CMD
-cd '$ROOT_DIR' && source "$HOME/.nvm/nvm.sh" && nvm use >/dev/null && npm run start
+cd '$ROOT_DIR' && source "$HOME/.nvm/nvm.sh" && nvm use >/dev/null && pnpm run start
 CMD
 }
 
@@ -143,7 +143,7 @@ cmd_build() {
   load_nvm
   cd "$ROOT_DIR"
   nvm use >/dev/null
-  npm run build
+  pnpm run build
 }
 
 cmd_update() {

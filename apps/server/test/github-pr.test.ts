@@ -6,7 +6,7 @@ import {
   getPrStatus,
   GitHubPrError,
   mergePrNow
-} from "../src/github/pr.js";
+} from "@dispatch/shared/github/pr.js";
 
 describe("github pr services", () => {
   it("creates a PR after pushing the current branch", async () => {
