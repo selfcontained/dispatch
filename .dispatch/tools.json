@@ -1,4 +1,10 @@
 {
+  "hooks": {
+    "stop": {
+      "command": ["./bin/dispatch-dev", "down"],
+      "description": "Tear down the agent's isolated dev environment on stop."
+    }
+  },
   "tools": [
     {
       "name": "dev_up",

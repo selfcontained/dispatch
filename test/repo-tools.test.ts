@@ -8,7 +8,7 @@ vi.mock("../src/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "started", stderr: "" }))
 }));
 
-const { loadRepoTools } = await import("../src/mcp/repo-tools.js");
+const { loadRepoTools, loadRepoHooks } = await import("../src/mcp/repo-tools.js");
 const { runCommand } = await import("../src/lib/run-command.js");
 
 const tempDirs: string[] = [];
@@ -18,11 +18,13 @@ const DEV_PARAMS = [
   { name: "live", type: "boolean", flag: "--live", description: "Enable live mode" }
 ];
 
-async function createToolsRepo(tools: unknown[]): Promise<string> {
+async function createToolsRepo(tools: unknown[], hooks?: unknown): Promise<string> {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
   tempDirs.push(repoRoot);
   await mkdir(path.join(repoRoot, ".dispatch"));
-  await writeFile(path.join(repoRoot, ".dispatch", "tools.json"), JSON.stringify({ tools }));
+  const config: Record<string, unknown> = { tools };
+  if (hooks !== undefined) config.hooks = hooks;
+  await writeFile(path.join(repoRoot, ".dispatch", "tools.json"), JSON.stringify(config));
   return repoRoot;
 }
 
@@ -47,7 +49,6 @@ describe("loadRepoTools", () => {
       cwd: repoRoot,
       env: expect.objectContaining({
         DISPATCH_AGENT_ID: "agt_test",
-        HOSTESS_AGENT_ID: "agt_test"
       })
     }));
   });
@@ -90,5 +91,48 @@ describe("loadRepoTools", () => {
 
     const [tool] = await loadRepoTools(repoRoot);
     expect(tool.name).toBe("repo_project_dev_up");
+  });
+});
+
+describe("loadRepoHooks", () => {
+  it("loads a stop hook from tools.json", async () => {
+    const repoRoot = await createToolsRepo([], {
+      stop: { command: ["./bin/dispatch-dev", "down"] }
+    });
+
+    const hooks = await loadRepoHooks(repoRoot);
+    expect(hooks.stop).toEqual({ command: ["./bin/dispatch-dev", "down"] });
+  });
+
+  it("returns empty object when no hooks are defined", async () => {
+    const repoRoot = await createToolsRepo([]);
+
+    const hooks = await loadRepoHooks(repoRoot);
+    expect(hooks).toEqual({});
+  });
+
+  it("returns empty object when tools.json does not exist", async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-repo-tools-"));
+    tempDirs.push(repoRoot);
+
+    const hooks = await loadRepoHooks(repoRoot);
+    expect(hooks).toEqual({});
+  });
+
+  it("parses optional description field", async () => {
+    const repoRoot = await createToolsRepo([], {
+      stop: { command: ["./bin/cleanup"], description: "Clean up resources" }
+    });
+
+    const hooks = await loadRepoHooks(repoRoot);
+    expect(hooks.stop).toEqual({ command: ["./bin/cleanup"], description: "Clean up resources" });
+  });
+
+  it("throws on hook with empty command", async () => {
+    const repoRoot = await createToolsRepo([], {
+      stop: { command: [] }
+    });
+
+    await expect(loadRepoHooks(repoRoot)).rejects.toThrow('Hook "stop" must include a non-empty command array');
   });
 });

@@ -64,8 +64,6 @@ resolve_suffix() {
     echo "$OPT_SUFFIX"
   elif [ -n "${DISPATCH_AGENT_ID:-}" ]; then
     echo "$DISPATCH_AGENT_ID"
-  elif [ -n "${HOSTESS_AGENT_ID:-}" ]; then
-    echo "$HOSTESS_AGENT_ID"
   else
     echo "dev-$$-$(date +%s)"
   fi

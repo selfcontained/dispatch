@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
-const LEFT_SIDEBAR_LEGACY_KEY = "hostess:leftSidebarOpen";
 const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
-const MEDIA_SIDEBAR_LEGACY_KEY = "hostess:mediaSidebarOpen";
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
 
-function readBool(key: string, legacyKey: string, fallback: boolean): boolean {
+function readBool(key: string, fallback: boolean): boolean {
   if (typeof window === "undefined") return fallback;
-  const stored = window.localStorage.getItem(key) ?? window.localStorage.getItem(legacyKey);
+  const stored = window.localStorage.getItem(key);
   return stored === null ? fallback : stored === "true";
 }
 
 export function useLayout() {
-  const [leftOpen, setLeftOpen] = useState(() => readBool(LEFT_SIDEBAR_KEY, LEFT_SIDEBAR_LEGACY_KEY, true));
-  const [mediaOpen, setMediaOpen] = useState(() => readBool(MEDIA_SIDEBAR_KEY, MEDIA_SIDEBAR_LEGACY_KEY, false));
+  const [leftOpen, setLeftOpen] = useState(() => readBool(LEFT_SIDEBAR_KEY, true));
+  const [mediaOpen, setMediaOpen] = useState(() => readBool(MEDIA_SIDEBAR_KEY, false));
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches : false
   );
@@ -37,13 +35,11 @@ export function useLayout() {
   useEffect(() => {
     const value = String(leftOpen);
     window.localStorage.setItem(LEFT_SIDEBAR_KEY, value);
-    window.localStorage.setItem(LEFT_SIDEBAR_LEGACY_KEY, value);
   }, [leftOpen]);
 
   useEffect(() => {
     const value = String(mediaOpen);
     window.localStorage.setItem(MEDIA_SIDEBAR_KEY, value);
-    window.localStorage.setItem(MEDIA_SIDEBAR_LEGACY_KEY, value);
   }, [mediaOpen]);
 
   // Reset mobile panels when switching to desktop.

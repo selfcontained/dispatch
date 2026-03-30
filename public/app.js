@@ -586,7 +586,7 @@ async function init() {
   setStatus(`API ${health.status}, DB ${health.db}`);
   await refreshAgents();
   await refreshMedia();
-  el.cwdInput.value = "/Users/bharris/dev/apps/hostess";
+  el.cwdInput.value = "";
   setConnectionBadge("disconnected");
 }
 

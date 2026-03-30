@@ -1,29 +1,29 @@
 # Current State Handoff (March 2026)
 
-This doc is for a new agent picking up work on Hostess. It describes what the tool currently is, how it runs, what is implemented vs planned, and where to make changes.
+This doc is for a new agent picking up work on Dispatch. It describes what the tool currently is, how it runs, what is implemented vs planned, and where to make changes.
 
-## What Hostess Is
+## What Dispatch Is
 
-Hostess is a local-first control plane for managing long-running Codex CLI agents on a Mac host.
+Dispatch is a local-first control plane for managing long-running coding agents on a Mac host.
 
 Core value today:
 - Start and manage multiple Codex agents backed by `tmux`.
 - Open a browser UI for agent control and terminal interaction.
 - Keep agent sessions alive when browser clients disconnect.
-- Let agents share high-quality screenshots into a media stream via `hostess-share`.
+- Let agents share high-quality screenshots into a media stream via `dispatch-share`.
 
 ## Implementation Snapshot
 
 ### Backend
 - Runtime: Node.js + TypeScript + Fastify.
-- Entry point: `/Users/bharris/dev/apps/hostess/src/server.ts`.
-- DB: PostgreSQL (Docker Compose), migrations in `/Users/bharris/dev/apps/hostess/src/db/migrate.ts`.
-- Process/runtime manager: `/Users/bharris/dev/apps/hostess/src/agents/manager.ts`.
+- Entry point: `/Users/brad/dev/apps/dispatch/src/server.ts`.
+- DB: PostgreSQL (Docker Compose), migrations in `/Users/brad/dev/apps/dispatch/src/db/migrate.ts`.
+- Process/runtime manager: `/Users/brad/dev/apps/dispatch/src/agents/manager.ts`.
 - Terminal bridge: WebSocket + `node-pty` attaching to `tmux`.
 
 ### Frontend
 - React + Vite + Tailwind + shadcn-style components.
-- Source: `/Users/bharris/dev/apps/hostess/web`.
+- Source: `/Users/brad/dev/apps/dispatch/web`.
 - Main screen: collapsible left agent rail, center terminal, right media drawer (`Sheet`).
 - Terminal rendering: xterm.js.
 
@@ -46,34 +46,34 @@ Core value today:
 `simulator_reservations` table exists from migration, but simulator allocation service is not fully implemented.
 
 ### Docker-backed persistence
-- File: `/Users/bharris/dev/apps/hostess/docker-compose.yml`
+- File: `/Users/brad/dev/apps/dispatch/docker-compose.yml`
 - Service: `postgres` (`postgres:17-alpine`)
-- Persistent volume: `hostess_pgdata`
+- Persistent volume: `dispatch_pgdata`
 
 ## Current User Flow
 
 1. Create agent from modal (`name`, absolute `cwd`).
-2. Hostess creates DB record, starts `tmux` session, launches `codex`.
+2. Dispatch creates DB record, starts `tmux` session, launches `codex`.
 3. UI selects agent and can attach terminal (or auto-attach after create/open).
 4. Terminal disconnect/reconnect does not kill agent because `tmux` persists.
 5. Agent shares media with:
-   - `hostess-share <image-path> [name]`
-   - `hostess-share --sim [udid] [name]`
+   - `dispatch-share <image-path> [name]`
+   - `dispatch-share --sim [udid] [name]`
 6. Media drawer shows files from that selected agent’s media directory.
 7. Stop sends Ctrl-C then kills tmux session if needed.
 8. Delete removes agent record (and can force-stop running session first).
 
 ## Agent Runtime Contract
 
-- Session name format: `hostess_<agent-id>`.
+- Session name format: `dispatch_<agent-id>`.
 - Agent ID format: `agt_<12 hex>`.
 - Each agent gets:
-  - `HOSTESS_AGENT_ID`
-  - `HOSTESS_MEDIA_DIR`
-  - typo-compat alias `HOSTESS_MDEIA_DIR`
-  - `PATH` including `HOSTESS_BIN_DIR` for `hostess-share`.
+  - `DISPATCH_AGENT_ID`
+  - `DISPATCH_MEDIA_DIR`
+  - typo-compat alias `DISPATCH_MDEIA_DIR`
+  - `PATH` including `DISPATCH_BIN_DIR` for `dispatch-share`.
 - Codex launch includes startup instructions telling agents:
-  - use `hostess-share` for Playwright and iOS screenshots
+  - use `dispatch-share` for Playwright and iOS screenshots
   - default Playwright to headless unless user asks for headed.
 
 ## API Surface Implemented
@@ -98,7 +98,7 @@ Not yet implemented from older planning docs:
 
 ## Frontend Behavior Today
 
-Main app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
+Main app: `/Users/brad/dev/apps/dispatch/web/src/App.tsx`
 
 - Left panel:
   - collapsible rail, not fully hidden
@@ -125,7 +125,7 @@ Main app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
 
 ## Operations Quickstart
 
-From `/Users/bharris/dev/apps/hostess`:
+From `/Users/brad/dev/apps/dispatch`:
 
 1. `nvm use default`
 2. `docker compose up -d postgres`
@@ -146,17 +146,17 @@ For development:
   - create agent
   - attach terminal and send input
   - detach and reattach without killing tmux session
-  - show media from `hostess-share`
+  - show media from `dispatch-share`
   - stop and delete agent
 - Stop any throwaway test agents you create.
 
 ## Most Relevant Files
 
-- Backend API: `/Users/bharris/dev/apps/hostess/src/server.ts`
-- Agent lifecycle/runtime: `/Users/bharris/dev/apps/hostess/src/agents/manager.ts`
-- Terminal attach bridge: `/Users/bharris/dev/apps/hostess/src/terminal/tmux-terminal.ts`
-- Media helper CLI: `/Users/bharris/dev/apps/hostess/bin/hostess-share`
-- React app: `/Users/bharris/dev/apps/hostess/web/src/App.tsx`
-- UI primitives: `/Users/bharris/dev/apps/hostess/web/src/components/ui`
-- Main README: `/Users/bharris/dev/apps/hostess/README.md`
-- Attention follow-up plan: `/Users/bharris/dev/apps/hostess/docs/09-agent-attention-phase-2.md`
+- Backend API: `/Users/brad/dev/apps/dispatch/src/server.ts`
+- Agent lifecycle/runtime: `/Users/brad/dev/apps/dispatch/src/agents/manager.ts`
+- Terminal attach bridge: `/Users/brad/dev/apps/dispatch/src/terminal/tmux-terminal.ts`
+- Media helper CLI: `/Users/brad/dev/apps/dispatch/bin/dispatch-share`
+- React app: `/Users/brad/dev/apps/dispatch/web/src/App.tsx`
+- UI primitives: `/Users/brad/dev/apps/dispatch/web/src/components/ui`
+- Main README: `/Users/brad/dev/apps/dispatch/README.md`
+- Attention follow-up plan: `/Users/brad/dev/apps/dispatch/docs/09-agent-attention-phase-2.md`

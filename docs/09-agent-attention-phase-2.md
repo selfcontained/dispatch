@@ -1,6 +1,6 @@
 # Agent Attention Phase 2 Plan
 
-This doc describes how to expand Hostess agent attention from the current narrow error-state signal into a backend-backed attention model that can represent detached activity and richer Hostess-owned events without changing the UI contract.
+This doc describes how to expand Dispatch agent attention from the current narrow error-state signal into a backend-backed attention model that can represent detached activity and richer Dispatch-owned events without changing the UI contract.
 
 ## Current Phase 1 Scope
 
@@ -34,13 +34,13 @@ Phase 2 should support multiple backend-owned sources:
 - `error`
   - agent process failed to start, crashed, or hit a lifecycle error
 - `approval_required`
-  - Hostess learns the agent is blocked on approval
+  - Dispatch learns the agent is blocked on approval
 - `input_required`
-  - Hostess learns the agent is waiting for user input
+  - Dispatch learns the agent is waiting for user input
 - `detached_activity`
   - tmux reports meaningful background activity for an unattached agent
 - `response_complete`
-  - a higher-level Hostess conversation/event layer reports the agent finished a response while detached
+  - a higher-level Dispatch conversation/event layer reports the agent finished a response while detached
 
 Not all of these exist in the repo today. This plan defines how to add them without changing the rendered UX.
 
@@ -106,9 +106,9 @@ Candidate mechanisms:
 
 The implementation should prefer explicit tmux metadata over parsing human-readable pane text.
 
-### 3. Accept richer Hostess-owned events
+### 3. Accept richer Dispatch-owned events
 
-If Hostess grows a higher-level conversation/event layer, that layer should emit explicit attention-worthy events instead of forcing the terminal to be the source of truth.
+If Dispatch grows a higher-level conversation/event layer, that layer should emit explicit attention-worthy events instead of forcing the terminal to be the source of truth.
 
 Examples:
 - agent finished a response while detached
@@ -134,7 +134,7 @@ Clearing should be an API mutation so multiple clients remain consistent.
 2. Populate attention from existing backend error state.
 3. Add explicit clear semantics via API mutation.
 4. Add tmux-backed detached activity monitoring.
-5. Add higher-level Hostess attention sources when the product exposes them.
+5. Add higher-level Dispatch attention sources when the product exposes them.
 
 ## Risks
 

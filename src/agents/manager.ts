@@ -9,6 +9,7 @@ import type { Pool } from "pg";
 import type { AppConfig } from "../config.js";
 import { createGitWorktree, cleanupGitWorktree } from "../git/worktree.js";
 import { runCommand } from "../lib/run-command.js";
+import { loadRepoHooks } from "../mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
@@ -395,6 +396,11 @@ export class AgentManager {
 
     await this.setAgentStatus(id, "stopping", null, tmuxSession ?? undefined);
 
+    // Run repo-defined stop hook (best-effort, non-blocking)
+    await this.runLifecycleHook("stop", agent).catch((err) =>
+      this.logger.warn({ err, agentId: id }, "Stop hook failed; continuing shutdown")
+    );
+
     try {
       if (tmuxSession && (await this.hasAgentSession(tmuxSession))) {
         await this.stopAgentSession(tmuxSession, force);
@@ -438,12 +444,13 @@ export class AgentManager {
       throw new AgentError("Agent is running. Stop it first or use force delete.", 409);
     }
 
-    if (agent.status === "running" && !sessionExists) {
-      await this.setAgentStatus(id, "stopped", null, agent.tmuxSession ?? undefined);
-    }
-
-    if (agent.tmuxSession && sessionExists) {
-      await this.stopAgentSession(agent.tmuxSession, true);
+    // Run full stop lifecycle (hooks, graceful shutdown, token harvest) for non-stopped agents.
+    if (agent.status !== "stopped") {
+      try {
+        await this.stopAgent(id, { force: true });
+      } catch (err) {
+        this.logger.warn({ err, agentId: id }, "Stop during delete failed; continuing with deletion");
+      }
     }
 
     // Worktree cleanup
@@ -467,16 +474,6 @@ export class AgentManager {
         this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
       }
     }
-
-    // Harvest token usage before soft-deleting
-    await harvestTokenUsage(this.pool, {
-      id: agent.id,
-      type: agent.type,
-      cwd: agent.cwd,
-      worktreePath: agent.worktreePath,
-    }, this.logger).catch((err) =>
-      this.logger.warn({ err, agentId: id }, "Token harvest failed on delete")
-    );
 
     // Record a final stopped event in history before deleting the agent row
     await this.pool
@@ -1018,6 +1015,33 @@ export class AgentManager {
     }
   }
 
+  private async runLifecycleHook(hookName: "stop", agent: AgentRecord): Promise<void> {
+    const repoRoot = agent.worktreePath ?? agent.cwd;
+    if (!repoRoot) return;
+
+    const hooks = await loadRepoHooks(repoRoot);
+    const hook = hooks[hookName];
+    if (!hook) return;
+
+    const [command, ...args] = hook.command;
+    this.logger.info({ agentId: agent.id, hook: hookName, command: hook.command }, "Running lifecycle hook");
+
+    const result = await runCommand(command, args, {
+      cwd: repoRoot,
+      env: {
+        DISPATCH_AGENT_ID: agent.id,
+      },
+      timeoutMs: 15_000,
+    });
+
+    if (result.exitCode !== 0) {
+      this.logger.warn(
+        { agentId: agent.id, hook: hookName, exitCode: result.exitCode, stderr: result.stderr },
+        "Lifecycle hook exited with non-zero code"
+      );
+    }
+  }
+
   private buildAgentCommand(
     type: AgentType,
     args: string[],
@@ -1046,13 +1070,8 @@ export class AgentManager {
       `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       // Compatibility alias for common typo to keep screenshot sharing reliable.
       `DISPATCH_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
-      `HOSTESS_AGENT_ID=${this.shellEscape(agentId)}`,
-      `HOSTESS_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
       `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
       `DISPATCH_SCHEME=${this.config.tls ? "https" : "http"}`,
-      `HOSTESS_PORT=${this.shellEscape(String(this.config.port))}`,
-      // Compatibility alias for common typo to keep screenshot sharing reliable.
-      `HOSTESS_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
       // Pin the Bash tool's cwd to the project root (worktree) after every command.
       // Prevents cwd drift back to the original repo root during long conversations.
@@ -1250,8 +1269,8 @@ export class AgentManager {
 
   /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task". */
   private agentIdFromSessionName(sessionName: string): string {
-    const match = sessionName.match(/(?:dispatch|hostess)_(agt_[a-f0-9]{12})/);
-    return match?.[1] ?? sessionName.replace(/^(dispatch|hostess)_/, "");
+    const match = sessionName.match(/dispatch_(agt_[a-f0-9]{12})/);
+    return match?.[1] ?? sessionName.replace(/^dispatch_/, "");
   }
 
   private toSessionName(agentId: string, agentName?: string): string {

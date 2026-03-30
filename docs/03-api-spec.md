@@ -14,7 +14,7 @@
   "name": "ios-fix-1",
   "status": "running",
   "cwd": "/Users/bharris/dev/apps/foo",
-  "tmuxSession": "hostess_agt_01J...",
+  "tmuxSession": "dispatch_agt_01J...",
   "pid": 12345,
   "simulatorUdid": "A1B2C3...",
   "createdAt": "2026-03-07T19:20:00Z",

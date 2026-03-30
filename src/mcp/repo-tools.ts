@@ -1,9 +1,12 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
 import { runCommand } from "../lib/run-command.js";
 
 const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
+
+// Cache parsed hooks keyed by manifest path, invalidated by mtime.
+const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
   "create_worktree",
@@ -18,6 +21,16 @@ const BUILTIN_TOOL_NAMES = new Set([
 
 type RepoToolFile = {
   tools?: unknown;
+  hooks?: unknown;
+};
+
+export type RepoHookDefinition = {
+  command: string[];
+  description?: string;
+};
+
+export type RepoHooks = {
+  stop?: RepoHookDefinition;
 };
 
 export type RepoToolParam = {
@@ -82,7 +95,6 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           cwd: currentRepoRoot,
           env: {
             DISPATCH_AGENT_ID: agentId,
-            HOSTESS_AGENT_ID: agentId
           }
         });
 
@@ -139,6 +151,58 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   const params = parseRepoToolParams(rawTool.params);
 
   return { name, description, command, params };
+}
+
+export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
+  const manifestPath = path.join(repoRoot, REPO_TOOL_MANIFEST_PATH);
+
+  // Check mtime for cache invalidation.
+  let mtime: number;
+  try {
+    mtime = (await stat(manifestPath)).mtimeMs;
+  } catch {
+    return {};
+  }
+
+  const cached = hooksCache.get(manifestPath);
+  if (cached && cached.mtime === mtime) {
+    return cached.hooks;
+  }
+
+  const config = await readRepoToolFile(manifestPath);
+  if (!config?.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+    const empty = {};
+    hooksCache.set(manifestPath, { mtime, hooks: empty });
+    return empty;
+  }
+
+  const hooks: RepoHooks = {};
+  const raw = config.hooks as Record<string, unknown>;
+
+  if (raw.stop) {
+    hooks.stop = parseHookDefinition(raw.stop, "stop");
+  }
+
+  hooksCache.set(manifestPath, { mtime, hooks });
+  return hooks;
+}
+
+function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid hook definition for "${name}".`);
+  }
+  const raw = value as Record<string, unknown>;
+  const command = Array.isArray(raw.command) && raw.command.every((part) => typeof part === "string")
+    ? raw.command.map((part) => (part as string).trim()).filter(Boolean)
+    : [];
+
+  if (command.length === 0) {
+    throw new Error(`Hook "${name}" must include a non-empty command array.`);
+  }
+
+  const description = typeof raw.description === "string" ? raw.description.trim() : undefined;
+
+  return { command, ...(description ? { description } : {}) };
 }
 
 function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {
