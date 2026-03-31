@@ -79,6 +79,12 @@ function formatTimestamp(iso: string): string {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function shortModelName(model: string): string {
+  return model
+    .replace(/-\d{8}$/, "")
+    .replace("claude-", "");
+}
+
 const EVENT_TYPE_COLORS: Record<string, string> = {
   working: "bg-status-working",
   blocked: "bg-status-blocked",
@@ -522,7 +528,13 @@ function AgentHistoryDetail({
           <StatCard
             label="Tokens"
             value={formatTokenCount(totalTokens)}
-            sub={`${formatTokenCount(tokenUsage.total_output)} output`}
+            sub={
+              tokenUsage.by_model.length === 1
+                ? `${formatTokenCount(tokenUsage.total_output)} out · ${shortModelName(tokenUsage.by_model[0].model)}`
+                : tokenUsage.by_model.length > 1
+                  ? `${formatTokenCount(tokenUsage.total_output)} out · ${tokenUsage.by_model.length} models`
+                  : `${formatTokenCount(tokenUsage.total_output)} output`
+            }
           />
         )}
         {tokenUsage.total_messages > 0 && (
@@ -561,26 +573,6 @@ function AgentHistoryDetail({
             Event timeline ({events.length})
           </h3>
           <EventTimeline events={events} />
-        </div>
-      )}
-
-      {/* Token by model */}
-      {tokenUsage.by_model.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-foreground">Token usage by model</h3>
-          <div className="space-y-1.5">
-            {tokenUsage.by_model.map((m) => (
-              <div
-                key={m.model}
-                className="flex items-center justify-between rounded border border-border bg-muted/20 px-3 py-1.5 text-xs"
-              >
-                <span className="font-mono text-foreground">{m.model}</span>
-                <span className="text-muted-foreground">
-                  {formatTokenCount(m.input_tokens)} in / {formatTokenCount(m.output_tokens)} out
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
