@@ -3,7 +3,6 @@ import { ArrowLeft, ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -26,7 +25,6 @@ import {
   useHistoryAgentDetail,
   useHistoryProjects,
   type HistoryFilters,
-  type HistoryAgent,
   type HistoryEvent,
   type HistoryMedia,
 } from "@/hooks/use-agent-history";
