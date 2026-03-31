@@ -17,6 +17,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { formatDuration, formatTokenCount, formatRelativeTime, shortProjectName } from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
@@ -35,44 +36,6 @@ import {
 } from "@/hooks/use-activity";
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "0s";
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  if (hours < 24) return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function formatRelativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function shortProjectName(project: string): string {
-  const parts = project.replace(/\/$/, "").split("/");
-  return parts.length <= 2 ? project : parts.slice(-2).join("/");
-}
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -146,15 +109,6 @@ function AgentHistoryList({
     },
     [sort]
   );
-
-  const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sort !== col) return null;
-    return order === "desc" ? (
-      <ChevronDown className="ml-0.5 inline h-3 w-3" />
-    ) : (
-      <ChevronUp className="ml-0.5 inline h-3 w-3" />
-    );
-  };
 
   const hasActiveFilters = debouncedSearch || type || project || range !== "all";
 
@@ -253,7 +207,7 @@ function AgentHistoryList({
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"
                 onClick={() => toggleSort("name")}
               >
-                Name <SortIcon col="name" />
+                Name {sort === "name" && (order === "desc" ? <ChevronDown className="ml-0.5 inline h-3 w-3" /> : <ChevronUp className="ml-0.5 inline h-3 w-3" />)}
               </th>
               <th className="hidden px-2 py-2 font-medium sm:table-cell">Project</th>
               <th className="px-2 py-2 font-medium">Duration</th>
@@ -262,7 +216,7 @@ function AgentHistoryList({
                 className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-5"
                 onClick={() => toggleSort("created_at")}
               >
-                Created <SortIcon col="created_at" />
+                Created {sort === "created_at" && (order === "desc" ? <ChevronDown className="ml-0.5 inline h-3 w-3" /> : <ChevronUp className="ml-0.5 inline h-3 w-3" />)}
               </th>
             </tr>
           </thead>

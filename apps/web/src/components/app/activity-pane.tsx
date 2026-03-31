@@ -29,6 +29,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { formatDuration, formatTokenCount, shortProjectName } from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -61,20 +62,6 @@ type ActivityPaneProps = {
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "0s";
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  if (hours < 24) return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
-}
 
 function formatDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -445,12 +432,6 @@ function DailyStackedBarChart({
 
 // ── Token helpers ──────────────────────────────────────────────────
 
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
-}
-
 function cacheHitRate(stats: TokenStats): number {
   const totalInput = stats.total_input + stats.total_cache_creation + stats.total_cache_read;
   if (totalInput === 0) return 0;
@@ -464,11 +445,6 @@ function shortModelName(model: string): string {
   if (model.includes("gpt-5")) return "GPT-5";
   if (model.includes("gpt-4")) return "GPT-4";
   return model;
-}
-
-function shortProjectName(projectDir: string): string {
-  const parts = projectDir.split("/").filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : projectDir;
 }
 
 // ── Token daily chart ─────────────────────────────────────────────

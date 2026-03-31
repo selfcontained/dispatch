@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { ActivityRange } from "@/hooks/use-activity";
+import { getRangeBounds, type ActivityRange } from "@/hooks/use-activity";
 
 const HISTORY_QUERY_OPTIONS = {
   staleTime: 60_000,
-  refetchOnMount: "always" as const,
 };
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -91,21 +90,6 @@ export type HistoryFilters = {
   order: "asc" | "desc";
   offset: number;
 };
-
-function getRangeBounds(range: ActivityRange): { start: string; end: string } {
-  const now = new Date();
-  const end = now.toISOString();
-  if (range === "year") {
-    return { start: new Date(now.getFullYear(), 0, 1).toISOString(), end };
-  }
-  if (range === "7d") {
-    return { start: new Date(now.getTime() - 7 * 86_400_000).toISOString(), end };
-  }
-  if (range === "30d") {
-    return { start: new Date(now.getTime() - 30 * 86_400_000).toISOString(), end };
-  }
-  return { start: "", end: "" };
-}
 
 function buildParams(filters: HistoryFilters): string {
   const params = new URLSearchParams();

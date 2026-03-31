@@ -35,7 +35,7 @@ function getGranularity(range: ActivityRange): ActivityGranularity {
   return "month";
 }
 
-function getRangeBounds(range: ActivityRange): { start: string; end: string } {
+export function getRangeBounds(range: ActivityRange): { start: string; end: string } {
   const now = new Date();
   const end = now.toISOString();
 
