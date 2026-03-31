@@ -510,10 +510,35 @@ function AgentHistoryDetail({
             })}
           </span>
           <span>{formatDuration(durationMs)}</span>
-          {agent.gitContext?.branch && (
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
-              {agent.gitContext.branch}
+        </div>
+
+        {/* Agent details */}
+        <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+          {(agent.worktreeBranch || agent.gitContext?.branch) && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[11px]">Branch</span>
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                {agent.worktreeBranch || agent.gitContext?.branch}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="w-16 shrink-0 text-[11px]">Project</span>
+            <span className="font-mono text-[11px]">
+              {shortProjectName(agent.gitContext?.repoRoot ?? agent.cwd)}
             </span>
+          </div>
+          {agent.gitContext?.worktreePath && agent.gitContext.isWorktree && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[11px]">Worktree</span>
+              <span className="font-mono text-[11px]">{shortProjectName(agent.gitContext.worktreePath)}</span>
+            </div>
+          )}
+          {agent.cwd !== agent.gitContext?.repoRoot && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[11px]">Directory</span>
+              <span className="font-mono text-[11px]">{shortProjectName(agent.cwd)}</span>
+            </div>
           )}
         </div>
       </div>
