@@ -159,9 +159,9 @@ function AgentHistoryList({
   const hasActiveFilters = debouncedSearch || type || project || range !== "all";
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="mx-auto flex h-full max-w-3xl flex-col px-3 sm:px-5 md:px-8">
       {/* Search + filters */}
-      <div className="space-y-2 px-3 pt-3 pb-2 sm:px-5">
+      <div className="space-y-2 pt-4 pb-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -599,7 +599,7 @@ function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="space-y-6 p-3 sm:p-5">
+    <div className="mx-auto max-w-3xl space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
         <button
