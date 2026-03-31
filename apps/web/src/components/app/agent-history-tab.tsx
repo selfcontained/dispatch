@@ -661,8 +661,8 @@ function AgentHistoryDetail({
         </div>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      {/* Stats */}
+      <div className="flex flex-wrap gap-2 sm:gap-3">
         <StatCard label="Total duration" value={formatDuration(durationMs)} />
         <StatCard label="Working" value={formatDuration(stateDurations.working ?? 0)} />
         <StatCard label="Blocked" value={formatDuration(stateDurations.blocked ?? 0)} />

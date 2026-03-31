@@ -795,7 +795,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
             <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <StatCard
                     label="Total tokens"
                     value={formatTokenCount(totalTokens)}
@@ -893,7 +893,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
               {/* Status summary cards */}
               {stats && hasData && (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <StatCard
                     label="Total working time"
                     value={formatDuration(stats.totalWorkingMs)}
