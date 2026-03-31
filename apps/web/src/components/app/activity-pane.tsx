@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { AgentHistoryTab } from "@/components/app/agent-history-tab";
 import {
   Bar,
   BarChart,
@@ -719,8 +720,11 @@ function ProjectBreakdown({
 
 // ── Main pane ───────────────────────────────────────────────────────
 
+type ActivityTab = "metrics" | "history";
+
 export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
+  const [tab, setTab] = useState<ActivityTab>("metrics");
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats(range);
   const { data: dailyStatus } = useDailyStatus(range);
@@ -756,26 +760,41 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* Header */}
           <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
-                <SelectTrigger
-                  className="h-8 w-[132px] bg-muted/30 text-xs"
-                  data-testid="activity-range-select"
-                  aria-label="Activity time range"
+            <div className="flex items-center gap-1">
+              {(["metrics", "history"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    tab === t
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ACTIVITY_RANGES.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {rangeLabel(option)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  {t === "metrics" ? "Metrics" : "History"}
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {tab === "metrics" && (
+                <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+                  <SelectTrigger
+                    className="h-8 w-[132px] bg-muted/30 text-xs"
+                    data-testid="activity-range-select"
+                    aria-label="Activity time range"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACTIVITY_RANGES.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {rangeLabel(option)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <DialogPrimitive.Close className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
               <X className="h-4 w-4" />
@@ -783,8 +802,15 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
             </DialogPrimitive.Close>
           </div>
 
-          {/* Body */}
-          <ScrollArea className="flex-1">
+          {/* History tab */}
+          {tab === "history" && (
+            <ScrollArea className="flex-1">
+              <AgentHistoryTab range={range} onRangeChange={setRange} />
+            </ScrollArea>
+          )}
+
+          {/* Metrics tab body */}
+          {tab === "metrics" && <ScrollArea className="flex-1">
             <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
@@ -927,7 +953,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </ScrollArea>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
