@@ -14,6 +14,8 @@ import {
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { FeedbackPanel } from "@/components/app/feedback-panel";
+import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +48,8 @@ type AgentSidebarSharedProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
+  sendTerminalInput?: (data: string) => void;
+  connectedAgentId?: string | null;
 };
 
 type AgentSidebarProps = AgentSidebarSharedProps & {
@@ -83,6 +87,8 @@ export function AgentSidebarContent({
   detachTerminal,
   attachToAgent,
   startAgent,
+  sendTerminalInput,
+  connectedAgentId,
   onRequestClose,
   closeOnSessionAction = false,
   closeButtonIcon = "x",
@@ -413,7 +419,32 @@ export function AgentSidebarContent({
                             </div>
                           </div>
                           {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
+                          {agent.persona ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Persona</span>
+                              <Badge variant="running">{agent.persona}</Badge>
+                              {agent.parentAgentId ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  from {agents.find((a) => a.id === agent.parentAgentId)?.name ?? agent.parentAgentId.slice(-6)}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {!isStopped && !agent.persona && sendTerminalInput && connectedAgentId === agent.id ? (
+                            <PersonaLauncher
+                              agent={agent}
+                              sendTerminalInput={sendTerminalInput}
+                            />
+                          ) : null}
                         </div>
+                        {agent.persona ? (
+                          <FeedbackPanel
+                            agent={agent}
+                            agents={agents}
+                            sendTerminalInput={sendTerminalInput}
+                            connectedAgentId={connectedAgentId}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   </div>

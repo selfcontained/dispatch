@@ -51,6 +51,9 @@ export type AgentRecord = {
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;
+  persona: string | null;
+  parentAgentId: string | null;
+  personaContext: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -73,6 +76,9 @@ type CreateAgentInput = {
   worktreeBranch?: string;
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
+  persona?: string;
+  parentAgentId?: string;
+  personaContext?: string;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -89,6 +95,28 @@ export type WorktreeStatus = {
 
 type StopAgentInput = {
   force?: boolean;
+};
+
+export type FeedbackInput = {
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  filePath?: string;
+  lineNumber?: number;
+  description: string;
+  suggestion?: string;
+  mediaRef?: string;
+};
+
+export type FeedbackRecord = {
+  id: number;
+  agentId: string;
+  severity: string;
+  filePath: string | null;
+  lineNumber: number | null;
+  description: string;
+  suggestion: string | null;
+  mediaRef: string | null;
+  status: string;
+  createdAt: string;
 };
 
 type AgentLatestEventInput = {
@@ -176,10 +204,11 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, NOW())
       `,
-      [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase]
+      [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
+        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -1223,6 +1252,54 @@ export class AgentManager {
     }
   }
 
+  // --- Feedback ---
+
+  async submitFeedback(
+    agentId: string,
+    feedback: FeedbackInput
+  ): Promise<FeedbackRecord> {
+    const result = await this.pool.query<FeedbackRecord>(
+      `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
+                 description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"`,
+      [
+        agentId,
+        feedback.severity ?? "info",
+        feedback.filePath ?? null,
+        feedback.lineNumber ?? null,
+        feedback.description,
+        feedback.suggestion ?? null,
+        feedback.mediaRef ?? null,
+      ]
+    );
+    return result.rows[0]!;
+  }
+
+  async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
+    const result = await this.pool.query<FeedbackRecord>(
+      `SELECT id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
+              description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"
+       FROM agent_feedback WHERE agent_id = $1 ORDER BY created_at ASC`,
+      [agentId]
+    );
+    return result.rows;
+  }
+
+  async updateFeedbackStatus(
+    feedbackId: number,
+    status: "open" | "dismissed" | "forwarded"
+  ): Promise<FeedbackRecord | null> {
+    const result = await this.pool.query<FeedbackRecord>(
+      `UPDATE agent_feedback SET status = $2
+       WHERE id = $1
+       RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
+                 description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"`,
+      [feedbackId, status]
+    );
+    return result.rows[0] ?? null;
+  }
+
   private baseAgentSelectSql(): string {
     return `
       SELECT
@@ -1256,6 +1333,9 @@ export class AgentManager {
         git_context AS "gitContext",
         git_context_stale AS "gitContextStale",
         git_context_updated_at AS "gitContextUpdatedAt",
+        persona,
+        parent_agent_id AS "parentAgentId",
+        persona_context AS "personaContext",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

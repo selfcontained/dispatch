@@ -15,7 +15,8 @@ import type WebSocket from "ws";
 import pty from "node-pty";
 
 import { AgentError, AgentManager } from "./agents/manager.js";
-import type { AgentGitContext, AgentRecord } from "./agents/manager.js";
+import type { AgentGitContext, AgentRecord, FeedbackRecord } from "./agents/manager.js";
+import { loadPersonas, loadPersonaBySlug, assemblePersonaPrompt } from "./personas/loader.js";
 import {
   isPasswordSet,
   setPassword,
@@ -72,7 +73,8 @@ type UiEvent =
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
-  | { type: "stream.stopped"; agentId: string };
+  | { type: "stream.stopped"; agentId: string }
+  | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -902,7 +904,9 @@ async function registerRoutes() {
       repoRoot,
       worktreeRoot,
       upsertEvent: mcpUpsertEvent,
-      shareMedia: mcpShareMedia
+      shareMedia: mcpShareMedia,
+      submitFeedback: mcpSubmitFeedback,
+      launchPersona: mcpLaunchPersona,
     });
   });
 
@@ -2027,6 +2031,9 @@ async function registerRoutes() {
       useWorktree?: unknown;
       worktreeBranch?: unknown;
       baseBranch?: unknown;
+      persona?: unknown;
+      parentAgentId?: unknown;
+      personaContext?: unknown;
     };
 
     if (typeof body?.cwd !== "string") {
@@ -2096,7 +2103,10 @@ async function registerRoutes() {
         useWorktree: typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
         worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined,
         baseBranch: typeof body.baseBranch === "string" ? body.baseBranch : undefined,
-        worktreeLocation
+        worktreeLocation,
+        persona: typeof body.persona === "string" ? body.persona : undefined,
+        parentAgentId: typeof body.parentAgentId === "string" ? body.parentAgentId : undefined,
+        personaContext: typeof body.personaContext === "string" ? body.personaContext : undefined,
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
@@ -2235,6 +2245,66 @@ async function registerRoutes() {
         uiEventBroker.publish({ type: "agent.deleted", agentId: existing.id });
       }
       return reply.code(204).send();
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
+  // --- Personas ---
+
+  app.get("/api/v1/personas", async (request, reply) => {
+    const query = request.query as { cwd?: unknown };
+    if (typeof query.cwd !== "string") {
+      return reply.code(400).send({ error: "cwd query parameter is required." });
+    }
+    try {
+      // Try worktree root first (uncommitted persona files live here), then repo root
+      let personas = await loadPersonas(await resolveWorktreeRoot(query.cwd));
+      if (personas.length === 0) {
+        personas = await loadPersonas(await resolveRepoRoot(query.cwd));
+      }
+      return { personas };
+    } catch {
+      return { personas: [] };
+    }
+  });
+
+  // --- Feedback ---
+
+  app.get("/api/v1/agents/:id/feedback", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    try {
+      const agent = await agentManager.getAgent(id);
+      if (!agent) return reply.code(404).send({ error: "Agent not found." });
+      const feedback = await agentManager.listFeedback(id);
+      return { feedback };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
+  app.patch("/api/v1/agents/:id/feedback/:feedbackId", async (request, reply) => {
+    const params = request.params as { id?: string; feedbackId?: string };
+    const body = request.body as { status?: unknown };
+    const feedbackId = parseInt(params.feedbackId ?? "", 10);
+
+    if (isNaN(feedbackId)) {
+      return reply.code(400).send({ error: "Invalid feedback id." });
+    }
+
+    const validStatuses = ["open", "dismissed", "forwarded"] as const;
+    if (typeof body?.status !== "string" || !(validStatuses as readonly string[]).includes(body.status)) {
+      return reply.code(400).send({ error: "status must be one of: open, dismissed, forwarded" });
+    }
+
+    try {
+      const updated = await agentManager.updateFeedbackStatus(
+        feedbackId,
+        body.status as "open" | "dismissed" | "forwarded"
+      );
+      if (!updated) return reply.code(404).send({ error: "Feedback not found." });
+      return { feedback: updated };
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -3046,6 +3116,102 @@ async function mcpUpsertEvent(
     metadata: event.metadata
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpSubmitFeedback(
+  agentId: string,
+  feedback: import("./agents/manager.js").FeedbackInput
+): Promise<FeedbackRecord> {
+  const record = await agentManager.submitFeedback(agentId, feedback);
+  uiEventBroker.publish({ type: "feedback.created", agentId, feedback: record });
+  return record;
+}
+
+async function mcpLaunchPersona(
+  agentId: string,
+  opts: { persona: string; context: string }
+): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
+  const parent = await agentManager.getAgent(agentId);
+  if (!parent) throw new Error("Parent agent not found.");
+
+  const parentCwd = parent.worktreePath ?? parent.cwd;
+  // Try worktree root first (persona files may be uncommitted), then repo root
+  let personaRoot: string;
+  try {
+    personaRoot = await resolveWorktreeRoot(parentCwd);
+  } catch {
+    try {
+      personaRoot = await resolveRepoRoot(parentCwd);
+    } catch {
+      throw new Error("Parent agent is not in a git repository.");
+    }
+  }
+
+  let persona = await loadPersonaBySlug(personaRoot, opts.persona);
+  if (!persona) {
+    // Fall back to repo root if worktree root didn't have it
+    try {
+      const repoRoot = await resolveRepoRoot(parentCwd);
+      if (repoRoot !== personaRoot) {
+        persona = await loadPersonaBySlug(repoRoot, opts.persona);
+      }
+    } catch {}
+  }
+  if (!persona) {
+    throw new Error(`Persona "${opts.persona}" not found in .dispatch/personas/.`);
+  }
+
+  // Generate git diff for context
+  let diff = "";
+  try {
+    const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+    const diffResult = await runCommand("git", ["diff", "main...HEAD"], { cwd: parentCwd });
+    diff = diffResult.stdout;
+  } catch {
+    diff = "(unable to generate diff)";
+  }
+
+  const prompt = assemblePersonaPrompt(persona, opts.context, diff);
+
+  // Build agent args — include full access flag if parent has it
+  const personaArgs: string[] = [`--append-system-prompt`, prompt];
+  if (parent.fullAccess) {
+    const fullAccessArg =
+      parent.type === "claude" ? CLAUDE_FULL_ACCESS_ARG
+      : parent.type === "codex" ? CODEX_FULL_ACCESS_ARG
+      : null;
+    if (fullAccessArg) personaArgs.push(fullAccessArg);
+  }
+
+  const agent = await agentManager.createAgent({
+    name: `${opts.persona}-${agentId.slice(-6)}`,
+    type: parent.type,
+    cwd: parentCwd,
+    agentArgs: personaArgs,
+    fullAccess: parent.fullAccess,
+    useWorktree: false,
+    persona: opts.persona,
+    parentAgentId: agentId,
+    personaContext: opts.context,
+  });
+
+  queueGitContextRefresh([agent.id]);
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+
+  // Send initial prompt to the persona agent after it starts up
+  if (agent.tmuxSession) {
+    const tmuxSession = agent.tmuxSession;
+    const initialMessage = "Begin your review now. Follow your system prompt instructions.";
+    setTimeout(async () => {
+      try {
+        const { runCommand: run } = await import("@dispatch/shared/lib/run-command.js");
+        await run("tmux", ["send-keys", "-t", tmuxSession, "-l", initialMessage]);
+        await run("tmux", ["send-keys", "-t", tmuxSession, "Enter"]);
+      } catch {}
+    }, 10_000);
+  }
+
+  return { agentId: agent.id, persona: opts.persona, parentAgentId: agentId };
 }
 
 async function mcpShareMedia(

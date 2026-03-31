@@ -11,7 +11,8 @@ type UiEvent =
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
-  | { type: "stream.stopped"; agentId: string };
+  | { type: "stream.stopped"; agentId: string }
+  | { type: "feedback.created"; agentId: string };
 
 export function useSSE(
   authState: AuthState,
@@ -89,6 +90,11 @@ export function useSSE(
 
         if (payload.type === "media.seen") {
           markSeenInCache(payload.agentId, new Set(payload.keys));
+          return;
+        }
+
+        if (payload.type === "feedback.created") {
+          void queryClient.invalidateQueries({ queryKey: ["feedback", payload.agentId], exact: true });
         }
       } catch {}
     };

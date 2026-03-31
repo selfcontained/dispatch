@@ -132,6 +132,26 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS agent_type TEXT;
     ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS agent_name TEXT;
     ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS project_dir TEXT;
+
+    -- Persona support
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS parent_agent_id TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona_context TEXT;
+
+    CREATE TABLE IF NOT EXISTS agent_feedback (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      severity TEXT NOT NULL DEFAULT 'info',
+      file_path TEXT,
+      line_number INTEGER,
+      description TEXT NOT NULL,
+      suggestion TEXT,
+      media_ref TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent_id ON agent_feedback(agent_id);
   `;
 
   await pool.query(sql);

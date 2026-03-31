@@ -103,3 +103,9 @@ Before marking any task as done, run the following checks and fix any failures:
 - Production uses the `dispatch` database. Never connect to it from dev servers.
 - `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
 - Migrations run automatically on API server start.
+
+## Personas
+- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
+- Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
+- Available personas are defined in `.dispatch/personas/` as markdown files.
+- When acting as a persona agent, use the `dispatch_feedback` MCP tool to submit structured findings instead of just reporting in prose.
