@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { StatCard } from "@/components/app/stat-card";
 import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
 import {
   useHistoryAgents,
@@ -337,16 +338,6 @@ function AgentHistoryList({
 }
 
 // ── Detail View ──────────────────────────────────────────────────────
-
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-border bg-muted/40 px-2.5 py-2 sm:px-4 sm:py-3">
-      <p className="text-[10px] sm:text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 sm:mt-1 text-lg sm:text-2xl font-semibold text-foreground">{value}</p>
-      {sub && <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
 
 const durationChartConfig: ChartConfig = {
   working: { label: "Working", color: "hsl(var(--status-working))" },
