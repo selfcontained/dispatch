@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
 import {
   useHistoryAgents,
   useHistoryAgentDetail,
@@ -449,6 +450,132 @@ function EventTimeline({ events }: { events: HistoryEvent[] }) {
   );
 }
 
+type DetailTab = "events" | "media";
+
+function DetailTabs({
+  events,
+  media,
+  agentId,
+}: {
+  events: HistoryEvent[];
+  media: HistoryMedia[];
+  agentId: string;
+}) {
+  const [tab, setTab] = useState<DetailTab>("events");
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const lightboxItems = useMemo(
+    () =>
+      media.map((m) => ({
+        src: `/api/v1/agents/${agentId}/media/${m.file_name}`,
+        caption: m.description ?? stripTimestamp(m.file_name),
+        file: {
+          name: m.file_name,
+          size: m.size_bytes,
+          updatedAt: m.created_at,
+          source: m.source as "screenshot" | "stream" | "text",
+        },
+      })),
+    [media, agentId]
+  );
+
+  const lightboxItem = lightboxIndex !== null ? lightboxItems[lightboxIndex] ?? null : null;
+
+  return (
+    <>
+      <div>
+        <div className="flex items-center gap-1 border-b border-border pb-0">
+          {(["events", "media"] as const).map((t) => {
+            const count = t === "events" ? events.length : media.length;
+            return (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "relative px-3 py-1.5 text-xs font-medium transition-colors",
+                  tab === t
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {t === "events" ? "Events" : "Media"}
+                {count > 0 && (
+                  <span
+                    className={cn(
+                      "ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium",
+                      tab === t
+                        ? "bg-foreground/15 text-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {count}
+                  </span>
+                )}
+                {tab === t && (
+                  <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="pt-3">
+          {tab === "events" && events.length > 0 && (
+            <EventTimeline events={events} />
+          )}
+          {tab === "events" && events.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No events recorded.
+            </p>
+          )}
+
+          {tab === "media" && media.length > 0 && (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {media.map((m, i) => (
+                <button
+                  key={m.file_name}
+                  onClick={() => setLightboxIndex(i)}
+                  className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
+                >
+                  {m.source === "screenshot" || m.source === "simulator" ? (
+                    <img
+                      src={`/api/v1/agents/${agentId}/media/${m.file_name}`}
+                      alt={m.description ?? m.file_name}
+                      className="aspect-video w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="flex aspect-video items-center justify-center text-[10px] text-muted-foreground">
+                      {m.source}
+                    </div>
+                  )}
+                  {m.description && (
+                    <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                      {m.description}
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab === "media" && media.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No media captured.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <MediaLightbox
+        item={lightboxItem}
+        currentIndex={lightboxIndex ?? 0}
+        totalItems={lightboxItems.length}
+        setLightboxIndex={setLightboxIndex}
+      />
+    </>
+  );
+}
+
 function AgentHistoryDetail({
   agentId,
   onBack,
@@ -591,48 +718,8 @@ function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Event timeline */}
-      {events.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-foreground">
-            Event timeline ({events.length})
-          </h3>
-          <EventTimeline events={events} />
-        </div>
-      )}
-
-      {/* Media */}
-      {media.length > 0 && (
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-foreground">Media ({media.length})</h3>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {media.map((m) => (
-              <div
-                key={m.file_name}
-                className="overflow-hidden rounded border border-border bg-muted/20"
-              >
-                {m.source === "screenshot" ? (
-                  <img
-                    src={`/api/v1/agents/${agentId}/media/${m.file_name}`}
-                    alt={m.description ?? m.file_name}
-                    className="aspect-video w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex aspect-video items-center justify-center text-[10px] text-muted-foreground">
-                    {m.source}
-                  </div>
-                )}
-                {m.description && (
-                  <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
-                    {m.description}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Tabbed: Events / Media */}
+      <DetailTabs events={events} media={media} agentId={agentId} />
     </div>
   );
 }
