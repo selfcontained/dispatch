@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +42,19 @@ function loadTls(): TlsConfig | null {
   };
 }
 
+function resolveAgentRuntime(): "tmux" | "inert" {
+  const env = process.env.DISPATCH_AGENT_RUNTIME;
+  if (env === "tmux") return "tmux";
+  if (env === "inert") return "inert";
+  // No explicit setting — default to tmux if it's available on PATH
+  try {
+    execSync("which tmux", { stdio: "ignore" });
+    return "tmux";
+  } catch {
+    return "inert";
+  }
+}
+
 export function loadConfig(): AppConfig {
   return {
     host: process.env.HOST ?? "0.0.0.0",
@@ -62,7 +76,7 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
-    agentRuntime: process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert",
+    agentRuntime: resolveAgentRuntime(),
     tls: loadTls(),
   };
 }
