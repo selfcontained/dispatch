@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, Info, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
 import { type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +43,7 @@ function formatFeedbackText(item: FeedbackItem): string {
 }
 
 function FeedbackActions({
-  item,
+  item: _item,
   isConnected,
   onForward,
   onCopy,
