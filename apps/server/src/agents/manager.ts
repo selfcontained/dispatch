@@ -1312,6 +1312,40 @@ export class AgentManager {
     return result.rows;
   }
 
+  async listFeedbackByParentGrouped(
+    parentAgentId: string,
+    persona?: string
+  ): Promise<{ personas: Array<{ persona: string; agentId: string; feedback: FeedbackRecord[] }> }> {
+    const params: unknown[] = [parentAgentId];
+    let whereClause = "WHERE a.parent_agent_id = $1";
+    if (persona) {
+      params.push(persona);
+      whereClause += ` AND a.persona = $${params.length}`;
+    }
+
+    const result = await this.pool.query<FeedbackRecord & { persona: string }>(
+      `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
+              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+       FROM agent_feedback f
+       JOIN agents a ON a.id = f.agent_id
+       ${whereClause}
+       ORDER BY a.persona, f.created_at ASC`,
+      params
+    );
+
+    const grouped = new Map<string, { persona: string; agentId: string; feedback: FeedbackRecord[] }>();
+    for (const row of result.rows) {
+      const key = row.agentId;
+      if (!grouped.has(key)) {
+        grouped.set(key, { persona: row.persona, agentId: row.agentId, feedback: [] });
+      }
+      const { persona: _p, ...feedbackRecord } = row;
+      grouped.get(key)!.feedback.push(feedbackRecord);
+    }
+
+    return { personas: Array.from(grouped.values()) };
+  }
+
   async updateFeedbackStatus(
     feedbackId: number,
     agentId: string,

@@ -907,6 +907,7 @@ async function registerRoutes() {
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
       launchPersona: mcpLaunchPersona,
+      getFeedback: mcpGetFeedback,
     });
   });
 
@@ -3325,6 +3326,13 @@ async function mcpSubmitFeedback(
   const record = await agentManager.submitFeedback(agentId, feedback);
   uiEventBroker.publish({ type: "feedback.created", agentId, feedback: record });
   return record;
+}
+
+async function mcpGetFeedback(
+  agentId: string,
+  opts: { persona?: string }
+) {
+  return agentManager.listFeedbackByParentGrouped(agentId, opts.persona);
 }
 
 async function mcpLaunchPersona(
