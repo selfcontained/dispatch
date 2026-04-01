@@ -2293,15 +2293,17 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid feedback id." });
     }
 
-    const validStatuses = ["open", "dismissed", "forwarded"] as const;
+    const validStatuses = ["open", "dismissed", "forwarded", "fixed", "ignored"] as const;
     if (typeof body?.status !== "string" || !(validStatuses as readonly string[]).includes(body.status)) {
-      return reply.code(400).send({ error: "status must be one of: open, dismissed, forwarded" });
+      return reply.code(400).send({ error: "status must be one of: open, dismissed, forwarded, fixed, ignored" });
     }
 
     try {
+      const agentId = params.id ?? "";
       const updated = await agentManager.updateFeedbackStatus(
         feedbackId,
-        body.status as "open" | "dismissed" | "forwarded"
+        agentId,
+        body.status as "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
       );
       if (!updated) return reply.code(404).send({ error: "Feedback not found." });
       return { feedback: updated };

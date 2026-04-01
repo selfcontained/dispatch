@@ -41,9 +41,7 @@ export function PersonaLauncher({
 
   const launchPersona = (slug: string) => {
     const message = `Launch the "${slug}" persona on your current work. Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.`;
-    sendTerminalInput(message);
-    // Send Enter as carriage return to submit in the terminal
-    setTimeout(() => sendTerminalInput("\r"), 50);
+    sendTerminalInput(message + "\r");
   };
 
   return (

@@ -44,7 +44,7 @@ export type FeedbackItem = {
   description: string;
   suggestion: string | null;
   mediaRef: string | null;
-  status: "open" | "dismissed" | "forwarded";
+  status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored";
   createdAt: string;
 };
 

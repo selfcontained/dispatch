@@ -1288,14 +1288,15 @@ export class AgentManager {
 
   async updateFeedbackStatus(
     feedbackId: number,
-    status: "open" | "dismissed" | "forwarded"
+    agentId: string,
+    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
   ): Promise<FeedbackRecord | null> {
     const result = await this.pool.query<FeedbackRecord>(
       `UPDATE agent_feedback SET status = $2
-       WHERE id = $1
+       WHERE id = $1 AND agent_id = $3
        RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
                  description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"`,
-      [feedbackId, status]
+      [feedbackId, status, agentId]
     );
     return result.rows[0] ?? null;
   }
