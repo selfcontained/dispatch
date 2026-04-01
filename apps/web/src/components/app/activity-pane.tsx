@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { AgentHistoryTab } from "@/components/app/agent-history-tab";
 import {
   Bar,
   BarChart,
@@ -28,6 +29,8 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
+import { formatDuration, formatTokenCount, shortProjectName } from "@/lib/format";
+import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
   useActiveHours,
@@ -60,20 +63,6 @@ type ActivityPaneProps = {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "0s";
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  if (hours < 24) return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
-}
-
 function formatDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -103,26 +92,6 @@ const chartConfig: ChartConfig = {
   blocked: { label: "Blocked", color: "hsl(var(--status-blocked))" },
   waiting_user: { label: "Waiting", color: "hsl(var(--status-waiting))" },
 };
-
-// ── Stat card ───────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-md border border-border bg-muted/40 px-2.5 py-2 sm:px-4 sm:py-3">
-      <p className="text-[10px] sm:text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 sm:mt-1 text-lg sm:text-2xl font-semibold text-foreground">{value}</p>
-      {sub && <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
 
 // ── Heatmap ─────────────────────────────────────────────────────────
 
@@ -463,12 +432,6 @@ function DailyStackedBarChart({
 
 // ── Token helpers ──────────────────────────────────────────────────
 
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return String(n);
-}
-
 function cacheHitRate(stats: TokenStats): number {
   const totalInput = stats.total_input + stats.total_cache_creation + stats.total_cache_read;
   if (totalInput === 0) return 0;
@@ -482,11 +445,6 @@ function shortModelName(model: string): string {
   if (model.includes("gpt-5")) return "GPT-5";
   if (model.includes("gpt-4")) return "GPT-4";
   return model;
-}
-
-function shortProjectName(projectDir: string): string {
-  const parts = projectDir.split("/").filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : projectDir;
 }
 
 // ── Token daily chart ─────────────────────────────────────────────
@@ -719,8 +677,11 @@ function ProjectBreakdown({
 
 // ── Main pane ───────────────────────────────────────────────────────
 
+type ActivityTab = "metrics" | "history";
+
 export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
+  const [tab, setTab] = useState<ActivityTab>("metrics");
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats(range);
   const { data: dailyStatus } = useDailyStatus(range);
@@ -756,26 +717,41 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* Header */}
           <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </span>
-            <div className="ml-auto flex items-center gap-2">
-              <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
-                <SelectTrigger
-                  className="h-8 w-[132px] bg-muted/30 text-xs"
-                  data-testid="activity-range-select"
-                  aria-label="Activity time range"
+            <div className="flex items-center gap-1">
+              {(["metrics", "history"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={cn(
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                    tab === t
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ACTIVITY_RANGES.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {rangeLabel(option)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  {t === "metrics" ? "Metrics" : "History"}
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {tab === "metrics" && (
+                <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+                  <SelectTrigger
+                    className="h-8 w-[132px] bg-muted/30 text-xs"
+                    data-testid="activity-range-select"
+                    aria-label="Activity time range"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACTIVITY_RANGES.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {rangeLabel(option)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <DialogPrimitive.Close className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
               <X className="h-4 w-4" />
@@ -783,12 +759,19 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
             </DialogPrimitive.Close>
           </div>
 
-          {/* Body */}
-          <ScrollArea className="flex-1">
+          {/* History tab */}
+          {tab === "history" && (
+            <ScrollArea className="flex-1">
+              <AgentHistoryTab range={range} onRangeChange={setRange} />
+            </ScrollArea>
+          )}
+
+          {/* Metrics tab body */}
+          {tab === "metrics" && <ScrollArea className="flex-1">
             <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <StatCard
                     label="Total tokens"
                     value={formatTokenCount(totalTokens)}
@@ -886,7 +869,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
               {/* Status summary cards */}
               {stats && hasData && (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="flex flex-wrap gap-2 sm:gap-3">
                   <StatCard
                     label="Total working time"
                     value={formatDuration(stats.totalWorkingMs)}
@@ -927,7 +910,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </ScrollArea>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
