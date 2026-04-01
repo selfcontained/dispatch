@@ -1982,8 +1982,9 @@ async function registerRoutes() {
   app.get("/api/v1/agents/:id/media", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";
-    const agent = await agentManager.getAgent(id);
-    if (!agent) {
+    // Include deleted agents so historical media lists still work
+    const agentExists = await pool.query("SELECT 1 FROM agents WHERE id = $1", [id]);
+    if (agentExists.rows.length === 0) {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
@@ -2000,8 +2001,13 @@ async function registerRoutes() {
   app.get("/api/v1/agents/:id/media/:file", async (request, reply) => {
     const params = request.params as { id?: string; file?: string };
     const id = params.id ?? "";
-    const agent = await agentManager.getAgent(id);
-    if (!agent) {
+
+    // Look up agent including deleted ones so historical media still loads
+    const agentRow = await pool.query<{ id: string; media_dir: string | null }>(
+      "SELECT id, media_dir FROM agents WHERE id = $1",
+      [id]
+    );
+    if (agentRow.rows.length === 0) {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
@@ -2010,7 +2016,7 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid media file name." });
     }
 
-    const filePath = path.join(resolveMediaDir(agent.id, agent.mediaDir), file);
+    const filePath = path.join(resolveMediaDir(agentRow.rows[0].id, agentRow.rows[0].media_dir), file);
     const fileStat = await stat(filePath).catch(() => null);
     if (!fileStat || !fileStat.isFile()) {
       return reply.code(404).send({ error: "Media file not found." });
