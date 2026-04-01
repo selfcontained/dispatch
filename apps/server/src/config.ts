@@ -51,7 +51,7 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   }
   // No explicit setting — default to tmux if it's available on PATH
   try {
-    execSync("which tmux", { stdio: "ignore" });
+    execSync("command -v tmux", { stdio: "ignore" });
     return "tmux";
   } catch {
     return "inert";
