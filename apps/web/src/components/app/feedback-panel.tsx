@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type FeedbackItem } from "@/components/app/types";
@@ -191,6 +191,10 @@ export function ParentFeedbackPanel({
   const activeCount = activeItems.length;
   const visibleItems = showResolved ? feedback : activeItems;
 
+  const sheetIndex = sheetItem ? visibleItems.findIndex((f) => f.id === sheetItem.id) : -1;
+  const prevSheetItem = sheetIndex > 0 ? visibleItems[sheetIndex - 1]! : null;
+  const nextSheetItem = sheetIndex >= 0 && sheetIndex < visibleItems.length - 1 ? visibleItems[sheetIndex + 1]! : null;
+
   const updateStatus = async (item: FeedbackItem, status: string) => {
     await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
       method: "PATCH",
@@ -326,11 +330,34 @@ export function ParentFeedbackPanel({
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
                   </Badge>
-                  <SheetTitle className="text-base">
+                  <SheetTitle className="text-base flex-1">
                     {sheetItem.filePath
                       ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                       : "Feedback"}
                   </SheetTitle>
+                  <div className="flex items-center gap-1 ml-auto mr-6">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {sheetIndex + 1}/{visibleItems.length}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={!prevSheetItem}
+                      onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={!nextSheetItem}
+                      onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <SheetDescription className="text-xs text-muted-foreground">
                   From persona review
