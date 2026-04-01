@@ -410,7 +410,7 @@ function DetailTabs({
   const lightboxItems = useMemo(
     () =>
       media.map((m) => ({
-        src: `/api/v1/agents/${agentId}/media/${m.file_name}`,
+        src: `/api/v1/agents/${agentId}/media/${encodeURIComponent(m.file_name)}`,
         caption: m.description ?? stripTimestamp(m.file_name),
         file: {
           name: m.file_name,
@@ -482,7 +482,7 @@ function DetailTabs({
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
                     <img
-                      src={`/api/v1/agents/${agentId}/media/${m.file_name}`}
+                      src={`/api/v1/agents/${agentId}/media/${encodeURIComponent(m.file_name)}`}
                       alt={m.description ?? m.file_name}
                       className="aspect-video w-full object-cover"
                       loading="lazy"
