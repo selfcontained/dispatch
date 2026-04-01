@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
-import { type FeedbackItem } from "@/components/app/types";
+import { type Agent, type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -184,12 +184,38 @@ export function ParentFeedbackPanel({
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
+  // Build agentId → persona attribution (name + color) from cached data
+  type PersonaSummary = { slug: string; name: string };
+  const personaAttribution = useMemo(() => {
+    const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+    const parentAgent = allAgents.find((a) => a.id === parentAgentId);
+    const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+    const allPersonas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
+    const slugToIndex = new Map(allPersonas.map((p, i) => [p.slug, i]));
+    const map = new Map<string, { name: string; color: string }>();
+    for (const agent of allAgents) {
+      if (agent.parentAgentId === parentAgentId && agent.persona) {
+        const idx = slugToIndex.get(agent.persona);
+        const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
+        const persona = allPersonas.find((p) => p.slug === agent.persona);
+        map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
+      }
+    }
+    return map;
+    // Re-compute when feedback changes (signals new agents/personas may be cached)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, parentAgentId, feedback]);
+
   if (feedback.length === 0) return null;
 
   const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
   const resolvedItems = feedback.filter((f) => f.status !== "open" && f.status !== "forwarded");
   const activeCount = activeItems.length;
   const visibleItems = showResolved ? feedback : activeItems;
+
+  const sheetIndex = sheetItem ? visibleItems.findIndex((f) => f.id === sheetItem.id) : -1;
+  const prevSheetItem = sheetIndex > 0 ? visibleItems[sheetIndex - 1]! : null;
+  const nextSheetItem = sheetIndex >= 0 && sheetIndex < visibleItems.length - 1 ? visibleItems[sheetIndex + 1]! : null;
 
   const updateStatus = async (item: FeedbackItem, status: string) => {
     await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
@@ -227,10 +253,11 @@ export function ParentFeedbackPanel({
 
   const handleResolve = (item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
-    setSheetItemId(null);
-    // Auto-expand the next unresolved item
+    // Auto-advance to the next unresolved item
     const remaining = activeItems.filter((f) => f.id !== item.id);
-    setExpandedId(remaining.length > 0 ? remaining[0]!.id : null);
+    const nextId = remaining.length > 0 ? remaining[0]!.id : null;
+    setSheetItemId(sheetItemId != null ? nextId : null);
+    setExpandedId(nextId);
   };
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
@@ -325,14 +352,48 @@ export function ParentFeedbackPanel({
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
                   </Badge>
-                  <SheetTitle className="text-base">
+                  <SheetTitle className="text-base flex-1">
                     {sheetItem.filePath
                       ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                       : "Feedback"}
                   </SheetTitle>
+                  <div className="flex items-center gap-1 ml-auto mr-6">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {sheetIndex + 1}/{visibleItems.length}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={!prevSheetItem}
+                      onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      disabled={!nextSheetItem}
+                      onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-                <SheetDescription className="text-xs text-muted-foreground">
-                  From persona review
+                <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  {(() => {
+                    const attr = personaAttribution.get(sheetItem.agentId);
+                    if (attr) {
+                      return (
+                        <>
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: attr.color }} />
+                          <span style={{ color: attr.color }}>{attr.name}</span>
+                        </>
+                      );
+                    }
+                    return "From persona review";
+                  })()}
                 </SheetDescription>
               </SheetHeader>
 
