@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
+import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -261,8 +262,11 @@ export function ParentFeedbackPanel({
                 >
                   <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
                   <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                  <span className="min-w-0 truncate font-mono text-muted-foreground" dir="rtl">
-                    {item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                  <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                    <FrontTruncatedValue
+                      value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                      mono
+                    />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {item.description}
@@ -281,15 +285,7 @@ export function ParentFeedbackPanel({
                     >
                       <Expand className="h-3.5 w-3.5" />
                     </button>
-                    {item.filePath ? (
-                      <div className="font-mono text-[10px] text-muted-foreground mb-1 pr-6">
-                        {item.filePath}{item.lineNumber ? `:${item.lineNumber}` : ""}
-                      </div>
-                    ) : null}
                     <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
-                    {item.suggestion ? (
-                      <div className="mt-1 text-muted-foreground leading-relaxed line-clamp-2">{item.suggestion}</div>
-                    ) : null}
 
                     <div className="mt-2">
                       <FeedbackActions

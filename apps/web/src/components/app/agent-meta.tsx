@@ -10,7 +10,7 @@ type AgentMetaProps = {
   truncateStart?: boolean;
 };
 
-function FrontTruncatedValue({ value, mono }: { value: string; mono: boolean }): JSX.Element {
+export function FrontTruncatedValue({ value, mono }: { value: string; mono: boolean }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [display, setDisplay] = useState(value);
 
