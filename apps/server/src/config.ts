@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +42,24 @@ function loadTls(): TlsConfig | null {
   };
 }
 
+function resolveAgentRuntime(): "tmux" | "inert" {
+  const env = process.env.DISPATCH_AGENT_RUNTIME;
+  if (env === "tmux") return "tmux";
+  if (env === "inert") return "inert";
+  if (env) {
+    console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", falling back to auto-detection`);
+  }
+  // No explicit setting — default to tmux if it's available on PATH
+  try {
+    execSync("command -v tmux", { stdio: "ignore" });
+    console.log("Agent runtime auto-detected: tmux");
+    return "tmux";
+  } catch {
+    console.warn("tmux not found on PATH — agent runtime set to inert (agents will not execute)");
+    return "inert";
+  }
+}
+
 export function loadConfig(): AppConfig {
   return {
     host: process.env.HOST ?? "0.0.0.0",
@@ -62,7 +81,7 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
-    agentRuntime: process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert",
+    agentRuntime: resolveAgentRuntime(),
     tls: loadTls(),
   };
 }

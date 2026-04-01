@@ -12,7 +12,20 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import type WebSocket from "ws";
-import pty from "node-pty";
+import type nodePty from "node-pty";
+
+let pty: typeof nodePty;
+try {
+  pty = (await import("node-pty")).default;
+} catch {
+  console.error(
+    "\n✗ Failed to load node-pty native module.\n" +
+    "  This usually means the native addon was not compiled during install.\n" +
+    "  Fix: run 'pnpm rebuild node-pty' in the server directory, or ensure\n" +
+    "  'node-pty' is listed in pnpm.onlyBuiltDependencies in package.json.\n"
+  );
+  process.exit(1);
+}
 
 import { AgentError, AgentManager } from "./agents/manager.js";
 import type { AgentGitContext, AgentRecord, FeedbackRecord } from "./agents/manager.js";

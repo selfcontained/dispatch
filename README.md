@@ -1,20 +1,23 @@
 # Dispatch
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents on a Mac host (including headless Mac mini setups), with browser-based terminal access and high-quality iOS Simulator media.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents, with browser-based terminal access and media sharing. It runs on macOS and Linux.
 
 ## Quick Install
 
-Give this prompt to a coding agent to get Dispatch installed as a local service (macOS only):
+Give this prompt to a coding agent to get Dispatch installed as a persistent service:
 
-> Clone https://github.com/selfcontained/dispatch.git and install it as a launchd service on this Mac. Steps:
+> Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Run `bin/preflight` to check dependencies — install anything it flags as failed (nvm, Node 22+, PostgreSQL 17, tmux).
-> 3. Start PostgreSQL (`brew services start postgresql@17`) and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
-> 4. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The other defaults are usually fine.
-> 5. Run `bin/install-launchd` — this builds the project and registers a launchd service that starts automatically.
-> 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
-> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
+> 2. Install system dependencies: **Node.js 22+**, **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3` on Linux).
+> 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
+> 4. `pnpm install && pnpm run build`
+> 5. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The other defaults are usually fine.
+> 6. Register as a system service:
+>    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
+>    - **Linux**: Create a systemd user service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/server.js` with `EnvironmentFile=~/.dispatch/server/.env`. Enable with `systemctl --user enable --now dispatch`.
+> 7. Verify: `curl http://127.0.0.1:6767/api/v1/health`
+> 8. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
 ## Features
 
@@ -29,21 +32,21 @@ Give this prompt to a coding agent to get Dispatch installed as a local service 
 
 ## Prerequisites
 
-| Dependency | Purpose | Install |
-|---|---|---|
-| **Xcode CLI Tools** | Build tools for native npm modules (node-pty) | `xcode-select --install` |
-| **Homebrew** | Package manager | [brew.sh](https://brew.sh) |
-| **Node.js 22+** | Runtime | `nvm install 22` (see `.nvmrc`) |
-| **PostgreSQL 17** | Database (production) | `brew install postgresql@17` |
-| **tmux** | Agent session management | `brew install tmux` |
-| **At least one agent CLI** | The agents Dispatch runs | See below |
+| Dependency | Purpose | macOS | Linux |
+|---|---|---|---|
+| **Build tools** | Compile native npm modules (node-pty) | `xcode-select --install` | `apt install build-essential python3` |
+| **Node.js 22+** | Runtime | `nvm install 22` | `nvm install 22` |
+| **pnpm** | Package manager | `npm i -g pnpm` | `npm i -g pnpm` |
+| **PostgreSQL 14+** | Database | `brew install postgresql@17` | `apt install postgresql` |
+| **tmux** | Agent session management | `brew install tmux` | `apt install tmux` |
+| **At least one agent CLI** | The agents Dispatch runs | See below | See below |
 
 ### Optional
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| **Docker Desktop** | Isolated dev databases via `dispatch-dev` | `brew install --cask docker` |
-| **Xcode** (full) | iOS Simulator, `xcrun simctl` | App Store |
+| **Docker** | Isolated dev databases via `dispatch-dev` | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
+| **Xcode** (full) | iOS Simulator, `xcrun simctl` (macOS only) | App Store |
 
 ### Agent CLIs
 
@@ -123,12 +126,7 @@ curl -s -X POST $(bin/dispatch-dev url)/api/v1/agents \
 
 ## Production Setup (Dedicated Machine)
 
-For setting up Dispatch as a persistent service on a dedicated Mac (e.g. Mac mini), see [docs/12-new-machine-setup.md](docs/12-new-machine-setup.md). That guide covers:
-
-- Full dependency installation (Homebrew Postgres, agent CLIs, Playwright)
-- Database and environment configuration
-- `bin/install-launchd` for auto-start on boot
-- Deploy and update workflow
+For setting up Dispatch as a persistent service on a dedicated machine, see [docs/12-new-machine-setup.md](docs/12-new-machine-setup.md). That guide covers macOS with launchd. For Linux, the Quick Install prompt above provides systemd instructions that an agent can follow.
 
 ## Media Sharing
 
