@@ -1479,6 +1479,8 @@ export class AgentManager {
       `[[ -f ~/.zshrc ]]        && source ~/.zshrc 2>/dev/null || true`,
       `# User-defined overrides for agent sessions`,
       `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env 2>/dev/null || true`,
+      `# Restore strict mode — sourced profiles may have disabled it`,
+      `set -euo pipefail`,
       ``,
       `BOLD="\\033[1m"`,
       `DIM="\\033[2m"`,
