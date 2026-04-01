@@ -261,7 +261,7 @@ export function ParentFeedbackPanel({
                 >
                   <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
                   <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                  <span className="min-w-0 truncate font-mono text-muted-foreground">
+                  <span className="min-w-0 truncate font-mono text-muted-foreground" dir="rtl">
                     {item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-foreground">
@@ -321,10 +321,10 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto px-6 py-5">
+        <SheetContent side="bottom" className="flex max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
-              <SheetHeader>
+              <SheetHeader className="shrink-0">
                 <div className="flex items-center gap-2">
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
@@ -340,7 +340,7 @@ export function ParentFeedbackPanel({
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
                   <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.description}</div>
@@ -352,20 +352,20 @@ export function ParentFeedbackPanel({
                     <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.suggestion}</div>
                   </div>
                 ) : null}
+              </div>
 
-                <div className="pt-2 border-t border-border">
-                  <FeedbackActions
-                    item={sheetItem}
-                    isConnected={isConnected}
-                    onForward={(mode) => forward(sheetItem, mode)}
-                    onCopy={() => handleCopy(sheetItem)}
-                    copied={copiedItemId === sheetItem.id}
-                    onUpdateStatus={(s) => handleResolve(sheetItem, s)}
-                    isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
-                    statusLabel={STATUS_LABELS[sheetItem.status]}
-                    size="default"
-                  />
-                </div>
+              <div className="shrink-0 pt-2 border-t border-border">
+                <FeedbackActions
+                  item={sheetItem}
+                  isConnected={isConnected}
+                  onForward={(mode) => forward(sheetItem, mode)}
+                  onCopy={() => handleCopy(sheetItem)}
+                  copied={copiedItemId === sheetItem.id}
+                  onUpdateStatus={(s) => handleResolve(sheetItem, s)}
+                  isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
+                  statusLabel={STATUS_LABELS[sheetItem.status]}
+                  size="default"
+                />
               </div>
             </>
           ) : null}
