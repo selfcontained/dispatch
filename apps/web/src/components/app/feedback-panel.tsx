@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
-import { type FeedbackItem } from "@/components/app/types";
+import { type Agent, type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -184,6 +184,26 @@ export function ParentFeedbackPanel({
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
+  // Build agentId → persona attribution (name + color) from cached data
+  const agents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+  const parentAgent = agents.find((a) => a.id === parentAgentId);
+  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+  type PersonaSummary = { slug: string; name: string };
+  const personas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
+  const personaAttribution = useMemo(() => {
+    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
+    const map = new Map<string, { name: string; color: string }>();
+    for (const agent of agents) {
+      if (agent.parentAgentId === parentAgentId && agent.persona) {
+        const idx = slugToIndex.get(agent.persona);
+        const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
+        const persona = personas.find((p) => p.slug === agent.persona);
+        map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
+      }
+    }
+    return map;
+  }, [agents, personas, parentAgentId]);
+
   if (feedback.length === 0) return null;
 
   const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
@@ -359,8 +379,19 @@ export function ParentFeedbackPanel({
                     </Button>
                   </div>
                 </div>
-                <SheetDescription className="text-xs text-muted-foreground">
-                  From persona review
+                <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  {(() => {
+                    const attr = personaAttribution.get(sheetItem.agentId);
+                    if (attr) {
+                      return (
+                        <>
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: attr.color }} />
+                          <span style={{ color: attr.color }}>{attr.name}</span>
+                        </>
+                      );
+                    }
+                    return "From persona review";
+                  })()}
                 </SheetDescription>
               </SheetHeader>
 
