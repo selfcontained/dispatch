@@ -52,8 +52,10 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   // No explicit setting — default to tmux if it's available on PATH
   try {
     execSync("command -v tmux", { stdio: "ignore" });
+    console.log("Agent runtime auto-detected: tmux");
     return "tmux";
   } catch {
+    console.warn("tmux not found on PATH — agent runtime set to inert (agents will not execute)");
     return "inert";
   }
 }
