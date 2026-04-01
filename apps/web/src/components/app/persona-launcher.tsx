@@ -50,16 +50,25 @@ export function PersonaLauncher({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        {personas.map((p) => (
-          <DropdownMenuItem key={p.slug} onClick={() => launchPersona(p.slug)}>
-            <div>
-              <div className="text-sm">{p.name}</div>
-              {p.description ? (
-                <div className="text-xs text-muted-foreground">{p.description}</div>
-              ) : null}
-            </div>
-          </DropdownMenuItem>
-        ))}
+        {personas.map((p, i) => {
+          const colorVar = `var(--chart-${(i % 4) + 1})`;
+          return (
+            <DropdownMenuItem key={p.slug} onClick={() => launchPersona(p.slug)}>
+              <div className="flex items-start gap-2.5">
+                <div
+                  className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: `hsl(${colorVar})` }}
+                />
+                <div>
+                  <div className="text-sm font-medium" style={{ color: `hsl(${colorVar})` }}>{p.name}</div>
+                  {p.description ? (
+                    <div className="text-xs text-muted-foreground">{p.description}</div>
+                  ) : null}
+                </div>
+              </div>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
