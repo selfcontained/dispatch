@@ -185,24 +185,26 @@ export function ParentFeedbackPanel({
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
   // Build agentId → persona attribution (name + color) from cached data
-  const agents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
-  const parentAgent = agents.find((a) => a.id === parentAgentId);
-  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
   type PersonaSummary = { slug: string; name: string };
-  const personas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
   const personaAttribution = useMemo(() => {
-    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
+    const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+    const parentAgent = allAgents.find((a) => a.id === parentAgentId);
+    const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+    const allPersonas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
+    const slugToIndex = new Map(allPersonas.map((p, i) => [p.slug, i]));
     const map = new Map<string, { name: string; color: string }>();
-    for (const agent of agents) {
+    for (const agent of allAgents) {
       if (agent.parentAgentId === parentAgentId && agent.persona) {
         const idx = slugToIndex.get(agent.persona);
         const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
-        const persona = personas.find((p) => p.slug === agent.persona);
+        const persona = allPersonas.find((p) => p.slug === agent.persona);
         map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
       }
     }
     return map;
-  }, [agents, personas, parentAgentId]);
+    // Re-compute when feedback changes (signals new agents/personas may be cached)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, parentAgentId, feedback]);
 
   if (feedback.length === 0) return null;
 
