@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
+import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -261,8 +262,11 @@ export function ParentFeedbackPanel({
                 >
                   <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
                   <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                  <span className="min-w-0 truncate font-mono text-muted-foreground">
-                    {item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                  <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                    <FrontTruncatedValue
+                      value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                      mono
+                    />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-foreground">
                     {item.description}
@@ -281,15 +285,7 @@ export function ParentFeedbackPanel({
                     >
                       <Expand className="h-3.5 w-3.5" />
                     </button>
-                    {item.filePath ? (
-                      <div className="font-mono text-[10px] text-muted-foreground mb-1 pr-6">
-                        {item.filePath}{item.lineNumber ? `:${item.lineNumber}` : ""}
-                      </div>
-                    ) : null}
                     <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
-                    {item.suggestion ? (
-                      <div className="mt-1 text-muted-foreground leading-relaxed line-clamp-2">{item.suggestion}</div>
-                    ) : null}
 
                     <div className="mt-2">
                       <FeedbackActions
@@ -321,10 +317,10 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto px-6 py-5">
+        <SheetContent side="bottom" className="flex max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
-              <SheetHeader>
+              <SheetHeader className="shrink-0">
                 <div className="flex items-center gap-2">
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
@@ -340,7 +336,7 @@ export function ParentFeedbackPanel({
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
                   <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.description}</div>
@@ -352,20 +348,20 @@ export function ParentFeedbackPanel({
                     <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.suggestion}</div>
                   </div>
                 ) : null}
+              </div>
 
-                <div className="pt-2 border-t border-border">
-                  <FeedbackActions
-                    item={sheetItem}
-                    isConnected={isConnected}
-                    onForward={(mode) => forward(sheetItem, mode)}
-                    onCopy={() => handleCopy(sheetItem)}
-                    copied={copiedItemId === sheetItem.id}
-                    onUpdateStatus={(s) => handleResolve(sheetItem, s)}
-                    isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
-                    statusLabel={STATUS_LABELS[sheetItem.status]}
-                    size="default"
-                  />
-                </div>
+              <div className="shrink-0 pt-2 border-t border-border">
+                <FeedbackActions
+                  item={sheetItem}
+                  isConnected={isConnected}
+                  onForward={(mode) => forward(sheetItem, mode)}
+                  onCopy={() => handleCopy(sheetItem)}
+                  copied={copiedItemId === sheetItem.id}
+                  onUpdateStatus={(s) => handleResolve(sheetItem, s)}
+                  isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
+                  statusLabel={STATUS_LABELS[sheetItem.status]}
+                  size="default"
+                />
               </div>
             </>
           ) : null}
