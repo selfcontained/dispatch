@@ -94,7 +94,7 @@ export function useSSE(
         }
 
         if (payload.type === "feedback.created") {
-          void queryClient.invalidateQueries({ queryKey: ["feedback", payload.agentId], exact: true });
+          void queryClient.invalidateQueries({ queryKey: ["feedback"] });
         }
       } catch {}
     };

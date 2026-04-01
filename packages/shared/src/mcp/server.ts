@@ -455,7 +455,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files.",
         inputSchema: {
           persona: z.string().describe("Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."),
-          context: z.string().describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention.")
+          context: z.string().max(100_000).describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention.")
         }
       },
       async (args) => {

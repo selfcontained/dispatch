@@ -440,23 +440,19 @@ export function AgentSidebarContent({
                           ) : null}
                         </div>
                       </div>
+                      {!agent.persona ? (
+                        <div className="px-3 pb-2">
+                          <ParentFeedbackPanel
+                            parentAgentId={agent.id}
+                            sendTerminalInput={sendTerminalInput}
+                            isConnected={connectedAgentId === agent.id}
+                            onRequestClose={onRequestClose}
+                            closeOnSessionAction={closeOnSessionAction}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                  {/* Feedback from child personas — always visible, outside expandable area */}
-                  {!agent.persona && childAgents.length > 0 ? (
-                    <div className="px-3 pb-2">
-                      {childAgents.map((child) => (
-                        <ParentFeedbackPanel
-                          key={`feedback-${child.id}`}
-                          personaAgent={child}
-                          sendTerminalInput={sendTerminalInput}
-                          isConnected={connectedAgentId === agent.id}
-                          onRequestClose={onRequestClose}
-                          closeOnSessionAction={closeOnSessionAction}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
                 </motion.div>
                 {childAgents.map((child) => {
                   const childState = agentVisualState(child);
@@ -498,11 +494,11 @@ export function AgentSidebarContent({
                           ) : null}
                         </div>
                         {childIsStopped ? (
-                          <button data-agent-control="true" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => startAgent(child)}><Play className="h-3.5 w-3.5" /></button>
+                          <button data-agent-control="true" aria-label="Resume agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => startAgent(child)}><Play className="h-3.5 w-3.5" /></button>
                         ) : (
-                          <button data-agent-control="true" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Square className="h-3.5 w-3.5" /></button>
+                          <button data-agent-control="true" aria-label="Stop agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Square className="h-3.5 w-3.5" /></button>
                         )}
-                        <button data-agent-control="true" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
+                        <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
                       </div>
                       {child.latestEvent ? (
                         childIsExpanded ? (

@@ -515,6 +515,19 @@ export class AgentManager {
       .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
 
     await this.pool.query("UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
+
+    // Cascade: archive child agents (persona agents spawned by this parent)
+    const children = await this.pool.query<{ id: string }>(
+      "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
+      [id]
+    );
+    for (const child of children.rows) {
+      try {
+        await this.deleteAgent(child.id, true, cleanupWorktree);
+      } catch (err) {
+        this.logger.warn({ err, childId: child.id, parentId: id }, "Failed to cascade-delete child agent");
+      }
+    }
   }
 
   async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
@@ -1282,6 +1295,19 @@ export class AgentManager {
               description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"
        FROM agent_feedback WHERE agent_id = $1 ORDER BY created_at ASC`,
       [agentId]
+    );
+    return result.rows;
+  }
+
+  async listFeedbackByParent(parentAgentId: string): Promise<FeedbackRecord[]> {
+    const result = await this.pool.query<FeedbackRecord>(
+      `SELECT f.id, f.agent_id AS "agentId", f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
+              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+       FROM agent_feedback f
+       JOIN agents a ON a.id = f.agent_id
+       WHERE a.parent_agent_id = $1
+       ORDER BY f.created_at ASC`,
+      [parentAgentId]
     );
     return result.rows;
   }

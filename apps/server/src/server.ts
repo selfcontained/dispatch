@@ -2235,14 +2235,23 @@ async function registerRoutes() {
 
     try {
       const existing = await agentManager.getAgent(params.id);
+      // Collect child agent IDs before deletion so we can clean up their resources
+      const childRows = await pool.query<{ id: string }>(
+        "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
+        [params.id]
+      );
       await agentManager.deleteAgent(params.id, force, cleanupWorktree);
-      if (existing) {
-        streamManager.stopStream(existing.id);
-        pendingGitRefreshAgentIds.delete(existing.id);
-        pendingGitRefreshEnqueuedAt.delete(existing.id);
-        activeGitRefreshAgentIds.delete(existing.id);
-        gitRefreshAgentDiagnostics.delete(existing.id);
-        uiEventBroker.publish({ type: "agent.deleted", agentId: existing.id });
+      const deletedIds = [
+        ...(existing ? [existing.id] : []),
+        ...childRows.rows.map((r) => r.id),
+      ];
+      for (const deletedId of deletedIds) {
+        streamManager.stopStream(deletedId);
+        pendingGitRefreshAgentIds.delete(deletedId);
+        pendingGitRefreshEnqueuedAt.delete(deletedId);
+        activeGitRefreshAgentIds.delete(deletedId);
+        gitRefreshAgentDiagnostics.delete(deletedId);
+        uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
       }
       return reply.code(204).send();
     } catch (error) {
@@ -2273,8 +2282,13 @@ async function registerRoutes() {
 
   app.get("/api/v1/agents/:id/feedback", async (request, reply) => {
     const params = request.params as { id?: string };
+    const query = request.query as { scope?: unknown };
     const id = params.id ?? "";
     try {
+      if (query.scope === "children") {
+        const feedback = await agentManager.listFeedbackByParent(id);
+        return { feedback };
+      }
       const agent = await agentManager.getAgent(id);
       if (!agent) return reply.code(404).send({ error: "Agent not found." });
       const feedback = await agentManager.listFeedback(id);

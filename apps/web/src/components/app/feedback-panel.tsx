@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, Check, CheckCircle2, ChevronRight, Clipboard, Expand, Info, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { AlertTriangle, Ban, Check, CheckCircle2, ChevronRight, Copy, Expand, Info, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
-import { type Agent, type FeedbackItem } from "@/components/app/types";
+import { type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -63,10 +63,10 @@ function FeedbackActions({
   statusLabel: { label: string; color: string } | undefined;
   size?: "sm" | "default";
 }): JSX.Element {
-  const btnClass = size === "sm" ? "h-5 gap-1 px-1.5 text-[10px]" : "h-7 gap-1.5 px-2.5 text-xs";
-  const iconClass = size === "sm" ? "h-2.5 w-2.5" : "h-3.5 w-3.5";
-  const resolveIconClass = size === "sm" ? "h-3 w-3" : "h-4 w-4";
-  const resolveBtnClass = size === "sm" ? "h-5 px-1 text-[10px]" : "h-7 px-2 text-xs gap-1.5";
+  const btnClass = size === "sm" ? "h-6 gap-1 px-1.5 text-[10px]" : "h-7 gap-1.5 px-2.5 text-xs";
+  const iconClass = size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5";
+  const resolveIconClass = size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4";
+  const resolveBtnClass = size === "sm" ? "h-6 px-1.5 text-[10px]" : "h-7 px-2 text-xs gap-1.5";
 
   return (
     <div className="flex items-center justify-between">
@@ -104,16 +104,15 @@ function FeedbackActions({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className={btnClass + " text-muted-foreground"} onClick={onCopy}>
-                {copied ? <Check className={iconClass + " text-green-500"} /> : <Clipboard className={iconClass} />}
-                {copied ? "Copied" : "Copy"}
+              <Button variant="ghost" size="sm" className={btnClass} onClick={onCopy}>
+                {copied ? <Check className={iconClass + " text-green-500"} /> : <Copy className={iconClass} />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>Copy to clipboard</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
-      <div className="flex items-center gap-px">
+      <div className="flex items-center gap-1">
         {isActionable ? (
           <TooltipProvider>
             <Tooltip>
@@ -154,13 +153,13 @@ function FeedbackActions({
  * Compact feedback panel shown on the PARENT agent.
  */
 export function ParentFeedbackPanel({
-  personaAgent,
+  parentAgentId,
   sendTerminalInput,
   isConnected,
   onRequestClose,
   closeOnSessionAction,
 }: {
-  personaAgent: Agent;
+  parentAgentId: string;
   sendTerminalInput?: (data: string) => void;
   isConnected: boolean;
   onRequestClose?: () => void;
@@ -168,40 +167,48 @@ export function ParentFeedbackPanel({
 }): JSX.Element | null {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [sheetItem, setSheetItem] = useState<FeedbackItem | null>(null);
-  const [copied, copyText] = useCopyText();
+  const [sheetItemId, setSheetItemId] = useState<number | null>(null);
+  const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+  const [, copyText] = useCopyText();
+  const copiedTimerRef = useRef<number | null>(null);
 
   const { data: feedback = [] } = useQuery<FeedbackItem[]>({
-    queryKey: ["feedback", personaAgent.id],
+    queryKey: ["feedback", parentAgentId, "children"],
     queryFn: async () => {
-      const result = await api<{ feedback: FeedbackItem[] }>(`/api/v1/agents/${personaAgent.id}/feedback`);
+      const result = await api<{ feedback: FeedbackItem[] }>(`/api/v1/agents/${parentAgentId}/feedback?scope=children`);
       return result.feedback;
     },
   });
 
+  const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
+
   if (feedback.length === 0) return null;
 
-  const activeCount = feedback.filter((f) => f.status === "open" || f.status === "forwarded").length;
+  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
+  const resolvedItems = feedback.filter((f) => f.status !== "open" && f.status !== "forwarded");
+  const activeCount = activeItems.length;
+  const visibleItems = showResolved ? feedback : activeItems;
 
   const updateStatus = async (item: FeedbackItem, status: string) => {
-    await api(`/api/v1/agents/${personaAgent.id}/feedback/${item.id}`, {
+    await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
     });
     const update = (f: FeedbackItem) => f.id === item.id ? { ...f, status: status as FeedbackItem["status"] } : f;
-    queryClient.setQueryData<FeedbackItem[]>(["feedback", personaAgent.id], (old) => old?.map(update));
+    queryClient.setQueryData<FeedbackItem[]>(["feedback", parentAgentId, "children"], (old) => old?.map(update));
   };
 
   const dismissUI = () => {
-    setSheetItem(null);
+    setSheetItemId(null);
     if (closeOnSessionAction) onRequestClose?.();
   };
 
   const forward = (item: FeedbackItem, mode: "wdyt" | "fix") => {
     if (sendTerminalInput && isConnected) {
       const prefix = mode === "fix"
-        ? `Fix the following issue found by the ${personaAgent.persona ?? "persona"} reviewer:`
-        : `A ${personaAgent.persona ?? "persona"} reviewer flagged the following. What do you think — is this a real concern?`;
+        ? "Fix the following issue found by the persona reviewer:"
+        : "A persona reviewer flagged the following. What do you think — is this a real concern?";
       const text = prefix + "\n" + formatFeedbackText(item) + "\r";
       sendTerminalInput(text);
       void updateStatus(item, "forwarded");
@@ -211,12 +218,18 @@ export function ParentFeedbackPanel({
 
   const handleCopy = (item: FeedbackItem) => {
     copyText(formatFeedbackText(item));
+    setCopiedItemId(item.id);
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopiedItemId(null), 2000);
     dismissUI();
   };
 
   const handleResolve = (item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
-    setSheetItem(null);
+    setSheetItemId(null);
+    // Auto-expand the next unresolved item
+    const remaining = activeItems.filter((f) => f.id !== item.id);
+    setExpandedId(remaining.length > 0 ? remaining[0]!.id : null);
   };
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
@@ -225,7 +238,7 @@ export function ParentFeedbackPanel({
     <>
       <div className="mt-1.5">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-          {personaAgent.persona ?? "Persona"} feedback ({activeCount} active)
+          Persona feedback ({activeCount} active)
         </div>
         {!isConnected && activeCount > 0 ? (
           <div className="text-[10px] text-muted-foreground/60 italic mb-1">
@@ -233,7 +246,7 @@ export function ParentFeedbackPanel({
           </div>
         ) : null}
         <div className="space-y-px">
-          {feedback.map((item) => {
+          {visibleItems.map((item) => {
             const isActionable = item.status === "open" || item.status === "forwarded";
             const isExpanded = expandedId === item.id;
             const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
@@ -243,7 +256,7 @@ export function ParentFeedbackPanel({
               <div key={item.id} className={cn(!isActionable && "opacity-40")}>
                 {/* Compact row */}
                 <button
-                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted/40 transition-colors"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
                   onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
                 >
                   <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
@@ -261,13 +274,19 @@ export function ParentFeedbackPanel({
 
                 {/* Expanded inline card — clamped */}
                 {isExpanded ? (
-                  <div className="ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
+                  <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="absolute -top-1.5 -right-1.5 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                      onClick={() => setSheetItemId(item.id)}
+                    >
+                      <Expand className="h-3.5 w-3.5" />
+                    </button>
                     {item.filePath ? (
-                      <div className="font-mono text-[10px] text-muted-foreground mb-1">
+                      <div className="font-mono text-[10px] text-muted-foreground mb-1 pr-6">
                         {item.filePath}{item.lineNumber ? `:${item.lineNumber}` : ""}
                       </div>
                     ) : null}
-                    <div className="text-foreground leading-relaxed line-clamp-3">{item.description}</div>
+                    <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
                     {item.suggestion ? (
                       <div className="mt-1 text-muted-foreground leading-relaxed line-clamp-2">{item.suggestion}</div>
                     ) : null}
@@ -278,30 +297,31 @@ export function ParentFeedbackPanel({
                         isConnected={isConnected}
                         onForward={(mode) => forward(item, mode)}
                         onCopy={() => handleCopy(item)}
-                        copied={copied}
+                        copied={copiedItemId === item.id}
                         onUpdateStatus={(s) => handleResolve(item, s)}
                         isActionable={isActionable}
                         statusLabel={statusLabel}
                       />
                     </div>
-
-                    <button
-                      className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => setSheetItem(item)}
-                    >
-                      <Expand className="h-2.5 w-2.5" /> View full
-                    </button>
                   </div>
                 ) : null}
               </div>
             );
           })}
         </div>
+        {resolvedItems.length > 0 ? (
+          <button
+            className="mt-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
+          >
+            {showResolved ? "Hide" : "Show"} {resolvedItems.length} resolved
+          </button>
+        ) : null}
       </div>
 
       {/* Full feedback detail sheet */}
-      <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItem(null); }}>
-        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto">
+      <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
+        <SheetContent side="bottom" className="max-h-[80vh] overflow-y-auto px-6 py-5">
           {sheetItem ? (
             <>
               <SheetHeader>
@@ -316,7 +336,7 @@ export function ParentFeedbackPanel({
                   </SheetTitle>
                 </div>
                 <SheetDescription className="text-xs text-muted-foreground">
-                  From {personaAgent.persona ?? "persona"} review
+                  From persona review
                 </SheetDescription>
               </SheetHeader>
 
@@ -339,7 +359,7 @@ export function ParentFeedbackPanel({
                     isConnected={isConnected}
                     onForward={(mode) => forward(sheetItem, mode)}
                     onCopy={() => handleCopy(sheetItem)}
-                    copied={copied}
+                    copied={copiedItemId === sheetItem.id}
                     onUpdateStatus={(s) => handleResolve(sheetItem, s)}
                     isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
                     statusLabel={STATUS_LABELS[sheetItem.status]}

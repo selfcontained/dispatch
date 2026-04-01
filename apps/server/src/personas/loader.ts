@@ -84,6 +84,9 @@ export async function loadPersonaBySlug(
   repoRoot: string,
   slug: string
 ): Promise<PersonaDefinition | null> {
+  if (slug.includes("/") || slug.includes("\\") || slug.includes("..")) {
+    throw new Error("Invalid persona slug.");
+  }
   const filePath = path.join(repoRoot, PERSONAS_DIR, `${slug}.md`);
   let content: string;
   try {

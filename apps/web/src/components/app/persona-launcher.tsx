@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -24,20 +24,17 @@ export function PersonaLauncher({
   agent: Agent;
   sendTerminalInput: (data: string) => void;
 }): JSX.Element | null {
-  const [personas, setPersonas] = useState<PersonaSummary[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const cwd = agent.worktreePath ?? agent.cwd;
 
-  useEffect(() => {
-    const cwd = agent.worktreePath ?? agent.cwd;
-    api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`)
-      .then((data) => {
-        setPersonas(data.personas);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, [agent.cwd, agent.worktreePath]);
+  const { data: personas = [] } = useQuery<PersonaSummary[]>({
+    queryKey: ["personas", cwd],
+    queryFn: async () => {
+      const result = await api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
+      return result.personas;
+    },
+  });
 
-  if (!loaded || personas.length === 0) return null;
+  if (personas.length === 0) return null;
 
   const launchPersona = (slug: string) => {
     const message = `Launch the "${slug}" persona on your current work. Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.`;
@@ -47,7 +44,7 @@ export function PersonaLauncher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-6 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" className="gap-1.5 border border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/60">
           <Sparkles className="h-3 w-3" />
           Launch Persona
         </Button>
