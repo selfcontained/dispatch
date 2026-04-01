@@ -227,10 +227,11 @@ export function ParentFeedbackPanel({
 
   const handleResolve = (item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
-    setSheetItemId(null);
-    // Auto-expand the next unresolved item
+    // Auto-advance to the next unresolved item
     const remaining = activeItems.filter((f) => f.id !== item.id);
-    setExpandedId(remaining.length > 0 ? remaining[0]!.id : null);
+    const nextId = remaining.length > 0 ? remaining[0]!.id : null;
+    setSheetItemId(sheetItemId != null ? nextId : null);
+    setExpandedId(nextId);
   };
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
