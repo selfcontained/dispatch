@@ -28,6 +28,15 @@ export type MediaResult = {
   description: string;
 };
 
+export type FeedbackInput = {
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  filePath?: string;
+  lineNumber?: number;
+  description: string;
+  suggestion?: string;
+  mediaRef?: string;
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
@@ -40,6 +49,14 @@ export type McpRequestContext = {
     agentId: string,
     opts: { filePath: string; description: string; source?: string; name?: string }
   ) => Promise<MediaResult>;
+  submitFeedback?: (
+    agentId: string,
+    feedback: FeedbackInput
+  ) => Promise<{ id: number }>;
+  launchPersona?: (
+    agentId: string,
+    opts: { persona: string; context: string }
+  ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
 };
 
 export async function handleMcpRequest(
@@ -366,6 +383,94 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
               }
             ],
             structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.submitFeedback) {
+    const agentId = context.agent.id;
+    const submitFeedback = context.submitFeedback;
+
+    server.registerTool(
+      "dispatch_feedback",
+      {
+        description:
+          "Submit a structured feedback finding to Dispatch. Use this to report issues, suggestions, or observations about the code being reviewed. Each call creates one feedback item.",
+        inputSchema: {
+          severity: z
+            .enum(["critical", "high", "medium", "low", "info"])
+            .default("info")
+            .describe("Severity level of the finding."),
+          filePath: z
+            .string()
+            .optional()
+            .describe("File path relative to repo root where the issue was found."),
+          lineNumber: z
+            .number()
+            .optional()
+            .describe("Line number in the file."),
+          description: z.string().describe("What was found — the issue or observation."),
+          suggestion: z
+            .string()
+            .optional()
+            .describe("Suggested fix or action to take."),
+          mediaRef: z
+            .string()
+            .optional()
+            .describe("Filename of a previously shared media file (from dispatch_share) to attach.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await submitFeedback(agentId, {
+            severity: args.severity,
+            filePath: args.filePath,
+            lineNumber: args.lineNumber,
+            description: args.description,
+            suggestion: args.suggestion,
+            mediaRef: args.mediaRef
+          });
+          return {
+            content: [{ type: "text", text: `Feedback #${result.id} submitted.` }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.launchPersona) {
+    const agentId = context.agent.id;
+    const launchPersona = context.launchPersona;
+
+    server.registerTool(
+      "dispatch_launch_persona",
+      {
+        description:
+          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files.",
+        inputSchema: {
+          persona: z.string().describe("Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."),
+          context: z.string().max(100_000).describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await launchPersona(agentId, {
+            persona: args.persona,
+            context: args.context
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Launched persona "${result.persona}" as agent ${result.agentId}.`
+              }
+            ]
           };
         } catch (error) {
           return toToolError(error);

@@ -153,6 +153,26 @@ export async function runMigrations(): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS idx_atu_agent_id ON agent_token_usage(agent_id);
     CREATE INDEX IF NOT EXISTS idx_atu_session_start ON agent_token_usage(session_start);
+
+    -- Persona support
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS parent_agent_id TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona_context TEXT;
+
+    CREATE TABLE IF NOT EXISTS agent_feedback (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      severity TEXT NOT NULL DEFAULT 'info',
+      file_path TEXT,
+      line_number INTEGER,
+      description TEXT NOT NULL,
+      suggestion TEXT,
+      media_ref TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent_id ON agent_feedback(agent_id);
   `;
 
   try {

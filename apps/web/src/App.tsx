@@ -567,6 +567,8 @@ export function App(): JSX.Element {
               detachTerminal={detachTerminal}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
+              sendTerminalInput={sendTerminalInput}
+              connectedAgentId={connectedAgentId}
             />
           </div>
         ) : null}
@@ -663,6 +665,8 @@ export function App(): JSX.Element {
             detachTerminal={detachAndClearSelection}
             attachToAgent={attachToAgent}
             startAgent={startAgent}
+            sendTerminalInput={sendTerminalInput}
+            connectedAgentId={connectedAgentId}
             closeOnSessionAction={true}
             onRequestClose={() => setMobileLeftOpen(false)}
           />

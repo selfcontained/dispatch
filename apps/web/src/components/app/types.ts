@@ -27,9 +27,25 @@ export type Agent = {
     worktreeName: string;
     isWorktree: boolean;
   } | null;
+  persona?: string | null;
+  parentAgentId?: string | null;
+  personaContext?: string | null;
   hasStream?: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FeedbackItem = {
+  id: number;
+  agentId: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  filePath: string | null;
+  lineNumber: number | null;
+  description: string;
+  suggestion: string | null;
+  mediaRef: string | null;
+  status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored";
+  createdAt: string;
 };
 
 export type MediaFile = {

@@ -1,3 +1,4 @@
+import React from "react";
 import {
   AlertTriangle,
   Activity,
@@ -14,6 +15,8 @@ import {
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { ParentFeedbackPanel } from "@/components/app/feedback-panel";
+import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +49,8 @@ type AgentSidebarSharedProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
+  sendTerminalInput?: (data: string) => void;
+  connectedAgentId?: string | null;
 };
 
 type AgentSidebarProps = AgentSidebarSharedProps & {
@@ -83,6 +88,8 @@ export function AgentSidebarContent({
   detachTerminal,
   attachToAgent,
   startAgent,
+  sendTerminalInput,
+  connectedAgentId,
   onRequestClose,
   closeOnSessionAction = false,
   closeButtonIcon = "x",
@@ -197,7 +204,8 @@ export function AgentSidebarContent({
             <div data-testid="no-agents-message" className="p-4 text-sm text-muted-foreground">No agents yet.</div>
           ) : (
             <LayoutGroup>
-            {agents.map((agent) => {
+            {agents.filter((a) => !a.parentAgentId).map((agent) => {
+              const childAgents = agents.filter((a) => a.parentAgentId === agent.id);
               const state = agentVisualState(agent);
               const isSelected = selectedAgentId === agent.id;
               const isStopped = state === "stopped";
@@ -207,15 +215,15 @@ export function AgentSidebarContent({
               const needsAttention = agent.status === "error";
 
               return (
+                <React.Fragment key={agent.id}>
                 <motion.div
-                  key={agent.id}
                   layout
                   transition={{ duration: 0.3, ease: "easeInOut" }}
                   data-testid={`agent-card-${agent.id}`}
                   className={cn(
                     "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
                     borderForAgentState(state),
-                    isActive ? "bg-status-done/10" : isSelected && "bg-muted/60",
+                    isSelected && "bg-muted/60",
                     isStopped && "opacity-60"
                   )}
                 >
@@ -413,11 +421,98 @@ export function AgentSidebarContent({
                             </div>
                           </div>
                           {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
+                          {agent.persona ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Persona</span>
+                              <Badge variant="running">{agent.persona}</Badge>
+                              {agent.parentAgentId ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  from {agents.find((a) => a.id === agent.parentAgentId)?.name ?? agent.parentAgentId.slice(-6)}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {!isStopped && !agent.persona && sendTerminalInput && connectedAgentId === agent.id ? (
+                            <PersonaLauncher
+                              agent={agent}
+                              sendTerminalInput={sendTerminalInput}
+                            />
+                          ) : null}
                         </div>
                       </div>
+                      {!agent.persona ? (
+                        <div className="px-3 pb-2">
+                          <ParentFeedbackPanel
+                            parentAgentId={agent.id}
+                            sendTerminalInput={sendTerminalInput}
+                            isConnected={connectedAgentId === agent.id}
+                            onRequestClose={onRequestClose}
+                            closeOnSessionAction={closeOnSessionAction}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </motion.div>
+                {childAgents.map((child) => {
+                  const childState = agentVisualState(child);
+                  const childIsSelected = selectedAgentId === child.id;
+                  const childIsStopped = childState === "stopped";
+                  const childIsActive = childState === "active";
+                  const childIsExpanded = childIsActive || expandedAgentId === child.id;
+
+                  return (
+                    <motion.div
+                      key={child.id}
+                      layout
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      data-testid={`agent-card-${child.id}`}
+                      className={cn(
+                        "border-b border-r-4 border-border pl-5 pr-2 py-2 transition-colors duration-300",
+                        borderForAgentState(childState),
+                        childIsSelected && "bg-muted/60",
+                        childIsStopped && "opacity-60"
+                      )}
+                    >
+                      <div
+                        className={cn("flex items-center gap-1.5", !childIsStopped && "cursor-pointer")}
+                        data-testid={`agent-row-${child.id}`}
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (target.closest("[data-agent-control='true']")) return;
+                          if (childIsStopped) return;
+                          if (childIsActive) { detachTerminal(); return; }
+                          if (closeOnSessionAction) onRequestClose?.();
+                          void attachToAgent(child);
+                        }}
+                      >
+                        <div className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold">
+                          <AgentTypeIcon type={child.type} eventType={child.status === "running" ? child.latestEvent?.type : null} />
+                          <span className="truncate">{child.name}</span>
+                          {child.persona ? (
+                            <Badge variant="running" className="text-[9px] shrink-0">{child.persona}</Badge>
+                          ) : null}
+                        </div>
+                        {childIsStopped ? (
+                          <button data-agent-control="true" aria-label="Resume agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => startAgent(child)}><Play className="h-3.5 w-3.5" /></button>
+                        ) : (
+                          <button data-agent-control="true" aria-label="Stop agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Square className="h-3.5 w-3.5" /></button>
+                        )}
+                        <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
+                      </div>
+                      {child.latestEvent ? (
+                        childIsExpanded ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-0 text-xs text-muted-foreground">
+                            <span className={cn("font-medium", child.latestEvent.type === "working" ? "text-status-working" : child.latestEvent.type === "blocked" ? "text-status-blocked" : child.latestEvent.type === "waiting_user" ? "text-status-waiting" : child.latestEvent.type === "done" ? "text-status-done" : "text-status-idle")}>{child.latestEvent.type === "working" ? "Working" : child.latestEvent.type === "blocked" ? "Blocked" : child.latestEvent.type === "waiting_user" ? "Waiting" : child.latestEvent.type === "done" ? "Done" : "Idle"}</span>
+                            <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
+                            <span className="min-w-0 truncate">{child.latestEvent.message}</span>
+                          </div>
+                        ) : null
+                      ) : null}
+                    </motion.div>
+                  );
+                })}
+              </React.Fragment>
               );
             })}
             </LayoutGroup>
