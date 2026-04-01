@@ -80,11 +80,10 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
 cd "$SERVER_DIR"
 nvm use >/dev/null
-npm ci --silent
-npm --prefix web ci --silent
+pnpm install --frozen-lockfile
 
 echo "==> building"
-npm run build
+pnpm run build
 
 mkdir -p "$LOG_DIR"
 

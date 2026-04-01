@@ -126,9 +126,8 @@ build_tag() {
   load_nvm
   cd "$SERVER_DIR"
   nvm use >/dev/null
-  npm ci --silent
-  npm --prefix web ci --silent
-  npm run build
+  pnpm install --frozen-lockfile
+  pnpm run build
 }
 
 write_release_record() {
