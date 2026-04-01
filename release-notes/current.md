@@ -1,5 +1,5 @@
 ## What's Changed
-* Add Personas — reusable agent roles with structured feedback by @selfcontained in https://github.com/selfcontained/dispatch/pull/168
+* Fix media serving for historical agents in agent history by @selfcontained in https://github.com/selfcontained/dispatch/pull/169
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.7.6...v0.7.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.7.7...v0.7.8
