@@ -46,6 +46,9 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   const env = process.env.DISPATCH_AGENT_RUNTIME;
   if (env === "tmux") return "tmux";
   if (env === "inert") return "inert";
+  if (env) {
+    console.warn(`Unknown DISPATCH_AGENT_RUNTIME="${env}", falling back to auto-detection`);
+  }
   // No explicit setting — default to tmux if it's available on PATH
   try {
     execSync("which tmux", { stdio: "ignore" });
