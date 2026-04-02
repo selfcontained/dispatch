@@ -420,14 +420,14 @@ export function ParentFeedbackPanel({
                       ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                       : "Feedback"}
                   </SheetTitle>
-                  <div className="flex items-center gap-1 ml-auto mr-6">
+                  <div className="flex items-center gap-1 ml-auto mr-10">
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {sheetIndex + 1}/{visibleItems.length}
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-10 w-10 p-0 md:h-6 md:w-6"
                       disabled={!prevSheetItem}
                       onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
                     >
@@ -436,7 +436,7 @@ export function ParentFeedbackPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 w-6 p-0"
+                      className="h-10 w-10 p-0 md:h-6 md:w-6"
                       disabled={!nextSheetItem}
                       onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
                     >
