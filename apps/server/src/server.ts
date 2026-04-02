@@ -1833,18 +1833,18 @@ async function registerRoutes() {
         total_messages: number;
       }>(
         `SELECT
-          COALESCE(SUM(input_tokens), 0)::int AS total_input,
-          COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
-          COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
-          COALESCE(SUM(output_tokens), 0)::int AS total_output,
-          COALESCE(SUM(message_count), 0)::int AS total_messages
+          COALESCE(SUM(input_tokens), 0) AS total_input,
+          COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
+          COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
+          COALESCE(SUM(output_tokens), 0) AS total_output,
+          COALESCE(SUM(message_count), 0) AS total_messages
          FROM agent_token_usage WHERE agent_id = $1`,
         [id]
       ),
       pool.query<{ model: string; input_tokens: number; output_tokens: number }>(
         `SELECT model,
-          SUM(input_tokens + cache_creation_tokens + cache_read_tokens)::int AS input_tokens,
-          SUM(output_tokens)::int AS output_tokens
+          SUM(input_tokens + cache_creation_tokens + cache_read_tokens) AS input_tokens,
+          SUM(output_tokens) AS output_tokens
          FROM agent_token_usage WHERE agent_id = $1
          GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
         [id]
