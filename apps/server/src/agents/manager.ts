@@ -282,7 +282,8 @@ export class AgentManager {
         });
 
         if (!(await this.hasAgentSession(tmuxSession))) {
-          throw new Error("tmux session exited immediately after launch");
+          const detail = await this.readSetupLogTail(id);
+          throw new Error(`tmux session exited immediately after launch${detail}`);
         }
       } catch (error) {
         const message = this.errorMessage(error);
@@ -651,10 +652,13 @@ export class AgentManager {
         if (exitInfo !== null) {
           this.logger.info({ id: row.id, exitCode: exitInfo }, "Agent process exited with code %d", exitInfo);
         }
-        await this.setAgentStatus(row.id, "stopped", null, row.tmuxSession ?? undefined);
+        const setupLogTail = await this.readSetupLogTail(row.id);
+        const errorDetail = setupLogTail || null;
+        await this.setAgentStatus(row.id, "stopped", errorDetail, row.tmuxSession ?? undefined);
+        const baseMessage = exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.";
         await this.setSystemLatestEvent(row.id, {
           type: "idle",
-          message: exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.",
+          message: setupLogTail ? `${baseMessage}\n${setupLogTail}` : baseMessage,
           metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}) }
         });
         const agent = await this.getAgent(row.id);
@@ -997,7 +1001,8 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
-    const wrappedCommand = `bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
+    const sessionLogFile = `/tmp/dispatch_setup_${sessionName}.log`;
+    const wrappedCommand = `bash -c 'exec 2> >(tee -a "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
       allowedExitCodes: [0, 1]
@@ -1017,7 +1022,8 @@ export class AgentManager {
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
     if (!(await this.hasAgentSession(sessionName))) {
-      throw new Error("tmux session exited immediately after launch");
+      const detail = await this.readSetupLogTail(sessionName);
+      throw new Error(`tmux session exited immediately after launch${detail}`);
     }
   }
 
@@ -1438,6 +1444,19 @@ export class AgentManager {
     return error instanceof Error ? error.message : "Unknown error";
   }
 
+  /**
+   * Read the last 20 lines of a setup/session stderr log to include in error messages.
+   */
+  private async readSetupLogTail(idOrSession: string): Promise<string> {
+    const logPath = `/tmp/dispatch_setup_${idOrSession}.log`;
+    try {
+      const log = await readFile(logPath, "utf-8");
+      const tail = log.trim().split("\n").slice(-20).join("\n");
+      if (tail) return `\n\nSetup log (last 20 lines):\n${tail}`;
+    } catch { /* no log file */ }
+    return "";
+  }
+
   private async readExitFile(sessionName: string): Promise<number | null> {
     try {
       const content = await readFile(`/tmp/dispatch_${sessionName}.exit`, "utf-8");
@@ -1505,15 +1524,19 @@ export class AgentManager {
       `# Dispatch agent setup script for ${agentName}`,
       `# This script runs in tmux so the user can see setup progress in real time.`,
       ``,
+      `# Tee stderr to a log file so the server can surface errors when the session`,
+      `# exits immediately (e.g. a broken profile script).`,
+      `exec 2> >(tee -a "/tmp/dispatch_setup_${agentId}.log" >&2)`,
+      ``,
       `# Source user environment — tmux sessions are non-login/non-interactive,`,
       `# so env vars like GH_TOKEN, NVM, pyenv, etc. won't be set otherwise.`,
-      `[[ -f ~/.profile ]]      && source ~/.profile 2>/dev/null || true`,
-      `[[ -f ~/.bash_profile ]] && source ~/.bash_profile 2>/dev/null || true`,
-      `[[ -f ~/.bashrc ]]       && source ~/.bashrc 2>/dev/null || true`,
-      `[[ -f ~/.zprofile ]]     && source ~/.zprofile 2>/dev/null || true`,
-      `[[ -f ~/.zshrc ]]        && source ~/.zshrc 2>/dev/null || true`,
+      `[[ -f ~/.profile ]]      && source ~/.profile || true`,
+      `[[ -f ~/.bash_profile ]] && source ~/.bash_profile || true`,
+      `[[ -f ~/.bashrc ]]       && source ~/.bashrc || true`,
+      `[[ -f ~/.zprofile ]]     && source ~/.zprofile || true`,
+      `[[ -f ~/.zshrc ]]        && source ~/.zshrc || true`,
       `# User-defined overrides for agent sessions`,
-      `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env 2>/dev/null || true`,
+      `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env || true`,
       `# Restore strict mode — sourced profiles may have disabled it`,
       `set -euo pipefail`,
       ``,
