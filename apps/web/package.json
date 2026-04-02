@@ -30,12 +30,14 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "simple-icons": "^16.11.0",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@tailwindcss/typography": "^0.5.19",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

@@ -379,13 +379,8 @@ export function AgentSidebarContent({
                     )
                   ) : null}
 
-                  <div
-                    className={cn(
-                      "grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
-                      isExpanded ? "mt-2 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0"
-                    )}
-                  >
-                    <div className="min-h-0 overflow-hidden">
+                  {isExpanded ? (
+                    <div className="mt-2">
                       <div className="px-3 pb-2 pt-1">
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           {agent.gitContext?.isWorktree ? (
@@ -452,7 +447,7 @@ export function AgentSidebarContent({
                         </div>
                       ) : null}
                     </div>
-                  </div>
+                  ) : null}
                 </motion.div>
                 {childAgents.map((child) => {
                   const childState = agentVisualState(child);

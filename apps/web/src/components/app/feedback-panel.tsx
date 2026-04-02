@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_DOT: Record<string, string> = {
@@ -400,13 +401,13 @@ export function ParentFeedbackPanel({
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
-                  <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.description}</div>
+                  <Markdown className="text-sm text-foreground">{sheetItem.description}</Markdown>
                 </div>
 
                 {sheetItem.suggestion ? (
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Suggestion</div>
-                    <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.suggestion}</div>
+                    <Markdown className="text-sm text-muted-foreground">{sheetItem.suggestion}</Markdown>
                   </div>
                 ) : null}
               </div>
