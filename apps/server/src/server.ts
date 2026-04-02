@@ -1583,17 +1583,24 @@ async function registerRoutes() {
       total_sessions: number;
     }>(
       `SELECT
-        COALESCE(SUM(input_tokens), 0)::int AS total_input,
-        COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
-        COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
-        COALESCE(SUM(output_tokens), 0)::int AS total_output,
-        COALESCE(SUM(message_count), 0)::int AS total_messages,
-        COUNT(DISTINCT session_id)::int AS total_sessions
+        COALESCE(SUM(input_tokens), 0) AS total_input,
+        COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
+        COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
+        COALESCE(SUM(output_tokens), 0) AS total_output,
+        COALESCE(SUM(message_count), 0) AS total_messages,
+        COUNT(DISTINCT session_id) AS total_sessions
        FROM agent_token_usage
        ${tokenFilter.clause}`,
       tokenFilter.params
     );
-    return result.rows[0];
+    return result.rows[0] ?? {
+      total_input: 0,
+      total_cache_creation: 0,
+      total_cache_read: 0,
+      total_output: 0,
+      total_messages: 0,
+      total_sessions: 0,
+    };
   });
 
   app.get("/api/v1/activity/token-daily", async (request) => {
@@ -1610,11 +1617,11 @@ async function registerRoutes() {
     }>(
       `SELECT
         ${dateTruncTz(aq.granularity, "COALESCE(session_start, harvested_at)", aq.tz)} AS day,
-        SUM(input_tokens)::int AS input_tokens,
-        SUM(cache_creation_tokens)::int AS cache_creation_tokens,
-        SUM(cache_read_tokens)::int AS cache_read_tokens,
-        SUM(output_tokens)::int AS output_tokens,
-        SUM(message_count)::int AS messages
+        SUM(input_tokens) AS input_tokens,
+        SUM(cache_creation_tokens) AS cache_creation_tokens,
+        SUM(cache_read_tokens) AS cache_read_tokens,
+        SUM(output_tokens) AS output_tokens,
+        SUM(message_count) AS messages
        FROM agent_token_usage
        ${tokenFilter.clause}
        GROUP BY day ORDER BY day`,
@@ -1634,9 +1641,9 @@ async function registerRoutes() {
     }>(
       `SELECT
         COALESCE(a.git_context->>'repoRoot', a.cwd) AS project_dir,
-        SUM(t.input_tokens + t.cache_creation_tokens + t.cache_read_tokens)::int AS total_input,
-        SUM(t.output_tokens)::int AS total_output,
-        SUM(t.message_count)::int AS messages
+        SUM(t.input_tokens + t.cache_creation_tokens + t.cache_read_tokens) AS total_input,
+        SUM(t.output_tokens) AS total_output,
+        SUM(t.message_count) AS messages
        FROM agent_token_usage t
        JOIN agents a ON a.id = t.agent_id
        ${tokenFilter.clause}
@@ -1661,11 +1668,11 @@ async function registerRoutes() {
     }>(
       `SELECT
         model,
-        COALESCE(SUM(input_tokens), 0)::int AS total_input,
-        COALESCE(SUM(cache_creation_tokens), 0)::int AS total_cache_creation,
-        COALESCE(SUM(cache_read_tokens), 0)::int AS total_cache_read,
-        COALESCE(SUM(output_tokens), 0)::int AS total_output,
-       COUNT(DISTINCT session_id)::int AS sessions
+        COALESCE(SUM(input_tokens), 0) AS total_input,
+        COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
+        COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read,
+        COALESCE(SUM(output_tokens), 0) AS total_output,
+       COUNT(DISTINCT session_id) AS sessions
        FROM agent_token_usage
        ${tokenFilter.clause}
        GROUP BY model
