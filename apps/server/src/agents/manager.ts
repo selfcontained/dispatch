@@ -363,6 +363,7 @@ export class AgentManager {
 
     try {
       await this.startAgentSession(
+        id,
         tmuxSession,
         agent.cwd,
         agent.mediaDir ?? this.defaultMediaDir(id),
@@ -986,6 +987,7 @@ export class AgentManager {
   }
 
   private async startAgentSession(
+    agentId: string,
     sessionName: string,
     cwd: string,
     mediaDir: string,
@@ -1001,7 +1003,7 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
-    const sessionLogFile = `/tmp/dispatch_setup_${sessionName}.log`;
+    const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
     const wrappedCommand = `bash -c 'exec 2> >(tee -a "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
@@ -1022,7 +1024,7 @@ export class AgentManager {
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
     if (!(await this.hasAgentSession(sessionName))) {
-      const detail = await this.readSetupLogTail(sessionName);
+      const detail = await this.readSetupLogTail(agentId);
       throw new Error(`tmux session exited immediately after launch${detail}`);
     }
   }
