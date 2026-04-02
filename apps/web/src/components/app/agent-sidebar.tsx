@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { LayoutGroup, motion } from "framer-motion";
+import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
@@ -379,75 +379,83 @@ export function AgentSidebarContent({
                     )
                   ) : null}
 
-                  {isExpanded ? (
-                    <div className="mt-2">
-                      <div className="px-3 pb-2 pt-1">
-                        <div className="grid gap-2 text-xs text-muted-foreground">
-                          {agent.gitContext?.isWorktree ? (
-                            <>
-                              <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
-                              <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
-                              <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
-                            </>
-                          ) : (
-                            <>
-                              <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
-                              {agent.gitContext ? (
+                  <AnimatePresence initial={false}>
+                    {isExpanded ? (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="mt-2 overflow-hidden"
+                      >
+                        <div className="px-3 pb-2 pt-1">
+                          <div className="grid gap-2 text-xs text-muted-foreground">
+                            {agent.gitContext?.isWorktree ? (
+                              <>
+                                <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
                                 <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
-                              ) : (
-                                <div className="grid gap-1">
-                                  <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
-                                  <div className="text-foreground text-xs">Not a git repository</div>
-                                </div>
-                              )}
-                            </>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <div className="text-foreground">{AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"}</div>
-                            <div
-                              className={cn(
-                                "inline-flex items-center gap-1 px-1.5 py-0.5 text-foreground text-[11px]",
-                                fullAccessEnabled &&
-                                  "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
-                              )}
-                            >
-                              {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
-                              <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
+                                <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
+                              </>
+                            ) : (
+                              <>
+                                <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
+                                {agent.gitContext ? (
+                                  <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                                ) : (
+                                  <div className="grid gap-1">
+                                    <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
+                                    <div className="text-foreground text-xs">Not a git repository</div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <div className="text-foreground">{AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"}</div>
+                              <div
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-1.5 py-0.5 text-foreground text-[11px]",
+                                  fullAccessEnabled &&
+                                    "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
+                                )}
+                              >
+                                {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
+                                <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
+                              </div>
                             </div>
+                            {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
+                            {agent.persona ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Persona</span>
+                                <Badge variant="running">{agent.persona}</Badge>
+                                {agent.parentAgentId ? (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    from {agents.find((a) => a.id === agent.parentAgentId)?.name ?? agent.parentAgentId.slice(-6)}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {!isStopped && !agent.persona && sendTerminalInput && connectedAgentId === agent.id ? (
+                              <PersonaLauncher
+                                agent={agent}
+                                sendTerminalInput={sendTerminalInput}
+                              />
+                            ) : null}
                           </div>
-                          {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
-                          {agent.persona ? (
-                            <div className="flex items-center gap-1.5">
-                              <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Persona</span>
-                              <Badge variant="running">{agent.persona}</Badge>
-                              {agent.parentAgentId ? (
-                                <span className="text-[10px] text-muted-foreground">
-                                  from {agents.find((a) => a.id === agent.parentAgentId)?.name ?? agent.parentAgentId.slice(-6)}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {!isStopped && !agent.persona && sendTerminalInput && connectedAgentId === agent.id ? (
-                            <PersonaLauncher
-                              agent={agent}
+                        </div>
+                        {!agent.persona ? (
+                          <div className="px-3 pb-2">
+                            <ParentFeedbackPanel
+                              parentAgentId={agent.id}
                               sendTerminalInput={sendTerminalInput}
+                              isConnected={connectedAgentId === agent.id}
+                              onRequestClose={onRequestClose}
+                              closeOnSessionAction={closeOnSessionAction}
                             />
-                          ) : null}
-                        </div>
-                      </div>
-                      {!agent.persona ? (
-                        <div className="px-3 pb-2">
-                          <ParentFeedbackPanel
-                            parentAgentId={agent.id}
-                            sendTerminalInput={sendTerminalInput}
-                            isConnected={connectedAgentId === agent.id}
-                            onRequestClose={onRequestClose}
-                            closeOnSessionAction={closeOnSessionAction}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                          </div>
+                        ) : null}
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
                 </motion.div>
                 {childAgents.map((child) => {
                   const childState = agentVisualState(child);
