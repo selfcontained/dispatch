@@ -186,8 +186,8 @@ export function ParentFeedbackPanel({
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
-  // Resolve parent cwd for the personas query
-  const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+  // Subscribe to agents cache reactively (query is managed by useAgents elsewhere)
+  const { data: allAgents = [] } = useQuery<Agent[]>({ queryKey: ["agents"], enabled: false });
   const parentAgent = allAgents.find((a) => a.id === parentAgentId);
   const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
 
