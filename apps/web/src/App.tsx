@@ -30,6 +30,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useSSE } from "@/hooks/use-sse";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
+import { useIconColor } from "@/hooks/use-icon-color";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
@@ -94,8 +95,9 @@ function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): bo
 }
 
 export function App(): JSX.Element {
-  // ── Theme ─────────────────────────────────────────────────────────────
+  // ── Theme & Branding ──────────────────────────────────────────────────
   const { theme, setTheme } = useTheme();
+  const { iconColor, setIconColor, isLoading: isIconColorSaving, error: iconColorError, clearError: clearIconColorError } = useIconColor();
 
   // ── Auth ──────────────────────────────────────────────────────────────
   const { authState, handleAuthenticated, handleLogout } = useAuth();
@@ -748,6 +750,11 @@ export function App(): JSX.Element {
         onLogout={handleLogout}
         theme={theme}
         setTheme={setTheme}
+        iconColor={iconColor}
+        setIconColor={setIconColor}
+        isIconColorSaving={isIconColorSaving}
+        iconColorError={iconColorError}
+        clearIconColorError={clearIconColorError}
         enabledAgentTypes={enabledAgentTypes}
         onEnabledAgentTypesChange={setEnabledAgentTypes}
       />

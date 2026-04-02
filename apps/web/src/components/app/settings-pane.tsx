@@ -7,6 +7,7 @@ import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
@@ -256,7 +257,33 @@ function WorktreeLocationSettings(): JSX.Element {
   );
 }
 
-function AppearanceSettings({ theme, setTheme }: { theme: ThemeId; setTheme: (id: ThemeId) => void }): JSX.Element {
+function AppearanceSettings({
+  theme,
+  setTheme,
+  iconColor,
+  setIconColor,
+  isIconColorSaving,
+  iconColorError,
+  clearIconColorError,
+}: {
+  theme: ThemeId;
+  setTheme: (id: ThemeId) => void;
+  iconColor: IconColorId;
+  setIconColor: (id: IconColorId) => void;
+  isIconColorSaving: boolean;
+  iconColorError: string | null;
+  clearIconColorError: () => void;
+}): JSX.Element {
+  const [pendingColor, setPendingColor] = useState<IconColorId | null>(null);
+  const displayColor = pendingColor ?? iconColor;
+
+  // Reset optimistic state on error so the selection reverts
+  useEffect(() => {
+    if (iconColorError) {
+      setPendingColor(null);
+    }
+  }, [iconColorError]);
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <div>
@@ -295,6 +322,58 @@ function AppearanceSettings({ theme, setTheme }: { theme: ThemeId; setTheme: (id
           ))}
         </div>
       </div>
+
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Icon Color
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Pick a color for the app icon to help distinguish multiple Dispatch installations.
+        </p>
+        <div className={cn("flex flex-wrap gap-2", isIconColorSaving && "pointer-events-none opacity-60")} role="radiogroup" aria-label="Icon color">
+          {ICON_COLOR_OPTIONS.map((c) => (
+            <button
+              key={c.id}
+              role="radio"
+              aria-checked={displayColor === c.id}
+              aria-label={c.label}
+              disabled={isIconColorSaving}
+              onClick={() => {
+                if (c.id !== iconColor) {
+                  setPendingColor(c.id);
+                  setIconColor(c.id);
+                }
+              }}
+              className={cn(
+                "flex w-14 flex-col items-center gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
+                displayColor === c.id
+                  ? "border-foreground bg-foreground/10"
+                  : "border-transparent hover:border-muted-foreground/40 hover:bg-muted/30"
+              )}
+            >
+              <img
+                src={`/icons/${c.id}/brand-icon.svg`}
+                alt=""
+                className="h-7 w-7 object-contain"
+              />
+              <span className={cn(
+                "text-[10px] leading-none",
+                displayColor === c.id ? "text-foreground" : "text-muted-foreground"
+              )}>{c.label}</span>
+            </button>
+          ))}
+        </div>
+        {iconColorError ? (
+          <p className="mt-2 text-xs text-destructive">
+            {iconColorError}{" "}
+            <button onClick={clearIconColorError} className="underline hover:no-underline">Dismiss</button>
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-muted-foreground/70">
+            Changing the icon color will reload the page. PWA users may need to reinstall for launcher icons to update.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -305,6 +384,11 @@ type SettingsPaneProps = {
   onLogout: () => void;
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
+  iconColor: IconColorId;
+  setIconColor: (id: IconColorId) => void;
+  isIconColorSaving: boolean;
+  iconColorError: string | null;
+  clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
 };
@@ -315,6 +399,11 @@ export function SettingsPane({
   onLogout,
   theme,
   setTheme,
+  iconColor,
+  setIconColor,
+  isIconColorSaving,
+  iconColorError,
+  clearIconColorError,
   enabledAgentTypes,
   onEnabledAgentTypesChange,
 }: SettingsPaneProps): JSX.Element {
@@ -402,7 +491,7 @@ export function SettingsPane({
               {activeSection === "release" && <ReleaseManager />}
               {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
               {activeSection === "notifications" && <NotificationSettings />}
-              {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} />}
+              {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />}
               {activeSection === "agents" && (
                 <div className="flex flex-col">
                   <AgentTypeSettings
