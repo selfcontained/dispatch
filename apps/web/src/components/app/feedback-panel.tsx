@@ -185,27 +185,38 @@ export function ParentFeedbackPanel({
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
-  // Build agentId → persona attribution (name + color) from cached data
+  // Resolve parent cwd for the personas query
+  const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
+  const parentAgent = allAgents.find((a) => a.id === parentAgentId);
+  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+
+  // Fetch personas directly so colors are always available, matching the
+  // same query key used by PersonaLauncher for cache sharing.
   type PersonaSummary = { slug: string; name: string };
+  const { data: personas = [] } = useQuery<PersonaSummary[]>({
+    queryKey: ["personas", parentCwd],
+    queryFn: async () => {
+      const result = await api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(parentCwd ?? "")}`);
+      return result.personas;
+    },
+    enabled: !!parentCwd,
+  });
+
+  // Build agentId → persona attribution (name + color)
   const personaAttribution = useMemo(() => {
-    const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
-    const parentAgent = allAgents.find((a) => a.id === parentAgentId);
-    const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
-    const allPersonas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
-    const slugToIndex = new Map(allPersonas.map((p, i) => [p.slug, i]));
+    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
     const map = new Map<string, { name: string; color: string }>();
     for (const agent of allAgents) {
       if (agent.parentAgentId === parentAgentId && agent.persona) {
         const idx = slugToIndex.get(agent.persona);
         const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
-        const persona = allPersonas.find((p) => p.slug === agent.persona);
+        const persona = personas.find((p) => p.slug === agent.persona);
         map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
       }
     }
     return map;
-    // Re-compute when feedback changes (signals new agents/personas may be cached)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient, parentAgentId, feedback]);
+  }, [allAgents, parentAgentId, personas]);
 
   if (feedback.length === 0) return null;
 
