@@ -1873,7 +1873,8 @@ async function registerRoutes() {
          FROM agent_feedback f
          JOIN agents a ON a.id = f.agent_id
          WHERE a.parent_agent_id = $1
-         ORDER BY f.created_at ASC`,
+         ORDER BY f.created_at ASC
+         LIMIT 500`,
         [id]
       ),
     ]);
