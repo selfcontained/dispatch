@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type Agent, type FeedbackItem } from "@/components/app/types";
@@ -365,10 +365,10 @@ export function ParentFeedbackPanel({
                           {isExpanded ? (
                             <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
                               <button
-                                className="absolute -top-1.5 -right-1.5 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                                className="absolute top-1 right-1 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
                                 onClick={() => setSheetItemId(item.id)}
                               >
-                                <Expand className="h-3.5 w-3.5" />
+                                <Maximize className="h-3.5 w-3.5" />
                               </button>
                               <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
 
