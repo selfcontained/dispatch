@@ -304,7 +304,7 @@ export function ParentFeedbackPanel({
                 <div key={agentId}>
                   {needsGrouping ? (
                     <button
-                      className="flex w-full items-center gap-1.5 px-1 mb-0.5 text-left hover:bg-muted/40 rounded transition-colors"
+                      className="flex w-full items-center gap-1.5 mb-0.5 text-left hover:bg-muted/40 rounded transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         setCollapsedGroups((prev) => {
@@ -331,7 +331,7 @@ export function ParentFeedbackPanel({
                       </span>
                     </button>
                   ) : null}
-                  {!isGroupCollapsed ? <div className="space-y-px">
+                  {!isGroupCollapsed ? <div className={cn("space-y-px", needsGrouping && "ml-2.5")}>
                     {items.map((item) => {
                       const isActionable = item.status === "open" || item.status === "forwarded";
                       const isExpanded = expandedId === item.id;
