@@ -363,6 +363,7 @@ export class AgentManager {
 
     try {
       await this.startAgentSession(
+        id,
         tmuxSession,
         agent.cwd,
         agent.mediaDir ?? this.defaultMediaDir(id),
@@ -986,6 +987,7 @@ export class AgentManager {
   }
 
   private async startAgentSession(
+    agentId: string,
     sessionName: string,
     cwd: string,
     mediaDir: string,
@@ -1001,8 +1003,8 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
-    const sessionLogFile = `/tmp/dispatch_setup_${sessionName}.log`;
-    const wrappedCommand = `bash -c 'exec 2> >(tee -a "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
+    const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
+    const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
       allowedExitCodes: [0, 1]
@@ -1022,7 +1024,7 @@ export class AgentManager {
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
     if (!(await this.hasAgentSession(sessionName))) {
-      const detail = await this.readSetupLogTail(sessionName);
+      const detail = await this.readSetupLogTail(agentId);
       throw new Error(`tmux session exited immediately after launch${detail}`);
     }
   }
@@ -1526,19 +1528,10 @@ export class AgentManager {
       ``,
       `# Tee stderr to a log file so the server can surface errors when the session`,
       `# exits immediately (e.g. a broken profile script).`,
-      `exec 2> >(tee -a "/tmp/dispatch_setup_${agentId}.log" >&2)`,
+      `exec 2> >(tee "/tmp/dispatch_setup_${agentId}.log" >&2)`,
       ``,
-      `# Source user environment — tmux sessions are non-login/non-interactive,`,
-      `# so env vars like GH_TOKEN, NVM, pyenv, etc. won't be set otherwise.`,
-      `[[ -f ~/.profile ]]      && source ~/.profile || true`,
-      `[[ -f ~/.bash_profile ]] && source ~/.bash_profile || true`,
-      `[[ -f ~/.bashrc ]]       && source ~/.bashrc || true`,
-      `[[ -f ~/.zprofile ]]     && source ~/.zprofile || true`,
-      `[[ -f ~/.zshrc ]]        && source ~/.zshrc || true`,
-      `# User-defined overrides for agent sessions`,
-      `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env || true`,
-      `# Restore strict mode — sourced profiles may have disabled it`,
-      `set -euo pipefail`,
+      `# Source user-defined overrides for agent sessions`,
+      `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
       ``,
       `BOLD="\\033[1m"`,
       `DIM="\\033[2m"`,

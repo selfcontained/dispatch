@@ -44,6 +44,23 @@ Optional with args:
 tmux new-session -d -s dispatch_<agentId> -c "<cwd>" "codex <args>"
 ```
 
+## Agent Environment
+
+Agent sessions run inside tmux, which is non-login and non-interactive. Tools like `nvm`, `pyenv`, `conda`, `GH_TOKEN`, etc. won't be available unless explicitly configured.
+
+Dispatch sources `~/.dispatch/env` (if it exists) at the start of every setup script. Use this file to export any environment variables or run setup commands that agents need:
+
+```bash
+# ~/.dispatch/env
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+export GH_TOKEN="ghp_..."
+```
+
+Standard shell profiles (`~/.bashrc`, `~/.zshrc`, etc.) are **not** sourced — they are not safe to run under `set -e` and frequently contain commands (e.g. `conda init`) that cause the setup script to exit.
+
+**Important:** Do not use `exit` in `~/.dispatch/env` — it runs in the setup script's shell, so `exit` will kill the agent session.
+
 ## Stop Contract
 
 Preferred soft stop:
