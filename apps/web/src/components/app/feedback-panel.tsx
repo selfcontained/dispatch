@@ -274,64 +274,101 @@ export function ParentFeedbackPanel({
             Attach to this agent to forward feedback
           </div>
         ) : null}
-        <div className="space-y-px">
-          {visibleItems.map((item) => {
-            const isActionable = item.status === "open" || item.status === "forwarded";
-            const isExpanded = expandedId === item.id;
-            const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
-            const statusLabel = STATUS_LABELS[item.status];
+        <div className="space-y-2">
+          {(() => {
+            // Group items by agentId to show persona sections
+            const groups = new Map<string, FeedbackItem[]>();
+            for (const item of visibleItems) {
+              const list = groups.get(item.agentId);
+              if (list) list.push(item);
+              else groups.set(item.agentId, [item]);
+            }
+            const needsGrouping = groups.size > 1;
 
-            return (
-              <div key={item.id} className={cn(!isActionable && "opacity-40")}>
-                {/* Compact row */}
-                <button
-                  className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
-                  onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
-                >
-                  <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                  <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
-                    <FrontTruncatedValue
-                      value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
-                      mono
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-foreground">
-                    {item.description}
-                  </span>
-                  {statusLabel && !isActionable ? (
-                    <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
-                  ) : null}
-                </button>
-
-                {/* Expanded inline card — clamped */}
-                {isExpanded ? (
-                  <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      className="absolute -top-1.5 -right-1.5 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                      onClick={() => setSheetItemId(item.id)}
-                    >
-                      <Expand className="h-3.5 w-3.5" />
-                    </button>
-                    <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
-
-                    <div className="mt-2">
-                      <FeedbackActions
-                        item={item}
-                        isConnected={isConnected}
-                        onForward={(mode) => forward(item, mode)}
-                        onCopy={() => handleCopy(item)}
-                        copied={copiedItemId === item.id}
-                        onUpdateStatus={(s) => handleResolve(item, s)}
-                        isActionable={isActionable}
-                        statusLabel={statusLabel}
+            return Array.from(groups.entries()).map(([agentId, items]) => {
+              const attr = personaAttribution.get(agentId);
+              return (
+                <div key={agentId}>
+                  {needsGrouping ? (
+                    <div className="flex items-center gap-1.5 px-1 mb-0.5">
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: attr?.color ?? "hsl(var(--muted-foreground))" }}
                       />
+                      <span
+                        className="text-[10px] font-medium"
+                        style={{ color: attr?.color ?? undefined }}
+                      >
+                        {attr?.name ?? agentId.slice(-6)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground/50">
+                        {items.filter((f) => f.status === "open" || f.status === "forwarded").length}
+                      </span>
                     </div>
+                  ) : null}
+                  <div className="space-y-px">
+                    {items.map((item) => {
+                      const isActionable = item.status === "open" || item.status === "forwarded";
+                      const isExpanded = expandedId === item.id;
+                      const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
+                      const statusLabel = STATUS_LABELS[item.status];
+
+                      return (
+                        <div key={item.id} className={cn(!isActionable && "opacity-40")}>
+                          {/* Compact row */}
+                          <button
+                            className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
+                            onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
+                          >
+                            <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
+                            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
+                            <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                              <FrontTruncatedValue
+                                value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                                mono
+                              />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-foreground">
+                              {item.description}
+                            </span>
+                            {statusLabel && !isActionable ? (
+                              <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
+                            ) : null}
+                          </button>
+
+                          {/* Expanded inline card — clamped */}
+                          {isExpanded ? (
+                            <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                className="absolute -top-1.5 -right-1.5 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                                onClick={() => setSheetItemId(item.id)}
+                              >
+                                <Expand className="h-3.5 w-3.5" />
+                              </button>
+                              <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
+
+                              <div className="mt-2">
+                                <FeedbackActions
+                                  item={item}
+                                  isConnected={isConnected}
+                                  onForward={(mode) => forward(item, mode)}
+                                  onCopy={() => handleCopy(item)}
+                                  copied={copiedItemId === item.id}
+                                  onUpdateStatus={(s) => handleResolve(item, s)}
+                                  isActionable={isActionable}
+                                  statusLabel={statusLabel}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : null}
-              </div>
-            );
-          })}
+                </div>
+              );
+            });
+          })()}
         </div>
         {resolvedItems.length > 0 ? (
           <button
