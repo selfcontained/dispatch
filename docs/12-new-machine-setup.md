@@ -264,6 +264,18 @@ Deploy includes automatic rollback on health check failure.
 | `~/.dispatch/release.json` | Current release metadata |
 | `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition |
 | `~/.dispatch/media/` | Agent media storage (default) |
+| `~/.dispatch/env` | Agent session environment (sourced on every agent launch) |
+
+### Agent environment (`~/.dispatch/env`)
+
+Agent sessions run inside tmux (non-login, non-interactive), so standard shell profiles are **not** sourced. If your agents need tools like `nvm`, `pyenv`, `conda`, or tokens like `GH_TOKEN`, add them to `~/.dispatch/env`:
+
+```bash
+# ~/.dispatch/env — sourced at the start of every agent setup script
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+export GH_TOKEN="ghp_..."
+```
 
 ## Troubleshooting
 

@@ -276,7 +276,18 @@ const SECTIONS: SectionDef[] = [
         <Section>
           <H3>Environment</H3>
           <P>
-            Repo tool commands and hooks
+            Agent sessions run inside tmux (non-login, non-interactive),
+            so standard shell profiles are <strong>not</strong> sourced.
+            If agents need tools like <Code>nvm</Code>, <Code>pyenv</Code>,
+            or tokens like <Code>GH_TOKEN</Code>, add them
+            to <Code>~/.dispatch/env</Code>:
+          </P>
+          <CodeBlock>{`# ~/.dispatch/env
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+export GH_TOKEN="ghp_..."`}</CodeBlock>
+          <P>
+            Repo tool commands and hooks also
             receive <Code>DISPATCH_AGENT_ID</Code> in their environment, so
             scripts can scope resources (databases, temp directories, ports) per
             agent.
