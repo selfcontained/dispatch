@@ -407,7 +407,7 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" className="flex max-h-[80vh] flex-col overflow-hidden px-6 py-5">
+        <SheetContent side="bottom" className="flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
               <SheetHeader className="shrink-0">
