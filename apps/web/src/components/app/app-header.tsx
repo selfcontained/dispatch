@@ -1,6 +1,7 @@
 import { Eye, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useIconColor } from "@/hooks/use-icon-color";
 import { cn } from "@/lib/utils";
 
 type AppHeaderProps = {
@@ -30,6 +31,7 @@ export function AppHeader({
   setMediaOpen,
   detachTerminal
 }: AppHeaderProps): JSX.Element {
+  const { iconColor } = useIconColor();
   const compactSessionAction = mediaOpen && !isMobile;
 
   return (
@@ -65,7 +67,7 @@ export function AppHeader({
               <PanelRightOpen className="h-4 w-4" />
             </Button>
             <img
-              src="/brand-icon.svg"
+              src={`/icons/${iconColor}/brand-icon.svg`}
               alt="Dispatch logo"
               className="h-6 w-auto object-contain"
             />

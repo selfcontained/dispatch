@@ -1,6 +1,8 @@
 ## What's Changed
-* Comprehensive documentation update by @selfcontained in https://github.com/selfcontained/dispatch/pull/182
-* Fix token summary cards missing due to ::int overflow by @selfcontained in https://github.com/selfcontained/dispatch/pull/181
+* Clean up internal references for open-source readiness by @selfcontained in https://github.com/selfcontained/dispatch/pull/183
+* Surface setup stderr in agent launch errors by @selfcontained in https://github.com/selfcontained/dispatch/pull/184
+* Add per-instance icon color selection by @selfcontained in https://github.com/selfcontained/dispatch/pull/185
+* Scope persona feedback to only the changes in the diff by @selfcontained in https://github.com/selfcontained/dispatch/pull/186
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.8.0...v0.8.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.8.1...v0.8.2

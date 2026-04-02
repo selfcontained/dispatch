@@ -12,6 +12,7 @@ import {
   Settings,
   X
 } from "lucide-react";
+import { useIconColor } from "@/hooks/use-icon-color";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -95,6 +96,8 @@ export function AgentSidebarContent({
   closeButtonIcon = "x",
   className
 }: AgentSidebarContentProps): JSX.Element {
+  const { iconColor } = useIconColor();
+
   const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
     ? lastUsedAgentType
     : enabledAgentTypes[0] ?? "codex";
@@ -147,7 +150,7 @@ export function AgentSidebarContent({
     <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
       <div className="flex h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center">
-          <img src="/brand-full-logo.svg" alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
+          <img src={`/icons/${iconColor}/brand-full-logo.svg`} alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
         </div>
         {onRequestClose ? (
           <div className="ml-auto">
