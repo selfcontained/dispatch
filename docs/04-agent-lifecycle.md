@@ -59,6 +59,8 @@ export GH_TOKEN="ghp_..."
 
 Standard shell profiles (`~/.bashrc`, `~/.zshrc`, etc.) are **not** sourced — they are not safe to run under `set -e` and frequently contain commands (e.g. `conda init`) that cause the setup script to exit.
 
+**Important:** Do not use `exit` in `~/.dispatch/env` — it runs in the setup script's shell, so `exit` will kill the agent session.
+
 ## Stop Contract
 
 Preferred soft stop:

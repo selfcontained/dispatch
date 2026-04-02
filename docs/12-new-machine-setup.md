@@ -277,6 +277,8 @@ export NVM_DIR="$HOME/.nvm"
 export GH_TOKEN="ghp_..."
 ```
 
+**Note:** Do not use `exit` in this file — it runs in the setup script's shell and will kill the agent session.
+
 ## Troubleshooting
 
 ### Server won't start

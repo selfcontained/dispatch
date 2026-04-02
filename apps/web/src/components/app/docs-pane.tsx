@@ -287,6 +287,10 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 export GH_TOKEN="ghp_..."`}</CodeBlock>
           <P>
+            Avoid using <Code>exit</Code> in this file — it runs in the
+            setup script's shell and will kill the agent session.
+          </P>
+          <P>
             Repo tool commands and hooks also
             receive <Code>DISPATCH_AGENT_ID</Code> in their environment, so
             scripts can scope resources (databases, temp directories, ports) per
