@@ -60,6 +60,7 @@ hljs.registerLanguage("objectivec", objectivec);
 hljs.registerLanguage("nim", nim);
 
 import { Button } from "@/components/ui/button";
+import { useCopyText } from "@/hooks/use-copy";
 
 const EXT_TO_LANG: Record<string, string> = {
   ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript",
@@ -171,31 +172,10 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   );
 }
 
-/** Copy text via hidden textarea + execCommand. Works on iOS Safari non-secure contexts. */
-function copyViaExecCommand(text: string): boolean {
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.left = "0";
-  textarea.style.top = "0";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-
-  let ok = false;
-  try {
-    ok = document.execCommand("copy");
-  } catch {
-    ok = false;
-  }
-  document.body.removeChild(textarea);
-  return ok;
-}
-
 function MediaActions({ src, fileName, isText }: { src: string; fileName: string; isText?: boolean }): JSX.Element {
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | null>(null);
+  const [copied, copyText] = useCopyText();
+  const [imageCopied, setImageCopied] = useState(false);
+  const imageCopiedTimerRef = useRef<number | null>(null);
   const cachedTextRef = useRef<string | null>(null);
 
   const displayName = stripTimestamp(fileName);
@@ -212,28 +192,20 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
     return () => controller.abort();
   }, [src, isText]);
 
-  // Clean up the "Copied!" timer on unmount.
+  // Clean up the image-copied timer on unmount.
   useEffect(() => () => {
-    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    if (imageCopiedTimerRef.current) window.clearTimeout(imageCopiedTimerRef.current);
   }, []);
 
-  const markCopied = useCallback(() => {
-    setCopied(true);
-    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-    copiedTimerRef.current = window.setTimeout(() => setCopied(false), 2000);
+  const markImageCopied = useCallback(() => {
+    setImageCopied(true);
+    if (imageCopiedTimerRef.current) window.clearTimeout(imageCopiedTimerRef.current);
+    imageCopiedTimerRef.current = window.setTimeout(() => setImageCopied(false), 2000);
   }, []);
 
   const handleCopy = useCallback(() => {
     if (isText) {
-      // Text files: use execCommand with pre-fetched content (works on iOS Safari
-      // non-secure contexts). Fall back to Clipboard API on secure contexts.
-      if (cachedTextRef.current && copyViaExecCommand(cachedTextRef.current)) {
-        markCopied();
-        return;
-      }
-      if (navigator.clipboard?.writeText && cachedTextRef.current) {
-        void navigator.clipboard.writeText(cachedTextRef.current).then(markCopied).catch(() => {});
-      }
+      if (cachedTextRef.current) copyText(cachedTextRef.current);
     } else {
       // Images: use Clipboard API (only works on secure contexts / desktop).
       // On mobile non-secure contexts, users can long-press to copy images.
@@ -241,11 +213,13 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
         const blobPromise = fetch(src).then((r) => r.blob());
         void navigator.clipboard
           .write([new ClipboardItem({ "image/png": blobPromise })])
-          .then(markCopied)
+          .then(markImageCopied)
           .catch(() => {});
       }
     }
-  }, [src, isText, markCopied]);
+  }, [src, isText, copyText, markImageCopied]);
+
+  const showCopied = isText ? copied : imageCopied;
 
   const showCopy = isText || HAS_CLIPBOARD_WRITE;
 
@@ -263,13 +237,13 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
       {showCopy && (
         <Button
           size="sm"
-          variant={copied ? "default" : "ghost"}
-          className={copied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
+          variant={showCopied ? "default" : "ghost"}
+          className={showCopied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
           onClick={handleCopy}
           title="Copy"
         >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">{copied ? "Copied!" : "Copy"}</span>
+          {showCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{showCopied ? "Copied!" : "Copy"}</span>
         </Button>
       )}
     </div>

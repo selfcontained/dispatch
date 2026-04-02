@@ -23,30 +23,34 @@ function copyViaExecCommand(text: string): boolean {
 }
 
 /**
- * Hook for copying text to clipboard with iOS Safari support.
+ * Hook for copying text to clipboard.
+ * Prefers the Clipboard API (works inside dialogs/sheets with focus traps),
+ * falls back to execCommand for iOS Safari non-secure contexts.
  * Returns [copied, copyText] — `copied` is true for 2s after a successful copy.
  */
 export function useCopyText(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
 
+  const markCopied = useCallback(() => {
+    setCopied(true);
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => setCopied(false), 2000);
+  }, []);
+
   const copyText = useCallback((text: string) => {
-    // Try execCommand first (works on iOS Safari non-secure contexts)
-    if (copyViaExecCommand(text)) {
-      setCopied(true);
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => setCopied(false), 2000);
+    // Prefer Clipboard API — it works inside focus-trapped dialogs (sheets, modals)
+    // where execCommand fails because the hidden textarea can't receive focus.
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(text).then(markCopied).catch(() => {
+        // Clipboard API rejected (e.g. non-secure context) — try execCommand
+        if (copyViaExecCommand(text)) markCopied();
+      });
       return;
     }
-    // Fall back to Clipboard API
-    if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        if (timerRef.current) window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(() => setCopied(false), 2000);
-      }).catch(() => {});
-    }
-  }, []);
+    // No Clipboard API — fall back to execCommand (iOS Safari non-secure contexts)
+    if (copyViaExecCommand(text)) markCopied();
+  }, [markCopied]);
 
   return [copied, copyText];
 }

@@ -261,7 +261,6 @@ export function ParentFeedbackPanel({
     setCopiedItemId(item.id);
     if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
     copiedTimerRef.current = window.setTimeout(() => setCopiedItemId(null), 2000);
-    dismissUI();
   };
 
   const handleResolve = (item: FeedbackItem, status: string) => {
