@@ -506,4 +506,111 @@ describe("AgentManager", () => {
       }
     });
   });
+
+  describe("listFeedbackByParentGrouped", () => {
+    it("should only return feedback from the requested parent's children", async () => {
+      // Create two parent agents
+      const parentA = await manager.createAgent({ name: "parent-a", cwd: "/tmp", useWorktree: false });
+      const parentB = await manager.createAgent({ name: "parent-b", cwd: "/tmp", useWorktree: false });
+
+      // Create persona children for each parent
+      const childA = await manager.createAgent({
+        name: "child-a",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parentA.id,
+      });
+      const childB = await manager.createAgent({
+        name: "child-b",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "ux-review",
+        parentAgentId: parentB.id,
+      });
+
+      // Submit feedback from both children
+      await manager.submitFeedback(childA.id, {
+        severity: "high",
+        description: "SQL injection in login handler",
+        filePath: "src/auth.ts",
+        lineNumber: 42,
+      });
+      await manager.submitFeedback(childB.id, {
+        severity: "low",
+        description: "Button color contrast",
+        filePath: "src/button.tsx",
+      });
+
+      // Parent A should only see child A's feedback
+      const resultA = await manager.listFeedbackByParentGrouped(parentA.id);
+      expect(resultA.personas).toHaveLength(1);
+      expect(resultA.personas[0].persona).toBe("security-review");
+      expect(resultA.personas[0].agentId).toBe(childA.id);
+      expect(resultA.personas[0].feedback).toHaveLength(1);
+      expect(resultA.personas[0].feedback[0].description).toBe("SQL injection in login handler");
+
+      // Parent B should only see child B's feedback
+      const resultB = await manager.listFeedbackByParentGrouped(parentB.id);
+      expect(resultB.personas).toHaveLength(1);
+      expect(resultB.personas[0].persona).toBe("ux-review");
+      expect(resultB.personas[0].agentId).toBe(childB.id);
+      expect(resultB.personas[0].feedback).toHaveLength(1);
+      expect(resultB.personas[0].feedback[0].description).toBe("Button color contrast");
+    });
+
+    it("should return empty personas array when agent has no children", async () => {
+      const parent = await manager.createAgent({ name: "lonely-parent", cwd: "/tmp", useWorktree: false });
+
+      const result = await manager.listFeedbackByParentGrouped(parent.id);
+      expect(result.personas).toHaveLength(0);
+    });
+
+    it("should filter by persona name", async () => {
+      const parent = await manager.createAgent({ name: "multi-parent", cwd: "/tmp", useWorktree: false });
+
+      const secChild = await manager.createAgent({
+        name: "sec-child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+      const uxChild = await manager.createAgent({
+        name: "ux-child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "ux-review",
+        parentAgentId: parent.id,
+      });
+
+      await manager.submitFeedback(secChild.id, { description: "sec finding" });
+      await manager.submitFeedback(uxChild.id, { description: "ux finding" });
+
+      const filtered = await manager.listFeedbackByParentGrouped(parent.id, "security-review");
+      expect(filtered.personas).toHaveLength(1);
+      expect(filtered.personas[0].persona).toBe("security-review");
+      expect(filtered.personas[0].feedback[0].description).toBe("sec finding");
+    });
+
+    it("should group multiple feedback items under the same persona", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const child = await manager.createAgent({
+        name: "child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+
+      await manager.submitFeedback(child.id, { severity: "critical", description: "finding 1" });
+      await manager.submitFeedback(child.id, { severity: "low", description: "finding 2" });
+
+      const result = await manager.listFeedbackByParentGrouped(parent.id);
+      expect(result.personas).toHaveLength(1);
+      expect(result.personas[0].feedback).toHaveLength(2);
+      expect(result.personas[0].feedback[0].description).toBe("finding 1");
+      expect(result.personas[0].feedback[1].description).toBe("finding 2");
+    });
+  });
 });

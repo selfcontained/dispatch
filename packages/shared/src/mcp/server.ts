@@ -37,6 +37,28 @@ export type FeedbackInput = {
   mediaRef?: string;
 };
 
+export type FeedbackItem = {
+  id: number;
+  severity: string;
+  description: string;
+  filePath: string | null;
+  lineNumber: number | null;
+  suggestion: string | null;
+  mediaRef: string | null;
+  status: string;
+  createdAt: string;
+};
+
+export type PersonaFeedbackGroup = {
+  persona: string;
+  agentId: string;
+  feedback: FeedbackItem[];
+};
+
+export type GetFeedbackResult = {
+  personas: PersonaFeedbackGroup[];
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
@@ -57,6 +79,10 @@ export type McpRequestContext = {
     agentId: string,
     opts: { persona: string; context: string }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
+  getFeedback?: (
+    agentId: string,
+    opts: { persona?: string; limit?: number }
+  ) => Promise<GetFeedbackResult>;
 };
 
 export async function handleMcpRequest(
@@ -471,6 +497,47 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
                 text: `Launched persona "${result.persona}" as agent ${result.agentId}.`
               }
             ]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.getFeedback) {
+    const agentId = context.agent.id;
+    const getFeedback = context.getFeedback;
+
+    server.registerTool(
+      "dispatch_get_feedback",
+      {
+        description:
+          "Retrieve structured feedback submitted by persona agents you launched. Returns feedback grouped by persona. Only returns feedback from your direct child persona agents.",
+        inputSchema: {
+          persona: z
+            .string()
+            .optional()
+            .describe("Filter to a specific persona by name. If omitted, returns feedback from all child personas."),
+          limit: z
+            .number()
+            .int()
+            .positive()
+            .max(100)
+            .default(100)
+            .describe("Maximum number of feedback items to return. Defaults and caps at 100.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await getFeedback(agentId, { persona: args.persona, limit: args.limit });
+          const totalItems = result.personas.reduce((sum, p) => sum + p.feedback.length, 0);
+          const summary = result.personas.length === 0
+            ? "No persona feedback found."
+            : `Found ${totalItems} feedback item(s) from ${result.personas.length} persona(s).`;
+          return {
+            content: [{ type: "text", text: summary }],
+            structuredContent: result
           };
         } catch (error) {
           return toToolError(error);
