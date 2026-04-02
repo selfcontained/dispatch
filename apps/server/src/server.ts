@@ -3,7 +3,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
@@ -290,6 +290,34 @@ const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
 const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
 const legacyPublicDir = path.resolve(repoRootDir, "public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
+
+// ---------------------------------------------------------------------------
+// Icon color templating — rewrite index.html and manifest for active color
+// ---------------------------------------------------------------------------
+const VALID_ICON_COLORS = ["teal", "blue", "purple", "red", "orange", "amber", "pink", "cyan"] as const;
+type IconColor = typeof VALID_ICON_COLORS[number];
+const DEFAULT_ICON_COLOR: IconColor = "teal";
+const ICON_COLOR_KEY = "icon_color";
+
+const indexHtmlPath = path.join(staticDir, "index.html");
+const manifestPath = path.join(staticDir, "manifest.webmanifest");
+const indexHtmlTemplate = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath, "utf-8") : "";
+const manifestTemplate = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : "";
+
+let cachedIconColor: IconColor = DEFAULT_ICON_COLOR;
+let cachedIndexHtml: string = indexHtmlTemplate;
+let cachedManifest: string = manifestTemplate;
+
+function rewriteForColor(color: IconColor): void {
+  cachedIconColor = color;
+  if (color === DEFAULT_ICON_COLOR) {
+    cachedIndexHtml = indexHtmlTemplate;
+    cachedManifest = manifestTemplate;
+  } else {
+    cachedIndexHtml = indexHtmlTemplate.replaceAll("/icons/teal/", `/icons/${color}/`);
+    cachedManifest = manifestTemplate.replaceAll("/icons/teal/", `/icons/${color}/`);
+  }
+}
 
 function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boolean } {
   return { ...agent, hasStream: streamManager.hasStream(agent.id) };
@@ -732,23 +760,45 @@ async function registerRoutes() {
   await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
 
+  // Initialize icon color from DB before serving any requests
+  const storedIconColor = await getSetting(pool, ICON_COLOR_KEY);
+  if (storedIconColor && (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)) {
+    rewriteForColor(storedIconColor as IconColor);
+  }
+
+  // Serve templated index.html and manifest before static files so they take priority
+  const noCacheHeaders = { "Cache-Control": "no-cache, no-store, must-revalidate" };
+
+  app.get("/", async (_, reply) => {
+    return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+  });
+
+  app.get("/index.html", async (_, reply) => {
+    return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+  });
+
+  app.get("/manifest.webmanifest", async (_, reply) => {
+    return reply.type("application/manifest+json").headers(noCacheHeaders).send(cachedManifest);
+  });
+
   await app.register(fastifyStatic, {
     root: staticDir,
     prefix: "/",
     setHeaders(res, filePath) {
-      // Never HTTP-cache the files the service worker & browser use to
-      // bootstrap an update check.  Hashed assets (JS/CSS with content-hash
-      // in the filename) are safe to cache indefinitely — a rebuild produces
-      // a new URL so stale entries are never served.
       const base = path.basename(filePath);
-      if (
-        base === "index.html" ||
-        base === "sw.js" ||
-        base === "manifest.webmanifest"
-      ) {
+      if (base === "sw.js") {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       }
     }
+  });
+
+  // SPA fallback — serve templated index.html for client-side routes
+  app.setNotFoundHandler(async (request, reply) => {
+    const url = request.url.split("?")[0];
+    if (!url.startsWith("/api/") && !path.extname(url)) {
+      return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+    }
+    return reply.code(404).send({ error: "Not found" });
   });
 
   // ---------------------------------------------------------------------------
@@ -762,6 +812,7 @@ async function registerRoutes() {
     if (!url.startsWith("/api/")) return;
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
+    if (url === "/api/v1/app/branding") return;
     if (url.endsWith("/terminal/ws")) return;
 
     // If no password is set, all routes are open (first-run mode).
@@ -938,6 +989,12 @@ async function registerRoutes() {
 
   app.delete("/api/mcp/:agentId", async (_, reply) => {
     return reply.code(405).send(mcpMethodNotAllowed());
+  });
+
+  // --- Branding (public, no auth required) ---
+
+  app.get("/api/v1/app/branding", async () => {
+    return { iconColor: cachedIconColor };
   });
 
   // --- Release routes ---
@@ -1300,11 +1357,11 @@ async function registerRoutes() {
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
-    return { worktreeLocation };
+    return { worktreeLocation, iconColor: cachedIconColor };
   });
 
   app.post("/api/v1/agents/settings", async (request, reply) => {
-    const body = request.body as { worktreeLocation?: unknown };
+    const body = request.body as { worktreeLocation?: unknown; iconColor?: unknown };
 
     if (body.worktreeLocation !== undefined) {
       if (typeof body.worktreeLocation !== "string" || !(VALID_WORKTREE_LOCATIONS as string[]).includes(body.worktreeLocation)) {
@@ -1313,10 +1370,18 @@ async function registerRoutes() {
       await setSetting(pool, WORKTREE_LOCATION_KEY, body.worktreeLocation);
     }
 
+    if (body.iconColor !== undefined) {
+      if (typeof body.iconColor !== "string" || !(VALID_ICON_COLORS as readonly string[]).includes(body.iconColor)) {
+        return reply.code(400).send({ error: `iconColor must be one of: ${VALID_ICON_COLORS.join(", ")}` });
+      }
+      await setSetting(pool, ICON_COLOR_KEY, body.iconColor);
+      rewriteForColor(body.iconColor as IconColor);
+    }
+
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
-    return { worktreeLocation };
+    return { worktreeLocation, iconColor: cachedIconColor };
   });
 
   // --- Notification settings ---

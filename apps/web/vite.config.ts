@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["apple-touch-icon.png", "favicon.png"],
+      includeAssets: ["icons/teal/apple-touch-icon.png", "icons/teal/favicon.png"],
       manifest: {
         id: "/",
         name: "Dispatch",
@@ -21,19 +21,19 @@ export default defineConfig({
         theme_color: "#141414",
         icons: [
           {
-            src: "/pwa-192.png",
+            src: "/icons/teal/pwa-192.png",
             sizes: "192x192",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: "/pwa-512.png",
+            src: "/icons/teal/pwa-512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any"
           },
           {
-            src: "/pwa-512.png",
+            src: "/icons/teal/pwa-512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable"
