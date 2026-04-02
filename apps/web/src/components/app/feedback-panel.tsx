@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Expand, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type Agent, type FeedbackItem } from "@/components/app/types";
@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_DOT: Record<string, string> = {
@@ -171,6 +172,7 @@ export function ParentFeedbackPanel({
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [, copyText] = useCopyText();
   const copiedTimerRef = useRef<number | null>(null);
 
@@ -184,27 +186,38 @@ export function ParentFeedbackPanel({
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
 
-  // Build agentId → persona attribution (name + color) from cached data
+  // Subscribe to agents cache reactively (query is managed by useAgents elsewhere)
+  const { data: allAgents = [] } = useQuery<Agent[]>({ queryKey: ["agents"], enabled: false });
+  const parentAgent = allAgents.find((a) => a.id === parentAgentId);
+  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+
+  // Fetch personas directly so colors are always available, matching the
+  // same query key used by PersonaLauncher for cache sharing.
   type PersonaSummary = { slug: string; name: string };
+  const { data: personas = [] } = useQuery<PersonaSummary[]>({
+    queryKey: ["personas", parentCwd],
+    queryFn: async () => {
+      const result = await api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(parentCwd ?? "")}`);
+      return result.personas;
+    },
+    enabled: !!parentCwd,
+  });
+
+  // Build agentId → persona attribution (name + color)
   const personaAttribution = useMemo(() => {
-    const allAgents = queryClient.getQueryData<Agent[]>(["agents"]) ?? [];
-    const parentAgent = allAgents.find((a) => a.id === parentAgentId);
-    const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
-    const allPersonas = queryClient.getQueryData<PersonaSummary[]>(["personas", parentCwd]) ?? [];
-    const slugToIndex = new Map(allPersonas.map((p, i) => [p.slug, i]));
+    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
     const map = new Map<string, { name: string; color: string }>();
     for (const agent of allAgents) {
       if (agent.parentAgentId === parentAgentId && agent.persona) {
         const idx = slugToIndex.get(agent.persona);
         const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
-        const persona = allPersonas.find((p) => p.slug === agent.persona);
+        const persona = personas.find((p) => p.slug === agent.persona);
         map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
       }
     }
     return map;
-    // Re-compute when feedback changes (signals new agents/personas may be cached)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient, parentAgentId, feedback]);
+  }, [allAgents, parentAgentId, personas]);
 
   if (feedback.length === 0) return null;
 
@@ -273,64 +286,114 @@ export function ParentFeedbackPanel({
             Attach to this agent to forward feedback
           </div>
         ) : null}
-        <div className="space-y-px">
-          {visibleItems.map((item) => {
-            const isActionable = item.status === "open" || item.status === "forwarded";
-            const isExpanded = expandedId === item.id;
-            const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
-            const statusLabel = STATUS_LABELS[item.status];
+        <div className="space-y-2">
+          {(() => {
+            // Group items by agentId to show persona sections
+            const groups = new Map<string, FeedbackItem[]>();
+            for (const item of visibleItems) {
+              const list = groups.get(item.agentId);
+              if (list) list.push(item);
+              else groups.set(item.agentId, [item]);
+            }
+            const needsGrouping = groups.size > 1;
 
-            return (
-              <div key={item.id} className={cn(!isActionable && "opacity-40")}>
-                {/* Compact row */}
-                <button
-                  className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
-                  onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
-                >
-                  <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                  <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
-                    <FrontTruncatedValue
-                      value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
-                      mono
-                    />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-foreground">
-                    {item.description}
-                  </span>
-                  {statusLabel && !isActionable ? (
-                    <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
-                  ) : null}
-                </button>
-
-                {/* Expanded inline card — clamped */}
-                {isExpanded ? (
-                  <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
+            return Array.from(groups.entries()).map(([agentId, items]) => {
+              const attr = personaAttribution.get(agentId);
+              const isGroupCollapsed = needsGrouping && collapsedGroups.has(agentId);
+              return (
+                <div key={agentId}>
+                  {needsGrouping ? (
                     <button
-                      className="absolute -top-1.5 -right-1.5 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                      onClick={() => setSheetItemId(item.id)}
+                      className="flex w-full items-center gap-1.5 mb-0.5 text-left hover:bg-muted/40 rounded transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCollapsedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(agentId)) next.delete(agentId);
+                          else next.add(agentId);
+                          return next;
+                        });
+                      }}
                     >
-                      <Expand className="h-3.5 w-3.5" />
-                    </button>
-                    <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
-
-                    <div className="mt-2">
-                      <FeedbackActions
-                        item={item}
-                        isConnected={isConnected}
-                        onForward={(mode) => forward(item, mode)}
-                        onCopy={() => handleCopy(item)}
-                        copied={copiedItemId === item.id}
-                        onUpdateStatus={(s) => handleResolve(item, s)}
-                        isActionable={isActionable}
-                        statusLabel={statusLabel}
+                      <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isGroupCollapsed && "rotate-90")} />
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: attr?.color ?? "hsl(var(--muted-foreground))" }}
                       />
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+                      <span
+                        className="text-[10px] font-medium"
+                        style={{ color: attr?.color ?? undefined }}
+                      >
+                        {attr?.name ?? agentId.slice(-6)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground/50">
+                        {items.filter((f) => f.status === "open" || f.status === "forwarded").length}
+                      </span>
+                    </button>
+                  ) : null}
+                  {!isGroupCollapsed ? <div className={cn("space-y-px", needsGrouping && "ml-2.5")}>
+                    {items.map((item) => {
+                      const isActionable = item.status === "open" || item.status === "forwarded";
+                      const isExpanded = expandedId === item.id;
+                      const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
+                      const statusLabel = STATUS_LABELS[item.status];
+
+                      return (
+                        <div key={item.id} className={cn(!isActionable && "opacity-40")}>
+                          {/* Compact row */}
+                          <button
+                            className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
+                            onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
+                          >
+                            <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
+                            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
+                            <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                              <FrontTruncatedValue
+                                value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                                mono
+                              />
+                            </div>
+                            <span className="min-w-0 flex-1 truncate text-foreground">
+                              {item.description}
+                            </span>
+                            {statusLabel && !isActionable ? (
+                              <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
+                            ) : null}
+                          </button>
+
+                          {/* Expanded inline card — clamped */}
+                          {isExpanded ? (
+                            <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                className="absolute top-1 right-1 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                                onClick={() => setSheetItemId(item.id)}
+                              >
+                                <Maximize className="h-3.5 w-3.5" />
+                              </button>
+                              <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
+
+                              <div className="mt-2">
+                                <FeedbackActions
+                                  item={item}
+                                  isConnected={isConnected}
+                                  onForward={(mode) => forward(item, mode)}
+                                  onCopy={() => handleCopy(item)}
+                                  copied={copiedItemId === item.id}
+                                  onUpdateStatus={(s) => handleResolve(item, s)}
+                                  isActionable={isActionable}
+                                  statusLabel={statusLabel}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div> : null}
+                </div>
+              );
+            });
+          })()}
         </div>
         {resolvedItems.length > 0 ? (
           <button
@@ -344,11 +407,45 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" className="flex max-h-[80vh] flex-col overflow-hidden px-6 py-5">
+        <SheetContent side="bottom" hideCloseButton className="relative flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
+              {/* Nav + close in one container so they share alignment */}
+              <div className="absolute right-4 top-4 flex items-center space-x-8 z-10">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {sheetIndex + 1}/{visibleItems.length}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={!prevSheetItem}
+                    onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={!nextSheetItem}
+                    onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                  onClick={() => setSheetItemId(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
               <SheetHeader className="shrink-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-32">
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
                   </Badge>
@@ -357,29 +454,6 @@ export function ParentFeedbackPanel({
                       ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                       : "Feedback"}
                   </SheetTitle>
-                  <div className="flex items-center gap-1 ml-auto mr-6">
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {sheetIndex + 1}/{visibleItems.length}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      disabled={!prevSheetItem}
-                      onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      disabled={!nextSheetItem}
-                      onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
                 </div>
                 <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
                   {(() => {
@@ -400,13 +474,13 @@ export function ParentFeedbackPanel({
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
-                  <div className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.description}</div>
+                  <Markdown className="text-sm text-foreground">{sheetItem.description}</Markdown>
                 </div>
 
                 {sheetItem.suggestion ? (
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Suggestion</div>
-                    <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{sheetItem.suggestion}</div>
+                    <Markdown className="text-sm text-muted-foreground">{sheetItem.suggestion}</Markdown>
                   </div>
                 ) : null}
               </div>
