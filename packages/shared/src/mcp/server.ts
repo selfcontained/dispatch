@@ -83,6 +83,11 @@ export type McpRequestContext = {
     agentId: string,
     opts: { persona?: string; limit?: number }
   ) => Promise<GetFeedbackResult>;
+  resolveFeedback?: (
+    agentId: string,
+    feedbackId: number,
+    status: "fixed" | "ignored"
+  ) => Promise<FeedbackItem>;
 };
 
 export async function handleMcpRequest(
@@ -538,6 +543,39 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           return {
             content: [{ type: "text", text: summary }],
             structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.resolveFeedback) {
+    const agentId = context.agent.id;
+    const resolveFeedback = context.resolveFeedback;
+
+    server.registerTool(
+      "dispatch_resolve_feedback",
+      {
+        description:
+          "Resolve a persona feedback item by marking it as fixed or ignored. Use after retrieving feedback with dispatch_get_feedback to update the status of individual items.",
+        inputSchema: {
+          feedbackId: z
+            .number()
+            .int()
+            .positive()
+            .describe("The ID of the feedback item to resolve."),
+          status: z
+            .enum(["fixed", "ignored"])
+            .describe("Resolution status: 'fixed' if addressed, 'ignored' if not applicable.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await resolveFeedback(agentId, args.feedbackId, args.status);
+          return {
+            content: [{ type: "text", text: `Feedback #${result.id} marked as ${result.status}.` }]
           };
         } catch (error) {
           return toToolError(error);

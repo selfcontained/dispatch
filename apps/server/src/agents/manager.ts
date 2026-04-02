@@ -1370,6 +1370,23 @@ export class AgentManager {
     return result.rows[0] ?? null;
   }
 
+  async updateFeedbackStatusByParent(
+    feedbackId: number,
+    parentAgentId: string,
+    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
+  ): Promise<FeedbackRecord | null> {
+    const result = await this.pool.query<FeedbackRecord>(
+      `UPDATE agent_feedback af SET status = $2
+       FROM agents a
+       WHERE af.id = $1 AND af.agent_id = a.id AND a.parent_agent_id = $3
+       RETURNING af.id, af.agent_id AS "agentId", af.severity, af.file_path AS "filePath",
+                 af.line_number AS "lineNumber", af.description, af.suggestion,
+                 af.media_ref AS "mediaRef", af.status, af.created_at AS "createdAt"`,
+      [feedbackId, status, parentAgentId]
+    );
+    return result.rows[0] ?? null;
+  }
+
   private baseAgentSelectSql(): string {
     return `
       SELECT

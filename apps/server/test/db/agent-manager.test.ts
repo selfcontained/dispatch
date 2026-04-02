@@ -613,4 +613,51 @@ describe("AgentManager", () => {
       expect(result.personas[0].feedback[1].description).toBe("finding 2");
     });
   });
+
+  describe("updateFeedbackStatusByParent", () => {
+    it("should allow a parent to resolve its child's feedback", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const child = await manager.createAgent({
+        name: "child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+
+      const feedback = await manager.submitFeedback(child.id, {
+        severity: "high",
+        description: "XSS vulnerability",
+      });
+
+      const updated = await manager.updateFeedbackStatusByParent(feedback.id, parent.id, "fixed");
+      expect(updated).not.toBeNull();
+      expect(updated!.id).toBe(feedback.id);
+      expect(updated!.status).toBe("fixed");
+    });
+
+    it("should return null when parent does not own the child", async () => {
+      const parentA = await manager.createAgent({ name: "parent-a", cwd: "/tmp", useWorktree: false });
+      const parentB = await manager.createAgent({ name: "parent-b", cwd: "/tmp", useWorktree: false });
+      const child = await manager.createAgent({
+        name: "child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parentA.id,
+      });
+
+      const feedback = await manager.submitFeedback(child.id, { description: "finding" });
+
+      const result = await manager.updateFeedbackStatusByParent(feedback.id, parentB.id, "ignored");
+      expect(result).toBeNull();
+    });
+
+    it("should return null for non-existent feedback id", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+
+      const result = await manager.updateFeedbackStatusByParent(99999, parent.id, "fixed");
+      expect(result).toBeNull();
+    });
+  });
 });
