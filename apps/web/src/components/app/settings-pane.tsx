@@ -396,7 +396,7 @@ type SettingsPaneProps = {
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
   initialSection?: string;
-  onSectionChange?: (section: string) => void;
+  onSectionChange?: (section: string | null) => void;
 };
 
 export function SettingsPane({
@@ -427,9 +427,7 @@ export function SettingsPane({
 
   const setActiveSection = useCallback((section: SettingsSection | null) => {
     setActiveSectionState(section);
-    if (section && onSectionChange) {
-      onSectionChange(section);
-    }
+    onSectionChange?.(section);
   }, [onSectionChange]);
 
   return (

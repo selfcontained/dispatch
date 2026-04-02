@@ -787,7 +787,7 @@ export function DashboardLayout(): JSX.Element {
         open={docsOpen}
         onClose={closeOverlay}
         initialSection={docsSection}
-        onSectionChange={(section) => navigate(`/docs/${section}`, { replace: true })}
+        onSectionChange={(section) => navigate(section ? `/docs/${section}` : "/docs", { replace: true })}
       />
       {activityOpen ? (
         <ActivityPane
@@ -811,7 +811,7 @@ export function DashboardLayout(): JSX.Element {
         enabledAgentTypes={enabledAgentTypes}
         onEnabledAgentTypesChange={setEnabledAgentTypes}
         initialSection={settingsSection}
-        onSectionChange={(section) => navigate(`/settings/${section}`, { replace: true })}
+        onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
       />
 
       <MediaLightbox

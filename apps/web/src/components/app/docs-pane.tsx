@@ -22,7 +22,7 @@ type DocsPaneProps = {
   open: boolean;
   onClose: () => void;
   initialSection?: string;
-  onSectionChange?: (section: string) => void;
+  onSectionChange?: (section: string | null) => void;
 };
 
 type SectionDef = {
@@ -616,9 +616,7 @@ export function DocsPane({ open, onClose, initialSection, onSectionChange }: Doc
 
   const setActiveSection = useCallback((section: DocsSection | null) => {
     setActiveSectionState(section);
-    if (section && onSectionChange) {
-      onSectionChange(section);
-    }
+    onSectionChange?.(section);
   }, [onSectionChange]);
 
   const active = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
