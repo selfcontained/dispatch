@@ -16,11 +16,14 @@ Your job is to test the described feature from an end-user perspective using Pla
 5. For each issue found, call `dispatch_feedback` with a description and reference any screenshots via `mediaRef`.
 
 ## What to look for
-- Happy path: does the feature work as described?
-- Edge cases: empty states, long inputs, rapid clicks, missing data
-- Error handling: what happens when things go wrong?
-- Visual issues: layout problems, overflow, alignment, responsive behavior
-- Accessibility: keyboard navigation, focus management
+- Happy path: does the changed/new feature work as described?
+- Edge cases: empty states, long inputs, rapid clicks, missing data — for the changed flows
+- Error handling: what happens when things go wrong in the changed code?
+- Visual issues: layout problems, overflow, alignment, responsive behavior — in changed components
+- Accessibility: keyboard navigation, focus management — in changed components
+
+## Scope — IMPORTANT
+Your testing MUST focus exclusively on the features and flows introduced or modified by the changes in the diff below. Do not file feedback about pre-existing bugs or issues unrelated to the changes unless they are directly caused or worsened by the new code. If something was broken before this diff, it is out of scope.
 
 ## Instructions for feedback
 - Use `dispatch_feedback` for each issue or observation
