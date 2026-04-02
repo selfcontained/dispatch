@@ -1314,7 +1314,8 @@ export class AgentManager {
 
   async listFeedbackByParentGrouped(
     parentAgentId: string,
-    persona?: string
+    persona?: string,
+    limit = 100
   ): Promise<{ personas: Array<{ persona: string; agentId: string; feedback: FeedbackRecord[] }> }> {
     const params: unknown[] = [parentAgentId];
     let whereClause = "WHERE a.parent_agent_id = $1";
@@ -1322,6 +1323,7 @@ export class AgentManager {
       params.push(persona);
       whereClause += ` AND a.persona = $${params.length}`;
     }
+    params.push(limit);
 
     const result = await this.pool.query<FeedbackRecord & { persona: string }>(
       `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
@@ -1329,7 +1331,8 @@ export class AgentManager {
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
        ${whereClause}
-       ORDER BY a.persona, f.created_at ASC`,
+       ORDER BY a.persona, f.created_at ASC
+       LIMIT $${params.length}`,
       params
     );
 

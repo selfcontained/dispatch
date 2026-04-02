@@ -81,7 +81,7 @@ export type McpRequestContext = {
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   getFeedback?: (
     agentId: string,
-    opts: { persona?: string }
+    opts: { persona?: string; limit?: number }
   ) => Promise<GetFeedbackResult>;
 };
 
@@ -518,12 +518,19 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           persona: z
             .string()
             .optional()
-            .describe("Filter to a specific persona by name. If omitted, returns feedback from all child personas.")
+            .describe("Filter to a specific persona by name. If omitted, returns feedback from all child personas."),
+          limit: z
+            .number()
+            .int()
+            .positive()
+            .max(100)
+            .default(100)
+            .describe("Maximum number of feedback items to return. Defaults and caps at 100.")
         }
       },
       async (args) => {
         try {
-          const result = await getFeedback(agentId, { persona: args.persona });
+          const result = await getFeedback(agentId, { persona: args.persona, limit: args.limit });
           const totalItems = result.personas.reduce((sum, p) => sum + p.feedback.length, 0);
           const summary = result.personas.length === 0
             ? "No persona feedback found."

@@ -3330,9 +3330,9 @@ async function mcpSubmitFeedback(
 
 async function mcpGetFeedback(
   agentId: string,
-  opts: { persona?: string }
+  opts: { persona?: string; limit?: number }
 ) {
-  return agentManager.listFeedbackByParentGrouped(agentId, opts.persona);
+  return agentManager.listFeedbackByParentGrouped(agentId, opts.persona, opts.limit);
 }
 
 async function mcpLaunchPersona(
