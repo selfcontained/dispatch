@@ -652,10 +652,13 @@ export class AgentManager {
         if (exitInfo !== null) {
           this.logger.info({ id: row.id, exitCode: exitInfo }, "Agent process exited with code %d", exitInfo);
         }
-        await this.setAgentStatus(row.id, "stopped", null, row.tmuxSession ?? undefined);
+        const setupLogTail = await this.readSetupLogTail(row.id);
+        const errorDetail = setupLogTail || null;
+        await this.setAgentStatus(row.id, "stopped", errorDetail, row.tmuxSession ?? undefined);
+        const baseMessage = exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.";
         await this.setSystemLatestEvent(row.id, {
           type: "idle",
-          message: exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.",
+          message: setupLogTail ? `${baseMessage}\n${setupLogTail}` : baseMessage,
           metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}) }
         });
         const agent = await this.getAgent(row.id);
@@ -1527,13 +1530,13 @@ export class AgentManager {
       ``,
       `# Source user environment — tmux sessions are non-login/non-interactive,`,
       `# so env vars like GH_TOKEN, NVM, pyenv, etc. won't be set otherwise.`,
-      `[[ -f ~/.profile ]]      && source ~/.profile 2>/dev/null || true`,
-      `[[ -f ~/.bash_profile ]] && source ~/.bash_profile 2>/dev/null || true`,
-      `[[ -f ~/.bashrc ]]       && source ~/.bashrc 2>/dev/null || true`,
-      `[[ -f ~/.zprofile ]]     && source ~/.zprofile 2>/dev/null || true`,
-      `[[ -f ~/.zshrc ]]        && source ~/.zshrc 2>/dev/null || true`,
+      `[[ -f ~/.profile ]]      && source ~/.profile || true`,
+      `[[ -f ~/.bash_profile ]] && source ~/.bash_profile || true`,
+      `[[ -f ~/.bashrc ]]       && source ~/.bashrc || true`,
+      `[[ -f ~/.zprofile ]]     && source ~/.zprofile || true`,
+      `[[ -f ~/.zshrc ]]        && source ~/.zshrc || true`,
       `# User-defined overrides for agent sessions`,
-      `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env 2>/dev/null || true`,
+      `[[ -f ~/.dispatch/env ]] && source ~/.dispatch/env || true`,
       `# Restore strict mode — sourced profiles may have disabled it`,
       `set -euo pipefail`,
       ``,
