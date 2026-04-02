@@ -3418,6 +3418,7 @@ async function mcpLaunchPersona(
   try {
     const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
     let baseBranch = "main";
+    let baseBranchDetected = true;
     try {
       const headRef = await runCommand(
         "git", ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
@@ -3426,10 +3427,13 @@ async function mcpLaunchPersona(
       // Returns e.g. "origin/main" — strip the remote prefix
       baseBranch = headRef.stdout.trim().replace(/^origin\//, "");
     } catch {
-      // Fall back to "main" if detection fails (e.g. shallow clone, no remote)
+      baseBranchDetected = false;
     }
     const diffResult = await runCommand("git", ["diff", `${baseBranch}...HEAD`], { cwd: parentCwd });
     diff = diffResult.stdout;
+    if (!baseBranchDetected && !diff.trim()) {
+      diff = `(Note: base branch detection failed; diff was generated against "${baseBranch}". If this looks wrong, the repo may use a different default branch.)`;
+    }
   } catch {
     diff = "(unable to generate diff)";
   }
