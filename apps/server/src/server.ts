@@ -3413,11 +3413,22 @@ async function mcpLaunchPersona(
     throw new Error(`Persona "${opts.persona}" not found in .dispatch/personas/.`);
   }
 
-  // Generate git diff for context
+  // Generate git diff for context — detect the base branch rather than assuming main
   let diff = "";
   try {
     const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
-    const diffResult = await runCommand("git", ["diff", "main...HEAD"], { cwd: parentCwd });
+    let baseBranch = "main";
+    try {
+      const headRef = await runCommand(
+        "git", ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+        { cwd: parentCwd }
+      );
+      // Returns e.g. "origin/main" — strip the remote prefix
+      baseBranch = headRef.stdout.trim().replace(/^origin\//, "");
+    } catch {
+      // Fall back to "main" if detection fails (e.g. shallow clone, no remote)
+    }
+    const diffResult = await runCommand("git", ["diff", `${baseBranch}...HEAD`], { cwd: parentCwd });
     diff = diffResult.stdout;
   } catch {
     diff = "(unable to generate diff)";
