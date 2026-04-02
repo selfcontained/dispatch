@@ -71,11 +71,26 @@ export type HistoryMedia = {
   created_at: string;
 };
 
+export type HistoryFeedbackItem = {
+  id: number;
+  agentId: string;
+  persona: string | null;
+  severity: string;
+  filePath: string | null;
+  lineNumber: number | null;
+  description: string;
+  suggestion: string | null;
+  mediaRef: string | null;
+  status: string;
+  createdAt: string;
+};
+
 export type HistoryAgentDetail = {
   agent: Omit<HistoryAgent, "durationMs" | "totalTokens">;
   events: HistoryEvent[];
   tokenUsage: HistoryTokenUsage;
   media: HistoryMedia[];
+  feedback: HistoryFeedbackItem[];
   stateDurations: Record<string, number>;
 };
 

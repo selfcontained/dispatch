@@ -765,7 +765,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* History tab */}
           {tab === "history" && (
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
               <AgentHistoryTab range={range} onRangeChange={setRange} />
             </ScrollArea>
           )}

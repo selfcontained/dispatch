@@ -1812,7 +1812,7 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found" });
     }
 
-    const [eventsResult, tokenResult, tokenByModelResult, mediaResult] = await Promise.all([
+    const [eventsResult, tokenResult, tokenByModelResult, mediaResult, feedbackResult] = await Promise.all([
       pool.query<{ id: number; event_type: string; message: string; metadata: Record<string, unknown>; created_at: string }>(
         `SELECT id, event_type, message, metadata, created_at
          FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
@@ -1847,6 +1847,28 @@ async function registerRoutes() {
          FROM media WHERE agent_id = $1 ORDER BY created_at`,
         [id]
       ),
+      pool.query<{
+        id: number;
+        agentId: string;
+        persona: string | null;
+        severity: string;
+        filePath: string | null;
+        lineNumber: number | null;
+        description: string;
+        suggestion: string | null;
+        mediaRef: string | null;
+        status: string;
+        createdAt: string;
+      }>(
+        `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
+                f.line_number AS "lineNumber", f.description, f.suggestion, f.media_ref AS "mediaRef",
+                f.status, f.created_at AS "createdAt"
+         FROM agent_feedback f
+         JOIN agents a ON a.id = f.agent_id
+         WHERE a.parent_agent_id = $1
+         ORDER BY f.created_at ASC`,
+        [id]
+      ),
     ]);
 
     const eventRows: ActivityEventRow[] = eventsResult.rows.map((r) => ({
@@ -1864,6 +1886,7 @@ async function registerRoutes() {
         by_model: tokenByModelResult.rows,
       },
       media: mediaResult.rows,
+      feedback: feedbackResult.rows,
       stateDurations: stats.stateDurations,
     };
   });

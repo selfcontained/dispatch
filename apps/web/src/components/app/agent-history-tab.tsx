@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, Search, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Search, X } from "lucide-react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,8 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { Badge } from "@/components/ui/badge";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatTokenCount, formatRelativeTime, shortProjectName } from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -27,6 +29,7 @@ import {
   useHistoryProjects,
   type HistoryFilters,
   type HistoryEvent,
+  type HistoryFeedbackItem,
   type HistoryMedia,
 } from "@/hooks/use-agent-history";
 import {
@@ -393,15 +396,193 @@ function EventTimeline({ events }: { events: HistoryEvent[] }) {
   );
 }
 
-type DetailTab = "events" | "media";
+// ── Feedback constants ───────────────────────────────────────────────
+
+const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-red-500",
+  high: "bg-orange-500",
+  medium: "bg-yellow-500",
+  low: "bg-blue-400",
+  info: "bg-muted-foreground",
+};
+
+const SEVERITY_LABELS: Record<string, { label: string; variant: "error" | "default" }> = {
+  critical: { label: "Critical", variant: "error" },
+  high: { label: "High", variant: "error" },
+  medium: { label: "Medium", variant: "default" },
+  low: { label: "Low", variant: "default" },
+  info: { label: "Info", variant: "default" },
+};
+
+const FEEDBACK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  fixed: { label: "Fixed", color: "text-green-500" },
+  ignored: { label: "Ignored", color: "text-muted-foreground/60" },
+  dismissed: { label: "Dismissed", color: "text-muted-foreground/60" },
+};
+
+const PERSONA_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+];
+
+function FeedbackItemRow({
+  item,
+  isExpanded,
+  onToggle,
+}: {
+  item: HistoryFeedbackItem;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
+  const statusLabel = FEEDBACK_STATUS_LABELS[item.status];
+  const isResolved = item.status === "fixed" || item.status === "ignored" || item.status === "dismissed";
+  const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
+
+  return (
+    <div className={cn("min-w-0", isResolved && "opacity-50")}>
+      <button
+        className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-1.5 text-left text-[11px] hover:bg-muted/40 transition-colors"
+        onClick={onToggle}
+      >
+        <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
+        <span className="shrink-0 font-mono text-muted-foreground truncate max-w-[100px] sm:max-w-[120px]">
+          {item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-foreground">
+          {item.description}
+        </span>
+        {statusLabel ? (
+          <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>
+            {item.status === "fixed" && <CheckCircle2 className="mr-0.5 inline h-2.5 w-2.5" />}
+            {statusLabel.label}
+          </span>
+        ) : null}
+      </button>
+
+      {isExpanded ? (
+        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-border bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={severityInfo.variant}>{severityInfo.label}</Badge>
+            {item.filePath ? (
+              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                {item.filePath}{item.lineNumber ? `:${item.lineNumber}` : ""}
+              </span>
+            ) : null}
+            {statusLabel ? (
+              <span className={cn("ml-auto text-[11px]", statusLabel.color)}>{statusLabel.label}</span>
+            ) : null}
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
+            <Markdown className="text-sm text-foreground">{item.description}</Markdown>
+          </div>
+
+          {item.suggestion ? (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Suggestion</div>
+              <Markdown className="text-sm text-muted-foreground">{item.suggestion}</Markdown>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // Group by persona
+  const groups = useMemo(() => {
+    const map = new Map<string, HistoryFeedbackItem[]>();
+    for (const item of feedback) {
+      const key = item.persona ?? "__unknown__";
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    }
+    return map;
+  }, [feedback]);
+
+  const needsGrouping = groups.size > 1;
+  const personaSlugs = useMemo(() => Array.from(groups.keys()), [groups]);
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  return (
+    <div className="min-w-0 space-y-2">
+      {Array.from(groups.entries()).map(([persona, items]) => {
+        const colorIdx = personaSlugs.indexOf(persona);
+        const color = PERSONA_COLORS[colorIdx % PERSONA_COLORS.length];
+        const isCollapsed = needsGrouping && collapsedGroups.has(persona);
+        const label = persona === "__unknown__" ? "Unknown" : persona;
+
+        return (
+          <div key={persona}>
+            {needsGrouping ? (
+              <button
+                className="flex w-full items-center gap-1.5 mb-0.5 py-0.5 text-left hover:bg-muted/40 rounded transition-colors"
+                onClick={() => toggleGroup(persona)}
+              >
+                <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+                <span
+                  className="text-xs font-medium"
+                  style={{ color }}
+                >
+                  {label}
+                </span>
+                <span className="text-[10px] text-muted-foreground/50">
+                  {items.length}
+                </span>
+              </button>
+            ) : null}
+            {!isCollapsed ? (
+              <div className={cn("space-y-px", needsGrouping && "ml-2.5")}>
+                {items.map((item) => (
+                  <FeedbackItemRow
+                    key={item.id}
+                    item={item}
+                    isExpanded={expandedId === item.id}
+                    onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type DetailTab = "events" | "media" | "feedback";
 
 function DetailTabs({
   events,
   media,
+  feedback,
   agentId,
 }: {
   events: HistoryEvent[];
   media: HistoryMedia[];
+  feedback: HistoryFeedbackItem[];
   agentId: string;
 }) {
   const [tab, setTab] = useState<DetailTab>("events");
@@ -424,42 +605,45 @@ function DetailTabs({
 
   const lightboxItem = lightboxIndex !== null ? lightboxItems[lightboxIndex] ?? null : null;
 
+  const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
+    { key: "events", label: "Events", count: events.length },
+    { key: "media", label: "Media", count: media.length },
+    { key: "feedback", label: "Feedback", count: feedback.length },
+  ];
+
   return (
     <>
-      <div>
+      <div className="min-w-0">
         <div className="flex items-center gap-1 border-b border-border pb-0">
-          {(["events", "media"] as const).map((t) => {
-            const count = t === "events" ? events.length : media.length;
-            return (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={cn(
-                  "relative px-3 py-1.5 text-xs font-medium transition-colors",
-                  tab === t
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {t === "events" ? "Events" : "Media"}
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      "ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium",
-                      tab === t
-                        ? "bg-foreground/15 text-foreground"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
-                {tab === t && (
-                  <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground" />
-                )}
-              </button>
-            );
-          })}
+          {tabs.map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={cn(
+                "relative px-3 py-1.5 text-xs font-medium transition-colors",
+                tab === key
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+              {count > 0 && (
+                <span
+                  className={cn(
+                    "ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium",
+                    tab === key
+                      ? "bg-foreground/15 text-foreground"
+                      : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+              {tab === key && (
+                <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground" />
+              )}
+            </button>
+          ))}
         </div>
 
         <div className="pt-3">
@@ -506,6 +690,15 @@ function DetailTabs({
               No media captured.
             </p>
           )}
+
+          {tab === "feedback" && feedback.length > 0 && (
+            <FeedbackTimeline feedback={feedback} />
+          )}
+          {tab === "feedback" && feedback.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No feedback received.
+            </p>
+          )}
         </div>
       </div>
 
@@ -543,7 +736,7 @@ function AgentHistoryDetail({
     );
   }
 
-  const { agent, events, tokenUsage, media, stateDurations } = data;
+  const { agent, events, tokenUsage, media, feedback, stateDurations } = data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -553,7 +746,7 @@ function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="mx-auto max-w-3xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
         <button
@@ -662,7 +855,7 @@ function AgentHistoryDetail({
       )}
 
       {/* Tabbed: Events / Media */}
-      <DetailTabs events={events} media={media} agentId={agentId} />
+      <DetailTabs events={events} media={media} feedback={feedback} agentId={agentId} />
     </div>
   );
 }
