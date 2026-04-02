@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -175,54 +175,57 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
   const { cells, months, max } = useMemo(() => buildHeatmapGrid(data), [data]);
 
   return (
-    <div style={{ maxWidth: "calc(100vw - 24px)" }} className="overflow-x-auto">
-      <div className="flex pl-8 mb-1 w-max">
-        {months.map((m, i) => {
-          const nextCol = months[i + 1]?.col ?? cells.length;
-          const span = nextCol - m.col;
-          return (
-            <span
-              key={`${m.label}-${m.col}`}
-              className="text-[10px] text-muted-foreground"
-              style={{ width: `${span * 13}px`, flexShrink: 0 }}
-            >
-              {span >= 3 ? m.label : ""}
-            </span>
-          );
-        })}
-      </div>
-
-      <div className="flex gap-0 w-max">
-        <div className="flex flex-col gap-[2px] pr-1.5 pt-0">
-          {DAY_LABELS.map((label, i) => (
-            <span
-              key={i}
-              className="flex h-[11px] items-center text-[10px] leading-none text-muted-foreground"
-            >
-              {label}
-            </span>
-          ))}
+    <div className="space-y-2">
+      <ScrollArea style={{ maxWidth: "calc(100vw - 24px)" }}>
+        <div className="flex pl-8 mb-1 w-max">
+          {months.map((m, i) => {
+            const nextCol = months[i + 1]?.col ?? cells.length;
+            const span = nextCol - m.col;
+            return (
+              <span
+                key={`${m.label}-${m.col}`}
+                className="text-[10px] text-muted-foreground"
+                style={{ width: `${span * 13}px`, flexShrink: 0 }}
+              >
+                {span >= 3 ? m.label : ""}
+              </span>
+            );
+          })}
         </div>
 
-        <div className="flex gap-[2px]">
-          {cells.map((week, ci) => (
-            <div key={ci} className="flex flex-col gap-[2px]">
-              {week.map((cell, ri) => (
-                <div
-                  key={ri}
-                  title={cell.label}
-                  className={cn(
-                    "h-[11px] w-[11px] rounded-[2px] transition-colors",
-                    cell.date ? intensityClass(cell.count, max) : "bg-transparent"
-                  )}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+        <div className="flex gap-0 w-max pb-2">
+          <div className="flex flex-col gap-[2px] pr-1.5 pt-0">
+            {DAY_LABELS.map((label, i) => (
+              <span
+                key={i}
+                className="flex h-[11px] items-center text-[10px] leading-none text-muted-foreground"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
 
-      <div className="mt-2 flex items-center gap-1.5 pl-8 text-[10px] text-muted-foreground">
+          <div className="flex gap-[2px]">
+            {cells.map((week, ci) => (
+              <div key={ci} className="flex flex-col gap-[2px]">
+                {week.map((cell, ri) => (
+                  <div
+                    key={ri}
+                    title={cell.label}
+                    className={cn(
+                      "h-[11px] w-[11px] rounded-[2px] transition-colors",
+                      cell.date ? intensityClass(cell.count, max) : "bg-transparent"
+                    )}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
+
+      <div className="flex items-center gap-1.5 pl-8 text-[10px] text-muted-foreground">
         <span>Less</span>
         <div className="h-[11px] w-[11px] rounded-[2px] bg-muted/60" />
         <div className="h-[11px] w-[11px] rounded-[2px] bg-status-working/25" />
@@ -272,8 +275,8 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
 
   return (
     <div className="space-y-3">
-      <div style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full overflow-x-auto">
-        <div className="grid min-w-[760px] w-max grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2">
+      <ScrollArea style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full">
+        <div className="grid min-w-[760px] w-max grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2 pb-2">
           <div />
           {Array.from({ length: 24 }, (_, hour) => (
             <div
@@ -315,7 +318,8 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
             </Fragment>
           ))}
         </div>
-      </div>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
 
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span>Less</span>
