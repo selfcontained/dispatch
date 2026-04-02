@@ -347,12 +347,12 @@ export function ParentFeedbackPanel({
                           >
                             <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
                             <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                            <span className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                            <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
                               <FrontTruncatedValue
                                 value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
                                 mono
                               />
-                            </span>
+                            </div>
                             <span className="min-w-0 flex-1 truncate text-foreground">
                               {item.description}
                             </span>
