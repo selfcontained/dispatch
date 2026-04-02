@@ -105,9 +105,13 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Route matching ───────────────────────────────────────────────────
   const agentMatch = useMatch("/agents/:agentId");
-  const settingsMatch = useMatch("/settings/:section?");
-  const docsMatch = useMatch("/docs/:section?");
-  const activityMatch = useMatch("/activity/:tab?");
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const settingsOpen = pathSegments[0] === "settings";
+  const settingsSection = settingsOpen ? pathSegments[1] : undefined;
+  const docsOpen = pathSegments[0] === "docs";
+  const docsSection = docsOpen ? pathSegments[1] : undefined;
+  const activityOpen = pathSegments[0] === "activity";
+  const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
 
   // Track the last non-overlay location so overlay close returns there.
   const baseLocationRef = useRef(isOverlayPath(location.pathname) ? "/" : location.pathname);
@@ -278,6 +282,7 @@ export function DashboardLayout(): JSX.Element {
     leftOpen,
     mediaOpen,
     onAgentSelected,
+    setSelectedAgentId,
     refreshMedia,
   });
 
@@ -289,6 +294,18 @@ export function DashboardLayout(): JSX.Element {
   useEffect(() => {
     setSharedConnState(connState);
   }, [connState]);
+
+  // Auto-connect terminal when agent selection changes (URL navigation or deep link).
+  const prevAutoConnectIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (validatedSelectedAgentId === prevAutoConnectIdRef.current) return;
+    prevAutoConnectIdRef.current = validatedSelectedAgentId;
+    if (!validatedSelectedAgentId || !agentsLoaded) return;
+    const agent = agents.find((a) => a.id === validatedSelectedAgentId);
+    if (!agent || (agent.status !== "running" && agent.status !== "creating")) return;
+    refreshMedia(validatedSelectedAgentId);
+    void ensureTerminalConnected(true, true, validatedSelectedAgentId);
+  }, [validatedSelectedAgentId, agentsLoaded, agents, refreshMedia, ensureTerminalConnected]);
 
   useEffect(() => {
     if (expandedAgentId && agents.some((agent) => agent.id === expandedAgentId)) {
@@ -767,21 +784,21 @@ export function DashboardLayout(): JSX.Element {
       />
 
       <DocsPane
-        open={!!docsMatch}
+        open={docsOpen}
         onClose={closeOverlay}
-        initialSection={docsMatch?.params.section}
+        initialSection={docsSection}
         onSectionChange={(section) => navigate(`/docs/${section}`, { replace: true })}
       />
-      {!!activityMatch ? (
+      {activityOpen ? (
         <ActivityPane
           open={true}
           onClose={closeOverlay}
-          initialTab={activityMatch?.params.tab as "metrics" | "history" | undefined}
+          initialTab={activityTab}
           onTabChange={(tab) => navigate(`/activity/${tab}`, { replace: true })}
         />
       ) : null}
       <SettingsPane
-        open={!!settingsMatch}
+        open={settingsOpen}
         onClose={closeOverlay}
         onLogout={handleLogout}
         theme={theme}
@@ -793,7 +810,7 @@ export function DashboardLayout(): JSX.Element {
         clearIconColorError={clearIconColorError}
         enabledAgentTypes={enabledAgentTypes}
         onEnabledAgentTypesChange={setEnabledAgentTypes}
-        initialSection={settingsMatch?.params.section}
+        initialSection={settingsSection}
         onSectionChange={(section) => navigate(`/settings/${section}`, { replace: true })}
       />
 
