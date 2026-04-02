@@ -407,7 +407,7 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" hideCloseButton className="relative flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
+        <SheetContent side="bottom" hideCloseButton overlayClassName="z-[70]" className="z-[70] flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
               {/* Nav + close in one container so they share alignment */}
