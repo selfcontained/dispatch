@@ -85,7 +85,7 @@ const PHASE_LABELS: Record<ReleasePhase, string> = {
   failed: "Failed"
 };
 
-const CREATE_PHASES: ReleasePhase[] = ["preflight", "triggering", "watching", "deploying", "restarting", "done"];
+const CREATE_PHASES: ReleasePhase[] = ["preflight", "triggering", "watching", "done"];
 const UPDATE_PHASES: ReleasePhase[] = ["fetching", "deploying", "restarting", "done"];
 
 function formatDate(iso: string): string {
@@ -197,7 +197,10 @@ export function ReleaseManager(): JSX.Element {
 
     es.onerror = () => {
       setJob((prev) => {
-        if (prev?.phase === "restarting" || prev?.phase === "deploying") {
+        // Only start health polling for update jobs (which restart the server).
+        // Release creation no longer restarts, so SSE errors during create
+        // are just normal disconnects.
+        if (prev?.jobType === "update" && (prev.phase === "restarting" || prev.phase === "deploying")) {
           startHealthPoll(prev.tag);
           return { ...prev, phase: "restarting" };
         }
@@ -489,12 +492,39 @@ export function ReleaseManager(): JSX.Element {
             )}
 
             {isDone && (
-              <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span>
-                  {job.jobType === "update" ? "Updated to" : "Deployed"}{" "}
-                  <span className="font-mono font-semibold">{job.tag ?? status?.tag}</span>
-                </span>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>
+                    {job.jobType === "update" ? "Updated to" : "Released"}{" "}
+                    <span className="font-mono font-semibold">{job.tag ?? status?.tag}</span>
+                  </span>
+                </div>
+
+                {/* After a release creation, offer to update or dismiss */}
+                {job.jobType === "create" && job.tag && (
+                  <>
+                    {releaseError && (
+                      <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {releaseError}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void handleUpdate(job.tag!)}
+                        className="rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
+                      >
+                        Update to {job.tag}
+                      </button>
+                      <button
+                        onClick={() => { setJob(null); setInfo(null); setReleaseError(null); }}
+                        className="rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
