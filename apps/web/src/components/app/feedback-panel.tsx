@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
@@ -173,8 +173,7 @@ export function ParentFeedbackPanel({
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [, copyText] = useCopyText();
-  const copiedTimerRef = useRef<number | null>(null);
+  const [copied, copyText] = useCopyText();
 
   const { data: feedback = [] } = useQuery<FeedbackItem[]>({
     queryKey: ["feedback", parentAgentId, "children"],
@@ -259,8 +258,6 @@ export function ParentFeedbackPanel({
   const handleCopy = (item: FeedbackItem) => {
     copyText(formatFeedbackText(item));
     setCopiedItemId(item.id);
-    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
-    copiedTimerRef.current = window.setTimeout(() => setCopiedItemId(null), 2000);
   };
 
   const handleResolve = (item: FeedbackItem, status: string) => {
@@ -377,7 +374,7 @@ export function ParentFeedbackPanel({
                                   isConnected={isConnected}
                                   onForward={(mode) => forward(item, mode)}
                                   onCopy={() => handleCopy(item)}
-                                  copied={copiedItemId === item.id}
+                                  copied={copied && copiedItemId === item.id}
                                   onUpdateStatus={(s) => handleResolve(item, s)}
                                   isActionable={isActionable}
                                   statusLabel={statusLabel}
@@ -490,7 +487,7 @@ export function ParentFeedbackPanel({
                   isConnected={isConnected}
                   onForward={(mode) => forward(sheetItem, mode)}
                   onCopy={() => handleCopy(sheetItem)}
-                  copied={copiedItemId === sheetItem.id}
+                  copied={copied && copiedItemId === sheetItem.id}
                   onUpdateStatus={(s) => handleResolve(sheetItem, s)}
                   isActionable={sheetItem.status === "open" || sheetItem.status === "forwarded"}
                   statusLabel={STATUS_LABELS[sheetItem.status]}
