@@ -38,8 +38,8 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
 6. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
-7. Run: nvm use && npm ci && npm --prefix web ci && npm run build
-8. Verify locally: npm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
+7. Run: nvm use && pnpm install && pnpm run build
+8. Verify locally: pnpm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
 9. Install the launchd service: bin/install-launchd --port 6767
 10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
 11. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
@@ -132,12 +132,11 @@ Generate a token with `openssl rand -hex 32`.
 
 ```bash
 nvm use
-npm ci
-npm --prefix web ci
-npm run build
+pnpm install
+pnpm run build
 
 # Quick smoke test
-npm run start
+pnpm run start
 # In another terminal:
 curl -s http://127.0.0.1:6767/api/v1/health | jq
 # Ctrl-C to stop

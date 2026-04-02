@@ -16,3 +16,5 @@ artifacts/
 .playwright-mcp/
 test-results/
 playwright-report/
+.dispatch/config.json
+.dispatch/worktrees/

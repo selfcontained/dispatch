@@ -1110,8 +1110,6 @@ export class AgentManager {
     const envPrefixParts = [
       `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
       `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
-      // Compatibility alias for common typo to keep screenshot sharing reliable.
-      `DISPATCH_MDEIA_DIR=${this.shellEscape(mediaDir)}`,
       `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
       `DISPATCH_SCHEME=${this.config.tls ? "https" : "http"}`,
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
