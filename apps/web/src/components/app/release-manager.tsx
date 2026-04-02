@@ -503,20 +503,27 @@ export function ReleaseManager(): JSX.Element {
 
                 {/* After a release creation, offer to update or dismiss */}
                 {job.jobType === "create" && job.tag && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => void handleUpdate(job.tag!)}
-                      className="rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
-                    >
-                      Update to {job.tag}
-                    </button>
-                    <button
-                      onClick={() => { setJob(null); setInfo(null); }}
-                      className="rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
+                  <>
+                    {releaseError && (
+                      <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {releaseError}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void handleUpdate(job.tag!)}
+                        className="rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
+                      >
+                        Update to {job.tag}
+                      </button>
+                      <button
+                        onClick={() => { setJob(null); setInfo(null); setReleaseError(null); }}
+                        className="rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             )}
