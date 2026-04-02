@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type Agent, type FeedbackItem } from "@/components/app/types";
@@ -407,11 +407,45 @@ export function ParentFeedbackPanel({
 
       {/* Full feedback detail sheet */}
       <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
-        <SheetContent side="bottom" className="flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
+        <SheetContent side="bottom" hideCloseButton className="relative flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
+              {/* Nav + close in one container so they share alignment */}
+              <div className="absolute right-4 top-4 flex items-center space-x-8 z-10">
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {sheetIndex + 1}/{visibleItems.length}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={!prevSheetItem}
+                    onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    disabled={!nextSheetItem}
+                    onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                  onClick={() => setSheetItemId(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
               <SheetHeader className="shrink-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-32">
                   <Badge variant={severityInfo(sheetItem.severity).variant}>
                     {severityInfo(sheetItem.severity).label}
                   </Badge>
@@ -420,29 +454,6 @@ export function ParentFeedbackPanel({
                       ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                       : "Feedback"}
                   </SheetTitle>
-                  <div className="flex items-center gap-1 ml-auto mr-10">
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {sheetIndex + 1}/{visibleItems.length}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-10 w-10 p-0 md:h-6 md:w-6"
-                      disabled={!prevSheetItem}
-                      onClick={() => prevSheetItem && setSheetItemId(prevSheetItem.id)}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-10 w-10 p-0 md:h-6 md:w-6"
-                      disabled={!nextSheetItem}
-                      onClick={() => nextSheetItem && setSheetItemId(nextSheetItem.id)}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
                 </div>
                 <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
                   {(() => {
