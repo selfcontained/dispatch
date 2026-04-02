@@ -1,6 +1,6 @@
 ## What's Changed
-* Add dispatch_get_feedback MCP tool by @selfcontained in https://github.com/selfcontained/dispatch/pull/176
-* Persona feedback: markdown rendering, grouping, and sheet polish by @selfcontained in https://github.com/selfcontained/dispatch/pull/177
+* Custom scrollbars and consistent legend placement on heatmap graphs by @selfcontained in https://github.com/selfcontained/dispatch/pull/178
+* Fix feedback sheet hidden behind mobile slide panel by @selfcontained in https://github.com/selfcontained/dispatch/pull/180
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.7.11...v0.7.12
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.7.12...v0.7.13
