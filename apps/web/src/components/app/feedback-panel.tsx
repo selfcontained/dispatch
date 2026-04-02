@@ -172,6 +172,7 @@ export function ParentFeedbackPanel({
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [, copyText] = useCopyText();
   const copiedTimerRef = useRef<number | null>(null);
 
@@ -298,10 +299,23 @@ export function ParentFeedbackPanel({
 
             return Array.from(groups.entries()).map(([agentId, items]) => {
               const attr = personaAttribution.get(agentId);
+              const isGroupCollapsed = needsGrouping && collapsedGroups.has(agentId);
               return (
                 <div key={agentId}>
                   {needsGrouping ? (
-                    <div className="flex items-center gap-1.5 px-1 mb-0.5">
+                    <button
+                      className="flex w-full items-center gap-1.5 px-1 mb-0.5 text-left hover:bg-muted/40 rounded transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCollapsedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(agentId)) next.delete(agentId);
+                          else next.add(agentId);
+                          return next;
+                        });
+                      }}
+                    >
+                      <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isGroupCollapsed && "rotate-90")} />
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
                         style={{ backgroundColor: attr?.color ?? "hsl(var(--muted-foreground))" }}
@@ -315,9 +329,9 @@ export function ParentFeedbackPanel({
                       <span className="text-[9px] text-muted-foreground/50">
                         {items.filter((f) => f.status === "open" || f.status === "forwarded").length}
                       </span>
-                    </div>
+                    </button>
                   ) : null}
-                  <div className="space-y-px">
+                  {!isGroupCollapsed ? <div className="space-y-px">
                     {items.map((item) => {
                       const isActionable = item.status === "open" || item.status === "forwarded";
                       const isExpanded = expandedId === item.id;
@@ -375,7 +389,7 @@ export function ParentFeedbackPanel({
                         </div>
                       );
                     })}
-                  </div>
+                  </div> : null}
                 </div>
               );
             });
