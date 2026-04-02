@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Backward-compatible wrapper for older agent instructions/scripts.
-exec "$(dirname "$0")/dispatch-share" "$@"

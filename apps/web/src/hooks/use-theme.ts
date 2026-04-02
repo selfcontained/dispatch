@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "crumbstream" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight";
+export type ThemeId = "default" | "cool-navy" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -168,7 +168,7 @@ const MATRIX: TerminalPalette = {
 
 export const THEMES: ThemeDefinition[] = [
   {
-    id: "crumbstream",
+    id: "cool-navy",
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],

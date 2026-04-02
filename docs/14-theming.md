@@ -131,7 +131,7 @@ Add a new `[data-theme="your-theme-id"]` block in `web/src/index.css`. You must 
 1. Add the new ID to the `ThemeId` union type:
 
 ```ts
-export type ThemeId = "default" | "crumbstream" | "midnight";
+export type ThemeId = "default" | "cool-navy" | "midnight";
 ```
 
 2. Add an entry to the `THEMES` array with a label, description, 4 representative hex swatches (shown in the picker UI), and a `terminal` palette:
@@ -154,9 +154,9 @@ That's it — the theme picker, localStorage persistence, flash-free loading, an
 
 ### Step 3: Validate
 
-1. Run `npm run finalize:web` to verify the build compiles.
+1. Run `pnpm run finalize:web` to verify the build compiles.
 2. Start a dev server and visually check: sidebar, status footer, badges, buttons, terminal pane, settings pane, and the create-agent dialog.
-3. Run `npm run test:e2e` to confirm no regressions.
+3. Run `pnpm run test:e2e` to confirm no regressions.
 
 ## Color design tips
 

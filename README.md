@@ -78,8 +78,8 @@ cd dispatch
 # 2. Use the correct Node version
 nvm install && nvm use
 
-# 3. Install dependencies (backend + frontend)
-npm install && npm --prefix web install
+# 3. Install dependencies
+pnpm install
 
 # 4. Copy the example env file
 cp .env.example .env
@@ -158,5 +158,4 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Issue Tracking
 
-- Linear project: [Dispatch](https://linear.app/crumbstream/project/dispatch-ad9a26f53856)
-- Routing config: `.dispatch/config.json` under the `linear` key
+- [GitHub Issues](https://github.com/selfcontained/dispatch/issues)
