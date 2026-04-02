@@ -1004,7 +1004,7 @@ export class AgentManager {
     const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
-    const wrappedCommand = `bash -c 'exec 2> >(tee -a "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
+    const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
     await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
     await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
       allowedExitCodes: [0, 1]
@@ -1528,7 +1528,7 @@ export class AgentManager {
       ``,
       `# Tee stderr to a log file so the server can surface errors when the session`,
       `# exits immediately (e.g. a broken profile script).`,
-      `exec 2> >(tee -a "/tmp/dispatch_setup_${agentId}.log" >&2)`,
+      `exec 2> >(tee "/tmp/dispatch_setup_${agentId}.log" >&2)`,
       ``,
       `# Source user-defined overrides for agent sessions`,
       `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
