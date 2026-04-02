@@ -1529,7 +1529,7 @@ export class AgentManager {
       `exec 2> >(tee -a "/tmp/dispatch_setup_${agentId}.log" >&2)`,
       ``,
       `# Source user-defined overrides for agent sessions`,
-      `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env 2>/dev/null; set -euo pipefail; }`,
+      `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
       ``,
       `BOLD="\\033[1m"`,
       `DIM="\\033[2m"`,
