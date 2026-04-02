@@ -1,162 +1,213 @@
-# Current State Handoff (March 2026)
+# Current State Handoff (April 2026)
 
-This doc is for a new agent picking up work on Dispatch. It describes what the tool currently is, how it runs, what is implemented vs planned, and where to make changes.
+This doc is for a new agent or contributor picking up work on Dispatch. It describes what the tool is, how it runs, what's implemented, and where to make changes.
 
 ## What Dispatch Is
 
-Dispatch is a local-first control plane for managing long-running coding agents on a Mac host.
+Dispatch is a local-first control plane for managing long-running coding agents on a Mac host. It provides a browser-based UI for agent control, terminal interaction, media sharing, activity analytics, and automated code review via personas.
 
-Core value today:
-- Start and manage multiple Codex agents backed by `tmux`.
-- Open a browser UI for agent control and terminal interaction.
-- Keep agent sessions alive when browser clients disconnect.
-- Let agents share high-quality screenshots into a media stream via `dispatch-share`.
+Core capabilities:
+- Start and manage multiple coding agents (Claude, Codex, OpenCode) backed by `tmux`.
+- Browser UI with real-time terminal access, media sharing, and activity dashboards.
+- Agent sessions persist across browser disconnects.
+- Git worktree isolation for parallel agent work.
+- MCP-based tooling with repo-specific custom tools.
+- Persona agents for automated code review with structured feedback.
+- Slack notifications with focus-aware suppression.
+- Token usage tracking and activity analytics.
 
-## Implementation Snapshot
+## Project Structure
 
-### Backend
-- Runtime: Node.js + TypeScript + Fastify.
-- Entry point: `/Users/brad/dev/apps/dispatch/src/server.ts`.
-- DB: PostgreSQL (Docker Compose), migrations in `/Users/brad/dev/apps/dispatch/src/db/migrate.ts`.
-- Process/runtime manager: `/Users/brad/dev/apps/dispatch/src/agents/manager.ts`.
-- Terminal bridge: WebSocket + `node-pty` attaching to `tmux`.
+```
+dispatch/                        # pnpm monorepo
+├── apps/
+│   ├── server/                  # Fastify API server (@dispatch/server)
+│   │   └── src/
+│   │       ├── server.ts        # All route registrations (71+ endpoints)
+│   │       ├── agents/          # Agent manager, lifecycle, token harvesting
+│   │       ├── db/              # PostgreSQL migrations and queries
+│   │       ├── notifications/   # Slack notifier
+│   │       ├── personas/        # Persona loader
+│   │       ├── streaming/       # CDP-based screen streaming
+│   │       └── terminal/        # tmux terminal bridge
+│   └── web/                     # Vite React frontend (@dispatch/web)
+│       └── src/
+│           ├── App.tsx          # Main app layout
+│           └── components/      # UI components (shadcn-based)
+├── packages/
+│   └── shared/                  # Shared code (@dispatch/shared)
+│       └── src/
+│           ├── git/             # Worktree operations
+│           ├── github/          # PR operations
+│           ├── mcp/             # MCP server, repo tools, built-in tools
+│           └── lib/             # run-command utility
+├── e2e/                         # Playwright E2E tests (15 spec files)
+├── bin/                         # CLI tools
+└── docs/                        # Documentation
+```
 
-### Frontend
-- React + Vite + Tailwind + shadcn-style components.
-- Source: `/Users/brad/dev/apps/dispatch/web`.
-- Main screen: collapsible left agent rail, center terminal, right media drawer (`Sheet`).
-- Terminal rendering: xterm.js.
+## Tech Stack
 
-### Static serving
-- Backend serves `web/dist` if built.
-- Falls back to legacy `public/` only if `web/dist` is missing.
+- **Runtime**: Node.js + TypeScript
+- **Backend**: Fastify
+- **Frontend**: React + Vite + Tailwind + shadcn/ui
+- **Database**: PostgreSQL (Docker Compose)
+- **Package manager**: pnpm (monorepo workspaces)
+- **Terminal**: xterm.js → WebSocket → tmux
+- **Testing**: Vitest (unit), Playwright (E2E)
 
-## Data and Services
+## Database Schema
 
-### Database schema in use
-`agents` table stores:
-- lifecycle status
-- `cwd`
-- `tmux_session`
-- `media_dir`
-- `codex_args`
-- `last_error`
-- optional `simulator_udid` (not fully wired yet)
+| Table | Purpose |
+|-------|---------|
+| `agents` | Agent records with status, paths, git context, setup phases, persona references |
+| `agent_events` | Status event log (working, blocked, waiting_user, done, idle) |
+| `agent_token_usage` | Token consumption per agent/session/model (input, output, cache) |
+| `agent_feedback` | Structured feedback findings with severity and file references |
+| `media` | Media file metadata (screenshots, videos, descriptions, source) |
+| `media_seen` | Tracks which media items have been viewed |
+| `sessions` | Authentication sessions with expiration |
+| `settings` | Key-value store for app settings |
 
-`simulator_reservations` table exists from migration, but simulator allocation service is not fully implemented.
+Migrations run automatically on API server start.
 
-### Docker-backed persistence
-- File: `/Users/brad/dev/apps/dispatch/docker-compose.yml`
-- Service: `postgres` (`postgres:17-alpine`)
-- Persistent volume: `dispatch_pgdata`
+## Agent Types
 
-## Current User Flow
+Three agent CLIs are supported, each configurable via Settings:
 
-1. Create agent from modal (`name`, absolute `cwd`).
-2. Dispatch creates DB record, starts `tmux` session, launches `codex`.
-3. UI selects agent and can attach terminal (or auto-attach after create/open).
-4. Terminal disconnect/reconnect does not kill agent because `tmux` persists.
-5. Agent shares media with:
-   - `dispatch-share <image-path> [name]`
-   - `dispatch-share --sim [udid] [name]`
-6. Media drawer shows files from that selected agent’s media directory.
-7. Stop sends Ctrl-C then kills tmux session if needed.
-8. Delete removes agent record (and can force-stop running session first).
+| Type | CLI | Description |
+|------|-----|-------------|
+| `claude` | Claude Code | Anthropic's coding agent |
+| `codex` | Codex | OpenAI's coding agent |
+| `opencode` | OpenCode | Open-source coding agent |
 
 ## Agent Runtime Contract
 
-- Session name format: `dispatch_<agent-id>`.
-- Agent ID format: `agt_<12 hex>`.
-- Each agent gets:
-  - `DISPATCH_AGENT_ID`
-  - `DISPATCH_MEDIA_DIR`
-  - typo-compat alias `DISPATCH_MDEIA_DIR`
-  - `PATH` including `DISPATCH_BIN_DIR` for `dispatch-share`.
-- Codex launch includes startup instructions telling agents:
-  - use `dispatch-share` for Playwright and iOS screenshots
-  - default Playwright to headless unless user asks for headed.
+- Session name format: `dispatch_<agent-id>`
+- Agent ID format: `agt_<12 hex>`
+- Each agent receives these environment variables:
+  - `DISPATCH_AGENT_ID` — unique agent identifier
+  - `DISPATCH_MEDIA_DIR` — directory for media files
+  - `PATH` — includes `DISPATCH_BIN_DIR` for CLI tools
+- Agents access MCP tools at `/api/mcp/:agentId`
 
-## API Surface Implemented
+## MCP Tools
 
-Implemented in `src/server.ts`:
-- `GET /api/v1/health`
-- `GET /api/v1/agents`
-- `GET /api/v1/agents/:id`
-- `POST /api/v1/agents`
-- `POST /api/v1/agents/:id/start`
-- `POST /api/v1/agents/:id/stop`
-- `DELETE /api/v1/agents/:id`
-- `GET /api/v1/agents/:id/media`
-- `GET /api/v1/agents/:id/media/:file`
-- `POST /api/v1/agents/:id/terminal/token`
-- `WS /api/v1/agents/:id/terminal/ws?token=...`
+### Built-in Tools (always available)
 
-Not yet implemented from older planning docs:
-- full simulator reservation/allocation workflow
-- dedicated screenshot endpoint like `/agents/:id/screenshot`
-- media websocket push stream (media is currently polled by UI)
+| Tool | Description |
+|------|-------------|
+| `create_worktree` | Create isolated git worktree |
+| `cleanup_worktree` | Remove worktree and optionally delete branch |
+| `create_pr` | Open GitHub pull request |
+| `get_pr_status` | Check PR CI status and reviews |
+| `merge_pr_now` | Merge a pull request |
+| `enable_pr_automerge` | Auto-merge when checks pass |
+| `dispatch_event` | Report agent status |
+| `dispatch_share` | Upload media to session |
+| `dispatch_feedback` | Submit structured finding |
+| `dispatch_get_feedback` | Retrieve feedback findings |
+| `dispatch_launch_persona` | Launch persona child agent |
 
-## Frontend Behavior Today
+### Repo Tools
 
-Main app: `/Users/brad/dev/apps/dispatch/web/src/App.tsx`
+Custom tools defined in `.dispatch/tools.json` at the repo root. Exposed to agents with `repo.` prefix. See `13-agent-scoped-mcp-and-dev-stack-plan.md` for details.
 
-- Left panel:
-  - collapsible rail, not fully hidden
-  - list agents
-  - attention indicator for agents in backend-reported error state
-  - open/start, stop, delete actions per agent
-- Center:
-  - selected agent context
-  - attach/detach terminal controls
-  - auto reconnect when tab regains focus/visibility
-- Right:
-  - media drawer opened by `Media` button
-  - refresh button and per-agent media list
-  - image lightbox for full-size preview
+### Lifecycle Hooks
 
-## Known Friction / Gaps
+The `stop` hook in `.dispatch/tools.json` runs when an agent is stopped (e.g., teardown dev environments).
 
-- No auth enforcement is wired into request handlers yet (`AUTH_TOKEN` exists in config only).
-- Media polling is interval-based (4s), not event-driven.
-- Agent attention is currently narrow: it only reflects backend-reported agent error state, not detached tmux activity or richer app-level response events.
-- Simulator orchestration is partially scaffolded but not end-to-end.
-- Some planned docs still describe endpoints/features not shipped yet.
-- Existing running agents may have old state from previous UI/runtime iterations.
+## Key Features
 
-## Operations Quickstart
+### Activity & Analytics
+- Heatmaps, daily status charts, active-hours analysis
+- Working time by project breakdown
+- Token usage tracking by day, project, and model
+- Agent creation trends
 
-From `/Users/brad/dev/apps/dispatch`:
+### Personas & Feedback
+- Repo-defined personas via `.dispatch/personas/*.md`
+- Structured findings with severity, file refs, suggestions
+- See `15-personas-and-feedback.md`
 
-1. `nvm use default`
-2. `docker compose up -d postgres`
-3. `npm install`
-4. `npm run build`
-5. `npm run start`
-6. Open `http://127.0.0.1:6767`
+### Notifications
+- Slack webhook integration
+- Configurable event triggers (done, waiting_user, blocked)
+- Focus-aware suppression
+- See `16-notifications.md`
 
-For development:
-- `npm run dev` (backend watch mode)
-- `npm --prefix web run dev` (if iterating frontend separately)
+### Media & Streaming
+- Screenshot/image/video sharing via `dispatch_share`
+- iOS Simulator screenshot capture
+- Live Playwright browser streaming via CDP/MJPEG
+- Media sidebar with lightbox and seen/unseen tracking
 
-## Validation Checklist for New Work
+### History
+- Soft-deleted agents preserved for history
+- Paginated agent history with project/type filtering
+- Per-agent detail view with events, tokens, and media
 
-- Run `npm run check`.
-- Run `npm run build`.
-- Verify UI can:
-  - create agent
-  - attach terminal and send input
-  - detach and reattach without killing tmux session
-  - show media from `dispatch-share`
-  - stop and delete agent
-- Stop any throwaway test agents you create.
+## CLI Tools
 
-## Most Relevant Files
+| Binary | Purpose |
+|--------|---------|
+| `dispatch-dev` | Manage isolated dev environments (DB + API + Vite) |
+| `dispatch-server` | Launch the production server |
+| `dispatch-deploy` | Deployment automation |
+| `dispatch-release` | Release management |
+| `dispatch-share` | CLI for sharing media to agent sessions |
+| `dispatch-event` | CLI for reporting agent status events |
+| `dispatch-stream` | CLI for managing screen streams |
+| `dispatch-launchd-wrapper` | macOS launchd service wrapper |
+| `install-launchd` / `uninstall-launchd` | Register/unregister as macOS service |
+| `preflight` | Pre-launch validation |
 
-- Backend API: `/Users/brad/dev/apps/dispatch/src/server.ts`
-- Agent lifecycle/runtime: `/Users/brad/dev/apps/dispatch/src/agents/manager.ts`
-- Terminal attach bridge: `/Users/brad/dev/apps/dispatch/src/terminal/tmux-terminal.ts`
-- Media helper CLI: `/Users/brad/dev/apps/dispatch/bin/dispatch-share`
-- React app: `/Users/brad/dev/apps/dispatch/web/src/App.tsx`
-- UI primitives: `/Users/brad/dev/apps/dispatch/web/src/components/ui`
-- Main README: `/Users/brad/dev/apps/dispatch/README.md`
-- Attention follow-up plan: `/Users/brad/dev/apps/dispatch/docs/09-agent-attention-phase-2.md`
+## API Surface
+
+71+ endpoints across these families: authentication, agent lifecycle, agent setup, events, terminal, media, streaming, personas, feedback, activity/analytics, token usage, history, notifications, settings, system, release management, MCP, and diagnostics. See `03-api-spec.md` for the complete specification.
+
+## Frontend
+
+- Responsive layout with mobile support (slide panels, mobile terminal toolbar)
+- Agent sidebar with real-time status indicators
+- Inline terminal via xterm.js
+- Media sidebar with lightbox viewer
+- Activity dashboard with charts and heatmaps
+- Settings pane (agent types, notifications, security)
+- Feedback panel for reviewing persona findings
+- Documentation pane (in-app)
+- Release manager for self-updates
+- Theming (dark/light mode, CSS custom properties)
+
+## Development
+
+### Commands
+
+```bash
+pnpm install                  # install dependencies
+pnpm run dev                  # backend + frontend dev mode (don't use in agent sessions)
+pnpm run check                # type check backend + web
+pnpm run finalize:web         # type check + production build for web
+pnpm run test                 # unit tests (vitest)
+pnpm run test:e2e             # E2E tests (playwright, spins up isolated DB)
+```
+
+### dispatch-dev (for agents)
+
+Agents should use `dispatch-dev` instead of `pnpm run dev`:
+
+```bash
+dispatch-dev up               # start isolated DB + API + Vite
+dispatch-dev restart           # pick up code changes (reuses ports/DB)
+dispatch-dev status            # check what's running
+dispatch-dev logs              # API server logs
+dispatch-dev down              # full teardown
+```
+
+### Validation Checklist
+
+Before considering work complete:
+1. `pnpm run check` passes
+2. `pnpm run finalize:web` passes (if web files changed)
+3. `pnpm run test:e2e` passes
+4. `pnpm run test` passes (if backend logic changed)

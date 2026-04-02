@@ -1,134 +1,301 @@
-# API Specification (MVP)
+# API Specification
 
 ## Conventions
 
-- Base path: `/api/v1`
-- Auth: bearer token header (MVP) or Tailscale IP allowlist + token
-- Response: JSON unless binary image endpoint
+- Base path: `/api/v1` (except MCP endpoints which use `/api/mcp`)
+- Auth: cookie-based session after password login
+- Response format: JSON unless noted otherwise
+- Real-time: Server-Sent Events (SSE) for live updates
 
 ## Agent Model
 
 ```json
 {
-  "id": "agt_01J...",
-  "name": "ios-fix-1",
+  "id": "agt_01abc2def345",
+  "name": "fix-auth-bug",
   "status": "running",
-  "cwd": "/Users/bharris/dev/apps/foo",
-  "tmuxSession": "dispatch_agt_01J...",
-  "pid": 12345,
-  "simulatorUdid": "A1B2C3...",
+  "type": "claude",
+  "cwd": "/Users/brad/dev/apps/myproject",
+  "effectiveCwd": "/Users/brad/dev/apps/myproject/.dispatch/worktrees/fix-auth-bug",
+  "tmuxSession": "dispatch_agt_01abc2def345",
+  "fullAccess": true,
+  "setupPhase": null,
+  "latestEvent": { "type": "working", "message": "Running tests" },
+  "parentAgentId": null,
+  "persona": null,
+  "worktreePath": "/Users/brad/dev/apps/myproject/.dispatch/worktrees/fix-auth-bug",
+  "worktreeBranch": "fix-auth-bug",
   "createdAt": "2026-03-07T19:20:00Z",
   "updatedAt": "2026-03-07T19:22:00Z"
 }
 ```
 
-## Endpoints
+## Authentication
 
-### `POST /agents`
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/auth/status` | Check auth state and whether password is configured |
+| POST | `/auth/setup` | Set initial password (first-run only) |
+| POST | `/auth/login` | Authenticate and create session cookie |
+| POST | `/auth/logout` | Invalidate session |
+| POST | `/auth/change-password` | Change password (requires valid session) |
 
-Create a new agent.
+## Agent Lifecycle
 
-Request body:
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/agents` | List all active agents |
+| GET | `/agents/:id` | Get agent details |
+| POST | `/agents` | Create new agent |
+| POST | `/agents/:id/start` | Start a stopped agent |
+| POST | `/agents/:id/stop` | Stop a running agent |
+| DELETE | `/agents/:id` | Delete agent (soft delete) |
 
-```json
-{
-  "name": "ios-fix-1",
-  "cwd": "/Users/bharris/dev/apps/foo",
-  "codexArgs": [],
-  "allocateSimulator": true
-}
-```
-
-Response `201`:
-
-```json
-{
-  "agent": { "...": "..." }
-}
-```
-
-### `GET /agents`
-
-List all agents.
-
-Response `200`:
+### `POST /agents` — Create Agent
 
 ```json
 {
-  "agents": []
+  "cwd": "/path/to/repo",
+  "name": "fix-auth-bug",
+  "type": "claude",
+  "fullAccess": true,
+  "agentArgs": ["--model", "opus"],
+  "useWorktree": true,
+  "worktreeBranch": "fix-auth-bug",
+  "baseBranch": "main"
 }
 ```
 
-### `GET /agents/:id`
+For persona agents (launched via `dispatch_launch_persona`):
 
-Get one agent.
-
-### `POST /agents/:id/start`
-
-Start stopped agent (recreate tmux session and process if absent).
+```json
+{
+  "cwd": "/path/to/repo",
+  "type": "claude",
+  "persona": "backend-security-review",
+  "parentAgentId": "agt_01abc2def345",
+  "personaContext": "Review the auth middleware changes..."
+}
+```
 
 ### `POST /agents/:id/stop`
 
-Stop running agent.
-
-Request body:
-
 ```json
-{
-  "force": false,
-  "releaseSimulator": true
-}
+{ "force": false }
 ```
 
 ### `DELETE /agents/:id`
 
-Delete agent metadata (only when stopped unless `force=true`).
+Query params: `force=true`, `cleanupWorktree=true`
 
-### `POST /agents/:id/terminal/token`
+## Agent Setup
 
-Issue short-lived token for terminal websocket session.
+Used during agent initialization to track setup progress.
 
-Response:
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/agents/:id/setup/phase` | Report setup phase (`worktree` → `env` → `deps` → `session`) |
+| POST | `/agents/:id/setup/complete` | Mark setup complete with resolved paths |
+
+### `POST /agents/:id/setup/complete`
 
 ```json
 {
-  "wsUrl": "/api/v1/agents/agt_01J/terminal/ws?token=..."
+  "effectiveCwd": "/resolved/working/directory",
+  "worktreePath": "/path/to/worktree",
+  "worktreeBranch": "branch-name"
 }
 ```
 
-### `GET /agents/:id/screenshot`
+## Agent Events & State
 
-Return latest screenshot as `image/png`.
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/agents/:id/latest-event` | Update agent's latest status event |
+| POST | `/focus` | Track which agent the user is viewing |
+| GET | `/events` | SSE stream of real-time UI events |
+| GET | `/agents/git-context` | Get git context for agents (filtered by `ids` query param) |
+| GET | `/agents/:id/worktree-status` | Check worktree for unmerged commits and uncommitted changes |
 
-Query params:
+### `POST /agents/:id/latest-event`
 
-- `fresh=true|false` (if true, capture now; else return cached last screenshot if available)
+```json
+{
+  "type": "working",
+  "message": "Running E2E tests",
+  "metadata": {}
+}
+```
 
-### `GET /simulators`
+Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
 
-List available simulators and reservation status.
+### `GET /events` (SSE)
 
-### `POST /agents/:id/simulator/reassign`
+Server-Sent Events stream. Events include agent state changes, media uploads, and stream updates. Used by the frontend for real-time UI updates.
 
-Reassign simulator.
+## Terminal
 
-## WebSocket
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/agents/:id/terminal/token` | Issue short-lived terminal access token |
+| WS | `/agents/:id/terminal/ws?token=...` | WebSocket for interactive terminal I/O |
 
-### `WS /agents/:id/terminal/ws?token=...`
+The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session.
 
-- Bi-directional terminal I/O stream.
-- Server handles tmux attach bridge.
-- Heartbeat/ping every 20s.
+## Media
 
-### `WS /agents/:id/media/ws` (optional in phase 2)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/agents/:id/media` | List media files with seen/unseen status |
+| GET | `/agents/:id/media/:file` | Download a media file |
+| POST | `/agents/:id/media` | Upload media (multipart form: file + description) |
+| POST | `/agents/:id/media/seen` | Mark media files as seen |
 
-- Push screenshot update metadata or stream frames.
+## Streaming
+
+Live Playwright browser streaming via Chrome DevTools Protocol.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/agents/:id/stream` | Start or stop a screen stream |
+| GET | `/agents/:id/stream` | MJPEG stream (`multipart/x-mixed-replace`) |
+| GET | `/agents/:id/stream/viewer` | HTML viewer page for the live stream |
+
+## Personas
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/personas` | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`) |
+
+Query params: `cwd=/path/to/repo`
+
+## Feedback
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/agents/:id/feedback` | Get feedback findings for an agent |
+| PATCH | `/agents/:id/feedback/:feedbackId` | Update feedback status |
+
+### `GET /agents/:id/feedback`
+
+Query params: `scope=children` to include feedback from child persona agents.
+
+### `PATCH /agents/:id/feedback/:feedbackId`
+
+```json
+{ "status": "fixed" }
+```
+
+Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`
+
+## Activity & Analytics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/activity/heatmap` | Activity heatmap data (configurable `days`, `timezone`) |
+| GET | `/activity/stats` | Aggregate stats (working/blocked/waiting time, busiest day) |
+| GET | `/activity/daily-status` | Daily status breakdown |
+| GET | `/activity/active-hours` | Events marked as working/blocked/waiting_user |
+| GET | `/activity/agents-created` | Agent creation counts over time |
+| GET | `/activity/working-time-by-project` | Working time by project directory |
+
+## Token Usage
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/activity/token-stats` | Total token usage (input, output, cache creation, cache reads) |
+| GET | `/activity/token-daily` | Daily token usage breakdown |
+| GET | `/activity/token-by-project` | Token usage by project (top 20) |
+| GET | `/activity/token-by-model` | Token usage by model |
+| POST | `/agents/:id/harvest-tokens` | Harvest token usage from an agent's session |
+
+All token endpoints accept `days` and `timezone` query params.
+
+## History
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/history/projects` | List all projects where agents have worked |
+| GET | `/history/agents` | Paginated agent history with filtering and sorting |
+| GET | `/history/agents/:id` | Detailed agent history including events, tokens, and media |
+
+### `GET /history/agents`
+
+Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
+
+## Notifications
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/notifications/settings` | Get Slack webhook URL and enabled event types |
+| POST | `/notifications/settings` | Update webhook URL and event configuration |
+| POST | `/notifications/test` | Send a test message to the configured webhook |
+
+### `POST /notifications/settings`
+
+```json
+{
+  "slackWebhookUrl": "https://hooks.slack.com/services/...",
+  "events": {
+    "done": true,
+    "waiting_user": true,
+    "blocked": false
+  }
+}
+```
+
+## Settings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/agents/settings` | Get agent settings (worktree location) |
+| POST | `/agents/settings` | Update agent settings |
+| GET | `/app/settings/agent-types` | Get enabled agent types |
+| POST | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`) |
+
+## System
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Database connectivity check |
+| GET | `/app/version` | Current app version |
+| GET | `/system/defaults` | System defaults (home directory) |
+| GET | `/system/path-info` | Path validation (exists, isDirectory, isGitRepo) |
+| GET | `/system/path-completions` | Directory path autocomplete |
+| GET | `/git/branches` | List remote branches for a repo |
+| POST | `/clipboard/image` | Write browser clipboard image to macOS pasteboard |
+| POST | `/energy-report` | Report PWA energy metrics |
+| GET | `/diagnostics/git-context` | Git context refresh diagnostics |
+
+## Release Management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/release/status` | Current deployed release tag and timestamp |
+| GET | `/release/info` | Latest available version and unreleased commits |
+| POST | `/release` | Trigger new release (`versionType`: major/minor/patch) |
+| POST | `/release/update` | Update to a specific release tag |
+| GET | `/release/stream` | SSE stream for release operation progress |
+| GET | `/app/version` | Current app version info |
+
+## MCP (Model Context Protocol)
+
+These endpoints use the `/api/mcp` base path (not `/api/v1`).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/mcp` | Handle global MCP requests |
+| POST | `/api/mcp/:agentId` | Handle agent-scoped MCP requests with repo context |
+
+Agent-scoped MCP loads repo tools from `.dispatch/tools.json` in the agent's working directory.
 
 ## Error Codes
 
-- `400` invalid request/body
-- `401` unauthenticated
-- `403` unauthorized
-- `404` agent/simulator not found
-- `409` lifecycle conflict (e.g., start running agent)
-- `500` internal runtime failure
+| Code | Meaning |
+|------|---------|
+| 400 | Invalid request body or parameters |
+| 401 | Not authenticated |
+| 403 | Unauthorized |
+| 404 | Agent or resource not found |
+| 409 | Lifecycle conflict (e.g., starting an already-running agent) |
+| 500 | Internal server error |
