@@ -1,11 +1,22 @@
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowLeft, ChevronRight, GitBranch, Monitor, PlugZap, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Bell,
+  ChevronRight,
+  GitBranch,
+  Image,
+  Monitor,
+  PlugZap,
+  Signal,
+  Users,
+  X,
+} from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
-type DocsSection = "agents" | "tools" | "worktrees";
+type DocsSection = "agents" | "tools" | "worktrees" | "personas" | "events" | "media" | "notifications";
 
 type DocsPaneProps = {
   open: boolean;
@@ -59,23 +70,48 @@ const SECTIONS: SectionDef[] = [
         <Section>
           <H3>Creating an agent</H3>
           <P>
-            Click <strong>Create</strong> in the sidebar. Pick a name, choose
-            the CLI (<Code>claude</Code>, <Code>codex</Code>,
-            or <Code>opencode</Code>), and set the working directory to your
-            repo. The working directory determines which repo tools and
-            instruction files the agent loads.
+            Click <strong>Create</strong> in the sidebar (or use the dropdown
+            arrow to pick a specific agent type). Fill in the create form:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li><strong>Type</strong> — choose the CLI: <Code>claude</Code>, <Code>codex</Code>, or <Code>opencode</Code>. Disabled types can be enabled in Settings.</li>
+            <li><strong>Name</strong> — optional display name for the agent.</li>
+            <li><strong>Working directory</strong> — path to the repo. Autocompletes as you type and validates that the directory exists. Recent directories are saved for quick selection.</li>
+            <li><strong>Create git worktree</strong> — checked by default. Creates an isolated worktree so the agent works on its own branch without touching your primary checkout. When enabled, you can pick a base branch and optionally set a custom branch name.</li>
+            <li><strong>Full access mode</strong> — starts the CLI in its most permissive execution mode, so the agent can run commands and edit files without confirmation prompts.</li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>Setup phases</H3>
+          <P>
+            After creating an agent, the sidebar shows a progress indicator
+            as it moves through setup: creating the worktree, copying
+            environment files, installing dependencies, and starting the
+            session. Once setup completes the agent transitions
+            to <strong>running</strong>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Status indicators</H3>
+          <P>
+            Each agent in the sidebar shows a color-coded status from its
+            latest event: blue for <strong>working</strong>, red
+            for <strong>blocked</strong>, yellow
+            for <strong>waiting</strong>, and green
+            for <strong>done</strong>. The sidebar also shows the event
+            message and how long ago it was reported.
           </P>
         </Section>
 
         <Section>
           <H3>Starting and stopping</H3>
           <P>
-            Press <strong>Start</strong> to launch the agent in
-            a <Code>tmux</Code> session on the server.
-            Press <strong>Stop</strong> to terminate it. You can also
-            use <strong>Attach</strong> to reconnect to a session that's
-            already running, or <strong>Detach</strong> to disconnect your
-            terminal without stopping the agent.
+            Press the play button to resume a stopped agent. Press the
+            stop button to terminate it. Click an agent's name to attach
+            your terminal to its session, or click again to detach without
+            stopping.
           </P>
         </Section>
 
@@ -84,18 +120,28 @@ const SECTIONS: SectionDef[] = [
           <P>
             The agent runs inside <Code>tmux</Code>, independent of your
             browser. Closing the tab just detaches your terminal view — the
-            agent keeps working. Open Dispatch again and attach to pick up
-            where you left off.
+            agent keeps working. Open Dispatch again and click the agent to
+            pick up where you left off.
           </P>
         </Section>
 
         <Section>
-          <H3>Full access mode</H3>
+          <H3>Agent details</H3>
           <P>
-            When creating an agent, you can enable <strong>full access
-            mode</strong>. This starts the CLI in its most permissive
-            execution mode, so the agent can run commands and edit files
-            without confirmation prompts.
+            Expand an agent card to see its metadata: working directory or
+            worktree path, git branch, agent type, and whether it's running
+            in full access or sandboxed mode. Persona agents show their
+            role and link to their parent agent.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Archiving agents</H3>
+          <P>
+            Click the archive button to remove an agent. If the agent has a
+            worktree with unmerged commits or uncommitted changes, you'll be
+            asked whether to keep or remove the worktree. Archived agents
+            are preserved in the History section of the Activity page.
           </P>
         </Section>
       </>
@@ -201,15 +247,39 @@ const SECTIONS: SectionDef[] = [
             <li><Code>enable_pr_automerge</Code> — auto-merge a PR when checks pass</li>
             <li><Code>dispatch_event</Code> — report agent status (working, blocked, done)</li>
             <li><Code>dispatch_share</Code> — publish a screenshot or image to the session's media stream</li>
+            <li><Code>dispatch_feedback</Code> — submit a structured finding with severity, file reference, and suggestion</li>
+            <li><Code>dispatch_get_feedback</Code> — retrieve feedback findings for the current session</li>
+            <li><Code>dispatch_launch_persona</Code> — launch a persona agent as a child of the current session</li>
           </ul>
+        </Section>
+
+        <Section>
+          <H3>Lifecycle hooks</H3>
+          <P>
+            Repos can define lifecycle hooks
+            in <Code>.dispatch/tools.json</Code> that run automatically at key
+            moments. Currently the <Code>stop</Code> hook is supported — it runs
+            when an agent is stopped or terminated, useful for teardown tasks
+            like shutting down dev servers.
+          </P>
+          <CodeBlock>{`
+{
+  "hooks": {
+    "stop": {
+      "command": ["./bin/cleanup.sh"],
+      "description": "Tear down the agent's dev environment on stop."
+    }
+  }
+}`}</CodeBlock>
         </Section>
 
         <Section>
           <H3>Environment</H3>
           <P>
-            Repo tool commands receive <Code>DISPATCH_AGENT_ID</Code> in their
-            environment, so scripts can scope resources (databases, temp
-            directories, ports) per agent.
+            Repo tool commands and hooks
+            receive <Code>DISPATCH_AGENT_ID</Code> in their environment, so
+            scripts can scope resources (databases, temp directories, ports) per
+            agent.
           </P>
         </Section>
       </>
@@ -223,44 +293,289 @@ const SECTIONS: SectionDef[] = [
     content: (
       <>
         <P>
-          Agents can use git worktrees to work on changes in isolation without
-          affecting the main checkout. This is useful for parallel tasks or
-          keeping exploratory work separate.
+          Git worktrees let agents work on changes in isolation without
+          touching the main checkout. Each agent gets its own branch and
+          directory — ideal for parallel tasks or keeping exploratory work
+          separate.
         </P>
 
         <Section>
-          <H3>Creating a worktree</H3>
+          <H3>Automatic worktree creation</H3>
           <P>
-            Agents call the built-in <Code>create_worktree</Code> tool. It
-            creates a new branch and a linked worktree directory, then the
-            agent <Code>cd</Code>s into it.
+            When creating an agent, the <strong>Create git worktree</strong>{" "}
+            checkbox is enabled by default. Dispatch creates a new branch
+            and linked worktree directory, copies environment files
+            (like <Code>.env</Code>), and starts the agent inside it. You
+            can choose a base branch and optionally set a custom branch name
+            in the create dialog.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>On-demand worktrees</H3>
+          <P>
+            Agents can also create worktrees during a session by calling
+            the <Code>create_worktree</Code> tool. This is useful when an
+            agent decides mid-task that it needs isolation.
           </P>
           <CodeBlock>{`
-# What the agent does behind the scenes:
+# What happens behind the scenes:
 git worktree add -b fix-auth ../project-fix-auth main
 cd ../project-fix-auth`}</CodeBlock>
+        </Section>
+
+        <Section>
+          <H3>Worktree location</H3>
           <P>
-            The worktree is a full copy of the repo on its own branch. The
-            agent can make commits, run tests, and open PRs from there without
-            touching the primary checkout.
+            By default, worktrees are created inside the repo
+            at <Code>.dispatch/worktrees/</Code>. You can change this
+            in <strong>Settings</strong> to place them next to the repo
+            instead (as siblings). This is useful if your tooling doesn't
+            work well with nested worktrees.
           </P>
         </Section>
 
         <Section>
           <H3>Cleaning up</H3>
           <P>
-            When the work is done, the agent
-            calls <Code>cleanup_worktree</Code> to remove the linked directory
-            and optionally delete the branch.
+            When archiving an agent with a worktree, Dispatch checks for
+            unmerged commits and uncommitted changes. If the worktree is
+            clean, it's removed automatically. If there are outstanding
+            changes, you're asked whether to keep the worktree for manual
+            review or remove it. Agents can also
+            call <Code>cleanup_worktree</Code> directly to remove a
+            worktree during a session.
           </P>
         </Section>
 
         <Section>
           <H3>Parallel agents</H3>
           <P>
-            Multiple agents can work in the same repo simultaneously by using
-            separate worktrees. Each agent operates on its own branch and
-            directory, so there are no conflicts between concurrent sessions.
+            Multiple agents can work in the same repo simultaneously. Each
+            uses its own worktree with a separate branch and directory, so
+            there are no conflicts between concurrent sessions.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "personas",
+    label: "Personas",
+    icon: Users,
+    title: "Personas",
+    content: (
+      <>
+        <P>
+          Personas are reusable agent roles defined per repository. Each
+          persona reviews work from a specific perspective — for example,
+          security, UX, or architecture. A persona agent runs as a child of
+          the agent that launched it and submits structured feedback.
+        </P>
+
+        <Section>
+          <H3>How personas work</H3>
+          <P>
+            An agent calls the built-in <Code>dispatch_launch_persona</Code>{" "}
+            tool, passing the persona name and a context briefing. Dispatch
+            loads the persona definition from the repo, spawns a new child
+            agent with the persona's instructions and a diff of the current
+            branch, and the child reviews the work and submits findings
+            via <Code>dispatch_feedback</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Defining personas</H3>
+          <P>
+            Each repo defines its own personas as markdown files
+            in <Code>.dispatch/personas/</Code>. The filename (without
+            extension) becomes the persona slug used when launching. Files
+            use YAML frontmatter for metadata and the body contains
+            instructions with <Code>{"{{context}}"}</Code>{" "}
+            and <Code>{"{{diff}}"}</Code> placeholders that Dispatch fills
+            in at launch time.
+          </P>
+          <CodeBlock>{`
+# .dispatch/personas/security-review.md
+---
+name: Security Review
+description: Reviews code for security vulnerabilities
+feedbackFormat: findings
+---
+
+You are a security reviewer. Analyze the following changes
+for vulnerabilities, injection risks, and auth issues.
+
+## Context
+{{context}}
+
+## Diff
+{{diff}}`}</CodeBlock>
+          <P>
+            The <Code>name</Code> and <Code>description</Code> fields are
+            shown in the persona picker UI. The <Code>feedbackFormat</Code>{" "}
+            field is optional and defaults to <Code>findings</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Feedback findings</H3>
+          <P>
+            Persona agents submit findings with
+            the <Code>dispatch_feedback</Code> tool. Each finding includes a
+            severity (<Code>critical</Code>, <Code>high</Code>,{" "}
+            <Code>medium</Code>, <Code>low</Code>, <Code>info</Code>),
+            a description, and optionally a file path, line number, and
+            suggested fix. Findings appear in the Feedback panel where you can
+            review and resolve them.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "events",
+    label: "Status Events",
+    icon: Signal,
+    title: "Status Events",
+    content: (
+      <>
+        <P>
+          Agents report their status throughout a task using
+          the <Code>dispatch_event</Code> tool. These events drive the status
+          indicators in the sidebar and enable Slack notifications.
+        </P>
+
+        <Section>
+          <H3>Event types</H3>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li><Code>working</Code> — actively making progress (reading files, writing code, running tests)</li>
+            <li><Code>blocked</Code> — hit an error or obstacle that needs resolution</li>
+            <li><Code>waiting_user</Code> — needs a decision or approval before continuing</li>
+            <li><Code>done</Code> — task is complete</li>
+            <li><Code>idle</Code> — no meaningful action was taken (e.g. answered an informational question)</li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>How events are used</H3>
+          <P>
+            The agent sidebar shows the latest event message and a color-coded
+            status indicator for each agent. Events are also stored in the
+            database for activity tracking — the Activity page uses them
+            to build heatmaps, working-time breakdowns, and daily status charts.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Configuring agent instructions</H3>
+          <P>
+            To get agents to report events, add instructions to your
+            repo's <Code>CLAUDE.md</Code> (or equivalent config) telling the
+            agent to call <Code>dispatch_event</Code> at key checkpoints:
+            start of turn, phase transitions, errors, and before the final
+            response.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "media",
+    label: "Media",
+    icon: Image,
+    title: "Media & Sharing",
+    content: (
+      <>
+        <P>
+          Agents can capture and share screenshots, images, and text files
+          during a session. Shared media appears in the Media sidebar for
+          review.
+        </P>
+
+        <Section>
+          <H3>Sharing media</H3>
+          <P>
+            Agents call the <Code>dispatch_share</Code> tool to publish media.
+            It accepts a file path or raw text content, along with a
+            description. Supported formats include PNG, JPG, GIF, WebP
+            images, MP4 video, and text files.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Simulator screenshots</H3>
+          <P>
+            When <Code>dispatch_share</Code> is called
+            with <Code>source: "simulator"</Code>, it automatically captures
+            a screenshot from the iOS Simulator using <Code>xcrun simctl</Code>.
+            This is useful for agents validating mobile UI changes.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Screen streaming</H3>
+          <P>
+            Agents running Playwright can stream their browser session live.
+            The stream appears in the media sidebar as a real-time MJPEG feed
+            via Chrome DevTools Protocol. When the stream ends, the last frame
+            is saved as a screenshot.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Media sidebar</H3>
+          <P>
+            Click any agent's media count badge to open the sidebar. Media
+            items are shown in reverse chronological order. Click an item
+            to open the full-screen lightbox. New items since your last
+            visit are marked with a badge.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    icon: Bell,
+    title: "Notifications",
+    content: (
+      <>
+        <P>
+          Dispatch can send Slack notifications when agents need attention or
+          finish their work, so you don't have to watch the dashboard.
+        </P>
+
+        <Section>
+          <H3>Setting up Slack</H3>
+          <P>
+            Go to <strong>Settings → Notifications</strong> and paste a Slack
+            incoming webhook URL. Use the <strong>Send test</strong> button to
+            verify the integration works.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Configurable events</H3>
+          <P>
+            You can choose which agent events trigger a notification:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li><Code>done</Code> — agent finished its task</li>
+            <li><Code>waiting_user</Code> — agent needs your input</li>
+            <li><Code>blocked</Code> — agent hit an error it can't resolve</li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>Focus-aware suppression</H3>
+          <P>
+            Dispatch tracks whether you're actively viewing an agent. If you
+            have the agent's terminal open, notifications for that agent are
+            suppressed — you'll only get notified for agents you're not
+            watching.
           </P>
         </Section>
       </>
