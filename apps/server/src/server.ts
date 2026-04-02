@@ -725,9 +725,10 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
 
     job.tag = tag;
     broadcastReleaseEvent({ type: "tag", tag });
-    appendReleaseLog(job, `==> release workflow produced tag: ${tag}`);
+    appendReleaseLog(job, `==> release ${tag} created successfully`);
 
-    await deployTag(job, tag);
+    // Release creation is done — the user can update separately.
+    setReleasePhase(job, "done");
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     if (activeReleaseJob) {
@@ -1036,9 +1037,13 @@ async function registerRoutes() {
       let commits: Array<{ sha: string; subject: string }> = [];
       let refMissing = false;
 
-      if (isAdmin && currentTag) {
+      // Compare latest release tag to main to find truly unreleased commits.
+      // Using latestTag (not currentTag) ensures that instances running an
+      // older version don't show already-released commits as "unreleased".
+      const compareTag = latestTag ?? currentTag;
+      if (isAdmin && compareTag) {
         const refCheck = await runCommand(
-          "git", ["-C", serverDir, "rev-parse", "--verify", currentTag],
+          "git", ["-C", serverDir, "rev-parse", "--verify", compareTag],
           { allowedExitCodes: [0, 128] }
         );
         if (refCheck.exitCode !== 0) {
@@ -1046,14 +1051,14 @@ async function registerRoutes() {
         } else {
           const countResult = await runCommand("git", [
             "-C", serverDir,
-            "rev-list", `${currentTag}..origin/main`, "--count"
+            "rev-list", `${compareTag}..origin/main`, "--count"
           ]);
           unreleasedCount = Number(countResult.stdout) || 0;
 
           if (unreleasedCount > 0) {
             const logResult = await runCommand("git", [
               "-C", serverDir,
-              "log", `${currentTag}..origin/main`,
+              "log", `${compareTag}..origin/main`,
               "--no-merges",
               "--format=%H\t%s",
               "--max-count=20"
