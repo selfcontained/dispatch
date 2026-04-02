@@ -87,7 +87,8 @@ type UiEvent =
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord };
+  | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
+  | { type: "feedback.updated"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -973,6 +974,7 @@ async function registerRoutes() {
       submitFeedback: mcpSubmitFeedback,
       launchPersona: mcpLaunchPersona,
       getFeedback: mcpGetFeedback,
+      resolveFeedback: mcpResolveFeedback,
     });
   });
 
@@ -3447,6 +3449,17 @@ async function mcpGetFeedback(
   opts: { persona?: string; limit?: number }
 ) {
   return agentManager.listFeedbackByParentGrouped(agentId, opts.persona, opts.limit);
+}
+
+async function mcpResolveFeedback(
+  agentId: string,
+  feedbackId: number,
+  status: "fixed" | "ignored"
+): Promise<import("./agents/manager.js").FeedbackRecord> {
+  const record = await agentManager.updateFeedbackStatusByParent(feedbackId, agentId, status);
+  if (!record) throw new Error(`Feedback #${feedbackId} not found or not owned by a child of this agent.`);
+  uiEventBroker.publish({ type: "feedback.updated", agentId: record.agentId, feedback: record });
+  return record;
 }
 
 async function mcpLaunchPersona(
