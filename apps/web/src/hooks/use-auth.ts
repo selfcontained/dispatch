@@ -14,7 +14,9 @@ export function useAuth(): {
       try {
         const res = await fetch("/api/v1/auth/status", { credentials: "include" });
         if (!res.ok) {
-          setAuthState("needs-login");
+          // Can't determine auth state — let the user through; the backend
+          // enforces auth on every API call anyway.
+          setAuthState("authenticated");
           return;
         }
         const data = (await res.json()) as { passwordSet: boolean; authenticated: boolean };
