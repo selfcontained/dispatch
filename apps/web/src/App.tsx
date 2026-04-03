@@ -221,14 +221,6 @@ export function DashboardLayout(): JSX.Element {
   }, []);
 
   // ── Terminal ──────────────────────────────────────────────────────────
-  const onAgentSelected = useCallback(
-    (agentId: string) => {
-      setSelectedAgentId(agentId);
-      ensureAuxExpanded(agentId);
-    },
-    [ensureAuxExpanded]
-  );
-
   const {
     connState,
     connectedAgentId,
