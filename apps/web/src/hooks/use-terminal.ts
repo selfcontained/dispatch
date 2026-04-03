@@ -70,8 +70,6 @@ export function useTerminal(args: {
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
-  onAgentSelected: (agentId: string) => void;
-  /** Set agent selection without navigating (used for session restore). */
   setSelectedAgentId: (agentId: string) => void;
   refreshMedia: (agentId?: string | null) => void;
 }): {
@@ -96,7 +94,6 @@ export function useTerminal(args: {
     isMobile,
     leftOpen,
     mediaOpen,
-    onAgentSelected,
     setSelectedAgentId,
     refreshMedia,
   } = args;
@@ -767,7 +764,7 @@ export function useTerminal(args: {
   }, [connState, connectedAgentId, restoreShellAgentId]);
 
   // Restore session on load.
-  // Uses setSelectedAgentId (not onAgentSelected) to avoid navigating away
+  // Uses setSelectedAgentId (not navigate) to avoid navigating away
   // from the current URL — important when loading on overlay routes like /settings.
   useEffect(() => {
     if (!agentsLoaded || !restoreShellAgentId) return;
