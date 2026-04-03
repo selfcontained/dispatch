@@ -2558,26 +2558,31 @@ async function registerRoutes() {
         : "auto";
 
     try {
-      const existing = await agentManager.getAgent(params.id);
-      // Collect child agent IDs before deletion so we can clean up their resources
-      const childRows = await pool.query<{ id: string }>(
-        "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-        [params.id]
-      );
-      await agentManager.deleteAgent(params.id, force, cleanupWorktree);
-      const deletedIds = [
-        ...(existing ? [existing.id] : []),
-        ...childRows.rows.map((r) => r.id),
-      ];
-      for (const deletedId of deletedIds) {
-        streamManager.stopStream(deletedId);
-        pendingGitRefreshAgentIds.delete(deletedId);
-        pendingGitRefreshEnqueuedAt.delete(deletedId);
-        activeGitRefreshAgentIds.delete(deletedId);
-        gitRefreshAgentDiagnostics.delete(deletedId);
-        uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
-      }
-      return reply.code(204).send();
+      // Fast synchronous phase: mark agent as archiving and return immediately
+      const agent = await agentManager.beginArchive(params.id);
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+
+      // Fire-and-forget: run cleanup in background
+      void agentManager.executeArchive(params.id, cleanupWorktree, {
+        onPhaseChange: (updated) => {
+          uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+        },
+        onComplete: (deletedIds) => {
+          for (const deletedId of deletedIds) {
+            streamManager.stopStream(deletedId);
+            pendingGitRefreshAgentIds.delete(deletedId);
+            pendingGitRefreshEnqueuedAt.delete(deletedId);
+            activeGitRefreshAgentIds.delete(deletedId);
+            gitRefreshAgentDiagnostics.delete(deletedId);
+            uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+          }
+        },
+        onError: (error) => {
+          app.log.error({ err: error, agentId: params.id }, "Background archive failed");
+        }
+      });
+
+      return reply.code(202).send({ status: "archiving" });
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -2984,8 +2989,32 @@ async function runAgentStatusReconciliation(): Promise<void> {
   try {
     const reconciled = await agentManager.reconcileAgentStatuses();
     for (const agent of reconciled) {
-      console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      if (agent.status === "archiving") {
+        // Resume interrupted archive
+        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`);
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+        void agentManager.executeArchive(agent.id, "auto", {
+          onPhaseChange: (updated) => {
+            uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+          },
+          onComplete: (deletedIds) => {
+            for (const deletedId of deletedIds) {
+              streamManager.stopStream(deletedId);
+              pendingGitRefreshAgentIds.delete(deletedId);
+              pendingGitRefreshEnqueuedAt.delete(deletedId);
+              activeGitRefreshAgentIds.delete(deletedId);
+              gitRefreshAgentDiagnostics.delete(deletedId);
+              uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+            }
+          },
+          onError: (error) => {
+            app.log.error({ err: error, agentId: agent.id }, "Resumed archive failed");
+          }
+        });
+      } else {
+        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      }
     }
   } catch (error) {
     app.log.warn({ err: error }, "Agent status reconciliation failed.");

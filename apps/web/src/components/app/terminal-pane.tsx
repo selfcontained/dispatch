@@ -1,7 +1,7 @@
 import { memo, type RefObject, useEffect, useState } from "react";
-import { Loader2, TerminalSquare } from "lucide-react";
+import { Archive, Loader2, TerminalSquare } from "lucide-react";
 
-import { type ConnState } from "@/components/app/types";
+import { type Agent, type ConnState } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
 type TerminalPaneProps = {
@@ -11,6 +11,7 @@ type TerminalPaneProps = {
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
   terminalHostRef: RefObject<HTMLDivElement>;
+  archivePhase: Agent["archivePhase"];
 };
 
 export const TerminalPane = memo(function TerminalPane({
@@ -19,7 +20,8 @@ export const TerminalPane = memo(function TerminalPane({
   statusMessage,
   terminalMode,
   terminalPlaceholderMessage,
-  terminalHostRef
+  terminalHostRef,
+  archivePhase
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
@@ -69,6 +71,25 @@ export const TerminalPane = memo(function TerminalPane({
               {terminalPlaceholderMessage ??
                 "This environment does not launch a real tmux session or CLI process. Agent lifecycle flows are simulated for UI validation."}
             </p>
+          </div>
+        </div>
+      ) : null}
+
+      {archivePhase ? (
+        <div data-testid="terminal-archive-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
+          <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-muted-foreground">
+            <Archive className="h-9 w-9 text-orange-400" />
+            <p className="text-base font-medium text-foreground">Archiving agent</p>
+            <div className="flex items-center gap-2 text-sm text-orange-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                {archivePhase === "stopping" ? "Stopping agent…" :
+                 archivePhase === "worktree-check" ? "Checking worktree…" :
+                 archivePhase === "worktree-cleanup" ? "Removing worktree…" :
+                 archivePhase === "finalizing" ? "Finalizing…" : "Archiving…"}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground/70">You can switch to another agent while this completes.</p>
           </div>
         </div>
       ) : null}

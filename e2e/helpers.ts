@@ -139,6 +139,12 @@ export async function deleteAgentViaAPI(
   await request.delete(`${API}/agents/${agentId}?force=true&cleanupWorktree=${cleanupWorktree}`, {
     headers: authHeaders(),
   });
+  // Archive is async — poll until the agent is actually gone
+  for (let i = 0; i < 50; i++) {
+    const res = await request.get(`${API}/agents/${agentId}`, { headers: authHeaders() });
+    if (res.status() === 404) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }
 
 /**

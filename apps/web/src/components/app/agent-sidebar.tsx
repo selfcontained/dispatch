@@ -280,7 +280,7 @@ export function AgentSidebarContent({
                       </Badge>
                     ) : null}
 
-                    {isStopped ? (
+                    {isStopped && agent.status !== "archiving" ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -299,7 +299,7 @@ export function AgentSidebarContent({
                         </TooltipTrigger>
                         <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
                       </Tooltip>
-                    ) : (
+                    ) : agent.status === "archiving" ? null : (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -326,6 +326,7 @@ export function AgentSidebarContent({
                           data-agent-control="true"
                           data-testid={`agent-archive-${agent.id}`}
                           className="ml-auto"
+                          disabled={agent.status === "archiving" || agent.status === "creating"}
                           onClick={() => {
                             setDeleteTarget(agent);
                             setDeleteConfirmOpen(true);
@@ -367,6 +368,18 @@ export function AgentSidebarContent({
                          agent.setupPhase === "env" ? "Copying environment…" :
                          agent.setupPhase === "deps" ? "Installing dependencies…" :
                          agent.setupPhase === "session" ? "Starting session…" : "Setting up…"}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {agent.status === "archiving" ? (
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
+                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                      <span className="truncate font-medium">
+                        {agent.archivePhase === "stopping" ? "Stopping agent…" :
+                         agent.archivePhase === "worktree-check" ? "Checking worktree…" :
+                         agent.archivePhase === "worktree-cleanup" ? "Removing worktree…" :
+                         agent.archivePhase === "finalizing" ? "Finalizing…" : "Archiving…"}
                       </span>
                     </div>
                   ) : null}
@@ -515,7 +528,7 @@ export function AgentSidebarContent({
                         ) : (
                           <button data-agent-control="true" aria-label="Stop agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Square className="h-3.5 w-3.5" /></button>
                         )}
-                        <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
+                        <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors disabled:opacity-30" disabled={child.status === "archiving"} onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
                       </div>
                       {child.latestEvent ? (
                         childIsExpanded ? (
