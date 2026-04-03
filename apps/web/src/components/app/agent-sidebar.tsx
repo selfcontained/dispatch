@@ -528,32 +528,46 @@ export function AgentSidebarContent({
           )}
         </TooltipProvider>
       </div>
-      <div className="space-y-8 border-t border-border px-3 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] md:space-y-6 md:py-6 md:pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <button
-          onClick={onOpenDocs}
-          data-testid="docs-button"
-          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
-        >
-          <BookOpenText className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          Documentation
-        </button>
-        <button
-          onClick={onOpenActivity}
-          data-testid="activity-button"
-          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
-        >
-          <Activity className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          Activity
-        </button>
-        <button
-          onClick={onOpenSettings}
-          data-testid="settings-button"
-          className="flex w-full items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:text-xs"
-        >
-          <Settings className="h-4 w-4 md:h-3.5 md:w-3.5" />
-          Settings
-        </button>
-      </div>
+      <TooltipProvider delayDuration={120}>
+        <div className="flex items-center justify-around border-t border-border py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onOpenDocs}
+                data-testid="docs-button"
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <BookOpenText className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Documentation</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onOpenActivity}
+                data-testid="activity-button"
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <Activity className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Activity</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onOpenSettings}
+                data-testid="settings-button"
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Settings</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
     </aside>
   );
 }
