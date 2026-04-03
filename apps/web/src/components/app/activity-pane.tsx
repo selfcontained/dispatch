@@ -278,7 +278,7 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
   return (
     <div className="space-y-3">
       <ScrollArea style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full">
-        <div className="grid min-w-[760px] w-max grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2 pb-2">
+        <div className="grid w-max grid-cols-[56px_repeat(24,28px)] gap-x-1.5 gap-y-2 pb-2">
           <div />
           {Array.from({ length: 24 }, (_, hour) => (
             <div
@@ -785,7 +785,7 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
 
           {/* Metrics tab body */}
           {tab === "metrics" && <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+            <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
                 <div className="flex flex-wrap gap-2 sm:gap-3">

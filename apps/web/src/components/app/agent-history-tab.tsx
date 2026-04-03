@@ -116,7 +116,7 @@ function AgentHistoryList({
   const hasActiveFilters = debouncedSearch || type || project || range !== "all";
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-3 sm:px-5 md:px-8">
+    <div className="mx-auto flex h-full max-w-5xl flex-col px-3 sm:px-5 md:px-8">
       {/* Search + filters */}
       <div className="space-y-2 pt-4 pb-2">
         <div className="relative">
@@ -746,7 +746,7 @@ function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="mx-auto max-w-3xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
         <button
