@@ -76,7 +76,7 @@ export type McpRequestContext = {
   ) => Promise<void>;
   shareMedia?: (
     agentId: string,
-    opts: { filePath: string; description: string; source?: string; name?: string }
+    opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
   ) => Promise<MediaResult>;
   submitFeedback?: (
     agentId: string,
@@ -401,7 +401,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       "dispatch_share",
       {
         description:
-          "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first.",
+          "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
         inputSchema: {
           filePath: z
             .string()
@@ -423,7 +423,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           simulatorUdid: z
             .string()
             .optional()
-            .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'.")
+            .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'."),
+          update: z
+            .string()
+            .optional()
+            .describe("fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file.")
         }
       },
       async (args) => {
@@ -471,7 +475,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             filePath,
             description: args.description,
             source: args.source,
-            name: args.name
+            name: args.name,
+            update: args.update
           });
 
           return {
