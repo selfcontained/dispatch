@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type AuthState } from "@/components/app/types";
 import { authEvents } from "@/lib/api";
 
@@ -15,28 +15,33 @@ export function useAuth(): {
   authState: AuthState;
   handleAuthenticated: () => void;
   handleLogout: () => Promise<void>;
+  retryAuth: () => void;
 } {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const passwordSetRef = useRef(false);
+  const queryClient = useQueryClient();
 
-  const { data } = useQuery<AuthStatus>({
+  const { data, isError } = useQuery<AuthStatus>({
     queryKey: ["auth-status"],
     queryFn: fetchAuthStatus,
-    retry: true,
+    retry: 5,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
-    if (!data) return;
-    passwordSetRef.current = data.passwordSet;
-    if (data.passwordSet && !data.authenticated) {
-      setAuthState("needs-login");
-    } else {
-      setAuthState("authenticated");
+    if (data) {
+      passwordSetRef.current = data.passwordSet;
+      if (data.passwordSet && !data.authenticated) {
+        setAuthState("needs-login");
+      } else {
+        setAuthState("authenticated");
+      }
+    } else if (isError) {
+      setAuthState("error");
     }
-  }, [data]);
+  }, [data, isError]);
 
   // Listen for 401s from the shared api() utility — only transition to
   // needs-login when we know a password is configured.
@@ -57,5 +62,10 @@ export function useAuth(): {
     setAuthState("needs-login");
   }, []);
 
-  return { authState, handleAuthenticated, handleLogout };
+  const retryAuth = useCallback(() => {
+    setAuthState("loading");
+    void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+  }, [queryClient]);
+
+  return { authState, handleAuthenticated, handleLogout, retryAuth };
 }
