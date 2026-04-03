@@ -16,7 +16,13 @@ import type nodePty from "node-pty";
 
 let pty: typeof nodePty;
 try {
-  pty = (await import("node-pty")).default;
+  // node-pty is CJS with __esModule: true. Under Node.js native ESM
+  // (production), .default === module.exports. Under tsx/esbuild (dev),
+  // .default is undefined because esbuild respects __esModule and looks
+  // for exports.default which doesn't exist. Fall back to the module
+  // namespace itself which always has the named exports.
+  const m = await import("node-pty");
+  pty = (m.default ?? m) as typeof nodePty;
 } catch {
   console.error(
     "\n✗ Failed to load node-pty native module.\n" +
