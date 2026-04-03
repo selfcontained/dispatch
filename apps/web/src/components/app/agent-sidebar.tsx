@@ -158,7 +158,7 @@ export function AgentSidebarContent({
           <div className="flex min-w-0 flex-col justify-center">
             <div className="text-sm font-bold uppercase tracking-widest text-foreground">Dispatch</div>
             {instanceName ? (
-              <div className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
+              <div title={instanceName} className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
             ) : null}
           </div>
         </div>
