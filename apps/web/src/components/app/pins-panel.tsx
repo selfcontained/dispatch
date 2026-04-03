@@ -4,6 +4,13 @@ import { useCallback, useRef, useState } from "react";
 import { type AgentPin } from "@/components/app/types";
 
 const SAFE_URL_RE = /^https?:\/\//i;
+const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
+
+/** Turn a GitHub PR URL into "owner/repo#123"; fall back to the raw value. */
+function formatPrDisplay(value: string): string {
+  const m = GH_PR_RE.exec(value);
+  return m ? `${m[1]}#${m[2]}` : value;
+}
 
 function CopyButton({ value }: { value: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
@@ -30,7 +37,7 @@ function CopyButton({ value }: { value: string }): JSX.Element {
 
 function resolveDisplayValue(pin: AgentPin): { display: string; href: string | null; badge: boolean; icon: "pr" | null } {
   if (pin.type === "pr" && SAFE_URL_RE.test(pin.value)) {
-    return { display: pin.value, href: pin.value, badge: false, icon: "pr" };
+    return { display: formatPrDisplay(pin.value), href: pin.value, badge: false, icon: "pr" };
   }
   if (pin.type === "pr") {
     return { display: pin.value, href: null, badge: false, icon: "pr" };
@@ -57,7 +64,7 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
         {pin.label}
       </div>
       <div className="flex items-center gap-1.5">
-        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-purple-400" />}
         {href ? (
           <a
             href={href}
