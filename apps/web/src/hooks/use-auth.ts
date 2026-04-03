@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { type AuthState } from "@/components/app/types";
 import { authEvents } from "@/lib/api";
+
+type AuthStatus = { passwordSet: boolean; authenticated: boolean };
+
+async function fetchAuthStatus(): Promise<AuthStatus> {
+  const res = await fetch("/api/v1/auth/status", { credentials: "include" });
+  if (!res.ok) throw new Error(`auth/status ${res.status}`);
+  return (await res.json()) as AuthStatus;
+}
 
 export function useAuth(): {
   authState: AuthState;
@@ -10,37 +19,24 @@ export function useAuth(): {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const passwordSetRef = useRef(false);
 
+  const { data } = useQuery<AuthStatus>({
+    queryKey: ["auth-status"],
+    queryFn: fetchAuthStatus,
+    retry: true,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+
   useEffect(() => {
-    let cancelled = false;
-
-    async function checkAuth() {
-      for (let attempt = 0; ; attempt++) {
-        try {
-          const res = await fetch("/api/v1/auth/status", { credentials: "include" });
-          if (!res.ok) {
-            // Server error — retry after a delay since we can't determine auth state.
-            await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 5000)));
-            continue;
-          }
-          const data = (await res.json()) as { passwordSet: boolean; authenticated: boolean };
-          if (cancelled) return;
-          passwordSetRef.current = data.passwordSet;
-          if (data.passwordSet && !data.authenticated) {
-            setAuthState("needs-login");
-          } else {
-            setAuthState("authenticated");
-          }
-          return;
-        } catch {
-          // Network error (server not reachable) — retry.
-          await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 5000)));
-        }
-      }
+    if (!data) return;
+    passwordSetRef.current = data.passwordSet;
+    if (data.passwordSet && !data.authenticated) {
+      setAuthState("needs-login");
+    } else {
+      setAuthState("authenticated");
     }
-
-    void checkAuth();
-    return () => { cancelled = true; };
-  }, []);
+  }, [data]);
 
   // Listen for 401s from the shared api() utility — only transition to
   // needs-login when we know a password is configured.
