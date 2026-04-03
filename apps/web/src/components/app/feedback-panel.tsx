@@ -37,6 +37,14 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   ignored: { label: "Ignored", color: "text-muted-foreground/60" },
 };
 
+const SEVERITY_ORDER: Record<string, number> = {
+  critical: 0, high: 1, medium: 2, low: 3, info: 4,
+};
+
+function bySeverity(a: FeedbackItem, b: FeedbackItem): number {
+  return (SEVERITY_ORDER[a.severity] ?? 4) - (SEVERITY_ORDER[b.severity] ?? 4);
+}
+
 function formatFeedbackText(item: FeedbackItem): string {
   const parts: string[] = [];
   if (item.filePath) parts.push(`File: ${item.filePath}${item.lineNumber ? `:${item.lineNumber}` : ""}`);
@@ -224,32 +232,32 @@ export function ParentFeedbackPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allAgents, parentAgentId, personas]);
 
-  if (feedback.length === 0) return null;
-
-  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
-  const resolvedItems = feedback.filter((f) => f.status !== "open" && f.status !== "forwarded");
+  const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
+  const resolvedItems = useMemo(() => feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity), [feedback]);
   const activeCount = activeItems.length;
-  const visibleItems = showResolved ? feedback : activeItems;
+  const visibleItems = useMemo(() => showResolved ? [...activeItems, ...resolvedItems] : activeItems, [showResolved, activeItems, resolvedItems]);
 
-  const sheetIndex = sheetItem ? visibleItems.findIndex((f) => f.id === sheetItem.id) : -1;
-  const prevSheetItem = sheetIndex > 0 ? visibleItems[sheetIndex - 1]! : null;
-  const nextSheetItem = sheetIndex >= 0 && sheetIndex < visibleItems.length - 1 ? visibleItems[sheetIndex + 1]! : null;
+  const sheetIsActive = sheetItem && (sheetItem.status === "open" || sheetItem.status === "forwarded");
+  const sheetNavItems = sheetIsActive ? activeItems : resolvedItems;
+  const sheetIndex = sheetItem ? sheetNavItems.findIndex((f) => f.id === sheetItem.id) : -1;
+  const prevSheetItem = sheetIndex > 0 ? sheetNavItems[sheetIndex - 1]! : null;
+  const nextSheetItem = sheetIndex >= 0 && sheetIndex < sheetNavItems.length - 1 ? sheetNavItems[sheetIndex + 1]! : null;
 
-  const updateStatus = async (item: FeedbackItem, status: string) => {
+  const updateStatus = useCallback(async (item: FeedbackItem, status: string) => {
     await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
     });
     const update = (f: FeedbackItem) => f.id === item.id ? { ...f, status: status as FeedbackItem["status"] } : f;
     queryClient.setQueryData<FeedbackItem[]>(["feedback", parentAgentId, "children"], (old) => old?.map(update));
-  };
+  }, [queryClient, parentAgentId]);
 
-  const dismissUI = () => {
+  const dismissUI = useCallback(() => {
     setSheetItemId(null);
     if (closeOnSessionAction) onRequestClose?.();
-  };
+  }, [closeOnSessionAction, onRequestClose]);
 
-  const forward = (item: FeedbackItem, mode: "wdyt" | "fix") => {
+  const forward = useCallback((item: FeedbackItem, mode: "wdyt" | "fix") => {
     if (sendTerminalInput && isConnected) {
       const prefix = mode === "fix"
         ? "Fix the following issue found by the persona reviewer:"
@@ -259,23 +267,29 @@ export function ParentFeedbackPanel({
       void updateStatus(item, "forwarded");
     }
     dismissUI();
-  };
+  }, [sendTerminalInput, isConnected, updateStatus, dismissUI]);
 
-  const handleCopy = (item: FeedbackItem) => {
+  const handleCopy = useCallback((item: FeedbackItem) => {
     copyText(formatFeedbackText(item));
     setCopiedItemId(item.id);
-  };
+  }, [copyText]);
 
-  const handleResolve = (item: FeedbackItem, status: string) => {
+  const handleResolve = useCallback((item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
-    // Auto-advance to the next unresolved item
-    const remaining = activeItems.filter((f) => f.id !== item.id);
-    const nextId = remaining.length > 0 ? remaining[0]!.id : null;
+    // Auto-advance to the next unresolved item within the same persona
+    const samePersona = activeItems.filter((f) => f.agentId === item.agentId);
+    const idx = samePersona.findIndex((f) => f.id === item.id);
+    const remaining = samePersona.filter((f) => f.id !== item.id);
+    const nextId = remaining.length > 0
+      ? remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id
+      : null;
     setSheetItemId(sheetItemId != null ? nextId : null);
     setExpandedId(nextId);
-  };
+  }, [updateStatus, activeItems, sheetItemId]);
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
+
+  if (feedback.length === 0) return null;
 
   return (
     <>
@@ -422,7 +436,7 @@ export function ParentFeedbackPanel({
               <div className="absolute right-4 top-4 flex items-center space-x-8 z-10">
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {sheetIndex + 1}/{visibleItems.length}
+                    {sheetIndex + 1}/{sheetNavItems.length}{!sheetIsActive ? " resolved" : ""}
                   </span>
                   <Button
                     variant="ghost"
@@ -595,12 +609,15 @@ export function FeedbackDetailPanel({
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
 
   const panelRef = useRef<HTMLDivElement>(null);
-  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
+  const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
+  const resolvedItems = useMemo(() => feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity), [feedback]);
   const item = feedback.find((f) => f.id === itemId) ?? null;
 
-  const itemIndex = item ? activeItems.findIndex((f) => f.id === item.id) : -1;
-  const prevItem = itemIndex > 0 ? activeItems[itemIndex - 1]! : null;
-  const nextItem = itemIndex >= 0 && itemIndex < activeItems.length - 1 ? activeItems[itemIndex + 1]! : null;
+  const isActiveItem = item && (item.status === "open" || item.status === "forwarded");
+  const navItems = isActiveItem ? activeItems : resolvedItems;
+  const itemIndex = item ? navItems.findIndex((f) => f.id === item.id) : -1;
+  const prevItem = itemIndex > 0 ? navItems[itemIndex - 1]! : null;
+  const nextItem = itemIndex >= 0 && itemIndex < navItems.length - 1 ? navItems[itemIndex + 1]! : null;
 
   // Auto-focus the panel when it opens
   useEffect(() => {
@@ -625,13 +642,19 @@ export function FeedbackDetailPanel({
 
   const handleResolve = useCallback((feedbackItem: FeedbackItem, status: string) => {
     void updateStatus(feedbackItem, status);
-    const remaining = activeItems.filter((f) => f.id !== feedbackItem.id);
+    // Advance within the same persona group
+    const samePersona = activeItems.filter((f) => f.agentId === feedbackItem.agentId);
+    const idx = samePersona.findIndex((f) => f.id === feedbackItem.id);
+    const remaining = samePersona.filter((f) => f.id !== feedbackItem.id);
     if (remaining.length > 0) {
-      onNavigate(remaining[0]!.id);
+      onNavigate(remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id);
+    } else if (resolvedItems.length > 0) {
+      // Show first resolved item instead of closing
+      onNavigate(resolvedItems[0]!.id);
     } else {
       onClose();
     }
-  }, [updateStatus, activeItems, onNavigate, onClose]);
+  }, [updateStatus, activeItems, resolvedItems, onNavigate, onClose]);
 
   if (!item) return null;
 
@@ -668,7 +691,7 @@ export function FeedbackDetailPanel({
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-4">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {itemIndex + 1}/{activeItems.length}
+            {itemIndex + 1}/{navItems.length}{!isActiveItem ? " resolved" : ""}
           </span>
           <Button
             variant="ghost"
