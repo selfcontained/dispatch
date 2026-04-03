@@ -1,5 +1,11 @@
 export type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "unknown";
 
+export type AgentPin = {
+  label: string;
+  value: string;
+  type: "string" | "url" | "port" | "code";
+};
+
 export type Agent = {
   id: string;
   name: string;
@@ -19,6 +25,7 @@ export type Agent = {
     updatedAt: string;
     metadata?: Record<string, unknown> | null;
   } | null;
+  pins?: AgentPin[];
   mediaDir: string | null;
   gitContext?: {
     repoRoot: string;

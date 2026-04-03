@@ -651,8 +651,9 @@ export function DashboardLayout(): JSX.Element {
             mediaFiles={mediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
+            selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
-
+            unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             hasStream={focusedAgentHasStream}
@@ -717,8 +718,9 @@ export function DashboardLayout(): JSX.Element {
               mediaFiles={mediaFiles}
               selectedAgentId={focusedAgentId}
               selectedAgentName={focusedAgent?.name ?? null}
+              selectedAgentPins={focusedAgent?.pins ?? []}
               animatingMediaKeys={animatingMediaKeys}
-
+              unseenMediaCount={unseenMediaCount}
               mediaViewportRef={mediaViewportRef}
               hasStream={focusedAgentHasStream}
               streamUrl={focusedAgentStreamUrl}

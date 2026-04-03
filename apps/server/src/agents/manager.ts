@@ -16,6 +16,13 @@ type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "error" | "
 type AgentType = "codex" | "claude" | "opencode";
 type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
+type PinType = "string" | "url" | "port" | "code";
+
+export type AgentPin = {
+  label: string;
+  value: string;
+  type: PinType;
+};
 
 type AgentLatestEvent = {
   type: AgentLatestEventType;
@@ -48,6 +55,7 @@ export type AgentRecord = {
   setupPhase: SetupPhase;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
+  pins: AgentPin[];
   gitContext: AgentGitContext | null;
   gitContextStale: boolean;
   gitContextUpdatedAt: string | null;
@@ -616,6 +624,44 @@ export class AgentManager {
       }
     }
     return agent;
+  }
+
+  async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
+    const MAX_PINS = 50;
+    const current = await this.getAgent(id);
+    if (!current) throw new AgentError("Agent not found.", 404);
+
+    const pins = (current.pins ?? []).filter(
+      (p) => p.label.toLowerCase() !== pin.label.toLowerCase()
+    );
+    if (pins.length >= MAX_PINS) {
+      throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
+    }
+    pins.push(pin);
+
+    await this.pool.query(
+      `UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [id, JSON.stringify(pins)]
+    );
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  async deletePin(id: string, label: string): Promise<AgentRecord> {
+    const current = await this.getAgent(id);
+    if (!current) throw new AgentError("Agent not found.", 404);
+
+    const lowerLabel = label.toLowerCase();
+    const pins = (current.pins ?? []).filter(
+      (p) => p.label.toLowerCase() !== lowerLabel
+    );
+
+    await this.pool.query(
+      `UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [id, JSON.stringify(pins)]
+    );
+
+    return (await this.getAgent(id)) as AgentRecord;
   }
 
   async reconcileAgents(): Promise<void> {
@@ -1417,6 +1463,7 @@ export class AgentManager {
             COALESCE(latest_event_metadata, '{}'::jsonb)
           )
         END AS "latestEvent",
+        COALESCE(pins, '[]'::jsonb) AS "pins",
         git_context AS "gitContext",
         git_context_stale AS "gitContextStale",
         git_context_updated_at AS "gitContextUpdatedAt",

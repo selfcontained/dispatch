@@ -1,8 +1,9 @@
-import { type RefObject, useCallback, useEffect } from "react";
+import { type RefObject, useCallback, useEffect, useState, useRef } from "react";
 import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
 
-import { type MediaFile } from "@/components/app/types";
+import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media-lightbox";
+import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -16,11 +17,13 @@ type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
   selectedAgentName: string | null;
+  selectedAgentPins: AgentPin[];
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
   hasStream: boolean;
   streamUrl: string | null;
+  unseenMediaCount: number;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -33,6 +36,8 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   closeButtonIcon?: "chevron" | "x";
   className?: string;
 };
+
+type SidebarTab = "pins" | "media";
 
 function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; selectedAgentId: string }): JSX.Element {
   const popOut = useCallback(() => {
@@ -68,38 +73,17 @@ function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; 
   );
 }
 
-export function MediaSidebarContent({
+function MediaContent({
   mediaFiles,
   selectedAgentId,
-  selectedAgentName,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
   hasStream,
   streamUrl,
-  onRequestClose,
-  closeButtonIcon = "x",
-  className
-}: MediaSidebarContentProps): JSX.Element {
+}: Pick<MediaSidebarSharedProps, "mediaFiles" | "selectedAgentId" | "animatingMediaKeys" | "mediaViewportRef" | "openLightbox" | "hasStream" | "streamUrl">): JSX.Element {
   return (
-    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
-      <div className="flex items-center px-3 py-2 pt-[env(safe-area-inset-top)]">
-        <div>
-          <div className="text-sm font-semibold uppercase tracking-wide">Media Stream</div>
-          <div className="text-xs text-muted-foreground">
-            Viewing: {selectedAgentName ?? "none"}
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{mediaFiles.length} items</span>
-          {onRequestClose ? (
-            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close media sidebar">
-              {closeButtonIcon === "chevron" ? <ChevronRight className="h-4 w-4" /> : <X className="h-4 w-4" />}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
+    <>
       {hasStream && streamUrl && selectedAgentId ? (
         <LiveStreamSection streamUrl={streamUrl} selectedAgentId={selectedAgentId} />
       ) : null}
@@ -181,6 +165,106 @@ export function MediaSidebarContent({
             );
           })
         )}
+      </div>
+    </>
+  );
+}
+
+export function MediaSidebarContent({
+  mediaFiles,
+  selectedAgentId,
+  selectedAgentName,
+  selectedAgentPins,
+  animatingMediaKeys,
+  mediaViewportRef,
+  openLightbox,
+  hasStream,
+  streamUrl,
+  unseenMediaCount,
+  onRequestClose,
+  closeButtonIcon = "x",
+  className
+}: MediaSidebarContentProps): JSX.Element {
+  const [activeTab, setActiveTab] = useState<SidebarTab>("pins");
+  const prevAgentIdRef = useRef(selectedAgentId);
+
+  // Reset to pins tab when agent changes
+  if (prevAgentIdRef.current !== selectedAgentId) {
+    prevAgentIdRef.current = selectedAgentId;
+    if (activeTab !== "pins") {
+      setActiveTab("pins");
+    }
+  }
+
+  const pinCount = selectedAgentPins.length;
+
+  return (
+    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
+      {/* Tab header */}
+      <div className="flex items-center border-b border-border pt-[env(safe-area-inset-top)]">
+        <div className="flex flex-1">
+          <button
+            onClick={() => setActiveTab("pins")}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              activeTab === "pins"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/80"
+            )}
+          >
+            Pins
+            {pinCount > 0 && activeTab !== "pins" ? (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold text-muted-foreground">
+                {pinCount}
+              </span>
+            ) : null}
+            {activeTab === "pins" ? (
+              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+            ) : null}
+          </button>
+          <button
+            onClick={() => setActiveTab("media")}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              activeTab === "media"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/80"
+            )}
+          >
+            Media
+            {unseenMediaCount > 0 && activeTab !== "media" ? (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/20 px-1 text-[10px] font-semibold text-blue-400">
+                {unseenMediaCount}
+              </span>
+            ) : null}
+            {activeTab === "media" ? (
+              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+            ) : null}
+          </button>
+        </div>
+        {onRequestClose ? (
+          <div className="px-2">
+            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close sidebar" className="h-7 w-7">
+              {closeButtonIcon === "chevron" ? <ChevronRight className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "pins" && "hidden")}>
+        <PinsPanel pins={selectedAgentPins} selectedAgentName={selectedAgentName} />
+      </div>
+      <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "media" && "hidden")}>
+        <MediaContent
+          mediaFiles={mediaFiles}
+          selectedAgentId={selectedAgentId}
+          animatingMediaKeys={animatingMediaKeys}
+          mediaViewportRef={mediaViewportRef}
+          openLightbox={openLightbox}
+          hasStream={hasStream}
+          streamUrl={streamUrl}
+        />
       </div>
     </aside>
   );
