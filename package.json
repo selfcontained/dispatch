@@ -24,6 +24,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "esbuild",
       "node-pty",
       "sharp"
     ]
