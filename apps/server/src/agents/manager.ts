@@ -475,6 +475,8 @@ export class AgentManager {
   }
 
   async deleteAgent(id: string, force = false, cleanupWorktree: WorktreeCleanupMode = "auto"): Promise<void> {
+    const deleteStart = Date.now();
+    const durations: Record<string, number> = {};
     const agent = await this.getRequiredAgent(id);
     const sessionExists = agent.tmuxSession ? await this.hasAgentSession(agent.tmuxSession) : false;
 
@@ -485,29 +487,54 @@ export class AgentManager {
 
     // Run full stop lifecycle (hooks, graceful shutdown, token harvest) for non-stopped agents.
     if (agent.status !== "stopped") {
+      const t = Date.now();
       try {
         await this.stopAgent(id, { force: true });
       } catch (err) {
         this.logger.warn({ err, agentId: id }, "Stop during delete failed; continuing with deletion");
       }
+      durations.stop = Date.now() - t;
     }
 
     // Worktree cleanup
     if (agent.worktreePath) {
       try {
-        const shouldCleanup =
-          cleanupWorktree === "force" ||
-          (cleanupWorktree === "auto" && !(await this.hasOutstandingChanges(agent.worktreePath)));
+        const tCheck = Date.now();
+        let shouldCleanup = cleanupWorktree === "force";
+        let preserveReason: string | undefined;
+
+        if (!shouldCleanup && cleanupWorktree === "auto") {
+          const [unmerged, uncommitted] = await Promise.all([
+            this.getUnmergedChanges(agent.worktreePath),
+            this.getUncommittedChanges(agent.worktreePath),
+          ]);
+          const hasChanges = unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
+          shouldCleanup = !hasChanges;
+          if (hasChanges) {
+            const reasons: string[] = [];
+            if (unmerged.hasUnmergedCommits) reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
+            if (uncommitted.hasUncommittedChanges) reasons.push(`${uncommitted.uncommittedFiles.length} uncommitted file(s)`);
+            preserveReason = reasons.join(", ");
+          }
+        } else if (!shouldCleanup && cleanupWorktree === "keep") {
+          preserveReason = "user chose keep";
+        }
+        durations.outstandingChangesCheck = Date.now() - tCheck;
 
         if (shouldCleanup) {
+          const tCleanup = Date.now();
           await cleanupGitWorktree({
             cwd: agent.worktreePath,
             deleteBranch: true,
             force: true
           });
+          durations.worktreeCleanup = Date.now() - tCleanup;
           this.logger.info({ agentId: id, worktreePath: agent.worktreePath }, "Cleaned up agent worktree.");
         } else {
-          this.logger.info({ agentId: id, worktreePath: agent.worktreePath }, "Preserved agent worktree (unmerged commits).");
+          this.logger.info(
+            { agentId: id, worktreePath: agent.worktreePath, cleanupWorktree, preserveReason },
+            `Preserved agent worktree: ${preserveReason}.`
+          );
         }
       } catch (error) {
         this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
@@ -515,6 +542,7 @@ export class AgentManager {
     }
 
     // Record a final stopped event in history before deleting the agent row
+    const tDb = Date.now();
     await this.pool
       .query(
         `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
@@ -525,8 +553,10 @@ export class AgentManager {
       .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
 
     await this.pool.query("UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
+    durations.db = Date.now() - tDb;
 
     // Cascade: archive child agents (persona agents spawned by this parent)
+    const tCascade = Date.now();
     const children = await this.pool.query<{ id: string }>(
       "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
       [id]
@@ -538,6 +568,13 @@ export class AgentManager {
         this.logger.warn({ err, childId: child.id, parentId: id }, "Failed to cascade-delete child agent");
       }
     }
+    if (children.rows.length > 0) {
+      durations.cascadeChildren = Date.now() - tCascade;
+    }
+
+    durations.total = Date.now() - deleteStart;
+    const parts = Object.entries(durations).map(([k, v]) => `${k}=${v}ms`).join(", ");
+    this.logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
   }
 
   async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
