@@ -105,7 +105,7 @@ if [[ -n "$INSTALL_TAG" ]]; then
   printf '{\n  "tag": "%s",\n  "deployedAt": "%s"\n}\n' \
     "$INSTALL_TAG" \
     "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" \
-    > "$RELEASE_FILE"
+    > "$RELEASE_FILE.tmp" && mv "$RELEASE_FILE.tmp" "$RELEASE_FILE"
 fi
 
 mkdir -p "$LOG_DIR"
