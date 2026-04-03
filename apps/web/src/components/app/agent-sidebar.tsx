@@ -13,6 +13,7 @@ import {
   X
 } from "lucide-react";
 import { useIconColor } from "@/hooks/use-icon-color";
+import { useInstanceName } from "@/hooks/use-instance-name";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -99,6 +100,7 @@ export function AgentSidebarContent({
   className
 }: AgentSidebarContentProps): JSX.Element {
   const { iconColor } = useIconColor();
+  const { instanceName } = useInstanceName();
 
   const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
     ? lastUsedAgentType
@@ -150,9 +152,15 @@ export function AgentSidebarContent({
 
   return (
     <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
-      <div className="flex h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
-        <div className="flex items-center">
-          <img src={`/icons/${iconColor}/brand-full-logo.svg`} alt="Dispatch" className="h-7 w-auto max-w-[180px] object-contain" />
+      <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
+        <div className="flex items-center gap-2.5">
+          <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
+          <div className="flex min-w-0 flex-col justify-center">
+            <div className="text-sm font-bold uppercase tracking-widest text-foreground">Dispatch</div>
+            {instanceName ? (
+              <div className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
+            ) : null}
+          </div>
         </div>
         {onRequestClose ? (
           <div className="ml-auto">

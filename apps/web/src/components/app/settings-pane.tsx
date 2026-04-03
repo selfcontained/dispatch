@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Bell, ChevronDown, ChevronRight, ArrowLeft, ArrowDownToLine, ExternalLink, Palette, RefreshCw, Shield, Trash2, Users, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Bell, ChevronDown, ChevronRight, ExternalLink, Info, RefreshCw, Settings, Trash2, Users, X } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
@@ -8,20 +8,20 @@ import { ReleaseManager } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
+import { useInstanceName } from "@/hooks/use-instance-name";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "release" | "security" | "notifications" | "appearance" | "agents" | "app";
+type SettingsSection = "general" | "agents" | "notifications" | "updates" | "about";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
-  { id: "release", label: "Updates", icon: ArrowDownToLine },
-  { id: "security", label: "Security", icon: Shield },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "general", label: "General", icon: Settings },
   { id: "agents", label: "Agents", icon: Users },
-  { id: "app", label: "App", icon: RefreshCw }
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "updates", label: "Updates", icon: ArrowDownToLine },
+  { id: "about", label: "About", icon: Info },
 ];
 
 type AppVersionInfo = {
@@ -31,6 +31,90 @@ type AppVersionInfo = {
   releaseNotes: string | null;
   releaseUrl: string | null;
 };
+
+function InstanceNameSettings(): JSX.Element {
+  const { instanceName, setInstanceName, isSaving, saveError, didSave, clearSaveState } = useInstanceName();
+  const [draft, setDraft] = useState(instanceName);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showSaved, setShowSaved] = useState(false);
+
+  // Sync draft when the stored value loads/changes (but not while the user is editing)
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraft(instanceName);
+    }
+  }, [instanceName]);
+
+  // Revert draft on save error
+  useEffect(() => {
+    if (saveError) {
+      setDraft(instanceName);
+    }
+  }, [saveError, instanceName]);
+
+  // Show brief "Saved" confirmation
+  useEffect(() => {
+    if (didSave) {
+      setShowSaved(true);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => {
+        setShowSaved(false);
+        clearSaveState();
+      }, 2000);
+    }
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, [didSave, clearSaveState]);
+
+  const save = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed !== instanceName) {
+      setInstanceName(trimmed);
+    }
+    setDraft(trimmed);
+  }, [draft, instanceName, setInstanceName]);
+
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Instance name
+      </div>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Give this Dispatch instance a name to distinguish it from others. Shown in the sidebar and browser tab.
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => { setDraft(e.target.value); if (saveError) clearSaveState(); }}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              save();
+              inputRef.current?.blur();
+            }
+          }}
+          disabled={isSaving}
+          placeholder="e.g. Production, Staging, Local"
+          maxLength={100}
+          className={cn(
+            "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
+            saveError ? "border-destructive" : "border-border focus:border-primary/50"
+          )}
+        />
+        {showSaved && !saveError ? (
+          <span className="text-xs text-muted-foreground">Saved</span>
+        ) : null}
+      </div>
+      {saveError ? (
+        <p className="mt-1.5 text-xs text-destructive">Failed to save. Please try again.</p>
+      ) : null}
+    </div>
+  );
+}
 
 function AppSettings(): JSX.Element {
   const [reloading, setReloading] = useState(false);
@@ -415,7 +499,7 @@ export function SettingsPane({
   initialSection,
   onSectionChange,
 }: SettingsPaneProps): JSX.Element {
-  const resolvedInitial = isValidSection(initialSection) ? initialSection : "release";
+  const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
   const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
 
   // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
@@ -436,7 +520,7 @@ export function SettingsPane({
       onOpenChange={(v) => {
         if (!v) {
           onClose();
-          setActiveSectionState("release");
+          setActiveSectionState("general");
         }
       }}
     >
@@ -509,10 +593,19 @@ export function SettingsPane({
 
             {/* Content */}
             <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
-              {activeSection === "release" && <ReleaseManager />}
-              {activeSection === "security" && <SecuritySettings onLogout={onLogout} />}
-              {activeSection === "notifications" && <NotificationSettings />}
-              {activeSection === "appearance" && <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />}
+              {activeSection === "general" && (
+                <div className="flex flex-col overflow-y-auto">
+                  <div className="p-4 md:p-6">
+                    <InstanceNameSettings />
+                  </div>
+                  <div className="border-t border-border">
+                    <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />
+                  </div>
+                  <div className="border-t border-border">
+                    <SecuritySettings onLogout={onLogout} />
+                  </div>
+                </div>
+              )}
               {activeSection === "agents" && (
                 <div className="flex flex-col">
                   <AgentTypeSettings
@@ -524,7 +617,9 @@ export function SettingsPane({
                   </div>
                 </div>
               )}
-              {activeSection === "app" && <AppSettings />}
+              {activeSection === "notifications" && <NotificationSettings />}
+              {activeSection === "updates" && <ReleaseManager />}
+              {activeSection === "about" && <AppSettings />}
             </div>
           </div>
         </DialogPrimitive.Content>

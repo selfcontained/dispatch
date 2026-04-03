@@ -50,7 +50,7 @@ import {
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { getSetting, setSetting } from "./db/settings.js";
+import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
@@ -1365,6 +1365,7 @@ async function registerRoutes() {
 
   // --- Agent worktree settings ---
   const WORKTREE_LOCATION_KEY = "worktree_location";
+  const INSTANCE_NAME_KEY = "instance_name";
   type WorktreeLocation = "sibling" | "nested";
   const VALID_WORKTREE_LOCATIONS: WorktreeLocation[] = ["sibling", "nested"];
 
@@ -1372,11 +1373,12 @@ async function registerRoutes() {
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
-    return { worktreeLocation, iconColor: cachedIconColor };
+    const instanceName = (await getSetting(pool, INSTANCE_NAME_KEY)) ?? "";
+    return { worktreeLocation, iconColor: cachedIconColor, instanceName };
   });
 
   app.post("/api/v1/agents/settings", async (request, reply) => {
-    const body = request.body as { worktreeLocation?: unknown; iconColor?: unknown };
+    const body = request.body as { worktreeLocation?: unknown; iconColor?: unknown; instanceName?: unknown };
 
     if (body.worktreeLocation !== undefined) {
       if (typeof body.worktreeLocation !== "string" || !(VALID_WORKTREE_LOCATIONS as string[]).includes(body.worktreeLocation)) {
@@ -1393,10 +1395,23 @@ async function registerRoutes() {
       rewriteForColor(body.iconColor as IconColor);
     }
 
+    if (body.instanceName !== undefined) {
+      if (typeof body.instanceName !== "string") {
+        return reply.code(400).send({ error: "instanceName must be a string." });
+      }
+      const trimmed = body.instanceName.trim().slice(0, 100);
+      if (trimmed) {
+        await setSetting(pool, INSTANCE_NAME_KEY, trimmed);
+      } else {
+        await deleteSetting(pool, INSTANCE_NAME_KEY);
+      }
+    }
+
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
-    return { worktreeLocation, iconColor: cachedIconColor };
+    const instanceName = (await getSetting(pool, INSTANCE_NAME_KEY)) ?? "";
+    return { worktreeLocation, iconColor: cachedIconColor, instanceName };
   });
 
   // --- Notification settings ---

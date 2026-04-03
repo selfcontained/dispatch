@@ -101,7 +101,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
   }
 
   return (
-    <div className="flex flex-col gap-8 overflow-y-auto p-6">
+    <div className="flex flex-col gap-8 p-6">
       <div>
         <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {passwordSet ? "Change Password" : "Set Password"}
