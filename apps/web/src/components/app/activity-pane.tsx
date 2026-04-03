@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { AgentHistoryTab } from "@/components/app/agent-history-tab";
@@ -59,6 +59,8 @@ import {
 type ActivityPaneProps = {
   open: boolean;
   onClose: () => void;
+  initialTab?: "metrics" | "history";
+  onTabChange?: (tab: string) => void;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -683,9 +685,20 @@ function ProjectBreakdown({
 
 type ActivityTab = "metrics" | "history";
 
-export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
+export function ActivityPane({ open, onClose, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
-  const [tab, setTab] = useState<ActivityTab>("metrics");
+  const [tab, setTabState] = useState<ActivityTab>(initialTab ?? "metrics");
+
+  useEffect(() => {
+    if (open && initialTab) {
+      setTabState(initialTab);
+    }
+  }, [open, initialTab]);
+
+  const setTab = useCallback((newTab: ActivityTab) => {
+    setTabState(newTab);
+    onTabChange?.(newTab);
+  }, [onTabChange]);
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats(range);
   const { data: dailyStatus } = useDailyStatus(range);

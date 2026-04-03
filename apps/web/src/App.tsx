@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
 import { DocsPane } from "@/components/app/docs-pane";
-import { LoginPage } from "@/components/app/login-page";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
@@ -23,7 +23,7 @@ import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
 import { api } from "@/lib/api";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuthContext } from "@/contexts/auth-context";
 import { useHealth } from "@/hooks/use-health";
 import { useLayout } from "@/hooks/use-layout";
 import { useAgents } from "@/hooks/use-agents";
@@ -94,13 +94,29 @@ function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): bo
   );
 }
 
-export function App(): JSX.Element {
+export function DashboardLayout(): JSX.Element {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // ── Route matching ───────────────────────────────────────────────────
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const settingsOpen = pathSegments[0] === "settings";
+  const settingsSection = settingsOpen ? pathSegments[1] : undefined;
+  const docsOpen = pathSegments[0] === "docs";
+  const docsSection = docsOpen ? pathSegments[1] : undefined;
+  const activityOpen = pathSegments[0] === "activity";
+  const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
+
+  const closeOverlay = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
+
   // ── Theme & Branding ──────────────────────────────────────────────────
   const { theme, setTheme } = useTheme();
   const { iconColor, setIconColor, isLoading: isIconColorSaving, error: iconColorError, clearError: clearIconColorError } = useIconColor();
 
-  // ── Auth ──────────────────────────────────────────────────────────────
-  const { authState, handleAuthenticated, handleLogout } = useAuth();
+  // ── Auth (from context — AuthLayout guarantees authenticated) ─────────
+  const { handleLogout } = useAuthContext();
 
   // ── Layout ────────────────────────────────────────────────────────────
   const {
@@ -120,15 +136,10 @@ export function App(): JSX.Element {
   } = useLayout();
 
   // ── Health ────────────────────────────────────────────────────────────
-  const { apiState, dbState } = useHealth(authState === "authenticated");
+  const { apiState, dbState } = useHealth(true);
 
   // ── Media ─────────────────────────────────────────────────────────────
-  // (selectedAgentId comes from useAgents below — we forward-declare the ref)
   const selectedAgentIdRef = useRef<string | null>(null);
-
-  // We need selectedAgentId before calling useMedia, but useAgents needs
-  // connectedAgentId from useTerminal.  Break the cycle by keeping
-  // connectedAgentId in a ref from useTerminal.
 
   // ── Create dialog state ───────────────────────────────────────────────
   const [createOpen, setCreateOpen] = useState(false);
@@ -151,24 +162,19 @@ export function App(): JSX.Element {
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [stopTarget, setStopTarget] = useState<Agent | null>(null);
 
-  // ── Panes ─────────────────────────────────────────────────────────────
-  const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
-  const [docsPaneOpen, setDocsPaneOpen] = useState(false);
-  const [activityPaneOpen, setActivityPaneOpen] = useState(false);
+  // ── Misc UI state ────────────────────────────────────────────────────
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
 
-  // ── Agents (placeholder connectedAgentId — filled by terminal hook) ──
-  // We use a temporary variable; useAgents only needs connectedAgentId for
-  // sorting/visual state.  useTerminal returns it.  We'll resolve this by
-  // lifting connectedAgentId as shared state.
+  // ── Agent selection ────────────────────────────────────────────────────
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // ── Agents ────────────────────────────────────────────────────────────
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<string | null>(null);
   const [sharedConnState, setSharedConnState] = useState<"disconnected" | "reconnecting" | "connected">("disconnected");
 
   const {
     agents,
     agentsLoaded,
-    selectedAgentId,
-    setSelectedAgentId,
     selectedAgent,
     connectedAgent,
     overflowAgentId,
@@ -177,12 +183,13 @@ export function App(): JSX.Element {
     setStreamingAgentIds,
     agentVisualState,
     resortAgents,
-  } = useAgents(sharedConnectedAgentId, sharedConnState, authState === "authenticated");
+    validatedSelectedAgentId,
+  } = useAgents(sharedConnectedAgentId, sharedConnState, true, selectedAgentId);
 
-  selectedAgentIdRef.current = selectedAgentId;
+  selectedAgentIdRef.current = validatedSelectedAgentId;
 
   const focusedAgentId = sharedConnState === "connected" || sharedConnState === "reconnecting"
-    ? (sharedConnectedAgentId ?? selectedAgentId)
+    ? (sharedConnectedAgentId ?? validatedSelectedAgentId)
     : null;
   const focusedAgent = focusedAgentId
     ? agents.find((agent) => agent.id === focusedAgentId) ?? null
@@ -214,14 +221,6 @@ export function App(): JSX.Element {
   }, []);
 
   // ── Terminal ──────────────────────────────────────────────────────────
-  const onAgentSelected = useCallback(
-    (agentId: string) => {
-      setSelectedAgentId(agentId);
-      ensureAuxExpanded(agentId);
-    },
-    [ensureAuxExpanded, setSelectedAgentId]
-  );
-
   const {
     connState,
     connectedAgentId,
@@ -235,15 +234,15 @@ export function App(): JSX.Element {
     detachTerminal,
     sendTerminalInput,
   } = useTerminal({
-    authState,
+    authState: "authenticated",
     agents,
     agentsLoaded,
-    selectedAgentId,
+    selectedAgentId: validatedSelectedAgentId,
     theme,
     isMobile,
     leftOpen,
     mediaOpen,
-    onAgentSelected,
+    setSelectedAgentId,
     refreshMedia,
   });
 
@@ -272,10 +271,10 @@ export function App(): JSX.Element {
   connectedAgentIdRef.current = connectedAgentId;
 
   // ── Focus tracking (notification suppression) ─────────────────────────
-  useAgentFocus(focusedAgentId, authState);
+  useAgentFocus(focusedAgentId, "authenticated");
 
   // ── SSE ───────────────────────────────────────────────────────────────
-  useSSE(authState, connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
+  useSSE("authenticated", connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
 
   // Return focus to the terminal when either sidebar closes.
   const prevLeftOpenRef = useRef(leftPanelOpen);
@@ -286,7 +285,6 @@ export function App(): JSX.Element {
     prevLeftOpenRef.current = leftPanelOpen;
     prevMediaOpenRef.current = mediaPanelOpen;
     if (leftClosed || mediaClosed) {
-      // Delay slightly so the sidebar close animation doesn't steal focus.
       const timer = window.setTimeout(focusTerminal, 50);
       return () => window.clearTimeout(timer);
     }
@@ -408,7 +406,7 @@ export function App(): JSX.Element {
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const startAgent = useCallback(
@@ -422,13 +420,13 @@ export function App(): JSX.Element {
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const detachAndClearSelection = useCallback(() => {
     detachTerminal();
     setSelectedAgentId(null);
-  }, [detachTerminal, setSelectedAgentId]);
+  }, [detachTerminal]);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
@@ -448,7 +446,7 @@ export function App(): JSX.Element {
       if (connectedAgentId === agent.id) {
         detachTerminal();
       }
-      if (selectedAgentId === agent.id) {
+      if (validatedSelectedAgentId === agent.id) {
         setSelectedAgentId(null);
         refreshMedia(null);
       }
@@ -465,7 +463,7 @@ export function App(): JSX.Element {
       const qs = params.toString();
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
-    [connectedAgentId, detachTerminal, refreshMedia, selectedAgentId, setSelectedAgentId]
+    [connectedAgentId, detachTerminal, refreshMedia, validatedSelectedAgentId]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
@@ -512,7 +510,7 @@ export function App(): JSX.Element {
         setCreating(false);
       }
     },
-    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia, setSelectedAgentId]
+    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const borderForAgentState = (state: AgentVisualState): string => {
@@ -526,19 +524,12 @@ export function App(): JSX.Element {
     return "bg-status-waiting";
   };
 
+  // ── Navigation callbacks for overlay panes ────────────────────────────
+  const openSettings = useCallback(() => navigate("/settings"), [navigate]);
+  const openDocs = useCallback(() => navigate("/docs"), [navigate]);
+  const openActivity = useCallback(() => navigate("/activity"), [navigate]);
+
   // ── Render ────────────────────────────────────────────────────────────
-  if (authState === "loading") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <span className="text-sm">Loading...</span>
-      </div>
-    );
-  }
-
-  if (authState === "needs-login") {
-    return <LoginPage onAuthenticated={handleAuthenticated} />;
-  }
-
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
@@ -547,16 +538,16 @@ export function App(): JSX.Element {
             <AgentSidebar
               leftOpen={leftOpen}
               agents={agents}
-              selectedAgentId={selectedAgentId}
+              selectedAgentId={validatedSelectedAgentId}
               expandedAgentId={expandedAgentId}
               overflowAgentId={overflowAgentId}
               setLeftOpen={setLeftOpen}
               onOpenCreateDialog={openCreateDialog}
               enabledAgentTypes={enabledAgentTypes}
               lastUsedAgentType={lastUsedAgentType}
-              onOpenDocs={() => setDocsPaneOpen(true)}
-              onOpenActivity={() => setActivityPaneOpen(true)}
-              onOpenSettings={() => setSettingsPaneOpen(true)}
+              onOpenDocs={openDocs}
+              onOpenActivity={openActivity}
+              onOpenSettings={openSettings}
               setOverflowAgentId={setOverflowAgentId}
               setDeleteTarget={setDeleteTarget}
               setDeleteConfirmOpen={setDeleteConfirmOpen}
@@ -566,7 +557,7 @@ export function App(): JSX.Element {
               borderForAgentState={borderForAgentState}
               toggleAgentDetails={toggleAgentDetails}
               isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={detachTerminal}
+              detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
               sendTerminalInput={sendTerminalInput}
@@ -646,15 +637,15 @@ export function App(): JSX.Element {
         >
           <AgentSidebarContent
             agents={agents}
-            selectedAgentId={selectedAgentId}
+            selectedAgentId={validatedSelectedAgentId}
             expandedAgentId={expandedAgentId}
             overflowAgentId={overflowAgentId}
             onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
             enabledAgentTypes={enabledAgentTypes}
             lastUsedAgentType={lastUsedAgentType}
-            onOpenDocs={() => { setMobileLeftOpen(false); setDocsPaneOpen(true); }}
-            onOpenActivity={() => { setMobileLeftOpen(false); setActivityPaneOpen(true); }}
-            onOpenSettings={() => { setMobileLeftOpen(false); setSettingsPaneOpen(true); }}
+            onOpenDocs={() => { setMobileLeftOpen(false); openDocs(); }}
+            onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
+            onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
             setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
@@ -690,7 +681,7 @@ export function App(): JSX.Element {
               selectedAgentId={focusedAgentId}
               selectedAgentName={focusedAgent?.name ?? null}
               animatingMediaKeys={animatingMediaKeys}
-  
+
               mediaViewportRef={mediaViewportRef}
               hasStream={focusedAgentHasStream}
               streamUrl={focusedAgentStreamUrl}
@@ -740,13 +731,23 @@ export function App(): JSX.Element {
         onStop={stopAgent}
       />
 
-      <DocsPane open={docsPaneOpen} onClose={() => setDocsPaneOpen(false)} />
-      {activityPaneOpen ? (
-        <ActivityPane open={activityPaneOpen} onClose={() => setActivityPaneOpen(false)} />
+      <DocsPane
+        open={docsOpen}
+        onClose={closeOverlay}
+        initialSection={docsSection}
+        onSectionChange={(section) => navigate(section ? `/docs/${section}` : "/docs", { replace: true })}
+      />
+      {activityOpen ? (
+        <ActivityPane
+          open={true}
+          onClose={closeOverlay}
+          initialTab={activityTab}
+          onTabChange={(tab) => navigate(`/activity/${tab}`, { replace: true })}
+        />
       ) : null}
       <SettingsPane
-        open={settingsPaneOpen}
-        onClose={() => setSettingsPaneOpen(false)}
+        open={settingsOpen}
+        onClose={closeOverlay}
         onLogout={handleLogout}
         theme={theme}
         setTheme={setTheme}
@@ -757,6 +758,8 @@ export function App(): JSX.Element {
         clearIconColorError={clearIconColorError}
         enabledAgentTypes={enabledAgentTypes}
         onEnabledAgentTypesChange={setEnabledAgentTypes}
+        initialSection={settingsSection}
+        onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
       />
 
       <MediaLightbox

@@ -12,12 +12,12 @@ export function useAgents(
   connectedAgentId: string | null,
   connState: ConnState,
   enabled: boolean,
+  selectedAgentId: string | null,
 ) {
   const queryClient = useQueryClient();
   const connectedAgentIdRef = useRef(connectedAgentId);
   connectedAgentIdRef.current = connectedAgentId;
 
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
   const [streamingAgentIds, setStreamingAgentIds] = useState<Set<string>>(new Set());
 
@@ -46,11 +46,6 @@ export function useAgents(
     return null;
   }, [agents, selectedAgentId]);
 
-  // If validation changed the value, sync local state.
-  if (validatedSelectedAgentId !== selectedAgentId) {
-    setSelectedAgentId(validatedSelectedAgentId);
-  }
-
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === validatedSelectedAgentId) ?? null,
     [agents, validatedSelectedAgentId]
@@ -74,8 +69,7 @@ export function useAgents(
   return useMemo(() => ({
     agents,
     agentsLoaded,
-    selectedAgentId: validatedSelectedAgentId,
-    setSelectedAgentId,
+    validatedSelectedAgentId,
     selectedAgent,
     connectedAgent,
     overflowAgentId,

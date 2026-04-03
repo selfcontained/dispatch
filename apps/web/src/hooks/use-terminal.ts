@@ -70,7 +70,7 @@ export function useTerminal(args: {
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
-  onAgentSelected: (agentId: string) => void;
+  setSelectedAgentId: (agentId: string) => void;
   refreshMedia: (agentId?: string | null) => void;
 }): {
   connState: ConnState;
@@ -94,7 +94,7 @@ export function useTerminal(args: {
     isMobile,
     leftOpen,
     mediaOpen,
-    onAgentSelected,
+    setSelectedAgentId,
     refreshMedia,
   } = args;
 
@@ -764,6 +764,8 @@ export function useTerminal(args: {
   }, [connState, connectedAgentId, restoreShellAgentId]);
 
   // Restore session on load.
+  // Uses setSelectedAgentId (not navigate) to avoid navigating away
+  // from the current URL — important when loading on overlay routes like /settings.
   useEffect(() => {
     if (!agentsLoaded || !restoreShellAgentId) return;
 
@@ -774,12 +776,12 @@ export function useTerminal(args: {
       return;
     }
 
-    onAgentSelected(restoreTarget.id);
+    setSelectedAgentId(restoreTarget.id);
     refreshMedia(restoreTarget.id);
     void ensureTerminalConnected(true, true, restoreTarget.id);
     setStatusMessage(`Restored session for ${restoreTarget.name}.`);
     setRestoreShellAgentId(null);
-  }, [agents, agentsLoaded, ensureTerminalConnected, onAgentSelected, refreshMedia, restoreShellAgentId]);
+  }, [agents, agentsLoaded, ensureTerminalConnected, setSelectedAgentId, refreshMedia, restoreShellAgentId]);
 
 
   // Update terminal palette and reconnect when theme changes.

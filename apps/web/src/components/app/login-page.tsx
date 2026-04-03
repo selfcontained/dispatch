@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useAuthContext } from "@/contexts/auth-context";
 
 type LoginPageProps = {
   onAuthenticated: () => void;
@@ -61,5 +63,32 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Route wrapper for LoginPage — redirects to / if already authenticated. */
+export function LoginRoute(): JSX.Element {
+  const { authState, handleAuthenticated } = useAuthContext();
+  const navigate = useNavigate();
+
+  if (authState === "authenticated") {
+    return <Navigate to="/" replace />;
+  }
+
+  if (authState === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        <span className="text-sm">Loading...</span>
+      </div>
+    );
+  }
+
+  return (
+    <LoginPage
+      onAuthenticated={() => {
+        handleAuthenticated();
+        navigate("/", { replace: true });
+      }}
+    />
   );
 }
