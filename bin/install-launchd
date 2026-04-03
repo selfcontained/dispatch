@@ -73,6 +73,17 @@ if [[ -n "$PORT" ]]; then
   echo "==> set DISPATCH_PORT=$PORT in $SERVER_ENV"
 fi
 
+# Check out the latest release tag so the install runs a known-good version
+# and the server can detect future updates via release.json.
+INSTALL_TAG=$(git -C "$SERVER_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)
+if [[ -z "$INSTALL_TAG" ]]; then
+  INSTALL_TAG=$(git -C "$SERVER_DIR" tag --sort=-version:refname | grep '^v' | head -1 || true)
+  if [[ -n "$INSTALL_TAG" ]]; then
+    echo "==> checking out latest release tag ($INSTALL_TAG)"
+    git -C "$SERVER_DIR" checkout "$INSTALL_TAG"
+  fi
+fi
+
 # Initial build
 echo "==> installing dependencies"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -84,6 +95,18 @@ pnpm install --frozen-lockfile
 
 echo "==> building"
 pnpm run build
+
+# Seed release.json so the server knows what version it's running.
+# Without this, a fresh install has no baseline for update detection.
+if [[ -n "$INSTALL_TAG" ]]; then
+  echo "==> seeding release record ($INSTALL_TAG)"
+  RELEASE_FILE="$HOME/.dispatch/release.json"
+  mkdir -p "$(dirname "$RELEASE_FILE")"
+  printf '{\n  "tag": "%s",\n  "deployedAt": "%s"\n}\n' \
+    "$INSTALL_TAG" \
+    "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" \
+    > "$RELEASE_FILE.tmp" && mv "$RELEASE_FILE.tmp" "$RELEASE_FILE"
+fi
 
 mkdir -p "$LOG_DIR"
 
