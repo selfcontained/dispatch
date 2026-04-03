@@ -79,6 +79,7 @@ const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
+const activeArchives = new Set<Promise<void>>();
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -2558,8 +2559,8 @@ async function registerRoutes() {
       const agent = await agentManager.beginArchive(params.id, cleanupWorktree);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 
-      // Fire-and-forget: run cleanup in background
-      void agentManager.executeArchive(params.id, {
+      // Fire-and-forget: run cleanup in background (tracked for graceful shutdown)
+      const archivePromise = agentManager.executeArchive(params.id, {
         onPhaseChange: (updated) => {
           uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
         },
@@ -2577,6 +2578,8 @@ async function registerRoutes() {
           app.log.error({ err: error, agentId: params.id }, "Background archive failed");
         }
       });
+      activeArchives.add(archivePromise);
+      archivePromise.finally(() => activeArchives.delete(archivePromise));
 
       return reply.code(202).send({ status: "archiving" });
     } catch (error) {
@@ -2990,7 +2993,7 @@ async function runAgentStatusReconciliation(): Promise<void> {
         console.log(`[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`);
         uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
         // Cleanup mode is persisted on the agent record by beginArchive
-        void agentManager.executeArchive(agent.id, {
+        const archivePromise = agentManager.executeArchive(agent.id, {
           onPhaseChange: (updated) => {
             uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
           },
@@ -3008,6 +3011,8 @@ async function runAgentStatusReconciliation(): Promise<void> {
             app.log.error({ err: error, agentId: agent.id }, "Resumed archive failed");
           }
         });
+        activeArchives.add(archivePromise);
+        archivePromise.finally(() => activeArchives.delete(archivePromise));
       } else {
         console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
         uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
@@ -3462,6 +3467,17 @@ async function shutdown(code: number): Promise<void> {
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();
   stopSessionCleanupTimer();
+
+  // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
+  if (activeArchives.size > 0) {
+    app.log.info({ count: activeArchives.size }, "Waiting for in-flight archives to complete…");
+    const ARCHIVE_DRAIN_TIMEOUT_MS = 10_000;
+    await Promise.race([
+      Promise.allSettled(activeArchives),
+      new Promise((resolve) => setTimeout(resolve, ARCHIVE_DRAIN_TIMEOUT_MS)),
+    ]);
+  }
+
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);
