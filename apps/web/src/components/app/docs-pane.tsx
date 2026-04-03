@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   ArrowLeft,
@@ -21,6 +21,8 @@ type DocsSection = "agents" | "tools" | "worktrees" | "personas" | "events" | "m
 type DocsPaneProps = {
   open: boolean;
   onClose: () => void;
+  initialSection?: string;
+  onSectionChange?: (section: string | null) => void;
 };
 
 type SectionDef = {
@@ -598,8 +600,25 @@ for vulnerabilities, injection risks, and auth issues.
   },
 ];
 
-export function DocsPane({ open, onClose }: DocsPaneProps): JSX.Element {
-  const [activeSection, setActiveSection] = useState<DocsSection | null>("agents");
+function isValidDocsSection(value: string | undefined): value is DocsSection {
+  return value !== undefined && SECTIONS.some((s) => s.id === value);
+}
+
+export function DocsPane({ open, onClose, initialSection, onSectionChange }: DocsPaneProps): JSX.Element {
+  const resolvedInitial = isValidDocsSection(initialSection) ? initialSection : "agents";
+  const [activeSection, setActiveSectionState] = useState<DocsSection | null>(resolvedInitial);
+
+  useEffect(() => {
+    if (open && isValidDocsSection(initialSection)) {
+      setActiveSectionState(initialSection);
+    }
+  }, [open, initialSection]);
+
+  const setActiveSection = useCallback((section: DocsSection | null) => {
+    setActiveSectionState(section);
+    onSectionChange?.(section);
+  }, [onSectionChange]);
+
   const active = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   return (
@@ -608,7 +627,7 @@ export function DocsPane({ open, onClose }: DocsPaneProps): JSX.Element {
       onOpenChange={(value) => {
         if (!value) {
           onClose();
-          setActiveSection("agents");
+          setActiveSectionState("agents");
         }
       }}
     >

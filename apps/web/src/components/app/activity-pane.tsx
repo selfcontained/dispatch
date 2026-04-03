@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { AgentHistoryTab } from "@/components/app/agent-history-tab";
@@ -59,6 +59,8 @@ import {
 type ActivityPaneProps = {
   open: boolean;
   onClose: () => void;
+  initialTab?: "metrics" | "history";
+  onTabChange?: (tab: string) => void;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -276,7 +278,7 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
   return (
     <div className="space-y-3">
       <ScrollArea style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full">
-        <div className="grid min-w-[760px] w-max grid-cols-[56px_repeat(24,minmax(0,1fr))] gap-x-1.5 gap-y-2 pb-2">
+        <div className="grid w-max grid-cols-[56px_repeat(24,28px)] gap-x-1.5 gap-y-2 pb-2">
           <div />
           {Array.from({ length: 24 }, (_, hour) => (
             <div
@@ -683,9 +685,20 @@ function ProjectBreakdown({
 
 type ActivityTab = "metrics" | "history";
 
-export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element {
+export function ActivityPane({ open, onClose, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
-  const [tab, setTab] = useState<ActivityTab>("metrics");
+  const [tab, setTabState] = useState<ActivityTab>(initialTab ?? "metrics");
+
+  useEffect(() => {
+    if (open && initialTab) {
+      setTabState(initialTab);
+    }
+  }, [open, initialTab]);
+
+  const setTab = useCallback((newTab: ActivityTab) => {
+    setTabState(newTab);
+    onTabChange?.(newTab);
+  }, [onTabChange]);
   const { data: heatmapData } = useActivityHeatmap();
   const { data: stats } = useActivityStats(range);
   const { data: dailyStatus } = useDailyStatus(range);
@@ -772,7 +785,7 @@ export function ActivityPane({ open, onClose }: ActivityPaneProps): JSX.Element 
 
           {/* Metrics tab body */}
           {tab === "metrics" && <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-3xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+            <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
               {/* Token usage stats */}
               {hasTokenData && tokenStats && (
                 <div className="flex flex-wrap gap-2 sm:gap-3">

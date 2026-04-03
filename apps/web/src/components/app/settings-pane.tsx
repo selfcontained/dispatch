@@ -378,6 +378,10 @@ function AppearanceSettings({
   );
 }
 
+function isValidSection(value: string | undefined): value is SettingsSection {
+  return value !== undefined && SECTIONS.some((s) => s.id === value);
+}
+
 type SettingsPaneProps = {
   open: boolean;
   onClose: () => void;
@@ -391,6 +395,8 @@ type SettingsPaneProps = {
   clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
+  initialSection?: string;
+  onSectionChange?: (section: string | null) => void;
 };
 
 export function SettingsPane({
@@ -406,8 +412,23 @@ export function SettingsPane({
   clearIconColorError,
   enabledAgentTypes,
   onEnabledAgentTypesChange,
+  initialSection,
+  onSectionChange,
 }: SettingsPaneProps): JSX.Element {
-  const [activeSection, setActiveSection] = useState<SettingsSection | null>("release");
+  const resolvedInitial = isValidSection(initialSection) ? initialSection : "release";
+  const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
+
+  // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
+  useEffect(() => {
+    if (open && isValidSection(initialSection)) {
+      setActiveSectionState(initialSection);
+    }
+  }, [open, initialSection]);
+
+  const setActiveSection = useCallback((section: SettingsSection | null) => {
+    setActiveSectionState(section);
+    onSectionChange?.(section);
+  }, [onSectionChange]);
 
   return (
     <DialogPrimitive.Root
@@ -415,7 +436,7 @@ export function SettingsPane({
       onOpenChange={(v) => {
         if (!v) {
           onClose();
-          setActiveSection("release");
+          setActiveSectionState("release");
         }
       }}
     >

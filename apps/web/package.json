@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/web",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -33,6 +33,7 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "simple-icons": "^16.11.0",
+    "react-router-dom": "^7.14.0",
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
