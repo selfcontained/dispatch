@@ -4,6 +4,13 @@ import { useCallback, useRef, useState } from "react";
 import { type AgentPin } from "@/components/app/types";
 
 const SAFE_URL_RE = /^https?:\/\//i;
+const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
+
+/** Turn a GitHub PR URL into "owner/repo#123"; fall back to the raw value. */
+function formatPrDisplay(value: string): string {
+  const m = GH_PR_RE.exec(value);
+  return m ? `${m[1]}#${m[2]}` : value;
+}
 
 function CopyButton({ value }: { value: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
@@ -28,28 +35,28 @@ function CopyButton({ value }: { value: string }): JSX.Element {
   );
 }
 
-function resolveDisplayValue(pin: AgentPin): { display: string; href: string | null; badge: boolean; icon: "pr" | null } {
+function resolveDisplayValue(pin: AgentPin): { display: string; tooltip: string; href: string | null; badge: boolean; icon: "pr" | null } {
   if (pin.type === "pr" && SAFE_URL_RE.test(pin.value)) {
-    return { display: pin.value, href: pin.value, badge: false, icon: "pr" };
+    return { display: formatPrDisplay(pin.value), tooltip: pin.value, href: pin.value, badge: false, icon: "pr" };
   }
   if (pin.type === "pr") {
-    return { display: pin.value, href: null, badge: false, icon: "pr" };
+    return { display: pin.value, tooltip: pin.value, href: null, badge: false, icon: "pr" };
   }
   if (pin.type === "url" && SAFE_URL_RE.test(pin.value)) {
-    return { display: pin.value, href: pin.value, badge: false, icon: null };
+    return { display: pin.value, tooltip: pin.value, href: pin.value, badge: false, icon: null };
   }
   if (pin.type === "url") {
     // Unsafe scheme (e.g. javascript:) — render as plain text, not a link
-    return { display: pin.value, href: null, badge: false, icon: null };
+    return { display: pin.value, tooltip: pin.value, href: null, badge: false, icon: null };
   }
   if (pin.type === "port" || pin.type === "code") {
-    return { display: pin.value, href: null, badge: true, icon: null };
+    return { display: pin.value, tooltip: pin.value, href: null, badge: true, icon: null };
   }
-  return { display: pin.value, href: null, badge: false, icon: null };
+  return { display: pin.value, tooltip: pin.value, href: null, badge: false, icon: null };
 }
 
 function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
-  const { display, href, badge, icon } = resolveDisplayValue(pin);
+  const { display, tooltip, href, badge, icon } = resolveDisplayValue(pin);
 
   return (
     <div className="px-4 py-2.5 border-b border-border last:border-b-0">
@@ -57,28 +64,28 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
         {pin.label}
       </div>
       <div className="flex items-center gap-1.5">
-        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
         {href ? (
           <a
             href={href}
             target="_blank"
             rel="noopener noreferrer"
             className="min-w-0 truncate text-xs text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
-            title={display}
+            title={tooltip}
           >
             {display}
           </a>
         ) : badge ? (
           <span
             className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-            title={display}
+            title={tooltip}
           >
             {display}
           </span>
         ) : (
           <span
             className="min-w-0 truncate text-xs text-foreground"
-            title={display}
+            title={tooltip}
           >
             {display}
           </span>
