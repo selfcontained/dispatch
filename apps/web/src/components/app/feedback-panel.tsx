@@ -186,6 +186,7 @@ export function ParentFeedbackPanel({
       const result = await api<{ feedback: FeedbackItem[] }>(`/api/v1/agents/${parentAgentId}/feedback?scope=children`);
       return result.feedback;
     },
+    staleTime: 0,
   });
 
   const sheetItem = sheetItemId != null ? feedback.find((f) => f.id === sheetItemId) ?? null : null;
@@ -526,6 +527,7 @@ function useFeedbackData(parentAgentId: string) {
       const result = await api<{ feedback: FeedbackItem[] }>(`/api/v1/agents/${parentAgentId}/feedback?scope=children`);
       return result.feedback;
     },
+    staleTime: 0,
   });
 
   const { data: allAgents = [] } = useQuery<Agent[]>({ queryKey: ["agents"], enabled: false });
