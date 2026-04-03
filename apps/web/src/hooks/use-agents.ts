@@ -29,6 +29,7 @@ export function useAgents(
     },
     select: (data) => sortAgentsByCreatedAtDesc(data),
     enabled,
+    refetchOnWindowFocus: false,
   });
 
   // Re-sort agents in query cache.
