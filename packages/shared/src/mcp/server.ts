@@ -62,7 +62,7 @@ export type GetFeedbackResult = {
 export type PinInput = {
   label: string;
   value?: string;
-  type?: "string" | "url" | "port" | "code";
+  type?: "string" | "url" | "port" | "code" | "pr";
   delete?: boolean;
 };
 
@@ -358,9 +358,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             .optional()
             .describe("The value to display. Required unless delete is true."),
           type: z
-            .enum(["string", "url", "port", "code"])
+            .enum(["string", "url", "port", "code", "pr"])
             .default("string")
-            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge."),
+            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon."),
           delete: z
             .boolean()
             .default(false)

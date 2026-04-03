@@ -3477,7 +3477,7 @@ async function mcpUpsertPin(
   const agent = await agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
-    type: pin.type as "string" | "url" | "port" | "code"
+    type: pin.type as "string" | "url" | "port" | "code" | "pr"
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
