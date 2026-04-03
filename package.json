@@ -24,7 +24,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "node-pty"
+      "node-pty",
+      "sharp"
     ]
   },
   "devDependencies": {

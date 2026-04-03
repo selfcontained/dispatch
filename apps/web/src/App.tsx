@@ -248,6 +248,7 @@ export function DashboardLayout(): JSX.Element {
     isMobile,
     leftOpen,
     mediaOpen,
+    feedbackOpen: !!feedbackDetail,
     setSelectedAgentId,
     refreshMedia,
   });
