@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useMatch } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import "@xterm/xterm/css/xterm.css";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
@@ -94,17 +94,11 @@ function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): bo
   );
 }
 
-/** Routes that are overlays — they don't change agent selection. */
-function isOverlayPath(pathname: string): boolean {
-  return pathname.startsWith("/settings") || pathname.startsWith("/docs") || pathname.startsWith("/activity");
-}
-
 export function DashboardLayout(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
 
   // ── Route matching ───────────────────────────────────────────────────
-  const agentMatch = useMatch("/agents/:agentId");
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const settingsOpen = pathSegments[0] === "settings";
   const settingsSection = settingsOpen ? pathSegments[1] : undefined;
@@ -113,16 +107,8 @@ export function DashboardLayout(): JSX.Element {
   const activityOpen = pathSegments[0] === "activity";
   const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
 
-  // Track the last non-overlay location so overlay close returns there.
-  const baseLocationRef = useRef(isOverlayPath(location.pathname) ? "/" : location.pathname);
-  useEffect(() => {
-    if (!isOverlayPath(location.pathname)) {
-      baseLocationRef.current = location.pathname;
-    }
-  }, [location.pathname]);
-
   const closeOverlay = useCallback(() => {
-    navigate(baseLocationRef.current);
+    navigate("/");
   }, [navigate]);
 
   // ── Theme & Branding ──────────────────────────────────────────────────
@@ -179,17 +165,8 @@ export function DashboardLayout(): JSX.Element {
   // ── Misc UI state ────────────────────────────────────────────────────
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
 
-  // ── Agent selection (synced with URL) ─────────────────────────────────
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    agentMatch?.params.agentId ?? null
-  );
-
-  // Sync URL → selectedAgentId (only on non-overlay routes)
-  useEffect(() => {
-    if (isOverlayPath(location.pathname)) return;
-    const urlAgentId = agentMatch?.params.agentId ?? null;
-    setSelectedAgentId(urlAgentId);
-  }, [agentMatch?.params.agentId, location.pathname]);
+  // ── Agent selection ────────────────────────────────────────────────────
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   // ── Agents ────────────────────────────────────────────────────────────
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<string | null>(null);
@@ -208,14 +185,6 @@ export function DashboardLayout(): JSX.Element {
     resortAgents,
     validatedSelectedAgentId,
   } = useAgents(sharedConnectedAgentId, sharedConnState, true, selectedAgentId);
-
-  // Redirect if URL agent ID doesn't exist
-  useEffect(() => {
-    if (!agentsLoaded || !agentMatch?.params.agentId) return;
-    if (validatedSelectedAgentId === null && agentMatch.params.agentId) {
-      navigate("/", { replace: true });
-    }
-  }, [agentsLoaded, agentMatch?.params.agentId, validatedSelectedAgentId, navigate]);
 
   selectedAgentIdRef.current = validatedSelectedAgentId;
 
@@ -254,10 +223,10 @@ export function DashboardLayout(): JSX.Element {
   // ── Terminal ──────────────────────────────────────────────────────────
   const onAgentSelected = useCallback(
     (agentId: string) => {
-      navigate(`/agents/${agentId}`);
+      setSelectedAgentId(agentId);
       ensureAuxExpanded(agentId);
     },
-    [ensureAuxExpanded, navigate]
+    [ensureAuxExpanded]
   );
 
   const {
@@ -294,18 +263,6 @@ export function DashboardLayout(): JSX.Element {
   useEffect(() => {
     setSharedConnState(connState);
   }, [connState]);
-
-  // Auto-connect terminal when agent selection changes (URL navigation or deep link).
-  const prevAutoConnectIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (validatedSelectedAgentId === prevAutoConnectIdRef.current) return;
-    prevAutoConnectIdRef.current = validatedSelectedAgentId;
-    if (!validatedSelectedAgentId || !agentsLoaded) return;
-    const agent = agents.find((a) => a.id === validatedSelectedAgentId);
-    if (!agent || (agent.status !== "running" && agent.status !== "creating")) return;
-    refreshMedia(validatedSelectedAgentId);
-    void ensureTerminalConnected(true, true, validatedSelectedAgentId);
-  }, [validatedSelectedAgentId, agentsLoaded, agents, refreshMedia, ensureTerminalConnected]);
 
   useEffect(() => {
     if (expandedAgentId && agents.some((agent) => agent.id === expandedAgentId)) {
@@ -453,17 +410,17 @@ export function DashboardLayout(): JSX.Element {
 
   const attachToAgent = useCallback(
     async (agent: Agent) => {
-      navigate(`/agents/${agent.id}`);
+      setSelectedAgentId(agent.id);
       ensureAuxExpanded(agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const startAgent = useCallback(
     async (agent: Agent) => {
-      navigate(`/agents/${agent.id}`);
+      setSelectedAgentId(agent.id);
       ensureAuxExpanded(agent.id);
       await api(`/api/v1/agents/${agent.id}/start`, {
         method: "POST",
@@ -472,13 +429,13 @@ export function DashboardLayout(): JSX.Element {
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const detachAndClearSelection = useCallback(() => {
     detachTerminal();
-    navigate("/");
-  }, [detachTerminal, navigate]);
+    setSelectedAgentId(null);
+  }, [detachTerminal]);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
@@ -499,7 +456,7 @@ export function DashboardLayout(): JSX.Element {
         detachTerminal();
       }
       if (validatedSelectedAgentId === agent.id) {
-        navigate("/");
+        setSelectedAgentId(null);
         refreshMedia(null);
       }
       if (agent.status === "running") {
@@ -515,7 +472,7 @@ export function DashboardLayout(): JSX.Element {
       const qs = params.toString();
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
-    [connectedAgentId, detachTerminal, navigate, refreshMedia, validatedSelectedAgentId]
+    [connectedAgentId, detachTerminal, refreshMedia, validatedSelectedAgentId]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
@@ -553,7 +510,7 @@ export function DashboardLayout(): JSX.Element {
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
-        navigate(`/agents/${payload.agent.id}`);
+        setSelectedAgentId(payload.agent.id);
         ensureAuxExpanded(payload.agent.id);
         refreshMedia(payload.agent.id);
         // Small delay to let tmux session start before connecting
@@ -562,7 +519,7 @@ export function DashboardLayout(): JSX.Element {
         setCreating(false);
       }
     },
-    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const borderForAgentState = (state: AgentVisualState): string => {

@@ -29,7 +29,6 @@ export const router = createBrowserRouter([
             element: <DashboardLayout />,
             children: [
               { index: true },
-              { path: "agents/:agentId" },
               { path: "settings" },
               { path: "settings/:section" },
               { path: "docs" },
