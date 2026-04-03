@@ -152,6 +152,9 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_agent_feedback_agent_id ON agent_feedback(agent_id);
+
+    -- Agent pins
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS pins JSONB NOT NULL DEFAULT '[]'::jsonb;
   `;
 
   await pool.query(sql);
