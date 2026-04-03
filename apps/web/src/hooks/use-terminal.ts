@@ -70,6 +70,7 @@ export function useTerminal(args: {
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
+  feedbackOpen: boolean;
   setSelectedAgentId: (agentId: string) => void;
   refreshMedia: (agentId?: string | null) => void;
 }): {
@@ -94,6 +95,7 @@ export function useTerminal(args: {
     isMobile,
     leftOpen,
     mediaOpen,
+    feedbackOpen,
     setSelectedAgentId,
     refreshMedia,
   } = args;
@@ -756,7 +758,7 @@ export function useTerminal(args: {
     fitNow();
     const timer = window.setTimeout(fitNow, 340);
     return () => window.clearTimeout(timer);
-  }, [isMobile, leftOpen, mediaOpen, sendResize]);
+  }, [isMobile, leftOpen, mediaOpen, feedbackOpen, sendResize]);
 
   // Persist active shell agent.
   useEffect(() => {
