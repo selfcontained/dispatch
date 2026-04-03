@@ -32,6 +32,7 @@ import { useSSE } from "@/hooks/use-sse";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useIconColor } from "@/hooks/use-icon-color";
+import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
@@ -115,6 +116,12 @@ export function DashboardLayout(): JSX.Element {
   // ── Theme & Branding ──────────────────────────────────────────────────
   const { theme, setTheme } = useTheme();
   const { iconColor, setIconColor, isLoading: isIconColorSaving, error: iconColorError, clearError: clearIconColorError } = useIconColor();
+  const { instanceName } = useInstanceName();
+
+  // ── Page title ───────────────────────────────────────────────────────
+  useEffect(() => {
+    document.title = instanceName ? `${instanceName} — Dispatch` : "Dispatch";
+  }, [instanceName]);
 
   // ── Auth (from context — AuthLayout guarantees authenticated) ─────────
   const { handleLogout } = useAuthContext();

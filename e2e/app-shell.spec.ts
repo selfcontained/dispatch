@@ -43,7 +43,7 @@ test.describe("App shell", () => {
   test("sidebar shows the Dispatch logo", async ({ page }) => {
     await loadApp(page);
 
-    const logo = page.getByTestId("agent-sidebar").locator('img[alt="Dispatch"]');
-    await expect(logo).toBeVisible();
+    const title = page.getByTestId("agent-sidebar").getByText("Dispatch", { exact: true });
+    await expect(title).toBeVisible();
   });
 });
