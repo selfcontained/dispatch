@@ -165,6 +165,10 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Misc UI state ────────────────────────────────────────────────────
   const [feedbackDetail, setFeedbackDetail] = useState<FeedbackDetailState>(null);
+  // Keep last feedback detail alive during close transition so content fades out.
+  const feedbackDetailStaleRef = useRef<NonNullable<FeedbackDetailState> | null>(null);
+  if (feedbackDetail) feedbackDetailStaleRef.current = feedbackDetail;
+  const feedbackDetailRendered = feedbackDetail ?? feedbackDetailStaleRef.current;
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
 
   // ── Agent selection ────────────────────────────────────────────────────
@@ -586,6 +590,11 @@ export function DashboardLayout(): JSX.Element {
                   ? "grid-rows-[auto_1fr_1fr_auto]"
                   : "grid-rows-[auto_1fr_0fr_auto]"
             )}
+            onTransitionEnd={(e) => {
+              if (e.propertyName === "grid-template-rows" && !feedbackDetail) {
+                feedbackDetailStaleRef.current = null;
+              }
+            }}
           >
             <AppHeader
               leftOpen={leftPanelOpen}
@@ -612,12 +621,12 @@ export function DashboardLayout(): JSX.Element {
 
             {!isMobile ? (
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
-                {feedbackDetail ? (
+                {feedbackDetailRendered ? (
                   <FeedbackDetailPanel
-                    key={feedbackDetail.parentAgentId}
-                    parentAgentId={feedbackDetail.parentAgentId}
-                    itemId={feedbackDetail.itemId}
-                    isConnected={connectedAgentId === feedbackDetail.parentAgentId}
+                    key={feedbackDetailRendered.parentAgentId}
+                    parentAgentId={feedbackDetailRendered.parentAgentId}
+                    itemId={feedbackDetailRendered.itemId}
+                    isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
                     sendTerminalInput={sendTerminalInput}
                     onClose={() => setFeedbackDetail(null)}
                     onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
