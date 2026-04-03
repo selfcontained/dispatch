@@ -609,7 +609,7 @@ export function DashboardLayout(): JSX.Element {
               borderForAgentState={borderForAgentState}
               toggleAgentDetails={toggleAgentDetails}
               isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={detachTerminal}
+              detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
               sendTerminalInput={sendTerminalInput}
