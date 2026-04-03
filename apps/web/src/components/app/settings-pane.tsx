@@ -78,14 +78,15 @@ function InstanceNameSettings(): JSX.Element {
 
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+      <label htmlFor="instance-name" className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground">
         Instance name
-      </div>
+      </label>
       <p className="mb-3 text-sm text-muted-foreground">
         Give this Dispatch instance a name to distinguish it from others. Shown in the sidebar and browser tab.
       </p>
       <div className="flex items-center gap-2">
         <input
+          id="instance-name"
           ref={inputRef}
           type="text"
           value={draft}
@@ -592,9 +593,9 @@ export function SettingsPane({
             )}
 
             {/* Content */}
-            <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
+            <div key={activeSection} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto", activeSection === null && "hidden md:block")}>
               {activeSection === "general" && (
-                <div className="flex flex-col overflow-y-auto">
+                <div className="flex flex-col">
                   <div className="p-4 md:p-6">
                     <InstanceNameSettings />
                   </div>
