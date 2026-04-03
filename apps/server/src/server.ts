@@ -79,6 +79,8 @@ const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
+const activeArchives = new Set<Promise<void>>();
+const archivingAgentIds = new Set<string>();
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -2539,15 +2541,10 @@ async function registerRoutes() {
 
   app.delete("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: unknown };
-    const query = request.query as { force?: unknown; cleanupWorktree?: unknown };
+    const query = request.query as { cleanupWorktree?: unknown };
 
     if (typeof params.id !== "string") {
       return reply.code(400).send({ error: "Missing agent id." });
-    }
-
-    const force = query.force === "true" || query.force === true;
-    if (query.force !== undefined && typeof query.force !== "string" && typeof query.force !== "boolean") {
-      return reply.code(400).send({ error: "force must be true or false." });
     }
 
     const validCleanupModes = ["auto", "keep", "force"] as const;
@@ -2558,26 +2555,39 @@ async function registerRoutes() {
         : "auto";
 
     try {
-      const existing = await agentManager.getAgent(params.id);
-      // Collect child agent IDs before deletion so we can clean up their resources
-      const childRows = await pool.query<{ id: string }>(
-        "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-        [params.id]
-      );
-      await agentManager.deleteAgent(params.id, force, cleanupWorktree);
-      const deletedIds = [
-        ...(existing ? [existing.id] : []),
-        ...childRows.rows.map((r) => r.id),
-      ];
-      for (const deletedId of deletedIds) {
-        streamManager.stopStream(deletedId);
-        pendingGitRefreshAgentIds.delete(deletedId);
-        pendingGitRefreshEnqueuedAt.delete(deletedId);
-        activeGitRefreshAgentIds.delete(deletedId);
-        gitRefreshAgentDiagnostics.delete(deletedId);
-        uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
-      }
-      return reply.code(204).send();
+      // Fast synchronous phase: mark agent as archiving and return immediately.
+      // cleanupWorktree is persisted so reconciliation can honor it if the server restarts.
+      const agent = await agentManager.beginArchive(params.id, cleanupWorktree);
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+
+      // Fire-and-forget: run cleanup in background (tracked for graceful shutdown + dedup)
+      const agentId = params.id;
+      archivingAgentIds.add(agentId);
+      const archivePromise = agentManager.executeArchive(agentId, {
+        onPhaseChange: (updated) => {
+          uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+        },
+        onComplete: (deletedIds) => {
+          for (const deletedId of deletedIds) {
+            streamManager.stopStream(deletedId);
+            pendingGitRefreshAgentIds.delete(deletedId);
+            pendingGitRefreshEnqueuedAt.delete(deletedId);
+            activeGitRefreshAgentIds.delete(deletedId);
+            gitRefreshAgentDiagnostics.delete(deletedId);
+            uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+          }
+        },
+        onError: (error) => {
+          app.log.error({ err: error, agentId }, "Background archive failed");
+        }
+      });
+      activeArchives.add(archivePromise);
+      archivePromise.finally(() => {
+        activeArchives.delete(archivePromise);
+        archivingAgentIds.delete(agentId);
+      });
+
+      return reply.code(202).send({ status: "archiving" });
     } catch (error) {
       return handleAgentError(reply, error);
     }
@@ -2984,8 +2994,43 @@ async function runAgentStatusReconciliation(): Promise<void> {
   try {
     const reconciled = await agentManager.reconcileAgentStatuses();
     for (const agent of reconciled) {
-      console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      if (agent.status === "archiving") {
+        // Skip if this agent already has an active archive in progress
+        if (archivingAgentIds.has(agent.id)) {
+          continue;
+        }
+        // Resume interrupted archive
+        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`);
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+        // Cleanup mode is persisted on the agent record by beginArchive
+        archivingAgentIds.add(agent.id);
+        const archivePromise = agentManager.executeArchive(agent.id, {
+          onPhaseChange: (updated) => {
+            uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+          },
+          onComplete: (deletedIds) => {
+            for (const deletedId of deletedIds) {
+              streamManager.stopStream(deletedId);
+              pendingGitRefreshAgentIds.delete(deletedId);
+              pendingGitRefreshEnqueuedAt.delete(deletedId);
+              activeGitRefreshAgentIds.delete(deletedId);
+              gitRefreshAgentDiagnostics.delete(deletedId);
+              uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+            }
+          },
+          onError: (error) => {
+            app.log.error({ err: error, agentId: agent.id }, "Resumed archive failed");
+          }
+        });
+        activeArchives.add(archivePromise);
+        archivePromise.finally(() => {
+          activeArchives.delete(archivePromise);
+          archivingAgentIds.delete(agent.id);
+        });
+      } else {
+        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      }
     }
   } catch (error) {
     app.log.warn({ err: error }, "Agent status reconciliation failed.");
@@ -3436,6 +3481,17 @@ async function shutdown(code: number): Promise<void> {
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();
   stopSessionCleanupTimer();
+
+  // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
+  if (activeArchives.size > 0) {
+    app.log.info({ count: activeArchives.size }, "Waiting for in-flight archives to complete…");
+    const ARCHIVE_DRAIN_TIMEOUT_MS = 10_000;
+    await Promise.race([
+      Promise.allSettled(activeArchives),
+      new Promise((resolve) => setTimeout(resolve, ARCHIVE_DRAIN_TIMEOUT_MS)),
+    ]);
+  }
+
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
   process.exit(code);

@@ -327,13 +327,25 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("deleteAgent", () => {
+  describe("archiveAgent", () => {
+    /** Helper: run the full beginArchive + executeArchive flow and wait for completion. */
+    async function archiveAgent(id: string, cleanupWorktree: "auto" | "keep" | "force" = "auto"): Promise<void> {
+      await manager.beginArchive(id, cleanupWorktree);
+      await new Promise<void>((resolve, reject) => {
+        void manager.executeArchive(id, {
+          onPhaseChange: () => {},
+          onComplete: () => resolve(),
+          onError: (err) => reject(err),
+        });
+      });
+    }
+
     it("should soft-delete an agent", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
-      // Stop first so delete doesn't need force
+      // Stop first so beginArchive doesn't need force
       await manager.stopAgent(agent.id, { force: true });
-      await manager.deleteAgent(agent.id);
+      await archiveAgent(agent.id);
 
       // getAgent filters out soft-deleted agents
       const fetched = await manager.getAgent(agent.id);
@@ -348,7 +360,7 @@ describe("AgentManager", () => {
     it("should exclude soft-deleted agents from listAgents", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
       await manager.stopAgent(agent.id, { force: true });
-      await manager.deleteAgent(agent.id);
+      await archiveAgent(agent.id);
 
       const agents = await manager.listAgents();
       expect(agents.find((a) => a.id === agent.id)).toBeUndefined();
@@ -367,7 +379,7 @@ describe("AgentManager", () => {
         [agent.id]
       );
 
-      await manager.deleteAgent(agent.id, true);
+      await archiveAgent(agent.id);
 
       // Media rows are preserved since soft delete doesn't trigger CASCADE
       const media = await pool.query("SELECT * FROM media WHERE agent_id = $1", [agent.id]);
@@ -378,11 +390,34 @@ describe("AgentManager", () => {
 
     it("should throw 404 for non-existent agent", async () => {
       try {
-        await manager.deleteAgent("agt_nonexistent");
+        await manager.beginArchive("agt_nonexistent");
         expect.unreachable("should have thrown");
       } catch (err) {
         expect(err).toBeInstanceOf(AgentError);
         expect((err as InstanceType<typeof AgentError>).statusCode).toBe(404);
+      }
+    });
+
+    it("should set status to archiving during beginArchive", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await manager.stopAgent(agent.id, { force: true });
+
+      const archiving = await manager.beginArchive(agent.id);
+      expect(archiving.status).toBe("archiving");
+      expect(archiving.archivePhase).toBe("stopping");
+    });
+
+    it("should reject archiving an already-archiving agent", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await manager.stopAgent(agent.id, { force: true });
+      await manager.beginArchive(agent.id);
+
+      try {
+        await manager.beginArchive(agent.id);
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AgentError);
+        expect((err as InstanceType<typeof AgentError>).statusCode).toBe(409);
       }
     });
   });

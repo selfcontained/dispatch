@@ -143,7 +143,7 @@ test.describe("Worktree", () => {
     const res = await request.delete(`/api/v1/agents/${agent.id}?cleanupWorktree=keep`, {
       headers: authHeader,
     });
-    expect(res.status()).toBe(204);
+    expect(res.status()).toBe(202);
   });
 
   test("delete dialog shows standard confirmation for agent without worktree", async ({

@@ -179,6 +179,10 @@ export async function runMigrations(): Promise<void> {
 
     -- Agent pins (key-value info surfaced in UI)
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS pins JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+    -- Async archival phase tracking
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS archive_phase TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS archive_cleanup_mode TEXT;
   `;
 
   try {

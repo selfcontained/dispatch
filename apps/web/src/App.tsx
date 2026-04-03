@@ -465,24 +465,15 @@ export function DashboardLayout(): JSX.Element {
       if (connectedAgentId === agent.id) {
         detachTerminal();
       }
-      if (validatedSelectedAgentId === agent.id) {
-        setSelectedAgentId(null);
-        refreshMedia(null);
-      }
-      if (agent.status === "running") {
-        await api(`/api/v1/agents/${agent.id}/stop`, {
-          method: "POST",
-          body: JSON.stringify({ force: true }),
-        });
-      }
       const params = new URLSearchParams();
       if (cleanupWorktree) {
         params.set("cleanupWorktree", cleanupWorktree);
       }
       const qs = params.toString();
+      // Backend handles stopping + cleanup asynchronously; returns 202 immediately
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
-    [connectedAgentId, detachTerminal, refreshMedia, validatedSelectedAgentId]
+    [connectedAgentId, detachTerminal]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
@@ -625,6 +616,7 @@ export function DashboardLayout(): JSX.Element {
               terminalMode={terminalMode}
               terminalPlaceholderMessage={terminalPlaceholderMessage}
               terminalHostRef={terminalHostRef}
+              archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
             />
 
             {!isMobile ? (
