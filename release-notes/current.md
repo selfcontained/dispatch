@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix login page showing on fresh instances with no password by @selfcontained in https://github.com/selfcontained/dispatch/pull/203
+* Add pins and browser cleanup to agent launch guidance by @selfcontained in https://github.com/selfcontained/dispatch/pull/204
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.1...v0.9.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.2...v0.9.3
