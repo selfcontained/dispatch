@@ -277,11 +277,12 @@ export function ParentFeedbackPanel({
 
   const handleResolve = (item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
-    // Auto-advance to the next unresolved item (by position, not first)
-    const idx = activeItems.findIndex((f) => f.id === item.id);
-    const remaining = activeItems.filter((f) => f.id !== item.id);
+    // Auto-advance to the next unresolved item within the same persona
+    const samePersona = activeItems.filter((f) => f.agentId === item.agentId);
+    const idx = samePersona.findIndex((f) => f.id === item.id);
+    const remaining = samePersona.filter((f) => f.id !== item.id);
     const nextId = remaining.length > 0
-      ? remaining[Math.min(idx, remaining.length - 1)]!.id
+      ? remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id
       : null;
     setSheetItemId(sheetItemId != null ? nextId : null);
     setExpandedId(nextId);
@@ -434,7 +435,7 @@ export function ParentFeedbackPanel({
               <div className="absolute right-4 top-4 flex items-center space-x-8 z-10">
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {sheetIndex + 1}/{sheetNavItems.length}
+                    {sheetIndex + 1}/{sheetNavItems.length}{!sheetIsActive ? " resolved" : ""}
                   </span>
                   <Button
                     variant="ghost"
@@ -639,14 +640,19 @@ export function FeedbackDetailPanel({
 
   const handleResolve = useCallback((feedbackItem: FeedbackItem, status: string) => {
     void updateStatus(feedbackItem, status);
-    const idx = activeItems.findIndex((f) => f.id === feedbackItem.id);
-    const remaining = activeItems.filter((f) => f.id !== feedbackItem.id);
+    // Advance within the same persona group
+    const samePersona = activeItems.filter((f) => f.agentId === feedbackItem.agentId);
+    const idx = samePersona.findIndex((f) => f.id === feedbackItem.id);
+    const remaining = samePersona.filter((f) => f.id !== feedbackItem.id);
     if (remaining.length > 0) {
-      onNavigate(remaining[Math.min(idx, remaining.length - 1)]!.id);
+      onNavigate(remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id);
+    } else if (resolvedItems.length > 0) {
+      // Show first resolved item instead of closing
+      onNavigate(resolvedItems[0]!.id);
     } else {
       onClose();
     }
-  }, [updateStatus, activeItems, onNavigate, onClose]);
+  }, [updateStatus, activeItems, resolvedItems, onNavigate, onClose]);
 
   if (!item) return null;
 
@@ -683,7 +689,7 @@ export function FeedbackDetailPanel({
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-4">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {itemIndex + 1}/{navItems.length}
+            {itemIndex + 1}/{navItems.length}{!isActiveItem ? " resolved" : ""}
           </span>
           <Button
             variant="ghost"
