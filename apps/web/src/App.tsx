@@ -579,12 +579,12 @@ export function DashboardLayout(): JSX.Element {
         >
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              "grid h-full min-h-0 min-w-0",
               isMobile
                 ? "grid-rows-[auto_1fr_auto_auto]"
                 : feedbackDetail
                   ? "grid-rows-[auto_1fr_1fr_auto]"
-                  : "grid-rows-[auto_1fr_0fr_auto]"
+                  : "grid-rows-[auto_1fr_auto]"
             )}
           >
             <AppHeader
@@ -610,19 +610,17 @@ export function DashboardLayout(): JSX.Element {
               terminalHostRef={terminalHostRef}
             />
 
-            {!isMobile ? (
-              <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
-                {feedbackDetail ? (
-                  <FeedbackDetailPanel
-                    key={feedbackDetail.parentAgentId}
-                    parentAgentId={feedbackDetail.parentAgentId}
-                    itemId={feedbackDetail.itemId}
-                    isConnected={connectedAgentId === feedbackDetail.parentAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={() => setFeedbackDetail(null)}
-                    onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
-                  />
-                ) : null}
+            {!isMobile && feedbackDetail ? (
+              <div className="min-h-0 overflow-hidden animate-in slide-in-from-bottom fade-in duration-200">
+                <FeedbackDetailPanel
+                  key={feedbackDetail.parentAgentId}
+                  parentAgentId={feedbackDetail.parentAgentId}
+                  itemId={feedbackDetail.itemId}
+                  isConnected={connectedAgentId === feedbackDetail.parentAgentId}
+                  sendTerminalInput={sendTerminalInput}
+                  onClose={() => setFeedbackDetail(null)}
+                  onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
+                />
               </div>
             ) : null}
 
