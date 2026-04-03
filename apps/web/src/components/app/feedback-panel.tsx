@@ -231,12 +231,10 @@ export function ParentFeedbackPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allAgents, parentAgentId, personas]);
 
-  if (feedback.length === 0) return null;
-
-  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity);
-  const resolvedItems = feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity);
+  const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
+  const resolvedItems = useMemo(() => feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity), [feedback]);
   const activeCount = activeItems.length;
-  const visibleItems = showResolved ? [...activeItems, ...resolvedItems] : activeItems;
+  const visibleItems = useMemo(() => showResolved ? [...activeItems, ...resolvedItems] : activeItems, [showResolved, activeItems, resolvedItems]);
 
   const sheetIsActive = sheetItem && (sheetItem.status === "open" || sheetItem.status === "forwarded");
   const sheetNavItems = sheetIsActive ? activeItems : resolvedItems;
@@ -244,21 +242,21 @@ export function ParentFeedbackPanel({
   const prevSheetItem = sheetIndex > 0 ? sheetNavItems[sheetIndex - 1]! : null;
   const nextSheetItem = sheetIndex >= 0 && sheetIndex < sheetNavItems.length - 1 ? sheetNavItems[sheetIndex + 1]! : null;
 
-  const updateStatus = async (item: FeedbackItem, status: string) => {
+  const updateStatus = useCallback(async (item: FeedbackItem, status: string) => {
     await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
     });
     const update = (f: FeedbackItem) => f.id === item.id ? { ...f, status: status as FeedbackItem["status"] } : f;
     queryClient.setQueryData<FeedbackItem[]>(["feedback", parentAgentId, "children"], (old) => old?.map(update));
-  };
+  }, [queryClient, parentAgentId]);
 
-  const dismissUI = () => {
+  const dismissUI = useCallback(() => {
     setSheetItemId(null);
     if (closeOnSessionAction) onRequestClose?.();
-  };
+  }, [closeOnSessionAction, onRequestClose]);
 
-  const forward = (item: FeedbackItem, mode: "wdyt" | "fix") => {
+  const forward = useCallback((item: FeedbackItem, mode: "wdyt" | "fix") => {
     if (sendTerminalInput && isConnected) {
       const prefix = mode === "fix"
         ? "Fix the following issue found by the persona reviewer:"
@@ -268,14 +266,14 @@ export function ParentFeedbackPanel({
       void updateStatus(item, "forwarded");
     }
     dismissUI();
-  };
+  }, [sendTerminalInput, isConnected, updateStatus, dismissUI]);
 
-  const handleCopy = (item: FeedbackItem) => {
+  const handleCopy = useCallback((item: FeedbackItem) => {
     copyText(formatFeedbackText(item));
     setCopiedItemId(item.id);
-  };
+  }, [copyText]);
 
-  const handleResolve = (item: FeedbackItem, status: string) => {
+  const handleResolve = useCallback((item: FeedbackItem, status: string) => {
     void updateStatus(item, status);
     // Auto-advance to the next unresolved item within the same persona
     const samePersona = activeItems.filter((f) => f.agentId === item.agentId);
@@ -286,9 +284,11 @@ export function ParentFeedbackPanel({
       : null;
     setSheetItemId(sheetItemId != null ? nextId : null);
     setExpandedId(nextId);
-  };
+  }, [updateStatus, activeItems, sheetItemId]);
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
+
+  if (feedback.length === 0) return null;
 
   return (
     <>
@@ -607,8 +607,8 @@ export function FeedbackDetailPanel({
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
 
   const panelRef = useRef<HTMLDivElement>(null);
-  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity);
-  const resolvedItems = feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity);
+  const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
+  const resolvedItems = useMemo(() => feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity), [feedback]);
   const item = feedback.find((f) => f.id === itemId) ?? null;
 
   const isActiveItem = item && (item.status === "open" || item.status === "forwarded");
