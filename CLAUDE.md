@@ -114,6 +114,7 @@ Before marking any task as done, run the following checks and fix any failures:
   - `url` — for full URLs (rendered as clickable links)
   - `port` — for port numbers (rendered as a monospace badge)
   - `code` — for commands or config values (rendered as a monospace badge)
+  - `pr` — for pull request URLs (rendered as a link with a PR icon)
   - `string` — for plain text (default)
 
 ## Personas

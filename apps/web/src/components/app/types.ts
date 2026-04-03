@@ -3,7 +3,7 @@ export type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "err
 export type AgentPin = {
   label: string;
   value: string;
-  type: "string" | "url" | "port" | "code";
+  type: "string" | "url" | "port" | "code" | "pr";
 };
 
 export type Agent = {

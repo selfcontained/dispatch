@@ -3470,14 +3470,19 @@ async function mcpResolveFeedback(
   return record;
 }
 
+const VALID_PIN_TYPES = ["string", "url", "port", "code", "pr"] as const;
+
 async function mcpUpsertPin(
   agentId: string,
   pin: { label: string; value: string; type: string }
 ): Promise<void> {
+  if (!VALID_PIN_TYPES.includes(pin.type as (typeof VALID_PIN_TYPES)[number])) {
+    throw new Error(`Invalid pin type: ${pin.type}`);
+  }
   const agent = await agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
-    type: pin.type as "string" | "url" | "port" | "code"
+    type: pin.type as (typeof VALID_PIN_TYPES)[number]
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
