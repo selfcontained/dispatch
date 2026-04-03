@@ -64,7 +64,7 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
         {pin.label}
       </div>
       <div className="flex items-center gap-1.5">
-        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-purple-600 dark:text-purple-400" />}
+        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
         {href ? (
           <a
             href={href}
