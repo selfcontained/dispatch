@@ -55,6 +55,7 @@ export type AgentRecord = {
   fullAccess: boolean;
   setupPhase: SetupPhase;
   archivePhase: ArchivePhase;
+  archiveCleanupMode: WorktreeCleanupMode | null;
   lastError: string | null;
   latestEvent: AgentLatestEvent | null;
   pins: AgentPin[];
@@ -485,15 +486,25 @@ export class AgentManager {
    * Fast, synchronous first phase of archival: validates state and marks agent as archiving.
    * Returns the updated agent record for SSE broadcast.
    */
-  async beginArchive(id: string): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
+  async beginArchive(id: string, cleanupWorktree: WorktreeCleanupMode = "auto"): Promise<AgentRecord> {
+    // Atomic transition: only one caller can move out of non-archiving state.
+    // This prevents TOCTOU races when concurrent DELETE requests hit the same agent.
+    const result = await this.pool.query(
+      `UPDATE agents
+       SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
+       RETURNING id`,
+      [id, cleanupWorktree]
+    );
 
-    if (agent.status === "archiving") {
+    if (result.rowCount === 0) {
+      // Either the agent doesn't exist, is already deleted, or is already archiving
+      const existing = await this.getAgent(id);
+      if (!existing) {
+        throw new AgentError("Agent not found.", 404);
+      }
       throw new AgentError("Agent is already being archived.", 409);
     }
-
-    await this.setAgentStatus(id, "archiving", null, agent.tmuxSession ?? undefined);
-    await this.setArchivePhase(id, "stopping");
 
     return await this.getRequiredAgent(id);
   }
@@ -504,7 +515,6 @@ export class AgentManager {
    */
   async executeArchive(
     id: string,
-    cleanupWorktree: WorktreeCleanupMode,
     callbacks: {
       onPhaseChange: (agent: AgentRecord) => void;
       onComplete: (deletedIds: string[]) => void;
@@ -516,6 +526,7 @@ export class AgentManager {
 
     try {
       const agent = await this.getRequiredAgent(id);
+      const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
 
       // Phase: stopping — tear down session without changing agent status
       const t = Date.now();
@@ -608,7 +619,7 @@ export class AgentManager {
         )
         .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
 
-      await this.pool.query("UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, updated_at = NOW() WHERE id = $1", [id]);
+      await this.pool.query("UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1", [id]);
       durations.db = Date.now() - tDb;
 
       // Cascade: archive child agents (persona agents spawned by this parent)
@@ -680,6 +691,19 @@ export class AgentManager {
     await this.pool.query("UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
     durations.db = Date.now() - tDb;
 
+    // Cascade to any children (recursive to handle multi-level nesting)
+    const children = await this.pool.query<{ id: string }>(
+      "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
+      [id]
+    );
+    for (const child of children.rows) {
+      try {
+        await this.deleteAgentDirect(child.id, true, cleanupWorktree);
+      } catch (err) {
+        this.logger.warn({ err, childId: child.id, parentId: id }, "Failed to cascade-delete child agent");
+      }
+    }
+
     durations.total = Date.now() - deleteStart;
     const parts = Object.entries(durations).map(([k, v]) => `${k}=${v}ms`).join(", ");
     this.logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
@@ -741,7 +765,7 @@ export class AgentManager {
           latest_event_metadata = $4::jsonb,
           latest_event_updated_at = NOW(),
           updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND deleted_at IS NULL
       `,
       [id, input.type, message, JSON.stringify(input.metadata ?? {})]
     );
@@ -760,14 +784,17 @@ export class AgentManager {
       )
       .catch((err) => this.logger.warn({ err }, "Failed to insert agent event history"));
 
-    const agent = (await this.getAgent(id)) as AgentRecord;
-    if (agent) {
-      for (const listener of this.eventListeners) {
-        try {
-          listener(agent);
-        } catch (err) {
-          this.logger.warn({ err }, "Agent event listener threw");
-        }
+    // Agent could be soft-deleted between the UPDATE and this SELECT in rare races.
+    // Guard against null to prevent downstream crashes (e.g. in event listeners).
+    const agent = await this.getAgent(id);
+    if (!agent) {
+      throw new AgentError("Agent not found.", 404);
+    }
+    for (const listener of this.eventListeners) {
+      try {
+        listener(agent);
+      } catch (err) {
+        this.logger.warn({ err }, "Agent event listener threw");
       }
     }
     return agent;
@@ -1696,6 +1723,7 @@ export class AgentManager {
         full_access AS "fullAccess",
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",
+        archive_cleanup_mode AS "archiveCleanupMode",
         last_error AS "lastError",
         CASE
           WHEN latest_event_type IS NULL OR latest_event_message IS NULL OR latest_event_updated_at IS NULL THEN NULL

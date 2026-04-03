@@ -2539,15 +2539,10 @@ async function registerRoutes() {
 
   app.delete("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: unknown };
-    const query = request.query as { force?: unknown; cleanupWorktree?: unknown };
+    const query = request.query as { cleanupWorktree?: unknown };
 
     if (typeof params.id !== "string") {
       return reply.code(400).send({ error: "Missing agent id." });
-    }
-
-    const force = query.force === "true" || query.force === true;
-    if (query.force !== undefined && typeof query.force !== "string" && typeof query.force !== "boolean") {
-      return reply.code(400).send({ error: "force must be true or false." });
     }
 
     const validCleanupModes = ["auto", "keep", "force"] as const;
@@ -2558,12 +2553,13 @@ async function registerRoutes() {
         : "auto";
 
     try {
-      // Fast synchronous phase: mark agent as archiving and return immediately
-      const agent = await agentManager.beginArchive(params.id);
+      // Fast synchronous phase: mark agent as archiving and return immediately.
+      // cleanupWorktree is persisted so reconciliation can honor it if the server restarts.
+      const agent = await agentManager.beginArchive(params.id, cleanupWorktree);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 
       // Fire-and-forget: run cleanup in background
-      void agentManager.executeArchive(params.id, cleanupWorktree, {
+      void agentManager.executeArchive(params.id, {
         onPhaseChange: (updated) => {
           uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
         },
@@ -2993,7 +2989,8 @@ async function runAgentStatusReconciliation(): Promise<void> {
         // Resume interrupted archive
         console.log(`[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`);
         uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
-        void agentManager.executeArchive(agent.id, "auto", {
+        // Cleanup mode is persisted on the agent record by beginArchive
+        void agentManager.executeArchive(agent.id, {
           onPhaseChange: (updated) => {
             uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
           },

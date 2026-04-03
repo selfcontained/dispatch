@@ -330,9 +330,9 @@ describe("AgentManager", () => {
   describe("archiveAgent", () => {
     /** Helper: run the full beginArchive + executeArchive flow and wait for completion. */
     async function archiveAgent(id: string, cleanupWorktree: "auto" | "keep" | "force" = "auto"): Promise<void> {
-      await manager.beginArchive(id);
+      await manager.beginArchive(id, cleanupWorktree);
       await new Promise<void>((resolve, reject) => {
-        void manager.executeArchive(id, cleanupWorktree, {
+        void manager.executeArchive(id, {
           onPhaseChange: () => {},
           onComplete: () => resolve(),
           onError: (err) => reject(err),

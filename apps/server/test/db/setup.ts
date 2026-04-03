@@ -158,6 +158,7 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
 
     -- Async archival phase tracking
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS archive_phase TEXT;
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS archive_cleanup_mode TEXT;
   `;
 
   await pool.query(sql);
