@@ -1151,9 +1151,11 @@ export class AgentManager {
     const launchGuidance =
       `[dispatch:${agentId}] ` +
       "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
-      "Capture at least one screenshot per UI validation flow; publish every screenshot with the dispatch_share MCP tool (filePath + description for Playwright, or source 'simulator' for iOS Simulator) — never leave screenshots local-only. " +
-      "Call the dispatch_event MCP tool at the start of each turn (working), when blocked or waiting for input (blocked/waiting_user), and before your final response (done on success, idle for no-op turns). Never send a final response without a terminal status event. " +
-      "For SSE/WebSocket pages, never use waitUntil: \"networkidle\"; use \"domcontentloaded\" or \"load\" and explicit UI-ready checks.";
+      "Capture at least one screenshot per UI validation flow; publish every screenshot with the dispatch_share MCP tool — never leave screenshots local-only. " +
+      "Call the dispatch_event MCP tool to report status. Valid types: working (actively making progress), blocked (hit an error or obstacle), waiting_user (need user input), done (task complete), idle (no-op turn). " +
+      "Emit working at the start of each turn and when your activity shifts phases. Switch to blocked on errors. Emit a terminal event (done/idle/waiting_user/blocked) before your final response. " +
+      "When done with Playwright validation, call browser_close to shut down the browser. " +
+      "Use the dispatch_pin MCP tool to pin important info (dev server URLs, ports, commands) so users can find them in the sidebar. Use the appropriate type (url, port, code, string). Update pins when values change; delete stale pins when services are torn down.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
