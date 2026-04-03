@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
@@ -12,6 +12,8 @@ import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
+
+export type FeedbackDetailState = { parentAgentId: string; itemId: number } | null;
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: "bg-red-500",
@@ -160,12 +162,15 @@ export function ParentFeedbackPanel({
   isConnected,
   onRequestClose,
   closeOnSessionAction,
+  onOpenDetail,
 }: {
   parentAgentId: string;
   sendTerminalInput?: (data: string) => void;
   isConnected: boolean;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
+  /** When provided, opens the detail in the main grid panel instead of a Sheet (desktop). */
+  onOpenDetail?: (state: FeedbackDetailState) => void;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -362,7 +367,13 @@ export function ParentFeedbackPanel({
                             <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
                               <button
                                 className="absolute top-1 right-1 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                                onClick={() => setSheetItemId(item.id)}
+                                onClick={() => {
+                                  if (onOpenDetail) {
+                                    onOpenDetail({ parentAgentId, itemId: item.id });
+                                  } else {
+                                    setSheetItemId(item.id);
+                                  }
+                                }}
                               >
                                 <Maximize className="h-3.5 w-3.5" />
                               </button>
@@ -401,8 +412,8 @@ export function ParentFeedbackPanel({
         ) : null}
       </div>
 
-      {/* Full feedback detail sheet */}
-      <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
+      {/* Full feedback detail sheet — only used on mobile (when onOpenDetail is not provided) */}
+      {!onOpenDetail ? <Sheet open={!!sheetItem} onOpenChange={(open) => { if (!open) setSheetItemId(null); }}>
         <SheetContent side="bottom" hideCloseButton overlayClassName="z-[70]" className="z-[70] flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5">
           {sheetItem ? (
             <>
@@ -497,7 +508,224 @@ export function ParentFeedbackPanel({
             </>
           ) : null}
         </SheetContent>
-      </Sheet>
+      </Sheet> : null}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shared hooks for feedback detail (used by both Sheet & inline)    */
+/* ------------------------------------------------------------------ */
+
+function useFeedbackData(parentAgentId: string) {
+  const queryClient = useQueryClient();
+
+  const { data: feedback = [] } = useQuery<FeedbackItem[]>({
+    queryKey: ["feedback", parentAgentId, "children"],
+    queryFn: async () => {
+      const result = await api<{ feedback: FeedbackItem[] }>(`/api/v1/agents/${parentAgentId}/feedback?scope=children`);
+      return result.feedback;
+    },
+  });
+
+  const { data: allAgents = [] } = useQuery<Agent[]>({ queryKey: ["agents"], enabled: false });
+  const parentAgent = allAgents.find((a) => a.id === parentAgentId);
+  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
+
+  type PersonaSummary = { slug: string; name: string };
+  const { data: personas = [] } = useQuery<PersonaSummary[]>({
+    queryKey: ["personas", parentCwd],
+    queryFn: async () => {
+      const result = await api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(parentCwd ?? "")}`);
+      return result.personas;
+    },
+    enabled: !!parentCwd,
+  });
+
+  const personaAttribution = useMemo(() => {
+    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
+    const map = new Map<string, { name: string; color: string }>();
+    for (const agent of allAgents) {
+      if (agent.parentAgentId === parentAgentId && agent.persona) {
+        const idx = slugToIndex.get(agent.persona);
+        const colorVar = idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
+        const persona = personas.find((p) => p.slug === agent.persona);
+        map.set(agent.id, { name: persona?.name ?? agent.persona, color: `hsl(${colorVar})` });
+      }
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allAgents, parentAgentId, personas]);
+
+  const updateStatus = useCallback(async (item: FeedbackItem, status: string) => {
+    await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    const update = (f: FeedbackItem) => f.id === item.id ? { ...f, status: status as FeedbackItem["status"] } : f;
+    queryClient.setQueryData<FeedbackItem[]>(["feedback", parentAgentId, "children"], (old) => old?.map(update));
+  }, [queryClient, parentAgentId]);
+
+  return { feedback, personaAttribution, updateStatus };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Inline feedback detail panel (rendered in the main grid)          */
+/* ------------------------------------------------------------------ */
+
+export function FeedbackDetailPanel({
+  parentAgentId,
+  itemId,
+  isConnected,
+  sendTerminalInput,
+  onClose,
+  onNavigate,
+}: {
+  parentAgentId: string;
+  itemId: number;
+  isConnected: boolean;
+  sendTerminalInput?: (data: string) => void;
+  onClose: () => void;
+  onNavigate: (itemId: number) => void;
+}): JSX.Element | null {
+  const { feedback, personaAttribution, updateStatus } = useFeedbackData(parentAgentId);
+  const [copied, copyText] = useCopyText();
+  const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const activeItems = feedback.filter((f) => f.status === "open" || f.status === "forwarded");
+  const item = feedback.find((f) => f.id === itemId) ?? null;
+
+  const itemIndex = item ? activeItems.findIndex((f) => f.id === item.id) : -1;
+  const prevItem = itemIndex > 0 ? activeItems[itemIndex - 1]! : null;
+  const nextItem = itemIndex >= 0 && itemIndex < activeItems.length - 1 ? activeItems[itemIndex + 1]! : null;
+
+  // Auto-focus the panel when it opens
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, [itemId]);
+
+  const forward = useCallback((feedbackItem: FeedbackItem, mode: "wdyt" | "fix") => {
+    if (sendTerminalInput && isConnected) {
+      const prefix = mode === "fix"
+        ? "Fix the following issue found by the persona reviewer:"
+        : "A persona reviewer flagged the following. What do you think — is this a real concern?";
+      const text = prefix + "\n" + formatFeedbackText(feedbackItem) + "\r";
+      sendTerminalInput(text);
+      void updateStatus(feedbackItem, "forwarded");
+    }
+  }, [sendTerminalInput, isConnected, updateStatus]);
+
+  const handleCopy = useCallback((feedbackItem: FeedbackItem) => {
+    copyText(formatFeedbackText(feedbackItem));
+    setCopiedItemId(feedbackItem.id);
+  }, [copyText]);
+
+  const handleResolve = useCallback((feedbackItem: FeedbackItem, status: string) => {
+    void updateStatus(feedbackItem, status);
+    const remaining = activeItems.filter((f) => f.id !== feedbackItem.id);
+    if (remaining.length > 0) {
+      onNavigate(remaining[0]!.id);
+    } else {
+      onClose();
+    }
+  }, [updateStatus, activeItems, onNavigate, onClose]);
+
+  if (!item) return null;
+
+  const isActionable = item.status === "open" || item.status === "forwarded";
+  const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
+  const attr = personaAttribution.get(item.agentId);
+
+  return (
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      }}
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+    >
+      {/* Header row with nav + close */}
+      <div className="flex items-center justify-between shrink-0 mb-3">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Badge variant={severityInfo!.variant}>
+            {severityInfo!.label}
+          </Badge>
+          <span className="text-base font-semibold truncate">
+            {item.filePath
+              ? `${item.filePath}${item.lineNumber ? `:${item.lineNumber}` : ""}`
+              : "Feedback"}
+          </span>
+          {attr ? (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: attr.color }} />
+              <span style={{ color: attr.color }}>{attr.name}</span>
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-1 shrink-0 ml-4">
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {itemIndex + 1}/{activeItems.length}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            disabled={!prevItem}
+            onClick={() => prevItem && onNavigate(prevItem.id)}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            disabled={!nextItem}
+            onClick={() => nextItem && onNavigate(nextItem.id)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 ml-4 opacity-70 hover:opacity-100"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
+          <Markdown className="text-sm text-foreground">{item.description}</Markdown>
+        </div>
+
+        {item.suggestion ? (
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Suggestion</div>
+            <Markdown className="text-sm text-muted-foreground">{item.suggestion}</Markdown>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Actions footer */}
+      <div className="shrink-0 pt-2 border-t border-border mt-2">
+        <FeedbackActions
+          item={item}
+          isConnected={isConnected}
+          onForward={(mode) => forward(item, mode)}
+          onCopy={() => handleCopy(item)}
+          copied={copied && copiedItemId === item.id}
+          onUpdateStatus={(s) => handleResolve(item, s)}
+          isActionable={isActionable}
+          statusLabel={STATUS_LABELS[item.status]}
+          size="default"
+        />
+      </div>
+    </div>
   );
 }

@@ -16,7 +16,7 @@ import { useIconColor } from "@/hooks/use-icon-color";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { ParentFeedbackPanel } from "@/components/app/feedback-panel";
+import { type FeedbackDetailState, ParentFeedbackPanel } from "@/components/app/feedback-panel";
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +52,7 @@ type AgentSidebarSharedProps = {
   startAgent: (agent: Agent) => Promise<void>;
   sendTerminalInput?: (data: string) => void;
   connectedAgentId?: string | null;
+  onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
 };
 
 type AgentSidebarProps = AgentSidebarSharedProps & {
@@ -91,6 +92,7 @@ export function AgentSidebarContent({
   startAgent,
   sendTerminalInput,
   connectedAgentId,
+  onOpenFeedbackDetail,
   onRequestClose,
   closeOnSessionAction = false,
   closeButtonIcon = "x",
@@ -453,6 +455,7 @@ export function AgentSidebarContent({
                               isConnected={connectedAgentId === agent.id}
                               onRequestClose={onRequestClose}
                               closeOnSessionAction={closeOnSessionAction}
+                              onOpenDetail={onOpenFeedbackDetail}
                             />
                           </div>
                         ) : null}
