@@ -14,6 +14,7 @@ import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sideba
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
+import { type FeedbackDetailState, FeedbackDetailPanel } from "@/components/app/feedback-panel";
 import {
   type Agent,
   type AgentVisualState,
@@ -154,6 +155,7 @@ export function App(): JSX.Element {
   // ── Panes ─────────────────────────────────────────────────────────────
   const [settingsPaneOpen, setSettingsPaneOpen] = useState(false);
   const [docsPaneOpen, setDocsPaneOpen] = useState(false);
+  const [feedbackDetail, setFeedbackDetail] = useState<FeedbackDetailState>(null);
   const [activityPaneOpen, setActivityPaneOpen] = useState(false);
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
 
@@ -267,6 +269,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     resortAgents();
   }, [connectedAgentId, resortAgents]);
+
+  // Close feedback detail panel when the connected agent changes.
+  useEffect(() => {
+    setFeedbackDetail((prev) => prev && connectedAgentId !== prev.parentAgentId ? null : prev);
+  }, [connectedAgentId]);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
@@ -571,6 +578,7 @@ export function App(): JSX.Element {
               startAgent={startAgent}
               sendTerminalInput={sendTerminalInput}
               connectedAgentId={connectedAgentId}
+              onOpenFeedbackDetail={setFeedbackDetail}
             />
           </div>
         ) : null}
@@ -580,8 +588,12 @@ export function App(): JSX.Element {
         >
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0",
-              isMobile ? "grid-rows-[auto_1fr_auto_auto]" : "grid-rows-[auto_1fr_auto]"
+              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              isMobile
+                ? "grid-rows-[auto_1fr_auto_auto]"
+                : feedbackDetail
+                  ? "grid-rows-[auto_1fr_1fr_auto]"
+                  : "grid-rows-[auto_1fr_0fr_auto]"
             )}
           >
             <AppHeader
@@ -606,6 +618,22 @@ export function App(): JSX.Element {
               terminalPlaceholderMessage={terminalPlaceholderMessage}
               terminalHostRef={terminalHostRef}
             />
+
+            {!isMobile ? (
+              <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
+                {feedbackDetail ? (
+                  <FeedbackDetailPanel
+                    key={feedbackDetail.parentAgentId}
+                    parentAgentId={feedbackDetail.parentAgentId}
+                    itemId={feedbackDetail.itemId}
+                    isConnected={connectedAgentId === feedbackDetail.parentAgentId}
+                    sendTerminalInput={sendTerminalInput}
+                    onClose={() => setFeedbackDetail(null)}
+                    onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
 
             {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
