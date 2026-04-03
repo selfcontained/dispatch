@@ -684,9 +684,15 @@ export function useTerminal(args: {
 
     window.addEventListener("resize", onResize);
 
+    // ResizeObserver so the terminal reflows when its container changes size
+    // (e.g. feedback panel opening/closing via CSS grid transition).
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(host);
+
     return () => {
       invalidateAttachAttempt();
       disposable.dispose();
+      resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
