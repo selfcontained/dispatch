@@ -5,6 +5,7 @@ type AuthContextValue = {
   authState: AuthState;
   handleAuthenticated: () => void;
   handleLogout: () => Promise<void>;
+  retryAuth: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
