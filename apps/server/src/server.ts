@@ -981,6 +981,8 @@ async function registerRoutes() {
       launchPersona: mcpLaunchPersona,
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
+      upsertPin: mcpUpsertPin,
+      deletePin: mcpDeletePin,
     });
   });
 
@@ -3466,6 +3468,26 @@ async function mcpResolveFeedback(
   if (!record) throw new Error(`Feedback #${feedbackId} not found or not owned by a child of this agent.`);
   uiEventBroker.publish({ type: "feedback.updated", agentId: record.agentId, feedback: record });
   return record;
+}
+
+async function mcpUpsertPin(
+  agentId: string,
+  pin: { label: string; value: string; type: string }
+): Promise<void> {
+  const agent = await agentManager.upsertPin(agentId, {
+    label: pin.label,
+    value: pin.value,
+    type: pin.type as "string" | "url" | "port" | "code"
+  });
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpDeletePin(
+  agentId: string,
+  label: string
+): Promise<void> {
+  const agent = await agentManager.deletePin(agentId, label);
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
 
 async function mcpLaunchPersona(

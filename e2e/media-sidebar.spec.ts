@@ -20,18 +20,20 @@ test.describe("Media sidebar", () => {
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
-    await expect(mediaSidebar).toContainText(firstAgent.name);
-    await expect(mediaSidebar).toContainText("1 items");
+
+    // Switch to Media tab (sidebar defaults to Pins tab)
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("First image")).toBeVisible();
 
     await page.getByText(secondAgent.name, { exact: true }).click();
-    await expect(mediaSidebar).toContainText(secondAgent.name);
+    // Agent switch resets to Pins tab — switch back to Media
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await uploadMediaViaAPI(request, firstAgent.id, "Second image", "second-image.png");
     await page.getByText(firstAgent.name, { exact: true }).click();
-    await expect(mediaSidebar).toContainText(firstAgent.name);
+    // Agent switch resets to Pins tab again
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
 
-    await expect(mediaSidebar).toContainText("2 items", { timeout: 10_000 });
-    await expect(mediaSidebar.getByText("Second image")).toBeVisible();
+    await expect(mediaSidebar.getByText("Second image")).toBeVisible({ timeout: 10_000 });
   });
 
   test("navigates between fullscreen media items", async ({ page, request }) => {
@@ -46,7 +48,7 @@ test.describe("Media sidebar", () => {
     await page.getByTestId("toggle-media-sidebar").click();
 
     const mediaSidebar = page.getByTestId("media-sidebar");
-    await expect(mediaSidebar).toContainText("2 items");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
 
     await mediaSidebar.getByRole("button", { name: "Second image" }).click();
 
@@ -80,7 +82,7 @@ test.describe("Media sidebar", () => {
     await page.getByTestId("toggle-media-sidebar").click();
 
     const mediaSidebar = page.getByTestId("media-sidebar");
-    await expect(mediaSidebar).toContainText("1 items");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
 
     // The item should flip to "seen" once visible (IntersectionObserver fires).
     const thumb = mediaSidebar.locator(".media-thumb-seen");

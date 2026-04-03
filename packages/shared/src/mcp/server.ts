@@ -59,6 +59,13 @@ export type GetFeedbackResult = {
   personas: PersonaFeedbackGroup[];
 };
 
+export type PinInput = {
+  label: string;
+  value?: string;
+  type?: "string" | "url" | "port" | "code";
+  delete?: boolean;
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
@@ -88,6 +95,14 @@ export type McpRequestContext = {
     feedbackId: number,
     status: "fixed" | "ignored"
   ) => Promise<FeedbackItem>;
+  upsertPin?: (
+    agentId: string,
+    pin: { label: string; value: string; type: string }
+  ) => Promise<void>;
+  deletePin?: (
+    agentId: string,
+    label: string
+  ) => Promise<void>;
 };
 
 export async function handleMcpRequest(
@@ -317,6 +332,59 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           });
           return {
             content: [{ type: "text", text: `Updated ${agentId}: ${args.type} - ${args.message}` }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.upsertPin && context.deletePin) {
+    const agentId = context.agent.id;
+    const upsertPin = context.upsertPin;
+    const deletePin = context.deletePin;
+
+    server.registerTool(
+      "dispatch_pin",
+      {
+        description:
+          "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info like dev server URLs, ports, and commands. To update a pin, set it again with the same label. To remove a pin, pass delete: true.",
+        inputSchema: {
+          label: z.string().max(100).describe("Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."),
+          value: z
+            .string()
+            .max(2000)
+            .optional()
+            .describe("The value to display. Required unless delete is true."),
+          type: z
+            .enum(["string", "url", "port", "code"])
+            .default("string")
+            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge."),
+          delete: z
+            .boolean()
+            .default(false)
+            .describe("Set to true to remove the pin with this label.")
+        }
+      },
+      async (args) => {
+        try {
+          if (args.delete) {
+            await deletePin(agentId, args.label);
+            return {
+              content: [{ type: "text", text: `Removed pin "${args.label}".` }]
+            };
+          }
+          if (!args.value) {
+            return toToolError(new Error("value is required when not deleting a pin."));
+          }
+          await upsertPin(agentId, {
+            label: args.label,
+            value: args.value,
+            type: args.type ?? "string"
+          });
+          return {
+            content: [{ type: "text", text: `Pinned "${args.label}": ${args.value}` }]
           };
         } catch (error) {
           return toToolError(error);

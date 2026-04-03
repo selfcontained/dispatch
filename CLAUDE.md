@@ -105,6 +105,17 @@ Before marking any task as done, run the following checks and fix any failures:
 - `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
 - Migrations run automatically on API server start.
 
+## Agent Pins
+- When you start a dev server, database, or any service with dynamic ports, **pin the URLs immediately** using the `dispatch_pin` MCP tool so the user can find them without asking.
+- Pin cleanup commands (e.g. `dispatch-dev down`) so the user doesn't have to ask.
+- Update pins when ports/URLs change (e.g. after a `dispatch-dev restart`).
+- Remove stale pins with `dispatch_pin` using `delete: true` when a service is torn down.
+- Use the appropriate `type` for each pin:
+  - `url` — for full URLs (rendered as clickable links)
+  - `port` — for port numbers (rendered as a monospace badge)
+  - `code` — for commands or config values (rendered as a monospace badge)
+  - `string` — for plain text (default)
+
 ## Personas
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
 - Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
