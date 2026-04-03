@@ -11,25 +11,35 @@ export function useAuth(): {
   const passwordSetRef = useRef(false);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/v1/auth/status", { credentials: "include" });
-        if (!res.ok) {
-          // Server error — don't show login, we can't confirm a password is set.
-          setAuthState("authenticated");
+    let cancelled = false;
+
+    async function checkAuth() {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const res = await fetch("/api/v1/auth/status", { credentials: "include" });
+          if (!res.ok) {
+            // Server error — retry after a delay since we can't determine auth state.
+            await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 5000)));
+            continue;
+          }
+          const data = (await res.json()) as { passwordSet: boolean; authenticated: boolean };
+          if (cancelled) return;
+          passwordSetRef.current = data.passwordSet;
+          if (data.passwordSet && !data.authenticated) {
+            setAuthState("needs-login");
+          } else {
+            setAuthState("authenticated");
+          }
           return;
+        } catch {
+          // Network error (server not reachable) — retry.
+          await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 5000)));
         }
-        const data = (await res.json()) as { passwordSet: boolean; authenticated: boolean };
-        passwordSetRef.current = data.passwordSet;
-        if (data.passwordSet && !data.authenticated) {
-          setAuthState("needs-login");
-        } else {
-          setAuthState("authenticated");
-        }
-      } catch {
-        setAuthState("authenticated");
       }
-    })();
+    }
+
+    void checkAuth();
+    return () => { cancelled = true; };
   }, []);
 
   // Listen for 401s from the shared api() utility — only transition to
