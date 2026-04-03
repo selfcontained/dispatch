@@ -3262,12 +3262,14 @@ async function listMediaFiles(
     file_name: string;
     source: string;
     size_bytes: number;
-    created_at: Date;
+    effective_updated_at: Date;
     description: string | null;
   }>(
-    `SELECT file_name, source, size_bytes, created_at, description
+    `SELECT file_name, source, size_bytes,
+            COALESCE(updated_at, created_at) AS effective_updated_at,
+            description
      FROM media WHERE agent_id = $1
-     ORDER BY created_at DESC LIMIT 50`,
+     ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 50`,
     [agentId]
   );
 
@@ -3275,7 +3277,7 @@ async function listMediaFiles(
     name: row.file_name,
     source: row.source,
     size: row.size_bytes,
-    updatedAt: row.created_at.toISOString(),
+    updatedAt: row.effective_updated_at.toISOString(),
     url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`,
     description: row.description ?? null
   }));
@@ -3599,7 +3601,7 @@ async function mcpLaunchPersona(
 
 async function mcpShareMedia(
   agentId: string,
-  opts: { filePath: string; description: string; source?: string; name?: string }
+  opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
 ): Promise<{ fileName: string; url: string; sizeBytes: number; source: string; description: string }> {
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
@@ -3613,6 +3615,46 @@ async function mcpShareMedia(
   const source = isText ? "text" : (opts.source && validSources.includes(opts.source) ? opts.source : "screenshot");
 
   const buffer = await readFile(opts.filePath);
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+  await mkdir(mediaDir, { recursive: true });
+
+  // Update existing media file
+  if (opts.update) {
+    const existing = await pool.query<{ file_name: string }>(
+      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
+      [agentId, opts.update]
+    );
+    if (existing.rows.length === 0) {
+      throw new Error(`No media file found with the given fileName for this agent.`);
+    }
+
+    const fileName = existing.rows[0].file_name;
+    const filePath = path.join(mediaDir, fileName);
+    const resolvedMediaDir = path.resolve(mediaDir);
+    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
+      throw new Error("Invalid media file path.");
+    }
+
+    await writeFile(filePath, buffer);
+
+    await pool.query(
+      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW()
+       WHERE agent_id = $3 AND file_name = $4`,
+      [buffer.length, opts.description, agentId, fileName]
+    );
+
+    uiEventBroker.publish({ type: "media.changed", agentId });
+
+    return {
+      fileName,
+      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+      sizeBytes: buffer.length,
+      source,
+      description: opts.description
+    };
+  }
+
+  // Create new media file
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
   const baseName = opts.name ?? path.basename(opts.filePath);
   const ext0 = path.extname(baseName).toLowerCase();
@@ -3622,8 +3664,6 @@ async function mcpShareMedia(
   const base = path.basename(safeName, ext);
   const fileName = `${base}-${timestamp}${ext}`;
 
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
-  await mkdir(mediaDir, { recursive: true });
   await writeFile(path.join(mediaDir, fileName), buffer);
 
   await pool.query(
