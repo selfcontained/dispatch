@@ -664,6 +664,21 @@ async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean
   appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
   await runCommand("git", ["-C", serverDir, "checkout", tag]);
 
+  // Validate tarball contents before extraction — reject entries with path
+  // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
+  // default, so this is a real risk if a compromised release artifact is uploaded.
+  appendReleaseLog(job, "==> validating artifact contents");
+  const listing = await runCommand("tar", ["tzf", tarball]);
+  const unsafeEntries = listing.stdout
+    .split("\n")
+    .filter((entry) => entry.startsWith("/") || entry.includes("../"));
+  if (unsafeEntries.length > 0) {
+    await unlink(tarball).catch(() => {});
+    throw new Error(
+      `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
+    );
+  }
+
   appendReleaseLog(job, "==> extracting pre-built artifact");
   await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
   await unlink(tarball).catch(() => {});
