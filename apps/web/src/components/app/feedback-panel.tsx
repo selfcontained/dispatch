@@ -200,7 +200,7 @@ export function ParentFeedbackPanel({
   const queryClient = useQueryClient();
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
-  const [showResolved, setShowResolved] = useState(false);
+  const [showResolvedAgents, setShowResolvedAgents] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [copied, copyText] = useCopyText();
 
@@ -250,7 +250,6 @@ export function ParentFeedbackPanel({
   const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
   const resolvedItems = useMemo(() => feedback.filter((f) => f.status !== "open" && f.status !== "forwarded").sort(bySeverity), [feedback]);
   const activeCount = activeItems.length;
-  const visibleItems = useMemo(() => showResolved ? [...activeItems, ...resolvedItems] : activeItems, [showResolved, activeItems, resolvedItems]);
 
   const sheetIsActive = sheetItem && (sheetItem.status === "open" || sheetItem.status === "forwarded");
   const sheetNavItems = sheetIsActive ? activeItems : resolvedItems;
@@ -305,23 +304,28 @@ export function ParentFeedbackPanel({
 
   if (feedback.length === 0 && childAgents.length === 0) return null;
 
-  // Group feedback by agentId
-  const feedbackByAgent = new Map<string, FeedbackItem[]>();
-  for (const item of visibleItems) {
-    const list = feedbackByAgent.get(item.agentId);
+  // Group active feedback by agentId
+  const activeFeedbackByAgent = new Map<string, FeedbackItem[]>();
+  for (const item of activeItems) {
+    const list = activeFeedbackByAgent.get(item.agentId);
     if (list) list.push(item);
-    else feedbackByAgent.set(item.agentId, [item]);
+    else activeFeedbackByAgent.set(item.agentId, [item]);
   }
 
-  // Count resolved items per agent from the full feedback list
-  const resolvedCountByAgent = new Map<string, number>();
+  // Group resolved feedback by agentId
+  const resolvedFeedbackByAgent = new Map<string, FeedbackItem[]>();
   for (const item of resolvedItems) {
-    resolvedCountByAgent.set(item.agentId, (resolvedCountByAgent.get(item.agentId) ?? 0) + 1);
+    const list = resolvedFeedbackByAgent.get(item.agentId);
+    if (list) list.push(item);
+    else resolvedFeedbackByAgent.set(item.agentId, [item]);
   }
 
   // Build ordered list: child agents first (preserving order), then any agentIds with feedback but no child agent
   const agentIds = new Set(childAgents.map((a) => a.id));
-  for (const agentId of feedbackByAgent.keys()) {
+  for (const agentId of activeFeedbackByAgent.keys()) {
+    agentIds.add(agentId);
+  }
+  for (const agentId of resolvedFeedbackByAgent.keys()) {
     agentIds.add(agentId);
   }
 
@@ -333,11 +337,15 @@ export function ParentFeedbackPanel({
         </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
-            const items = feedbackByAgent.get(child.id) ?? [];
+            const agentActive = activeFeedbackByAgent.get(child.id) ?? [];
+            const agentResolved = resolvedFeedbackByAgent.get(child.id) ?? [];
+            const showingResolved = showResolvedAgents.has(child.id);
+            const items = showingResolved ? [...agentActive, ...agentResolved] : agentActive;
             const isGroupCollapsed = collapsedGroups.has(child.id);
             const childState = getVisualState?.(child);
-            const unresolvedCount = items.filter((f) => f.status === "open" || f.status === "forwarded").length;
-            const hasAnyFeedback = items.length > 0 || (resolvedCountByAgent.get(child.id) ?? 0) > 0;
+            const unresolvedCount = agentActive.length;
+            const resolvedCount = agentResolved.length;
+            const hasAnyFeedback = unresolvedCount > 0 || resolvedCount > 0;
 
             const canTriage = isConnected && !!sendTerminalInput;
             const handleTriage = unresolvedCount > 0
@@ -377,6 +385,7 @@ export function ParentFeedbackPanel({
                       onRequestClose={onRequestClose}
                       closeOnSessionAction={closeOnSessionAction}
                       feedbackCount={unresolvedCount}
+                      resolvedCount={resolvedCount}
                       isCollapsed={isGroupCollapsed}
                       hasFeedback={hasAnyFeedback}
                       onTriage={handleTriage}
@@ -386,7 +395,6 @@ export function ParentFeedbackPanel({
                 ) : null}
                 <AnimatePresence initial={false}>
                   {!isGroupCollapsed && hasAnyFeedback ? (() => {
-                    const groupResolvedCount = resolvedCountByAgent.get(child.id) ?? 0;
                     return (
                       <motion.div
                         key={`feedback-${child.id}`}
@@ -439,12 +447,20 @@ export function ParentFeedbackPanel({
                               </div>
                             );
                           })}
-                          {groupResolvedCount > 0 ? (
+                          {resolvedCount > 0 ? (
                             <button
                               className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
-                              onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowResolvedAgents((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(child.id)) next.delete(child.id);
+                                  else next.add(child.id);
+                                  return next;
+                                });
+                              }}
                             >
-                              {showResolved ? "Hide" : "Show"} {groupResolvedCount} resolved
+                              {showingResolved ? "Hide" : "Show"} {resolvedCount} resolved
                             </button>
                           ) : null}
                         </div>

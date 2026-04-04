@@ -16,6 +16,7 @@ export type PersonaAgentRowProps = {
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
   feedbackCount?: number;
+  resolvedCount?: number;
   isCollapsed?: boolean;
   hasFeedback?: boolean;
   onTriage?: () => void;
@@ -32,6 +33,7 @@ export function PersonaAgentRow({
   onRequestClose,
   closeOnSessionAction,
   feedbackCount,
+  resolvedCount,
   isCollapsed,
   hasFeedback,
   onTriage,
@@ -62,6 +64,8 @@ export function PersonaAgentRow({
           </span>
           {feedbackCount != null && feedbackCount > 0 ? (
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">{feedbackCount}</span>
+          ) : resolvedCount != null && resolvedCount > 0 ? (
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">{resolvedCount}</span>
           ) : null}
         </div>
         {child.latestEvent ? (
