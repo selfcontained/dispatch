@@ -23,7 +23,7 @@ type PersonaFrontmatter = {
 const PERSONAS_DIR = ".dispatch/personas";
 const MAX_DIFF_BYTES = 50 * 1024;
 
-function parseFrontmatter(content: string): { frontmatter: PersonaFrontmatter; body: string } {
+export function parseFrontmatter(content: string): { frontmatter: PersonaFrontmatter; body: string } {
   const trimmed = content.trimStart();
   if (!trimmed.startsWith("---")) {
     return { frontmatter: {}, body: content };
