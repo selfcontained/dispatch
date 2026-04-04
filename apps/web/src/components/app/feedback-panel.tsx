@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { Markdown } from "@/components/ui/markdown";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export type FeedbackDetailState = { parentAgentId: string; itemId: number } | null;
@@ -374,61 +375,74 @@ export function ParentFeedbackPanel({
                     />
                   </div>
                 ) : null}
-                {!isGroupCollapsed && items.length > 0 ? (() => {
-                  const groupResolvedCount = resolvedCountByAgent.get(child.id) ?? 0;
-                  return (
-                    <div className="space-y-px ml-4 mt-0.5">
-                      {items.map((item) => {
-                        const isActionable = item.status === "open" || item.status === "forwarded";
-                        const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
-                        const statusLabel = STATUS_LABELS[item.status];
-                        const isSelected = item.id === (activeDetailItemId ?? sheetItemId);
+                <AnimatePresence initial={false}>
+                  {!isGroupCollapsed && items.length > 0 ? (() => {
+                    const groupResolvedCount = resolvedCountByAgent.get(child.id) ?? 0;
+                    return (
+                      <motion.div
+                        key={`feedback-${child.id}`}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="space-y-px ml-4 mt-0.5">
+                          {items.map((item) => {
+                            const isActionable = item.status === "open" || item.status === "forwarded";
+                            const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
+                            const statusLabel = STATUS_LABELS[item.status];
+                            const isSelected = item.id === (activeDetailItemId ?? sheetItemId);
 
-                        return (
-                          <div key={item.id} className={cn(!isActionable && "opacity-40")}>
-                            <button
-                              className={cn(
-                                "flex w-full items-center gap-1.5 px-1 py-2 md:py-1 text-left text-[11px] transition-colors",
-                                "border-b-2",
-                              isSelected ? "border-primary" : "border-transparent hover:bg-muted/40"
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (onOpenDetail) {
-                                  onOpenDetail({ parentAgentId, itemId: item.id });
-                                } else {
-                                  setSheetItemId(item.id);
-                                }
-                              }}
-                            >
-                              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                              <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
-                                <FrontTruncatedValue
-                                  value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
-                                  mono
-                                />
+                            return (
+                              <div key={item.id} className={cn(!isActionable && "opacity-40")}>
+                                <button
+                                  className={cn(
+                                    "flex w-full items-center gap-1.5 px-1 py-2 md:py-1 text-left text-[11px] transition-colors",
+                                    "border-b-2",
+                                    isSelected ? "border-primary" : "border-transparent hover:bg-muted/40"
+                                  )}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isSelected) {
+                                      if (onOpenDetail) onOpenDetail(null);
+                                      else setSheetItemId(null);
+                                    } else {
+                                      if (onOpenDetail) onOpenDetail({ parentAgentId, itemId: item.id });
+                                      else setSheetItemId(item.id);
+                                    }
+                                  }}
+                                >
+                                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
+                                  <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                                    <FrontTruncatedValue
+                                      value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                                      mono
+                                    />
+                                  </div>
+                                  <span className="min-w-0 flex-1 truncate text-foreground">
+                                    {item.description}
+                                  </span>
+                                  {statusLabel && !isActionable ? (
+                                    <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
+                                  ) : null}
+                                </button>
                               </div>
-                              <span className="min-w-0 flex-1 truncate text-foreground">
-                                {item.description}
-                              </span>
-                              {statusLabel && !isActionable ? (
-                                <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
-                              ) : null}
+                            );
+                          })}
+                          {groupResolvedCount > 0 ? (
+                            <button
+                              className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                              onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
+                            >
+                              {showResolved ? "Hide" : "Show"} {groupResolvedCount} resolved
                             </button>
-                          </div>
-                        );
-                      })}
-                      {groupResolvedCount > 0 ? (
-                        <button
-                          className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
-                          onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
-                        >
-                          {showResolved ? "Hide" : "Show"} {groupResolvedCount} resolved
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })() : null}
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    );
+                  })() : null}
+                </AnimatePresence>
               </div>
             );
           })}

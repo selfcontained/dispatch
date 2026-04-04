@@ -379,6 +379,14 @@ export function DashboardLayout(): JSX.Element {
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const showHeaderStatus = connState !== "disconnected";
 
+  // Close media/pins sidebar when fully disconnected (not during agent switches).
+  useEffect(() => {
+    if (connState === "disconnected" && !connectedAgentId) {
+      setMediaOpen(false);
+      setMobileMediaOpen(false);
+    }
+  }, [connState, connectedAgentId, setMediaOpen, setMobileMediaOpen]);
+
   const statusText = useMemo(() => {
     if (connState === "reconnecting") {
       if (connectedAgent) return `Reconnecting to session ${connectedAgent.name}...`;
@@ -607,7 +615,6 @@ export function DashboardLayout(): JSX.Element {
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={handleSetLeftPanelOpen}
               setMediaOpen={handleSetMediaPanelOpen}
-              detachTerminal={detachAndClearSelection}
             />
 
             <TerminalPane
