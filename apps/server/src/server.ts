@@ -180,11 +180,13 @@ type ActivityQuery = {
 
 const VALID_GRANULARITIES = new Set<ActivityGranularity>(["day", "week", "month"]);
 const FALLBACK_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const VALID_TIMEZONES = new Set(Intl.supportedValuesOf("timeZone"));
 
 function parseActivityQuery(query: Record<string, unknown>): ActivityQuery {
   const startStr = typeof query.start === "string" ? query.start : "";
   const endStr = typeof query.end === "string" ? query.end : "";
-  const tz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+  const rawTz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+  const tz = VALID_TIMEZONES.has(rawTz) ? rawTz : FALLBACK_TZ;
   const gran = typeof query.granularity === "string" ? query.granularity : "day";
 
   const start = startStr ? new Date(startStr) : null;
@@ -223,6 +225,14 @@ function timeRangeClause(
 
 function dateTruncTz(granularity: ActivityGranularity, column: string, tz: string): string {
   return `date_trunc('${granularity}', ${column} AT TIME ZONE '${tz.replace(/'/g, "''")}')::date::text`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, "\\$&");
 }
 
 async function loadScopedActivityEvents(
@@ -1554,7 +1564,8 @@ async function registerRoutes() {
   app.get("/api/v1/activity/heatmap", async (request) => {
     const query = request.query as Record<string, unknown>;
     const days = Math.min(Math.max(parseInt((query.days as string) ?? "365", 10) || 365, 1), 730);
-    const tz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+    const rawTz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+    const tz = VALID_TIMEZONES.has(rawTz) ? rawTz : FALLBACK_TZ;
 
     const result = await pool.query<{ day: string; count: number }>(
       `SELECT ${dateTruncTz("day", "created_at", tz)} AS day, COUNT(*)::int AS count
@@ -1825,7 +1836,7 @@ async function registerRoutes() {
     const params: unknown[] = [];
 
     if (search) {
-      params.push(`%${search}%`);
+      params.push(`%${escapeLike(search)}%`);
       conditions.push(`a.name ILIKE $${params.length}`);
     }
     if (type) {
@@ -2182,7 +2193,10 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "A file field is required." });
     }
 
-    const fileName = data.filename;
+    const fileName = path.basename(data.filename);
+    if (!/^[A-Za-z0-9._-]+$/.test(fileName)) {
+      return reply.code(400).send({ error: "Invalid file name." });
+    }
     if (!isMediaFile(fileName)) {
       return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc)." });
     }
@@ -2329,7 +2343,7 @@ async function registerRoutes() {
     const html = `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>${agent.name} — Live Stream</title>
+<title>${escapeHtml(agent.name)} — Live Stream</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#0a0a0a;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}
