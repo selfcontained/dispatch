@@ -1,7 +1,5 @@
 ## What's Changed
-* Align media sidebar header with app header bar by @selfcontained in https://github.com/selfcontained/dispatch/pull/215
-* Fix settings content not scrolling on overflow by @selfcontained in https://github.com/selfcontained/dispatch/pull/214
-* Make agent archival async with progress tracking by @selfcontained in https://github.com/selfcontained/dispatch/pull/216
+* Add rate limiting to auth endpoints (CRU-38) by @selfcontained in https://github.com/selfcontained/dispatch/pull/217
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.7...v0.9.8
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.8...v0.9.9
