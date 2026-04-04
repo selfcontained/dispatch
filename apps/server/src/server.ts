@@ -63,7 +63,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
-import { cwdToClaudeProjectDir, discoverSessionFiles, harvestTokenUsage } from "./agents/token-harvester.js";
+import { cwdToClaudeProjectDir, discoverSessionFiles } from "./agents/token-harvester.js";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -1816,13 +1816,7 @@ async function registerRoutes() {
     const agent = await agentManager.getAgent(id);
     if (!agent) return reply.code(404).send({ error: "Agent not found" });
 
-    await harvestTokenUsage(pool, {
-      id: agent.id,
-      type: agent.type,
-      cwd: agent.cwd,
-      worktreePath: agent.worktreePath,
-      preExistingSessionIds: agent.preExistingSessions ?? undefined,
-    }, app.log);
+    await agentManager.harvestAgentTokens(agent);
 
     return { ok: true };
   });

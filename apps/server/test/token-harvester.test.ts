@@ -250,14 +250,14 @@ describe("token-harvester", () => {
       await rm(worktreeDir, { recursive: true, force: true });
     });
 
-    it("filters out pre-existing sessions for persona agents", async () => {
+    it("only harvests owned sessions when ownedSessionIds is set", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
       await mkdir(fakeProjectDir, { recursive: true });
 
-      // Create two session files: one "pre-existing" (parent's) and one new (persona's)
+      // Create two session files: one parent's and one persona's
       const parentSession = "parent-session-id";
       const personaSession = "persona-session-id";
 
@@ -288,20 +288,36 @@ describe("token-harvester", () => {
         }),
       };
 
-      // Harvest for persona agent with preExistingSessionIds excluding parent's session
+      // Harvest for persona agent — only owns its own session
       await harvestTokenUsage(mockPool as any, {
         id: "agt-persona",
         type: "claude" as const,
         cwd: tmpDir,
         worktreePath: null,
-        preExistingSessionIds: [parentSession],
+        ownedSessionIds: [personaSession],
       });
 
-      // Should only harvest the persona's session, not the parent's
       expect(mockPool.query).toHaveBeenCalledTimes(1);
       expect(upserted[0].params[0]).toBe("agt-persona");
       expect(upserted[0].params[1]).toBe(personaSession);
-      expect(upserted[0].params[3]).toBe(100); // persona's tokens, not parent's 500
+      expect(upserted[0].params[3]).toBe(100);
+
+      // Reset and harvest for parent — owns only its session
+      mockPool.query.mockClear();
+      upserted.length = 0;
+
+      await harvestTokenUsage(mockPool as any, {
+        id: "agt-parent",
+        type: "claude" as const,
+        cwd: tmpDir,
+        worktreePath: null,
+        ownedSessionIds: [parentSession],
+      });
+
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
+      expect(upserted[0].params[0]).toBe("agt-parent");
+      expect(upserted[0].params[1]).toBe(parentSession);
+      expect(upserted[0].params[3]).toBe(500);
 
       await rm(fakeProjectDir, { recursive: true, force: true });
     });

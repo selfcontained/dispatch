@@ -24,8 +24,12 @@ type SessionTokenSummary = {
 };
 
 type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath"> & {
-  /** Session IDs that existed before this agent was created (persona agents only). */
-  preExistingSessionIds?: string[];
+  /**
+   * When set, only harvest these specific session IDs (positive filter).
+   * Used when multiple agents share the same Claude project directory
+   * (e.g. persona + parent) so each only counts its own sessions.
+   */
+  ownedSessionIds?: string[];
 };
 
 type HarvestLogger = { warn: (obj: Record<string, unknown>, msg: string) => void };
@@ -67,6 +71,25 @@ export async function discoverSessionFiles(dir: string): Promise<string[]> {
   return entries
     .filter((f) => f.endsWith(".jsonl"))
     .map((f) => path.join(dir, f));
+}
+
+/** Read the first timestamp from a Claude session JSONL (any entry type). */
+export async function readSessionStartTimestamp(filePath: string): Promise<string | null> {
+  const rl = createInterface({
+    input: createReadStream(filePath, { encoding: "utf-8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      if (typeof entry.timestamp === "string") {
+        rl.close();
+        return entry.timestamp;
+      }
+    } catch { /* skip malformed lines */ }
+  }
+  return null;
 }
 
 async function parseClaudeSessionTokenUsage(filePath: string): Promise<SessionTokenSummary> {
@@ -128,12 +151,11 @@ async function harvestClaudeTokenUsage(
   let files = await discoverSessionFiles(projectDir);
   if (files.length === 0) return;
 
-  // For persona agents, skip session files that existed before the persona was created.
-  // Without this filter, persona and parent agents sharing the same cwd would each
-  // harvest ALL sessions from the shared project directory, producing identical totals.
-  if (agent.preExistingSessionIds?.length) {
-    const exclude = new Set(agent.preExistingSessionIds);
-    files = files.filter((f) => !exclude.has(path.basename(f, ".jsonl")));
+  // When multiple agents share the same cwd (e.g. persona + parent), only
+  // harvest sessions that belong to this specific agent.
+  if (agent.ownedSessionIds) {
+    const owned = new Set(agent.ownedSessionIds);
+    files = files.filter((f) => owned.has(path.basename(f, ".jsonl")));
     if (files.length === 0) return;
   }
 
