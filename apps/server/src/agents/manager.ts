@@ -188,7 +188,6 @@ export class AgentManager {
     return (result.rows[0] as AgentRecord | undefined) ?? null;
   }
 
-  /** Harvest token usage for an agent, correctly scoping sessions for shared-cwd agents. */
   /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
     await harvestTokenUsage(this.pool, {
@@ -285,7 +284,7 @@ export class AgentManager {
         await this.ensureNoExistingSession(tmuxSession);
 
         // Build the agent command that the setup script will exec into
-        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess);
+        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess, cliSessionId ?? undefined, false);
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
         // Generate a setup script that handles worktree creation, env copy,
@@ -399,11 +398,20 @@ export class AgentManager {
 
     // If the agent has a stored CLI session ID, resume that session.
     // If not (legacy agent), assign one now so future restarts can resume.
+    // Use a conditional UPDATE to avoid races from concurrent start requests.
     let cliSessionId = agent.cliSessionId;
     const shouldResume = !!cliSessionId;
     if (!cliSessionId && agent.type === "claude") {
       cliSessionId = randomUUID();
-      await this.pool.query(`UPDATE agents SET cli_session_id = $2 WHERE id = $1`, [id, cliSessionId]);
+      const { rowCount } = await this.pool.query(
+        `UPDATE agents SET cli_session_id = $2 WHERE id = $1 AND cli_session_id IS NULL`,
+        [id, cliSessionId]
+      );
+      if (rowCount === 0) {
+        // Another request already assigned a session ID — use that one
+        const fresh = await this.getRequiredAgent(id);
+        cliSessionId = fresh.cliSessionId;
+      }
     }
 
     try {

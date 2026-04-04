@@ -3670,14 +3670,10 @@ async function mcpLaunchPersona(
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
 
-  // For Claude persona agents, pre-assign a session ID via --session-id so we
-  // know exactly which session file belongs to this agent. This avoids ambiguity
-  // when parent and persona share the same Claude project directory.
-  let cliSessionId: string | undefined;
-  if (parent.type === "claude") {
-    cliSessionId = randomUUID();
-    personaArgs.push("--session-id", cliSessionId);
-  }
+  // For Claude persona agents, pre-assign a session ID so we know exactly which
+  // session file belongs to this agent. buildAgentCommand handles adding the
+  // --session-id flag; we just store it on the agent record here.
+  const cliSessionId = parent.type === "claude" ? randomUUID() : undefined;
 
   const agent = await agentManager.createAgent({
     name: `${opts.persona}-${agentId.slice(-6)}`,
