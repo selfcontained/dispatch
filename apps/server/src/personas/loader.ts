@@ -105,6 +105,30 @@ export async function loadPersonaBySlug(
   };
 }
 
+/**
+ * Standard feedback guidance injected into every persona prompt.
+ * This ensures consistent severity definitions and feedback hygiene
+ * regardless of what the repo-specific persona markdown contains.
+ */
+const STANDARD_FEEDBACK_GUIDANCE = `
+## Feedback Guidelines (from Dispatch)
+
+### How to submit feedback
+- Call \`dispatch_feedback\` for each finding with: severity, file path, line number, description, and a concrete suggestion.
+- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
+- Call \`dispatch_event\` with type \`done\` when your review is complete.
+
+### Severity levels
+- **critical**: Exploitable vulnerability, data loss risk, or broken core functionality
+- **high**: Significant issue that should be fixed before merge
+- **medium**: Missing validation, weak error handling, or correctness concern
+- **low**: Minor issue, hardening opportunity, or improvement suggestion
+- **info**: Non-obvious good decision that a future contributor might mistakenly undo
+
+### Info feedback limits
+Keep \`info\` severity feedback to a maximum of 2–3 items per review. Only use info for decisions that are *surprisingly good* or that need to be *preserved* — do not submit info feedback for code that is simply correct or working as expected. The goal is signal, not a checklist of everything that passed inspection.
+`.trim();
+
 export function assemblePersonaPrompt(
   persona: PersonaDefinition,
   context: string,
@@ -118,7 +142,9 @@ export function assemblePersonaPrompt(
       "\n\n[... diff truncated at 50KB ...]";
   }
 
-  return persona.body
+  const personaBody = persona.body
     .replace("{{context}}", context)
     .replace("{{diff}}", truncatedDiff);
+
+  return `${personaBody}\n\n${STANDARD_FEEDBACK_GUIDANCE}`;
 }

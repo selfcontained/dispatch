@@ -25,15 +25,9 @@ Your job is to test the described feature from an end-user perspective using Pla
 ## Scope — IMPORTANT
 Your testing MUST focus exclusively on the features and flows introduced or modified by the changes in the diff below. Do not file feedback about pre-existing bugs or issues unrelated to the changes unless they are directly caused or worsened by the new code. If something was broken before this diff, it is out of scope.
 
-## Instructions for feedback
-- Use `dispatch_feedback` for each issue or observation
-- Include screenshot references (`mediaRef`) when visual
-- Severity guide:
-  - critical: feature is broken, blocks usage
-  - high: significant UX issue or incorrect behavior
-  - medium: minor visual or behavioral issue
-  - low: polish item or suggestion
-  - info: notably good UX or behavior worth preserving (limit to 2–3 max — don't flag things that simply work)
+## How to report findings
+- Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+- Include screenshot references (`mediaRef`) when visual.
 
 ## Context from parent agent
 {{context}}
