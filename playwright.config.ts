@@ -9,6 +9,7 @@ if (process.env.TLS_CERT) {
 const devPort = process.env.E2E_PORT ?? "8788";
 const protocol = process.env.TLS_CERT ? "https" : "http";
 const baseURL = `${protocol}://127.0.0.1:${devPort}`;
+const authToken = process.env.AUTH_TOKEN ?? "dev-token";
 const databaseUrl =
   process.env.DATABASE_URL ??
   "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch_dev";
@@ -29,13 +30,13 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     extraHTTPHeaders: {
-      Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      Authorization: `Bearer ${authToken}`,
     },
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD
-      ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`
-      : `pnpm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`,
+      ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} AUTH_TOKEN=${authToken} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`
+      : `pnpm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} AUTH_TOKEN=${authToken} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`,
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,

@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -61,12 +62,12 @@ function resolveAgentRuntime(): "tmux" | "inert" {
 }
 
 export function loadConfig(): AppConfig {
-  return {
-    host: process.env.HOST ?? "0.0.0.0",
+  const config: AppConfig = {
+    host: process.env.HOST ?? "127.0.0.1",
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
-    authToken: process.env.AUTH_TOKEN ?? "dev-token",
+    authToken: process.env.AUTH_TOKEN ?? crypto.randomBytes(32).toString("hex"),
     mediaRoot: process.env.MEDIA_ROOT ?? path.join(process.env.HOME ?? "/tmp", ".dispatch", "media"),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
@@ -84,4 +85,51 @@ export function loadConfig(): AppConfig {
     agentRuntime: resolveAgentRuntime(),
     tls: loadTls(),
   };
+
+  validateConfig(config);
+  return config;
+}
+
+const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
+
+function validateConfig(config: AppConfig): void {
+  if (!process.env.AUTH_TOKEN) {
+    console.warn(
+      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session.`,
+    );
+    console.warn(`  Set AUTH_TOKEN in your environment for stable API access.`);
+  }
+
+  if (config.host === "0.0.0.0") {
+    console.warn(
+      `${WARN_PREFIX} Server is binding to 0.0.0.0 (all interfaces). ` +
+        `Ensure a password is set or use HOST=127.0.0.1 to restrict to localhost.`,
+    );
+  }
+
+  try {
+    const dbUrl = new URL(config.databaseUrl);
+    const isDefaultUser = dbUrl.username === "dispatch";
+    const isDefaultPass = dbUrl.password === "dispatch";
+    if (isDefaultUser && isDefaultPass && !dbUrl.hostname.startsWith("127.0.0.1")) {
+      console.warn(
+        `${WARN_PREFIX} Default database credentials (dispatch:dispatch) used with non-localhost host. ` +
+          `Set a strong password via DATABASE_URL.`,
+      );
+    } else if (isDefaultUser && isDefaultPass) {
+      console.warn(
+        `${WARN_PREFIX} Default database credentials (dispatch:dispatch) detected. ` +
+          `Consider setting a unique password in DATABASE_URL for production use.`,
+      );
+    }
+  } catch {
+    // URL parsing failed — not our problem to warn about here
+  }
+
+  if (!process.env.COOKIE_SECRET) {
+    console.warn(
+      `${WARN_PREFIX} COOKIE_SECRET is not set. A random secret will be generated and persisted in the database. ` +
+        `Set COOKIE_SECRET for consistent sessions across restarts.`,
+    );
+  }
 }
