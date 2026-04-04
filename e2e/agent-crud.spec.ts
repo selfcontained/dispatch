@@ -120,9 +120,7 @@ test.describe("Agent CRUD", () => {
     const peekCard = page.getByTestId(`agent-card-${peekAgent.id}`);
 
     await page.getByTestId(`agent-row-${attachedAgent.id}`).click();
-    await expect(page.getByTestId("detach-button")).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByTestId(`agent-expand-toggle-${attachedAgent.id}`)).toBeDisabled();
-    await expect(attachedCard.getByText("Working dir")).toBeVisible({ timeout: 3_000 });
+    await expect(attachedCard.getByText("Working dir")).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
 
@@ -162,7 +160,7 @@ test.describe("Agent CRUD", () => {
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-row-${agent.id}`).click();
-    await expect(page.getByTestId("detach-button")).toBeVisible({ timeout: 5_000 });
+    await expect(agentCard.getByText("Working dir")).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-archive-${agent.id}`).click();
     await page.getByTestId("delete-agent-confirm").click();

@@ -1,5 +1,5 @@
 ## What's Changed
-* Harden auth endpoints (CRU-42, CRU-43, CRU-58, CRU-71) by @selfcontained in https://github.com/selfcontained/dispatch/pull/221
+* Redesign persona agents in sidebar with UI polish by @selfcontained in https://github.com/selfcontained/dispatch/pull/224
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.11...v0.9.12
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.14...v0.9.15

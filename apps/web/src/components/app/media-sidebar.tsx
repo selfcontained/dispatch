@@ -1,7 +1,9 @@
-import { type RefObject, useCallback, useEffect, useState, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useRef } from "react";
 import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
+import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
+import { mediaSidebarTabAtom } from "@/lib/store";
 import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media-lightbox";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
@@ -37,7 +39,6 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   className?: string;
 };
 
-type SidebarTab = "pins" | "media";
 
 function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; selectedAgentId: string }): JSX.Element {
   const popOut = useCallback(() => {
@@ -185,7 +186,7 @@ export function MediaSidebarContent({
   closeButtonIcon = "x",
   className
 }: MediaSidebarContentProps): JSX.Element {
-  const [activeTab, setActiveTab] = useState<SidebarTab>("pins");
+  const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
   const prevAgentIdRef = useRef(selectedAgentId);
 
   // Reset to pins tab when agent changes

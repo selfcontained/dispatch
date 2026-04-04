@@ -62,7 +62,7 @@ export type GetFeedbackResult = {
 export type PinInput = {
   label: string;
   value?: string;
-  type?: "string" | "url" | "port" | "code" | "pr";
+  type?: "string" | "url" | "port" | "code" | "pr" | "filename";
   delete?: boolean;
 };
 
@@ -349,7 +349,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       "dispatch_pin",
       {
         description:
-          "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info like dev server URLs, ports, and commands. To update a pin, set it again with the same label. To remove a pin, pass delete: true.",
+          "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, pass delete: true. " +
+          "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), the specific blocking question when in waiting_user state (string).",
         inputSchema: {
           label: z.string().max(100).describe("Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."),
           value: z
@@ -358,9 +359,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             .optional()
             .describe("The value to display. Required unless delete is true."),
           type: z
-            .enum(["string", "url", "port", "code", "pr"])
+            .enum(["string", "url", "port", "code", "pr", "filename"])
             .default("string")
-            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon."),
+            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."),
           delete: z
             .boolean()
             .default(false)

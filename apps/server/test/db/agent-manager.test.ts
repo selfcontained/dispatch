@@ -59,7 +59,7 @@ let manager: InstanceType<typeof AgentManager>;
 
 beforeAll(async () => {
   pool = await setupTestDb();
-  await runTestMigrations(pool);
+  await runTestMigrations();
   manager = new AgentManager(pool, noopLogger, testConfig);
 });
 
