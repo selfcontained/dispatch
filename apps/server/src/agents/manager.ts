@@ -1426,7 +1426,7 @@ export class AgentManager {
       "Call the dispatch_event MCP tool to report status. Valid types: working (actively making progress), blocked (hit an error or obstacle), waiting_user (need user input), done (task complete), idle (no-op turn). " +
       "Emit working at the start of each turn and when your activity shifts phases. Switch to blocked on errors. Emit a terminal event (done/idle/waiting_user/blocked) before your final response. " +
       "When done with Playwright validation, call browser_close to shut down the browser. " +
-      "Use the dispatch_pin MCP tool to pin important info so users can find it in the sidebar. Update pins when values change; delete stale pins when services are torn down. For longer artifacts like handoff notes, write them to a shared file via dispatch_share and pin a reference to it.";
+      "Use the dispatch_pin MCP tool to pin important info so users can find it in the sidebar. Use the appropriate type (url, port, code, string, pr, filename). Update pins when values change; delete stale pins when services are torn down. For longer artifacts like handoff notes, write them to a shared file via dispatch_share and pin a reference to it.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
