@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -623,19 +623,96 @@ async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMet
   return fetchReleaseMetadata(tag);
 }
 
+/**
+ * Try to deploy from a pre-built release tarball attached to the GitHub release.
+ * Returns true on success, false if the artifact isn't available (caller falls
+ * back to building from source).
+ */
+async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean> {
+  // Need gh CLI to download release assets
+  try {
+    await runCommand("gh", ["--version"]);
+  } catch {
+    appendReleaseLog(job, "gh CLI not available, skipping artifact download");
+    return false;
+  }
+
+  let repo: string;
+  try {
+    repo = await getGitHubRepo();
+  } catch {
+    appendReleaseLog(job, "could not resolve GitHub repo, skipping artifact download");
+    return false;
+  }
+
+  // Use a random temp directory to avoid TOCTOU attacks on a predictable path
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-release-"));
+  const tarball = path.join(tmpDir, "release.tar.gz");
+
+  try {
+    appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
+    try {
+      await runCommand("gh", [
+        "release", "download", tag,
+        "--pattern", "dispatch-release.tar.gz",
+        "--output", tarball,
+        "--repo", repo
+      ]);
+    } catch {
+      appendReleaseLog(job, "no release artifact found for this tag");
+      return false;
+    }
+
+    appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    // Validate tarball contents before extraction — reject entries with path
+    // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
+    // default, so this is a real risk if a compromised release artifact is uploaded.
+    appendReleaseLog(job, "==> validating artifact contents");
+    const listing = await runCommand("tar", ["tzf", tarball]);
+    const unsafeEntries = listing.stdout
+      .split("\n")
+      .filter((entry) => entry.startsWith("/") || entry.includes("../"));
+    if (unsafeEntries.length > 0) {
+      throw new Error(
+        `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
+      );
+    }
+
+    appendReleaseLog(job, "==> extracting pre-built artifact");
+    await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
+
+    appendReleaseLog(job, "==> installing dependencies (native modules only)");
+    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> deployed from pre-built artifact (no build needed)");
+    return true;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
 async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "deploying");
-  appendReleaseLog(job, `==> deploying ${tag} via pnpm`);
+  appendReleaseLog(job, `==> deploying ${tag}`);
 
-  appendReleaseLog(job, `==> checking out ${tag}`);
-  await runCommand("git", ["-C", serverDir, "checkout", tag]);
+  // Try the pre-built release artifact first; fall back to source build
+  const usedArtifact = await deployFromArtifact(job, tag);
 
-  appendReleaseLog(job, "==> installing dependencies");
-  await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+  if (!usedArtifact) {
+    appendReleaseLog(job, "==> falling back to build from source");
 
-  appendReleaseLog(job, "==> building");
-  await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
+    appendReleaseLog(job, `==> checking out ${tag}`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    appendReleaseLog(job, "==> installing dependencies");
+    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> building from source");
+    await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
+  }
 
   // Write release record BEFORE the restart — after the restart our
   // process is dead and can't write anything.
