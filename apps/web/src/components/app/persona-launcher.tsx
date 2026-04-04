@@ -20,9 +20,11 @@ type PersonaSummary = {
 export function PersonaLauncher({
   agent,
   sendTerminalInput,
+  disabled = false,
 }: {
   agent: Agent;
-  sendTerminalInput: (data: string) => void;
+  sendTerminalInput?: (data: string) => void;
+  disabled?: boolean;
 }): JSX.Element | null {
   const cwd = agent.worktreePath ?? agent.cwd;
 
@@ -37,6 +39,7 @@ export function PersonaLauncher({
   if (personas.length === 0) return null;
 
   const launchPersona = (slug: string) => {
+    if (!sendTerminalInput) return;
     const message = `Launch the "${slug}" persona on your current work. Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.`;
     sendTerminalInput(message + "\r");
   };
@@ -44,7 +47,7 @@ export function PersonaLauncher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="gap-1.5 border border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/60">
+        <Button variant="ghost" disabled={disabled} className="gap-1.5 border border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/60">
           <Sparkles className="h-3 w-3" />
           Launch Persona
         </Button>

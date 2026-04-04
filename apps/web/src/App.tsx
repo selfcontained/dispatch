@@ -573,6 +573,7 @@ export function DashboardLayout(): JSX.Element {
               sendTerminalInput={sendTerminalInput}
               connectedAgentId={connectedAgentId}
               onOpenFeedbackDetail={setFeedbackDetail}
+              feedbackDetailState={feedbackDetail}
             />
           </div>
         ) : null}

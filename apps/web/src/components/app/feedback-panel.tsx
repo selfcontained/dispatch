@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, Maximize, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
+import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
-import { type Agent, type FeedbackItem } from "@/components/app/types";
+import { PersonaAgentRow } from "@/components/app/persona-agent-row";
+import { type Agent, type AgentVisualState, type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -171,6 +172,14 @@ export function ParentFeedbackPanel({
   onRequestClose,
   closeOnSessionAction,
   onOpenDetail,
+  activeDetailItemId,
+  childAgents = [],
+  selectedAgentId,
+  agentVisualState: getVisualState,
+  detachTerminal,
+  attachToAgent,
+  setDeleteTarget,
+  setDeleteConfirmOpen,
 }: {
   parentAgentId: string;
   sendTerminalInput?: (data: string) => void;
@@ -179,9 +188,17 @@ export function ParentFeedbackPanel({
   closeOnSessionAction?: boolean;
   /** When provided, opens the detail in the main grid panel instead of a Sheet (desktop). */
   onOpenDetail?: (state: FeedbackDetailState) => void;
+  /** The currently open detail item id (used to highlight the active row). */
+  activeDetailItemId?: number | null;
+  childAgents?: Agent[];
+  selectedAgentId?: string | null;
+  agentVisualState?: (agent: Agent) => AgentVisualState;
+  detachTerminal?: () => void;
+  attachToAgent?: (agent: Agent) => Promise<void>;
+  setDeleteTarget?: (agent: Agent | null) => void;
+  setDeleteConfirmOpen?: (open: boolean) => void;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
@@ -284,147 +301,138 @@ export function ParentFeedbackPanel({
       ? remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id
       : null;
     setSheetItemId(sheetItemId != null ? nextId : null);
-    setExpandedId(nextId);
   }, [updateStatus, activeItems, sheetItemId]);
 
   const severityInfo = (sev: string) => SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
 
-  if (feedback.length === 0) return null;
+  if (feedback.length === 0 && childAgents.length === 0) return null;
+
+  // Group feedback by agentId
+  const feedbackByAgent = new Map<string, FeedbackItem[]>();
+  for (const item of visibleItems) {
+    const list = feedbackByAgent.get(item.agentId);
+    if (list) list.push(item);
+    else feedbackByAgent.set(item.agentId, [item]);
+  }
+
+  // Count resolved items per agent from the full feedback list
+  const resolvedCountByAgent = new Map<string, number>();
+  for (const item of resolvedItems) {
+    resolvedCountByAgent.set(item.agentId, (resolvedCountByAgent.get(item.agentId) ?? 0) + 1);
+  }
+
+  // Build ordered list: child agents first (preserving order), then any agentIds with feedback but no child agent
+  const agentIds = new Set(childAgents.map((a) => a.id));
+  for (const agentId of feedbackByAgent.keys()) {
+    agentIds.add(agentId);
+  }
 
   return (
     <>
       <div className="mt-1.5">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-          Persona feedback ({activeCount} active)
+          Personas{activeCount > 0 ? ` (${activeCount} findings)` : ""}
         </div>
-        {!isConnected && activeCount > 0 ? (
-          <div className="text-[10px] text-muted-foreground/60 italic mb-1">
-            Attach to this agent to forward feedback
-          </div>
-        ) : null}
-        <div className="space-y-2">
-          {(() => {
-            // Group items by agentId to show persona sections
-            const groups = new Map<string, FeedbackItem[]>();
-            for (const item of visibleItems) {
-              const list = groups.get(item.agentId);
-              if (list) list.push(item);
-              else groups.set(item.agentId, [item]);
-            }
-            const needsGrouping = groups.size > 1;
+        <div className="space-y-1.5">
+          {childAgents.map((child, childIndex) => {
+            const items = feedbackByAgent.get(child.id) ?? [];
+            const isGroupCollapsed = collapsedGroups.has(child.id);
+            const childState = getVisualState?.(child);
 
-            return Array.from(groups.entries()).map(([agentId, items]) => {
-              const attr = personaAttribution.get(agentId);
-              const isGroupCollapsed = needsGrouping && collapsedGroups.has(agentId);
-              return (
-                <div key={agentId}>
-                  {needsGrouping ? (
-                    <button
-                      className="flex w-full items-center gap-1.5 mb-0.5 text-left hover:bg-muted/40 rounded transition-colors"
-                      onClick={(e) => {
+            return (
+              <div key={child.id}>
+                {getVisualState && detachTerminal && attachToAgent && setDeleteTarget && setDeleteConfirmOpen ? (
+                  <div
+                    className="cursor-pointer"
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("[data-agent-control='true']")) return;
+                      if (items.length > 0) {
                         e.stopPropagation();
                         setCollapsedGroups((prev) => {
                           const next = new Set(prev);
-                          if (next.has(agentId)) next.delete(agentId);
-                          else next.add(agentId);
+                          if (next.has(child.id)) next.delete(child.id);
+                          else next.add(child.id);
                           return next;
                         });
-                      }}
-                    >
-                      <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isGroupCollapsed && "rotate-90")} />
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: attr?.color ?? "hsl(var(--muted-foreground))" }}
-                      />
-                      <span
-                        className="text-[10px] font-medium"
-                        style={{ color: attr?.color ?? undefined }}
-                      >
-                        {attr?.name ?? agentId.slice(-6)}
-                      </span>
-                      <span className="text-[9px] text-muted-foreground/50">
-                        {items.filter((f) => f.status === "open" || f.status === "forwarded").length}
-                      </span>
-                    </button>
-                  ) : null}
-                  {!isGroupCollapsed ? <div className={cn("space-y-px", needsGrouping && "ml-2.5")}>
-                    {items.map((item) => {
-                      const isActionable = item.status === "open" || item.status === "forwarded";
-                      const isExpanded = expandedId === item.id;
-                      const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
-                      const statusLabel = STATUS_LABELS[item.status];
+                      }
+                    }}
+                  >
+                    <PersonaAgentRow
+                      child={child}
+                      childIndex={childIndex}
+                      childState={childState!}
+                      isSelected={selectedAgentId === child.id}
+                      detachTerminal={detachTerminal}
+                      attachToAgent={attachToAgent}
+                      setDeleteTarget={setDeleteTarget}
+                      setDeleteConfirmOpen={setDeleteConfirmOpen}
+                      onRequestClose={onRequestClose}
+                      closeOnSessionAction={closeOnSessionAction}
+                      feedbackCount={items.filter((f) => f.status === "open" || f.status === "forwarded").length}
+                      isCollapsed={isGroupCollapsed}
+                      hasFeedback={items.length > 0}
+                    />
+                  </div>
+                ) : null}
+                {!isGroupCollapsed && items.length > 0 ? (() => {
+                  const groupResolvedCount = resolvedCountByAgent.get(child.id) ?? 0;
+                  return (
+                    <div className="space-y-px ml-4 mt-0.5">
+                      {items.map((item) => {
+                        const isActionable = item.status === "open" || item.status === "forwarded";
+                        const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
+                        const statusLabel = STATUS_LABELS[item.status];
+                        const isSelected = item.id === (activeDetailItemId ?? sheetItemId);
 
-                      return (
-                        <div key={item.id} className={cn(!isActionable && "opacity-40")}>
-                          {/* Compact row */}
-                          <button
-                            className="flex w-full items-center gap-1.5 rounded px-1 py-2 md:py-1 text-left text-[11px] hover:bg-muted/40 transition-colors"
-                            onClick={(e) => { e.stopPropagation(); setExpandedId(isExpanded ? null : item.id); }}
-                          >
-                            <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
-                            <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
-                            <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
-                              <FrontTruncatedValue
-                                value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
-                                mono
-                              />
-                            </div>
-                            <span className="min-w-0 flex-1 truncate text-foreground">
-                              {item.description}
-                            </span>
-                            {statusLabel && !isActionable ? (
-                              <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
-                            ) : null}
-                          </button>
-
-                          {/* Expanded inline card — clamped */}
-                          {isExpanded ? (
-                            <div className="relative ml-4 mr-1 mb-1.5 rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                className="absolute top-1 right-1 p-1 rounded text-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                                onClick={() => {
-                                  if (onOpenDetail) {
-                                    onOpenDetail({ parentAgentId, itemId: item.id });
-                                  } else {
-                                    setSheetItemId(item.id);
-                                  }
-                                }}
-                              >
-                                <Maximize className="h-3.5 w-3.5" />
-                              </button>
-                              <div className="text-foreground leading-relaxed line-clamp-3 pr-6">{item.description}</div>
-
-                              <div className="mt-2">
-                                <FeedbackActions
-                                  item={item}
-                                  isConnected={isConnected}
-                                  onForward={(mode) => forward(item, mode)}
-                                  onCopy={() => handleCopy(item)}
-                                  copied={copied && copiedItemId === item.id}
-                                  onUpdateStatus={(s) => handleResolve(item, s)}
-                                  isActionable={isActionable}
-                                  statusLabel={statusLabel}
+                        return (
+                          <div key={item.id} className={cn(!isActionable && "opacity-40")}>
+                            <button
+                              className={cn(
+                                "flex w-full items-center gap-1.5 px-1 py-2 md:py-1 text-left text-[11px] transition-colors",
+                                "border-b-2",
+                              isSelected ? "border-primary" : "border-transparent hover:bg-muted/40"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (onOpenDetail) {
+                                  onOpenDetail({ parentAgentId, itemId: item.id });
+                                } else {
+                                  setSheetItemId(item.id);
+                                }
+                              }}
+                            >
+                              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
+                              <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                                <FrontTruncatedValue
+                                  value={item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+                                  mono
                                 />
                               </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div> : null}
-                </div>
-              );
-            });
-          })()}
+                              <span className="min-w-0 flex-1 truncate text-foreground">
+                                {item.description}
+                              </span>
+                              {statusLabel && !isActionable ? (
+                                <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>{statusLabel.label}</span>
+                              ) : null}
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {groupResolvedCount > 0 ? (
+                        <button
+                          className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                          onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
+                        >
+                          {showResolved ? "Hide" : "Show"} {groupResolvedCount} resolved
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })() : null}
+              </div>
+            );
+          })}
         </div>
-        {resolvedItems.length > 0 ? (
-          <button
-            className="mt-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-            onClick={(e) => { e.stopPropagation(); setShowResolved(!showResolved); }}
-          >
-            {showResolved ? "Hide" : "Show"} {resolvedItems.length} resolved
-          </button>
-        ) : null}
       </div>
 
       {/* Full feedback detail sheet — only used on mobile (when onOpenDetail is not provided) */}
