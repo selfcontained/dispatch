@@ -63,6 +63,8 @@ cd "$ROOT_DIR"
 MANIFEST=$(mktemp)
 trap 'rm -f "$MANIFEST"' EXIT
 
+# If you add a new runtime dependency (file, directory, config), add it to
+# this manifest AND to the pack-release.test.ts assertions.
 cat > "$MANIFEST" <<'LIST'
 apps/server/dist
 apps/web/dist

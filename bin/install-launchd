@@ -3,6 +3,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
+
+# shellcheck source=lib/deploy-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-common.sh"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
 LOG_DIR="$HOME/.dispatch/logs"
 LOG_FILE="$LOG_DIR/dispatch.log"
@@ -84,51 +88,20 @@ if [[ -z "$INSTALL_TAG" ]]; then
   fi
 fi
 
-# Initial build — prefer pre-built release artifact if available
-REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
-
-deploy_from_artifact() {
-  local tag="$1"
-  local tarball="/tmp/dispatch-release-${tag}.tar.gz"
-  if ! command -v gh &>/dev/null; then
-    return 1
-  fi
-  if ! gh release download "$tag" \
-       --pattern "dispatch-release.tar.gz" \
-       --output "$tarball" \
-       --clobber \
-       --repo "$REPO" 2>/dev/null; then
-    rm -f "$tarball"
-    return 1
-  fi
-  echo "==> extracting pre-built release artifact"
-  tar xzf "$tarball" --no-same-owner -C "$SERVER_DIR"
-  rm -f "$tarball"
-  echo "==> installing dependencies (native modules)"
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  # shellcheck disable=SC1090
-  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
-  cd "$SERVER_DIR"
-  nvm use >/dev/null
-  pnpm install --frozen-lockfile
-}
-
-build_from_source() {
-  echo "==> installing dependencies"
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  # shellcheck disable=SC1090
-  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
-  cd "$SERVER_DIR"
-  nvm use >/dev/null
-  pnpm install --frozen-lockfile
-  echo "==> building"
-  pnpm run build
-}
-
+# Initial build — prefer pre-built release artifact if available.
+# If no tag exists (fresh clone without releases), just install and build
+# from whatever commit is checked out.
 if [[ -n "$INSTALL_TAG" ]] && deploy_from_artifact "$INSTALL_TAG"; then
   echo "==> deployed from pre-built artifact"
+elif [[ -n "$INSTALL_TAG" ]]; then
+  build_from_source "$INSTALL_TAG"
 else
-  build_from_source
+  echo "==> no release tag found, building from HEAD"
+  load_nvm
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+  pnpm run build
 fi
 
 # Seed release.json so the server knows what version it's running.
