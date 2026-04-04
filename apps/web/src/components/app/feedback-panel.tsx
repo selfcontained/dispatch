@@ -341,6 +341,7 @@ export function ParentFeedbackPanel({
             const isGroupCollapsed = collapsedGroups.has(child.id);
             const childState = getVisualState?.(child);
             const unresolvedCount = items.filter((f) => f.status === "open" || f.status === "forwarded").length;
+            const hasAnyFeedback = items.length > 0 || (resolvedCountByAgent.get(child.id) ?? 0) > 0;
 
             const canTriage = isConnected && !!sendTerminalInput;
             const handleTriage = unresolvedCount > 0
@@ -359,7 +360,7 @@ export function ParentFeedbackPanel({
                     className="cursor-pointer"
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-agent-control='true']")) return;
-                      if (items.length > 0) {
+                      if (hasAnyFeedback) {
                         e.stopPropagation();
                         setCollapsedGroups((prev) => {
                           const next = new Set(prev);
@@ -383,14 +384,14 @@ export function ParentFeedbackPanel({
                       closeOnSessionAction={closeOnSessionAction}
                       feedbackCount={unresolvedCount}
                       isCollapsed={isGroupCollapsed}
-                      hasFeedback={items.length > 0}
+                      hasFeedback={hasAnyFeedback}
                       onTriage={handleTriage}
                       triageDisabled={!canTriage}
                     />
                   </div>
                 ) : null}
                 <AnimatePresence initial={false}>
-                  {!isGroupCollapsed && items.length > 0 ? (() => {
+                  {!isGroupCollapsed && hasAnyFeedback ? (() => {
                     const groupResolvedCount = resolvedCountByAgent.get(child.id) ?? 0;
                     return (
                       <motion.div
