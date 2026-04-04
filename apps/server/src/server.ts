@@ -623,19 +623,78 @@ async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMet
   return fetchReleaseMetadata(tag);
 }
 
+/**
+ * Try to deploy from a pre-built release tarball attached to the GitHub release.
+ * Returns true on success, false if the artifact isn't available (caller falls
+ * back to building from source).
+ */
+async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean> {
+  // Need gh CLI to download release assets
+  try {
+    await runCommand("gh", ["--version"]);
+  } catch {
+    appendReleaseLog(job, "gh CLI not available, skipping artifact download");
+    return false;
+  }
+
+  let repo: string;
+  try {
+    repo = await getGitHubRepo();
+  } catch {
+    appendReleaseLog(job, "could not resolve GitHub repo, skipping artifact download");
+    return false;
+  }
+
+  const tarball = `/tmp/dispatch-release-${tag}.tar.gz`;
+
+  appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
+  try {
+    await runCommand("gh", [
+      "release", "download", tag,
+      "--pattern", "dispatch-release.tar.gz",
+      "--output", tarball,
+      "--clobber",
+      "--repo", repo
+    ]);
+  } catch {
+    appendReleaseLog(job, "no release artifact found for this tag");
+    return false;
+  }
+
+  appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
+  await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+  appendReleaseLog(job, "==> extracting pre-built artifact");
+  await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
+  await unlink(tarball).catch(() => {});
+
+  appendReleaseLog(job, "==> installing dependencies (native modules only)");
+  await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+
+  appendReleaseLog(job, "==> deployed from pre-built artifact (no build needed)");
+  return true;
+}
+
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
 async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "deploying");
-  appendReleaseLog(job, `==> deploying ${tag} via pnpm`);
+  appendReleaseLog(job, `==> deploying ${tag}`);
 
-  appendReleaseLog(job, `==> checking out ${tag}`);
-  await runCommand("git", ["-C", serverDir, "checkout", tag]);
+  // Try the pre-built release artifact first; fall back to source build
+  const usedArtifact = await deployFromArtifact(job, tag);
 
-  appendReleaseLog(job, "==> installing dependencies");
-  await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+  if (!usedArtifact) {
+    appendReleaseLog(job, "==> falling back to build from source");
 
-  appendReleaseLog(job, "==> building");
-  await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
+    appendReleaseLog(job, `==> checking out ${tag}`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    appendReleaseLog(job, "==> installing dependencies");
+    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> building from source");
+    await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
+  }
 
   // Write release record BEFORE the restart — after the restart our
   // process is dead and can't write anything.
