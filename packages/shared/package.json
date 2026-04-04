@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/shared",
-  "version": "0.9.15",
+  "version": "0.9.16",
   "type": "module",
   "exports": {
     "./lib/run-command.js": "./dist/lib/run-command.js",
