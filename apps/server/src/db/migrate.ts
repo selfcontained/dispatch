@@ -162,6 +162,8 @@ export async function runMigrations(): Promise<void> {
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS parent_agent_id TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona_context TEXT;
 
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS pre_existing_sessions JSONB;
+
     CREATE TABLE IF NOT EXISTS agent_feedback (
       id SERIAL PRIMARY KEY,
       agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,

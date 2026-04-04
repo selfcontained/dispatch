@@ -65,6 +65,7 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   personaContext: string | null;
+  preExistingSessions: string[] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -90,6 +91,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
+  preExistingSessions?: string[];
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -220,11 +222,12 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, pre_existing_sessions, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
-        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null]
+        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
+        input.preExistingSessions ? JSON.stringify(input.preExistingSessions) : null]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -465,6 +468,7 @@ export class AgentManager {
         type: agent.type,
         cwd: agent.cwd,
         worktreePath: agent.worktreePath,
+        preExistingSessionIds: agent.preExistingSessions ?? undefined,
       }, this.logger).catch((err) =>
         this.logger.warn({ err, agentId: id }, "Token harvest failed on stop")
       );
@@ -542,6 +546,7 @@ export class AgentManager {
           type: agent.type,
           cwd: agent.cwd,
           worktreePath: agent.worktreePath,
+          preExistingSessionIds: agent.preExistingSessions ?? undefined,
         }, this.logger).catch((err) =>
           this.logger.warn({ err, agentId: id }, "Token harvest failed during archive")
         );
@@ -1745,6 +1750,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
+        pre_existing_sessions AS "preExistingSessions",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

@@ -63,7 +63,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
-import { harvestTokenUsage } from "./agents/token-harvester.js";
+import { cwdToClaudeProjectDir, discoverSessionFiles, harvestTokenUsage } from "./agents/token-harvester.js";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -1821,6 +1821,7 @@ async function registerRoutes() {
       type: agent.type,
       cwd: agent.cwd,
       worktreePath: agent.worktreePath,
+      preExistingSessionIds: agent.preExistingSessions ?? undefined,
     }, app.log);
 
     return { ok: true };
@@ -3675,6 +3676,17 @@ async function mcpLaunchPersona(
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
 
+  // Snapshot existing Claude session files so the persona agent's token
+  // harvester can exclude them and only count its own usage.
+  let preExistingSessions: string[] | undefined;
+  if (parent.type === "claude") {
+    const projectDir = cwdToClaudeProjectDir(parentCwd);
+    const existing = await discoverSessionFiles(projectDir);
+    if (existing.length > 0) {
+      preExistingSessions = existing.map((f) => path.basename(f, ".jsonl"));
+    }
+  }
+
   const agent = await agentManager.createAgent({
     name: `${opts.persona}-${agentId.slice(-6)}`,
     type: parent.type,
@@ -3685,6 +3697,7 @@ async function mcpLaunchPersona(
     persona: opts.persona,
     parentAgentId: agentId,
     personaContext: opts.context,
+    preExistingSessions,
   });
 
   queueGitContextRefresh([agent.id]);

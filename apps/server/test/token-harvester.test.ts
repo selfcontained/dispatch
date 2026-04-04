@@ -250,6 +250,62 @@ describe("token-harvester", () => {
       await rm(worktreeDir, { recursive: true, force: true });
     });
 
+    it("filters out pre-existing sessions for persona agents", async () => {
+      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { mkdir } = await import("node:fs/promises");
+
+      const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(fakeProjectDir, { recursive: true });
+
+      // Create two session files: one "pre-existing" (parent's) and one new (persona's)
+      const parentSession = "parent-session-id";
+      const personaSession = "persona-session-id";
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
+          timestamp: "2026-03-28T10:00:00.000Z",
+        });
+
+      await writeFile(
+        path.join(fakeProjectDir, `${parentSession}.jsonl`),
+        makeEntry(500) + "\n"
+      );
+      await writeFile(
+        path.join(fakeProjectDir, `${personaSession}.jsonl`),
+        makeEntry(100) + "\n"
+      );
+
+      const upserted: Array<{ params: unknown[] }> = [];
+      const mockPool = {
+        query: vi.fn(async (_sql: string, params: unknown[]) => {
+          upserted.push({ params });
+          return { rows: [], rowCount: 0 };
+        }),
+      };
+
+      // Harvest for persona agent with preExistingSessionIds excluding parent's session
+      await harvestTokenUsage(mockPool as any, {
+        id: "agt-persona",
+        type: "claude" as const,
+        cwd: tmpDir,
+        worktreePath: null,
+        preExistingSessionIds: [parentSession],
+      });
+
+      // Should only harvest the persona's session, not the parent's
+      expect(mockPool.query).toHaveBeenCalledTimes(1);
+      expect(upserted[0].params[0]).toBe("agt-persona");
+      expect(upserted[0].params[1]).toBe(personaSession);
+      expect(upserted[0].params[3]).toBe(100); // persona's tokens, not parent's 500
+
+      await rm(fakeProjectDir, { recursive: true, force: true });
+    });
+
     it("skips opencode agents gracefully", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
 

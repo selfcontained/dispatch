@@ -23,7 +23,10 @@ type SessionTokenSummary = {
   sessionEnd: string | null;
 };
 
-type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath">;
+type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath"> & {
+  /** Session IDs that existed before this agent was created (persona agents only). */
+  preExistingSessionIds?: string[];
+};
 
 type HarvestLogger = { warn: (obj: Record<string, unknown>, msg: string) => void };
 
@@ -54,7 +57,7 @@ export function cwdToClaudeProjectDir(cwd: string): string {
   return path.join(claudeProjectRoot(), encoded);
 }
 
-async function discoverSessionFiles(dir: string): Promise<string[]> {
+export async function discoverSessionFiles(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -122,8 +125,17 @@ async function harvestClaudeTokenUsage(
 ): Promise<void> {
   const effectiveCwd = agent.worktreePath ?? agent.cwd;
   const projectDir = cwdToClaudeProjectDir(effectiveCwd);
-  const files = await discoverSessionFiles(projectDir);
+  let files = await discoverSessionFiles(projectDir);
   if (files.length === 0) return;
+
+  // For persona agents, skip session files that existed before the persona was created.
+  // Without this filter, persona and parent agents sharing the same cwd would each
+  // harvest ALL sessions from the shared project directory, producing identical totals.
+  if (agent.preExistingSessionIds?.length) {
+    const exclude = new Set(agent.preExistingSessionIds);
+    files = files.filter((f) => !exclude.has(path.basename(f, ".jsonl")));
+    if (files.length === 0) return;
+  }
 
   for (const file of files) {
     try {
