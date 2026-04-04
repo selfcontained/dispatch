@@ -2,10 +2,16 @@
 set -euo pipefail
 
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+# Controls which GitHub repo artifacts are downloaded from.
+# Only set DISPATCH_REPO for trusted forks — a malicious repo could serve trojanized artifacts.
+REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
 DEFAULT_PORT="6767"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
 LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
 FAILURE_LOG="$HOME/.dispatch/logs/last-release-failure.log"
+
+# shellcheck source=lib/deploy-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-common.sh"
 
 usage() {
   cat <<USAGE
@@ -22,17 +28,6 @@ Examples:
   bin/dispatch-deploy --latest  # deploy the latest tag
   bin/dispatch-deploy v0.1.0    # rollback to a previous tag
 USAGE
-}
-
-load_nvm() {
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  if [ -s "$NVM_DIR/nvm.sh" ]; then
-    # shellcheck disable=SC1090
-    . "$NVM_DIR/nvm.sh"
-  else
-    echo "error: nvm not found at $NVM_DIR/nvm.sh" >&2
-    exit 1
-  fi
 }
 
 resolve_port() {
@@ -122,12 +117,12 @@ resolve_tag() {
 
 build_tag() {
   local tag="$1"
-  git -C "$SERVER_DIR" checkout "$tag"
-  load_nvm
-  cd "$SERVER_DIR"
-  nvm use >/dev/null
-  pnpm install --frozen-lockfile
-  pnpm run build
+  # Prefer pre-built release artifact; fall back to source build for
+  # older releases that don't have one attached.
+  if deploy_from_artifact "$tag"; then
+    return 0
+  fi
+  build_from_source "$tag"
 }
 
 write_release_record() {

@@ -49,13 +49,13 @@ jobs:
       - name: Lint
         run: pnpm run lint:web
 
+      - name: Build
+        run: pnpm run build
+
       - name: Test
         run: pnpm run test
         env:
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
-
-      - name: Build
-        run: pnpm run build
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
