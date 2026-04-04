@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -69,6 +69,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up agents between tests
+  await pool.query("DELETE FROM agent_token_usage");
   await pool.query("DELETE FROM agent_feedback");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
@@ -693,6 +694,346 @@ describe("AgentManager", () => {
 
       const result = await manager.updateFeedbackStatusByParent(99999, parent.id, "fixed");
       expect(result).toBeNull();
+    });
+  });
+
+  describe("cliSessionId", () => {
+    it("should store cliSessionId when provided at creation", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        cliSessionId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      });
+
+      expect(agent.cliSessionId).toBe("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    });
+
+    it("should default cliSessionId to null", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+
+      expect(agent.cliSessionId).toBeNull();
+    });
+
+    it("should persist cliSessionId for persona agents", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const persona = await manager.createAgent({
+        name: "sec-review",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+        cliSessionId: "11111111-2222-3333-4444-555555555555",
+      });
+
+      // Re-fetch to verify persistence
+      const fetched = await manager.getAgent(persona.id);
+      expect(fetched!.cliSessionId).toBe("11111111-2222-3333-4444-555555555555");
+      expect(fetched!.parentAgentId).toBe(parent.id);
+    });
+  });
+
+  describe("harvestAgentTokens", () => {
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      tmpDir = await mkdtemp(path.join(os.tmpdir(), "harvest-mgr-test-"));
+    });
+
+    afterEach(async () => {
+      await rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it("should harvest only the persona's session for a persona agent", async () => {
+      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const parentSessionId = "parent-sess-aaa";
+      const personaSessionId = "persona-sess-bbb";
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        });
+
+      await writeFile(path.join(projectDir, `${parentSessionId}.jsonl`), makeEntry(1000) + "\n");
+      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(200) + "\n");
+
+      // Create parent + persona agents sharing the same cwd
+      const parent = await manager.createAgent({
+        name: "parent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+      const persona = await manager.createAgent({
+        name: "sec-persona",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+        cliSessionId: personaSessionId,
+      });
+
+      // Harvest for persona — should only get its own 200 tokens
+      await manager.harvestAgentTokens(persona);
+
+      const personaUsage = await pool.query(
+        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
+        [persona.id]
+      );
+      expect(personaUsage.rows[0].total).toBe(200);
+
+      // Verify parent's session was NOT harvested under persona
+      const personaSessions = await pool.query(
+        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
+        [persona.id]
+      );
+      expect(personaSessions.rows).toHaveLength(1);
+      expect(personaSessions.rows[0].session_id).toBe(personaSessionId);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("should exclude persona sessions when harvesting the parent agent", async () => {
+      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const personaSessionId = "persona-sess-ddd";
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        });
+
+      // Create parent — it auto-generates a cliSessionId
+      const parent = await manager.createAgent({
+        name: "parent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+
+      // Create session files using the parent's auto-generated session ID
+      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(800) + "\n");
+      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(150) + "\n");
+
+      await manager.createAgent({
+        name: "persona-child",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+        cliSessionId: personaSessionId,
+      });
+
+      // Harvest for parent — should only get its own 800 tokens
+      await manager.harvestAgentTokens(parent);
+
+      const parentUsage = await pool.query(
+        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
+        [parent.id]
+      );
+      expect(parentUsage.rows[0].total).toBe(800);
+
+      const parentSessions = await pool.query(
+        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
+        [parent.id]
+      );
+      expect(parentSessions.rows).toHaveLength(1);
+      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("should handle parent with multiple personas — each only gets its own session", async () => {
+      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const persona1SessionId = "persona1-sess-fff";
+      const persona2SessionId = "persona2-sess-ggg";
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        });
+
+      const parent = await manager.createAgent({
+        name: "parent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+
+      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(500) + "\n");
+      await writeFile(path.join(projectDir, `${persona1SessionId}.jsonl`), makeEntry(100) + "\n");
+      await writeFile(path.join(projectDir, `${persona2SessionId}.jsonl`), makeEntry(75) + "\n");
+
+      await manager.createAgent({
+        name: "sec-persona",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+        cliSessionId: persona1SessionId,
+      });
+      await manager.createAgent({
+        name: "ux-persona",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+        persona: "ux-review",
+        parentAgentId: parent.id,
+        cliSessionId: persona2SessionId,
+      });
+
+      // Parent only gets its own session
+      await manager.harvestAgentTokens(parent);
+
+      const parentSessions = await pool.query(
+        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
+        [parent.id]
+      );
+      expect(parentSessions.rows).toHaveLength(1);
+      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("should harvest only the agent's own session file", async () => {
+      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        });
+
+      const agent = await manager.createAgent({
+        name: "solo-agent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+
+      // Create the agent's session file and an unrelated one
+      await writeFile(path.join(projectDir, `${agent.cliSessionId}.jsonl`), makeEntry(300) + "\n");
+      await writeFile(path.join(projectDir, "unrelated-session.jsonl"), makeEntry(400) + "\n");
+
+      await manager.harvestAgentTokens(agent);
+
+      const usage = await pool.query(
+        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
+      );
+      expect(usage.rows[0].total).toBe(300); // Only the agent's own session
+
+      const sessions = await pool.query(
+        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
+      );
+      expect(sessions.rows).toHaveLength(1);
+      expect(sessions.rows[0].session_id).toBe(agent.cliSessionId);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("should ignore unrelated and persona sessions in the same project dir", async () => {
+      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const personaSessionId = "persona-sess-hhh";
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        });
+
+      const parent = await manager.createAgent({
+        name: "parent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+
+      // Create parent's session, a persona session, and an unrelated old session
+      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(300) + "\n");
+      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(50) + "\n");
+      await writeFile(path.join(projectDir, "old-unrelated.jsonl"), makeEntry(999) + "\n");
+
+      await manager.createAgent({
+        name: "persona",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+        cliSessionId: personaSessionId,
+      });
+
+      // Parent should only get its own session — not persona's, not unrelated
+      await manager.harvestAgentTokens(parent);
+
+      const parentUsage = await pool.query(
+        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
+        [parent.id]
+      );
+      expect(parentUsage.rows[0].total).toBe(300);
+
+      const parentSessions = await pool.query(
+        `SELECT session_id FROM agent_token_usage WHERE agent_id = $1`,
+        [parent.id]
+      );
+      expect(parentSessions.rows).toHaveLength(1);
+      expect(parentSessions.rows[0].session_id).toBe(parent.cliSessionId);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
+    it("should skip session ownership logic for non-claude agents", async () => {
+      const agent = await manager.createAgent({
+        name: "codex-agent",
+        type: "codex",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      // Should not throw — codex agents don't use session ownership
+      await manager.harvestAgentTokens(agent);
+
+      // No Claude project dir exists, so no tokens harvested (codex uses a different path)
+      const usage = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
+      );
+      expect(usage.rows[0].count).toBe(0);
     });
   });
 });

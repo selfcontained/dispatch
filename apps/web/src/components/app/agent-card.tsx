@@ -5,7 +5,7 @@ import {
   ChevronDown,
   Loader2,
   Play,
-  Square,
+  Pause,
 } from "lucide-react";
 
 import { AgentMeta } from "@/components/app/agent-meta";
@@ -134,7 +134,7 @@ export function AgentCard({
                   <Play className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
+              <TooltipContent>Resume<br /><span className="text-muted-foreground">Resume agent session</span></TooltipContent>
             </Tooltip>
           ) : agent.status === "archiving" ? null : (
             <Tooltip>
@@ -148,10 +148,10 @@ export function AgentCard({
                     setStopConfirmOpen(true);
                   }}
                 >
-                  <Square className="h-3.5 w-3.5" />
+                  <Pause className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
+              <TooltipContent>Pause<br /><span className="text-muted-foreground">Pause agent session</span></TooltipContent>
             </Tooltip>
           )}
 

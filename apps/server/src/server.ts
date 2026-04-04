@@ -63,7 +63,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
-import { harvestTokenUsage } from "./agents/token-harvester.js";
+import { randomUUID } from "node:crypto";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -1816,12 +1816,7 @@ async function registerRoutes() {
     const agent = await agentManager.getAgent(id);
     if (!agent) return reply.code(404).send({ error: "Agent not found" });
 
-    await harvestTokenUsage(pool, {
-      id: agent.id,
-      type: agent.type,
-      cwd: agent.cwd,
-      worktreePath: agent.worktreePath,
-    }, app.log);
+    await agentManager.harvestAgentTokens(agent);
 
     return { ok: true };
   });
@@ -3675,6 +3670,11 @@ async function mcpLaunchPersona(
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
 
+  // For Claude persona agents, pre-assign a session ID so we know exactly which
+  // session file belongs to this agent. buildAgentCommand handles adding the
+  // --session-id flag; we just store it on the agent record here.
+  const cliSessionId = parent.type === "claude" ? randomUUID() : undefined;
+
   const agent = await agentManager.createAgent({
     name: `${opts.persona}-${agentId.slice(-6)}`,
     type: parent.type,
@@ -3685,6 +3685,7 @@ async function mcpLaunchPersona(
     persona: opts.persona,
     parentAgentId: agentId,
     personaContext: opts.context,
+    cliSessionId,
   });
 
   queueGitContextRefresh([agent.id]);

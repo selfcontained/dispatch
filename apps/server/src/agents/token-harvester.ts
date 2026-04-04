@@ -23,7 +23,10 @@ type SessionTokenSummary = {
   sessionEnd: string | null;
 };
 
-type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath">;
+type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath"> & {
+  /** When set, only harvest this specific session file instead of all files in the project dir. */
+  cliSessionId?: string;
+};
 
 type HarvestLogger = { warn: (obj: Record<string, unknown>, msg: string) => void };
 
@@ -54,7 +57,7 @@ export function cwdToClaudeProjectDir(cwd: string): string {
   return path.join(claudeProjectRoot(), encoded);
 }
 
-async function discoverSessionFiles(dir: string): Promise<string[]> {
+export async function discoverSessionFiles(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -122,8 +125,15 @@ async function harvestClaudeTokenUsage(
 ): Promise<void> {
   const effectiveCwd = agent.worktreePath ?? agent.cwd;
   const projectDir = cwdToClaudeProjectDir(effectiveCwd);
-  const files = await discoverSessionFiles(projectDir);
+  let files = await discoverSessionFiles(projectDir);
   if (files.length === 0) return;
+
+  // When the agent has a known CLI session ID, only harvest that specific file.
+  // This ensures agents sharing the same cwd don't claim each other's sessions.
+  if (agent.cliSessionId) {
+    files = files.filter((f) => path.basename(f, ".jsonl") === agent.cliSessionId);
+    if (files.length === 0) return;
+  }
 
   for (const file of files) {
     try {

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Loader2, Square } from "lucide-react";
+import { Loader2, Pause } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -44,11 +44,11 @@ export function StopAgentDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Stop Agent</DialogTitle>
+          <DialogTitle>Pause Agent</DialogTitle>
           <DialogDescription>
             {stopTarget
-              ? `Stop "${stopTarget.name}"? The session will end and any in-progress work may be interrupted.`
-              : "Stop this agent?"}
+              ? `Pause "${stopTarget.name}"? The session will be paused. Resume it later to continue where you left off.`
+              : "Pause this agent?"}
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">
@@ -56,13 +56,13 @@ export function StopAgentDialog({
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="default"
             data-testid="stop-agent-confirm"
             disabled={stopping}
             onClick={() => void handleConfirmStop()}
           >
-            {stopping ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Square className="mr-1.5 h-4 w-4" />}
-            Stop
+            {stopping ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Pause className="mr-1.5 h-4 w-4" />}
+            Pause
           </Button>
         </div>
       </DialogContent>
