@@ -458,6 +458,8 @@ export function DashboardLayout(): JSX.Element {
       if (connectedAgentId === agent.id) {
         detachTerminal();
       }
+      setExpandedAgentId((current) => current === agent.id ? null : current);
+      setFeedbackDetail((prev) => prev?.parentAgentId === agent.id ? null : prev);
       const params = new URLSearchParams();
       if (cleanupWorktree) {
         params.set("cleanupWorktree", cleanupWorktree);
@@ -466,7 +468,7 @@ export function DashboardLayout(): JSX.Element {
       // Backend handles stopping + cleanup asynchronously; returns 202 immediately
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
     },
-    [connectedAgentId, detachTerminal]
+    [connectedAgentId, detachTerminal, setExpandedAgentId, setFeedbackDetail]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
