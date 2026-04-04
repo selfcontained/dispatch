@@ -29,8 +29,3 @@ Your testing MUST focus exclusively on the features and flows introduced or modi
 - Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 - Include screenshot references (`mediaRef`) when visual.
 
-## Context from parent agent
-{{context}}
-
-## Changes to test
-{{diff}}

@@ -142,9 +142,16 @@ export function assemblePersonaPrompt(
       "\n\n[... diff truncated at 50KB ...]";
   }
 
+  // Strip legacy {{context}} and {{diff}} placeholders if present — Dispatch
+  // now appends these sections automatically so persona files don't need them.
   const personaBody = persona.body
-    .replace("{{context}}", context)
-    .replace("{{diff}}", truncatedDiff);
+    .replace(/\{\{context\}\}/g, "")
+    .replace(/\{\{diff\}\}/g, "");
 
-  return `${personaBody}\n\n${STANDARD_FEEDBACK_GUIDANCE}`;
+  return [
+    personaBody.trimEnd(),
+    STANDARD_FEEDBACK_GUIDANCE,
+    `## Context from parent agent\n${context}`,
+    `## Changes to review\n${truncatedDiff}`,
+  ].join("\n\n");
 }

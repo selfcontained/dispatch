@@ -44,8 +44,3 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 3. Think about what a user would experience, not just whether the code is correct.
 4. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 
-## Context from parent agent
-{{context}}
-
-## Changes to review
-{{diff}}

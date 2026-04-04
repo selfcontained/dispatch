@@ -41,8 +41,3 @@ Your review MUST focus exclusively on user-facing impact introduced by the chang
 3. Think like a user, not a developer. Focus on what someone experiences, not how it's implemented.
 4. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 
-## Context from parent agent
-{{context}}
-
-## Changes to review
-{{diff}}

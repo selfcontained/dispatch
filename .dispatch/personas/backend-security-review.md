@@ -36,8 +36,3 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 2. Use `grep` and `read` to explore context around the changes.
 3. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 
-## Context from parent agent
-{{context}}
-
-## Changes to review
-{{diff}}
