@@ -105,6 +105,8 @@ Before marking any task as done, run the following checks and fix any failures:
 - `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
 - Migrations run automatically on API server start.
 
+## Agent Pins
+- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`. List-like types support comma/newline-delimited multi-value.
 
 ## Personas
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.

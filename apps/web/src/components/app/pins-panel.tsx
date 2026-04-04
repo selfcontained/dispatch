@@ -6,14 +6,19 @@ import { type AgentPin } from "@/components/app/types";
 const SAFE_URL_RE = /^https?:\/\//i;
 const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
 
-/** Types that support comma/newline-delimited multi-value. */
-const MULTI_VALUE_TYPES = new Set<AgentPin["type"]>(["string", "url", "port", "filename"]);
-
 /** Split a pin value into individual items if the type supports it. */
 function splitValues(pin: AgentPin): string[] {
-  if (!MULTI_VALUE_TYPES.has(pin.type)) return [pin.value];
-  const parts = pin.value.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-  return parts.length > 0 ? parts : [pin.value];
+  // URLs split on newline only — commas appear legitimately in query strings.
+  if (pin.type === "url") {
+    const parts = pin.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [pin.value];
+  }
+  // Other list-like types split on commas or newlines.
+  if (pin.type === "string" || pin.type === "port" || pin.type === "filename") {
+    const parts = pin.value.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [pin.value];
+  }
+  return [pin.value];
 }
 
 /** Turn a GitHub PR URL into "owner/repo#123"; fall back to the raw value. */
@@ -22,7 +27,7 @@ function formatPrDisplay(value: string): string {
   return m ? `${m[1]}#${m[2]}` : value;
 }
 
-function CopyButton({ value }: { value: string }): JSX.Element {
+function CopyButton({ value, title }: { value: string; title?: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,7 +43,7 @@ function CopyButton({ value }: { value: string }): JSX.Element {
     <button
       onClick={handleCopy}
       className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-      title="Copy to clipboard"
+      title={title ?? "Copy to clipboard"}
     >
       {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
     </button>
@@ -121,13 +126,21 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
 
 function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
   const values = splitValues(pin);
+  const isMulti = values.length > 1;
 
   return (
     <div className="px-4 py-2.5 border-b border-border last:border-b-0">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-        {pin.label}
+      <div className="flex items-center gap-1">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
+          {pin.label}
+        </div>
+        {isMulti && (
+          <div className="ml-auto">
+            <CopyButton value={values.join("\n")} title="Copy all" />
+          </div>
+        )}
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 mt-1">
         {values.map((v, i) => (
           <PinValueRow key={i} type={pin.type} value={v} />
         ))}
@@ -146,7 +159,7 @@ export function PinsPanel({ pins, selectedAgentName }: PinsPanelProps): JSX.Elem
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
         {selectedAgentName
-          ? "No pins yet. Agents can pin URLs, ports, and other info here."
+          ? "No pins yet. Agents can pin URLs, files, ports, and other info here."
           : "Focus an agent to view pins."}
       </div>
     );

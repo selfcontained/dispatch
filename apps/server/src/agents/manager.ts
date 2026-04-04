@@ -1427,9 +1427,7 @@ export class AgentManager {
       "Emit working at the start of each turn and when your activity shifts phases. Switch to blocked on errors. Emit a terminal event (done/idle/waiting_user/blocked) before your final response. " +
       "When done with Playwright validation, call browser_close to shut down the browser. " +
       "Use the dispatch_pin MCP tool to pin important info so users can find it in the sidebar. Use the appropriate type (url, port, code, string, pr, filename). Update pins when values change; delete stale pins when services are torn down. " +
-      "Pin examples: dev server URLs (url), PR links when created (pr), key files changed (filename, comma-separated), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), non-obvious architecture decisions or assumptions (string), and the specific blocking question when in waiting_user state. " +
-      "For list-like types (filename, url, string, port), separate multiple values with commas or newlines — each will render as its own row. " +
-      "For longer artifacts like handoff notes, write them to a shared file via dispatch_share and pin a reference to it.";
+      "For list-like types (filename, url, string, port), separate multiple values with commas or newlines — each renders as its own row. For longer artifacts like handoff notes, write them to a shared file via dispatch_share and pin a reference to it.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
