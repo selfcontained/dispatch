@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAtom } from "jotai";
+import { leftSidebarOpenAtom, mediaSidebarOpenAtom } from "@/lib/store";
 
-const LEFT_SIDEBAR_KEY = "dispatch:leftSidebarOpen";
-const MEDIA_SIDEBAR_KEY = "dispatch:mediaSidebarOpen";
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
 
-function readBool(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const stored = window.localStorage.getItem(key);
-  return stored === null ? fallback : stored === "true";
-}
-
 export function useLayout() {
-  const [leftOpen, setLeftOpen] = useState(() => readBool(LEFT_SIDEBAR_KEY, true));
-  const [mediaOpen, setMediaOpen] = useState(() => readBool(MEDIA_SIDEBAR_KEY, false));
+  const [leftOpen, setLeftOpen] = useAtom(leftSidebarOpenAtom);
+  const [mediaOpen, setMediaOpen] = useAtom(mediaSidebarOpenAtom);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches : false
   );
@@ -31,17 +25,6 @@ export function useLayout() {
     return () => query.removeEventListener("change", onChange);
   }, []);
 
-  // Persist sidebar state to localStorage.
-  useEffect(() => {
-    const value = String(leftOpen);
-    window.localStorage.setItem(LEFT_SIDEBAR_KEY, value);
-  }, [leftOpen]);
-
-  useEffect(() => {
-    const value = String(mediaOpen);
-    window.localStorage.setItem(MEDIA_SIDEBAR_KEY, value);
-  }, [mediaOpen]);
-
   // Reset mobile panels when switching to desktop.
   useEffect(() => {
     if (!isMobile) {
@@ -59,7 +42,7 @@ export function useLayout() {
       }
       setLeftOpen(open);
     },
-    [isMobile]
+    [isMobile, setLeftOpen]
   );
 
   const handleSetMediaPanelOpen = useCallback(
@@ -71,7 +54,7 @@ export function useLayout() {
       }
       setMediaOpen(open);
     },
-    [isMobile]
+    [isMobile, setMediaOpen]
   );
 
   return useMemo(() => ({
@@ -96,6 +79,8 @@ export function useLayout() {
     mediaPanelOpen,
     mobileLeftOpen,
     mobileMediaOpen,
+    setLeftOpen,
+    setMediaOpen,
     handleSetLeftPanelOpen,
     handleSetMediaPanelOpen,
   ]);

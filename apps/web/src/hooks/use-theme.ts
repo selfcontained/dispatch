@@ -232,10 +232,10 @@ export function getTerminalPalette(themeId: ThemeId): TerminalPalette {
 const STORAGE_KEY = "dispatch:theme";
 
 function getStoredTheme(): ThemeId {
-  if (typeof window === "undefined") return "default";
+  if (typeof window === "undefined") return "cool-navy";
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored && THEMES.some((t) => t.id === stored)) return stored as ThemeId;
-  return "default";
+  return "cool-navy";
 }
 
 function applyTheme(themeId: ThemeId): void {

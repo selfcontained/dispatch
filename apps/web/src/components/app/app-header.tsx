@@ -1,4 +1,4 @@
-import { Eye, PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useIconColor } from "@/hooks/use-icon-color";
@@ -11,11 +11,10 @@ type AppHeaderProps = {
   showHeaderStatus: boolean;
   statusText: string;
   showReconnectIndicator: boolean;
-  isAttached: boolean;
+  hasActiveAgent: boolean;
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
   setMediaOpen: (open: boolean) => void;
-  detachTerminal: () => void;
 };
 
 export function AppHeader({
@@ -25,14 +24,12 @@ export function AppHeader({
   showHeaderStatus,
   statusText,
   showReconnectIndicator,
-  isAttached,
+  hasActiveAgent,
   unseenMediaCount,
   setLeftOpen,
   setMediaOpen,
-  detachTerminal
 }: AppHeaderProps): JSX.Element {
   const { iconColor } = useIconColor();
-  const compactSessionAction = mediaOpen && !isMobile;
 
   return (
     <header
@@ -95,20 +92,7 @@ export function AppHeader({
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        {isAttached ? (
-          <Button
-            size="sm"
-            variant="ghost-info"
-            onClick={detachTerminal}
-            title="Unfocus"
-            data-testid="detach-button"
-          >
-            <Eye className="mr-1 h-3.5 w-3.5" />
-            <span className={cn(compactSessionAction ? "hidden" : "hidden sm:inline")}>Unfocus</span>
-          </Button>
-        ) : null}
-
-        {(!mediaOpen || isMobile) ? (
+        {hasActiveAgent && (!mediaOpen || isMobile) ? (
           <Button
             size="icon"
             variant="ghost"
