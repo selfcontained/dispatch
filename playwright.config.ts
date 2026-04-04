@@ -35,8 +35,15 @@ export default defineConfig({
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD
-      ? `DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} AUTH_TOKEN=${authToken} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`
-      : `pnpm run build:web && DATABASE_URL=${databaseUrl} DISPATCH_PORT=${devPort} MEDIA_ROOT=${mediaRoot} AUTH_TOKEN=${authToken} DISPATCH_AGENT_RUNTIME=inert pnpm run dev`,
+      ? "pnpm run dev"
+      : "pnpm run build:web && pnpm run dev",
+    env: {
+      DATABASE_URL: databaseUrl,
+      DISPATCH_PORT: devPort,
+      MEDIA_ROOT: mediaRoot,
+      AUTH_TOKEN: authToken,
+      DISPATCH_AGENT_RUNTIME: "inert",
+    },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,

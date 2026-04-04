@@ -95,9 +95,10 @@ const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
 function validateConfig(config: AppConfig): void {
   if (!process.env.AUTH_TOKEN) {
     console.warn(
-      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session.`,
+      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session:`,
     );
-    console.warn(`  Set AUTH_TOKEN in your environment for stable API access.`);
+    console.warn(`  ${config.authToken}`);
+    console.warn(`  Set AUTH_TOKEN in your environment for stable API access across restarts.`);
   }
 
   if (config.host === "0.0.0.0") {
@@ -111,7 +112,8 @@ function validateConfig(config: AppConfig): void {
     const dbUrl = new URL(config.databaseUrl);
     const isDefaultUser = dbUrl.username === "dispatch";
     const isDefaultPass = dbUrl.password === "dispatch";
-    if (isDefaultUser && isDefaultPass && !dbUrl.hostname.startsWith("127.0.0.1")) {
+    const isLocalhost = ["127.0.0.1", "localhost", "::1"].includes(dbUrl.hostname);
+    if (isDefaultUser && isDefaultPass && !isLocalhost) {
       console.warn(
         `${WARN_PREFIX} Default database credentials (dispatch:dispatch) used with non-localhost host. ` +
           `Set a strong password via DATABASE_URL.`,
