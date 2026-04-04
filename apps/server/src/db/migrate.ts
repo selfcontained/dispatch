@@ -11,19 +11,34 @@ const migrationsDir = __dirname.includes("/dist/")
   ? path.resolve(__dirname, "..", "..", "src", "db", "migrations")
   : path.join(__dirname, "migrations");
 
-export async function runMigrations(databaseUrl?: string): Promise<void> {
-  const url = databaseUrl ?? loadConfig().databaseUrl;
+export interface MigrationOptions {
+  databaseUrl?: string;
+  count?: number;
+}
+
+export async function runMigrations(
+  optionsOrUrl?: string | MigrationOptions
+): Promise<void> {
+  const opts: MigrationOptions =
+    typeof optionsOrUrl === "string"
+      ? { databaseUrl: optionsOrUrl }
+      : optionsOrUrl ?? {};
+
+  const url = opts.databaseUrl ?? loadConfig().databaseUrl;
 
   await runner({
     databaseUrl: url,
     dir: migrationsDir,
     direction: "up",
     migrationsTable: "pgmigrations",
+    count: opts.count,
     log: (msg) => console.log(`[migrate] ${msg}`),
   });
 
   console.log("Migrations completed.");
 }
+
+export { migrationsDir };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   runMigrations().catch((error) => {
