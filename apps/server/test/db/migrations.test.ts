@@ -15,7 +15,7 @@ afterAll(async () => {
 
 describe("migrations", () => {
   it("should apply cleanly to a fresh database", async () => {
-    await runTestMigrations(pool);
+    await runTestMigrations();
 
     // Verify core tables exist
     const tables = await pool.query(
@@ -27,11 +27,12 @@ describe("migrations", () => {
     expect(tableNames).toContain("media");
     expect(tableNames).toContain("media_seen");
     expect(tableNames).toContain("simulator_reservations");
+    expect(tableNames).toContain("pgmigrations");
   });
 
   it("should be idempotent (run twice without error)", async () => {
     // First run already happened above; run again
-    await expect(runTestMigrations(pool)).resolves.not.toThrow();
+    await expect(runTestMigrations()).resolves.not.toThrow();
   });
 
   it("should have all expected columns on agents", async () => {
@@ -48,6 +49,9 @@ describe("migrations", () => {
       "latest_event_type", "latest_event_message",
       "latest_event_metadata", "latest_event_updated_at",
       "git_context", "git_context_stale", "git_context_updated_at",
+      "worktree_path", "worktree_branch", "setup_phase", "deleted_at",
+      "persona", "parent_agent_id", "persona_context",
+      "pins", "archive_phase", "archive_cleanup_mode",
     ];
 
     for (const col of expected) {
@@ -75,5 +79,13 @@ describe("migrations", () => {
     const seen = await pool.query(`SELECT * FROM media_seen WHERE agent_id = 'test-cascade'`);
     expect(media.rowCount).toBe(0);
     expect(seen.rowCount).toBe(0);
+  });
+
+  it("should track migrations in pgmigrations table", async () => {
+    const result = await pool.query(
+      `SELECT name FROM pgmigrations ORDER BY run_on`
+    );
+    const names = result.rows.map((r: { name: string }) => r.name);
+    expect(names).toContain("0001_baseline");
   });
 });
