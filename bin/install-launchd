@@ -84,17 +84,52 @@ if [[ -z "$INSTALL_TAG" ]]; then
   fi
 fi
 
-# Initial build
-echo "==> installing dependencies"
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-# shellcheck disable=SC1090
-[[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
-cd "$SERVER_DIR"
-nvm use >/dev/null
-pnpm install --frozen-lockfile
+# Initial build — prefer pre-built release artifact if available
+REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
 
-echo "==> building"
-pnpm run build
+deploy_from_artifact() {
+  local tag="$1"
+  local tarball="/tmp/dispatch-release-${tag}.tar.gz"
+  if ! command -v gh &>/dev/null; then
+    return 1
+  fi
+  if ! gh release download "$tag" \
+       --pattern "dispatch-release.tar.gz" \
+       --output "$tarball" \
+       --clobber \
+       --repo "$REPO" 2>/dev/null; then
+    rm -f "$tarball"
+    return 1
+  fi
+  echo "==> extracting pre-built release artifact"
+  tar xzf "$tarball" -C "$SERVER_DIR"
+  rm -f "$tarball"
+  echo "==> installing dependencies (native modules)"
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  # shellcheck disable=SC1090
+  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+}
+
+build_from_source() {
+  echo "==> installing dependencies"
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  # shellcheck disable=SC1090
+  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+  echo "==> building"
+  pnpm run build
+}
+
+if [[ -n "$INSTALL_TAG" ]] && deploy_from_artifact "$INSTALL_TAG"; then
+  echo "==> deployed from pre-built artifact"
+else
+  build_from_source
+fi
 
 # Seed release.json so the server knows what version it's running.
 # Without this, a fresh install has no baseline for update detection.

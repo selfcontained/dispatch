@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+#
+# Packs a release tarball containing all pre-built artifacts needed to deploy
+# Dispatch without rebuilding from source. The tarball preserves the monorepo
+# directory structure so path resolution in the server continues to work.
+#
+# Usage: bin/pack-release [--output <path>]
+#
+# The tarball includes:
+#   - Pre-built dist/ directories (server, web, shared)
+#   - package.json files + lockfile (for native module install on host)
+#   - bin/ scripts (deploy, server management, launchd wrapper)
+#   - Database migrations (SQL, read from source at runtime)
+#   - .nvmrc, pnpm-workspace.yaml (needed by pnpm install)
+#   - release-notes/current.md (served by the API)
+#
+# NOT included (must be handled on host):
+#   - node_modules/ (pnpm install --frozen-lockfile on host)
+#   - .env (host-specific configuration)
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUTPUT=""
+
+usage() {
+  cat <<USAGE
+Usage: bin/pack-release [--output <path>]
+
+Packs a release tarball from the already-built monorepo.
+Requires that 'pnpm run build' has already been run.
+
+Options:
+  --output <path>  Output tarball path (default: dispatch-release.tar.gz in repo root)
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output) OUTPUT="$2"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-release.tar.gz}"
+
+# Validate that builds exist
+missing=()
+[[ -d "$ROOT_DIR/apps/server/dist" ]]   || missing+=("apps/server/dist")
+[[ -d "$ROOT_DIR/apps/web/dist" ]]      || missing+=("apps/web/dist")
+[[ -d "$ROOT_DIR/packages/shared/dist" ]] || missing+=("packages/shared/dist")
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "error: missing build outputs — run 'pnpm run build' first:" >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+
+# Build the file list for the tarball
+# We use a manifest approach so it's easy to see exactly what's included
+MANIFEST=$(mktemp)
+trap 'rm -f "$MANIFEST"' EXIT
+
+cat > "$MANIFEST" <<'LIST'
+apps/server/dist
+apps/web/dist
+packages/shared/dist
+package.json
+apps/server/package.json
+apps/web/package.json
+packages/shared/package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+.nvmrc
+bin
+LIST
+
+# Conditionally include migrations if they exist
+if [[ -d "apps/server/src/db/migrations" ]]; then
+  echo "apps/server/src/db/migrations" >> "$MANIFEST"
+fi
+
+# Conditionally include release notes if they exist
+if [[ -f "release-notes/current.md" ]]; then
+  echo "release-notes/current.md" >> "$MANIFEST"
+fi
+
+tar czf "$OUTPUT" -T "$MANIFEST"
+
+# Print summary
+SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')
+if command -v numfmt &>/dev/null; then
+  HUMAN_SIZE=$(numfmt --to=iec "$SIZE")
+elif (( SIZE >= 1048576 )); then
+  HUMAN_SIZE="$((SIZE / 1048576))M"
+elif (( SIZE >= 1024 )); then
+  HUMAN_SIZE="$((SIZE / 1024))K"
+else
+  HUMAN_SIZE="${SIZE} bytes"
+fi
+echo "packed release artifact: $OUTPUT ($HUMAN_SIZE)"
+echo "contents:"
+tar tzf "$OUTPUT" | head -30
+ENTRY_COUNT=$(tar tzf "$OUTPUT" | wc -l | tr -d ' ')
+if [[ "$ENTRY_COUNT" -gt 30 ]]; then
+  echo "  ... and $((ENTRY_COUNT - 30)) more entries"
+fi

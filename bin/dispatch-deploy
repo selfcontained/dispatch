@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
 DEFAULT_PORT="6767"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
 LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
@@ -120,14 +121,56 @@ resolve_tag() {
   echo "$tag"
 }
 
-build_tag() {
+deploy_from_artifact() {
   local tag="$1"
+  local tarball="/tmp/dispatch-release-${tag}.tar.gz"
+
+  echo "  trying release artifact for $tag..."
+  if ! gh release download "$tag" \
+       --pattern "dispatch-release.tar.gz" \
+       --output "$tarball" \
+       --clobber \
+       --repo "$REPO" 2>/dev/null; then
+    rm -f "$tarball"
+    return 1
+  fi
+
+  # Ensure we're on the right commit so git describe works for version detection
+  git -C "$SERVER_DIR" fetch --tags --quiet
+  git -C "$SERVER_DIR" checkout "$tag" 2>/dev/null || true
+
+  # Extract pre-built artifacts into the server directory
+  tar xzf "$tarball" -C "$SERVER_DIR"
+  rm -f "$tarball"
+
+  # Install dependencies (rebuilds native modules for this host)
+  load_nvm
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+  echo "  deployed from pre-built artifact"
+}
+
+build_from_source() {
+  local tag="$1"
+  echo "  building $tag from source..."
   git -C "$SERVER_DIR" checkout "$tag"
   load_nvm
   cd "$SERVER_DIR"
   nvm use >/dev/null
   pnpm install --frozen-lockfile
   pnpm run build
+  echo "  built from source"
+}
+
+build_tag() {
+  local tag="$1"
+  # Prefer pre-built release artifact; fall back to source build for
+  # older releases that don't have one attached.
+  if command -v gh &>/dev/null && deploy_from_artifact "$tag"; then
+    return 0
+  fi
+  build_from_source "$tag"
 }
 
 write_release_record() {

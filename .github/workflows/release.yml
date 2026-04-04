@@ -110,11 +110,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pack release artifact
+        run: bin/pack-release --output dispatch-release.tar.gz
+
       - name: Create GitHub release
         run: |
           gh release create ${{ steps.version.outputs.tag }} \
             --title "${{ steps.version.outputs.tag }}" \
-            --notes-file release-notes/current.md
+            --notes-file release-notes/current.md \
+            dispatch-release.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
