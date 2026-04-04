@@ -1,4 +1,4 @@
-import { Archive, ChevronRight, ListChecks, Terminal, X } from "lucide-react";
+import { ChevronRight, ListChecks, Terminal, X } from "lucide-react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { latestEventLabel, latestEventColor } from "@/components/app/agent-event-utils";
@@ -13,11 +13,10 @@ export type PersonaAgentRowProps = {
   isSelected: boolean;
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
-  setDeleteTarget: (agent: Agent | null) => void;
-  setDeleteConfirmOpen: (open: boolean) => void;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
   feedbackCount?: number;
+  resolvedCount?: number;
   isCollapsed?: boolean;
   hasFeedback?: boolean;
   onTriage?: () => void;
@@ -31,11 +30,10 @@ export function PersonaAgentRow({
   isSelected,
   detachTerminal,
   attachToAgent,
-  setDeleteTarget,
-  setDeleteConfirmOpen,
   onRequestClose,
   closeOnSessionAction,
   feedbackCount,
+  resolvedCount,
   isCollapsed,
   hasFeedback,
   onTriage,
@@ -66,6 +64,8 @@ export function PersonaAgentRow({
           </span>
           {feedbackCount != null && feedbackCount > 0 ? (
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">{feedbackCount}</span>
+          ) : resolvedCount != null && resolvedCount > 0 ? (
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">{resolvedCount}</span>
           ) : null}
         </div>
         {child.latestEvent ? (
@@ -125,12 +125,6 @@ export function PersonaAgentRow({
             </Tooltip>
           )
         ) : null}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="rounded p-2 text-muted-foreground/50 hover:text-foreground transition-colors disabled:opacity-30" disabled={child.status === "archiving"} onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
-          </TooltipTrigger>
-          <TooltipContent>Archive</TooltipContent>
-        </Tooltip>
       </div>
     </div>
   );
