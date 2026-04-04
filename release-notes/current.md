@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix persona agents not expandable when all feedback resolved by @selfcontained in https://github.com/selfcontained/dispatch/pull/227
+* Add pin examples to agent launch guidance by @selfcontained in https://github.com/selfcontained/dispatch/pull/228
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.17...v0.9.18
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.18...v0.9.19
