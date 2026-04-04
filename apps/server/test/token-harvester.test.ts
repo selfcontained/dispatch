@@ -322,6 +322,77 @@ describe("token-harvester", () => {
       await rm(fakeProjectDir, { recursive: true, force: true });
     });
 
+    it("harvests nothing when ownedSessionIds is an empty array", async () => {
+      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { mkdir } = await import("node:fs/promises");
+
+      const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(fakeProjectDir, { recursive: true });
+
+      await writeFile(
+        path.join(fakeProjectDir, "some-session.jsonl"),
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: 100, output_tokens: 10 } },
+          timestamp: "2026-03-28T10:00:00.000Z",
+        }) + "\n"
+      );
+
+      const mockPool = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+
+      await harvestTokenUsage(mockPool as any, {
+        id: "agt-empty-owned",
+        type: "claude" as const,
+        cwd: tmpDir,
+        worktreePath: null,
+        ownedSessionIds: [],
+      });
+
+      expect(mockPool.query).not.toHaveBeenCalled();
+
+      await rm(fakeProjectDir, { recursive: true, force: true });
+    });
+
+    it("harvests all sessions when ownedSessionIds is undefined", async () => {
+      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { mkdir } = await import("node:fs/promises");
+
+      const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(fakeProjectDir, { recursive: true });
+
+      const makeEntry = (tokens: number) =>
+        JSON.stringify({
+          type: "assistant",
+          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          timestamp: "2026-03-28T10:00:00.000Z",
+        });
+
+      await writeFile(path.join(fakeProjectDir, "session-a.jsonl"), makeEntry(100) + "\n");
+      await writeFile(path.join(fakeProjectDir, "session-b.jsonl"), makeEntry(200) + "\n");
+
+      const upserted: Array<{ params: unknown[] }> = [];
+      const mockPool = {
+        query: vi.fn(async (_sql: string, params: unknown[]) => {
+          upserted.push({ params });
+          return { rows: [], rowCount: 0 };
+        }),
+      };
+
+      // No ownedSessionIds — should harvest all sessions
+      await harvestTokenUsage(mockPool as any, {
+        id: "agt-all",
+        type: "claude" as const,
+        cwd: tmpDir,
+        worktreePath: null,
+      });
+
+      expect(mockPool.query).toHaveBeenCalledTimes(2);
+      const sessionIds = upserted.map((u) => u.params[1]).sort();
+      expect(sessionIds).toEqual(["session-a", "session-b"]);
+
+      await rm(fakeProjectDir, { recursive: true, force: true });
+    });
+
     it("skips opencode agents gracefully", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
 
