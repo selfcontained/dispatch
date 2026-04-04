@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+# Controls which GitHub repo artifacts are downloaded from.
+# Only set DISPATCH_REPO for trusted forks — a malicious repo could serve trojanized artifacts.
 REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
 DEFAULT_PORT="6767"
 PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
@@ -140,7 +142,7 @@ deploy_from_artifact() {
   git -C "$SERVER_DIR" checkout "$tag" 2>/dev/null || true
 
   # Extract pre-built artifacts into the server directory
-  tar xzf "$tarball" -C "$SERVER_DIR"
+  tar xzf "$tarball" --no-same-owner -C "$SERVER_DIR"
   rm -f "$tarball"
 
   # Install dependencies (rebuilds native modules for this host)

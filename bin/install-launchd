@@ -102,7 +102,7 @@ deploy_from_artifact() {
     return 1
   fi
   echo "==> extracting pre-built release artifact"
-  tar xzf "$tarball" -C "$SERVER_DIR"
+  tar xzf "$tarball" --no-same-owner -C "$SERVER_DIR"
   rm -f "$tarball"
   echo "==> installing dependencies (native modules)"
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
