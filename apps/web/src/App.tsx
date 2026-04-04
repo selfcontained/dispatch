@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
+import { feedbackDetailAtom, expandedAgentIdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -171,12 +173,12 @@ export function DashboardLayout(): JSX.Element {
   const [stopTarget, setStopTarget] = useState<Agent | null>(null);
 
   // ── Misc UI state ────────────────────────────────────────────────────
-  const [feedbackDetail, setFeedbackDetail] = useState<FeedbackDetailState>(null);
+  const [feedbackDetail, setFeedbackDetail] = useAtom(feedbackDetailAtom);
   // Keep last feedback detail alive during close transition so content fades out.
   const feedbackDetailStaleRef = useRef<NonNullable<FeedbackDetailState> | null>(null);
   if (feedbackDetail) feedbackDetailStaleRef.current = feedbackDetail;
   const feedbackDetailRendered = feedbackDetail ?? feedbackDetailStaleRef.current;
-  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const [expandedAgentId, setExpandedAgentId] = useAtom(expandedAgentIdAtom);
 
   // ── Agent selection ────────────────────────────────────────────────────
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -269,22 +271,10 @@ export function DashboardLayout(): JSX.Element {
     setSharedConnState(connState);
   }, [connState]);
 
-  useEffect(() => {
-    if (expandedAgentId && agents.some((agent) => agent.id === expandedAgentId)) {
-      return;
-    }
-    setExpandedAgentId(null);
-  }, [agents, expandedAgentId]);
-
   // Re-sort agents when connected agent changes.
   useEffect(() => {
     resortAgents();
   }, [connectedAgentId, resortAgents]);
-
-  // Close feedback detail panel when the connected agent changes.
-  useEffect(() => {
-    setFeedbackDetail((prev) => prev && connectedAgentId !== prev.parentAgentId ? null : prev);
-  }, [connectedAgentId]);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
@@ -377,15 +367,10 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Derived values ────────────────────────────────────────────────────
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
+  const hasActiveAgent = Boolean(validatedSelectedAgentId);
   const showHeaderStatus = connState !== "disconnected";
 
-  // Close media/pins sidebar when fully disconnected (not during agent switches).
-  useEffect(() => {
-    if (connState === "disconnected" && !connectedAgentId) {
-      setMediaOpen(false);
-      setMobileMediaOpen(false);
-    }
-  }, [connState, connectedAgentId, setMediaOpen, setMobileMediaOpen]);
+
 
   const statusText = useMemo(() => {
     if (connState === "reconnecting") {
@@ -612,6 +597,7 @@ export function DashboardLayout(): JSX.Element {
               statusText={statusText}
               showReconnectIndicator={connState === "reconnecting"}
               isAttached={isAttached}
+              hasActiveAgent={hasActiveAgent}
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={handleSetLeftPanelOpen}
               setMediaOpen={handleSetMediaPanelOpen}
@@ -655,7 +641,7 @@ export function DashboardLayout(): JSX.Element {
 
         <div className="hidden shrink-0 md:block">
           <MediaSidebar
-            mediaOpen={mediaOpen}
+            mediaOpen={mediaOpen && hasActiveAgent}
             mediaFiles={mediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}

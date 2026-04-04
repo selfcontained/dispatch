@@ -12,6 +12,7 @@ type AppHeaderProps = {
   statusText: string;
   showReconnectIndicator: boolean;
   isAttached: boolean;
+  hasActiveAgent: boolean;
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
   setMediaOpen: (open: boolean) => void;
@@ -25,6 +26,7 @@ export function AppHeader({
   statusText,
   showReconnectIndicator,
   isAttached,
+  hasActiveAgent,
   unseenMediaCount,
   setLeftOpen,
   setMediaOpen,
@@ -92,7 +94,7 @@ export function AppHeader({
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        {isAttached && (!mediaOpen || isMobile) ? (
+        {hasActiveAgent && (!mediaOpen || isMobile) ? (
           <Button
             size="icon"
             variant="ghost"
