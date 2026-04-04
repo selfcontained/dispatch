@@ -39,7 +39,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
 
   const handleSetPassword = async (e: FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 4 || newPassword !== confirmPassword) return;
+    if (newPassword.length < 8 || newPassword !== confirmPassword) return;
     setError("");
     setMessage("");
     setLoading(true);
@@ -67,7 +67,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
 
   const handleChangePassword = async (e: FormEvent) => {
     e.preventDefault();
-    if (!currentPassword || newPassword.length < 4 || newPassword !== confirmPassword) return;
+    if (!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword) return;
     setError("");
     setMessage("");
     setLoading(true);
@@ -123,7 +123,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
           )}
           <Input
             type="password"
-            placeholder={passwordSet ? "New password (min 4 characters)" : "Password (min 4 characters)"}
+            placeholder={passwordSet ? "New password (min 8 characters)" : "Password (min 8 characters)"}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             data-testid="security-new-password"
@@ -141,7 +141,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
           <Button
             type="submit"
             variant="primary"
-            disabled={loading || newPassword.length < 4 || newPassword !== confirmPassword || (passwordSet && !currentPassword)}
+            disabled={loading || newPassword.length < 8 || newPassword !== confirmPassword || (passwordSet && !currentPassword)}
           >
             {loading ? (passwordSet ? "Changing..." : "Setting up...") : (passwordSet ? "Change password" : "Set password")}
           </Button>
