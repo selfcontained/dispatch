@@ -321,8 +321,6 @@ export function AgentCard({
                     agentVisualState={getVisualState}
                     detachTerminal={detachTerminal}
                     attachToAgent={attachToAgent}
-                    setDeleteTarget={setDeleteTarget}
-                    setDeleteConfirmOpen={setDeleteConfirmOpen}
                   />
                 </div>
               ) : null}

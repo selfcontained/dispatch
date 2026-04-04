@@ -181,8 +181,6 @@ export function ParentFeedbackPanel({
   agentVisualState: getVisualState,
   detachTerminal,
   attachToAgent,
-  setDeleteTarget,
-  setDeleteConfirmOpen,
 }: {
   parentAgentId: string;
   sendTerminalInput?: (data: string) => void;
@@ -198,8 +196,6 @@ export function ParentFeedbackPanel({
   agentVisualState?: (agent: Agent) => AgentVisualState;
   detachTerminal?: () => void;
   attachToAgent?: (agent: Agent) => Promise<void>;
-  setDeleteTarget?: (agent: Agent | null) => void;
-  setDeleteConfirmOpen?: (open: boolean) => void;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
@@ -355,7 +351,7 @@ export function ParentFeedbackPanel({
 
             return (
               <div key={child.id}>
-                {getVisualState && detachTerminal && attachToAgent && setDeleteTarget && setDeleteConfirmOpen ? (
+                {getVisualState && detachTerminal && attachToAgent ? (
                   <div
                     className="cursor-pointer"
                     onClick={(e) => {
@@ -378,8 +374,6 @@ export function ParentFeedbackPanel({
                       isSelected={selectedAgentId === child.id}
                       detachTerminal={detachTerminal}
                       attachToAgent={attachToAgent}
-                      setDeleteTarget={setDeleteTarget}
-                      setDeleteConfirmOpen={setDeleteConfirmOpen}
                       onRequestClose={onRequestClose}
                       closeOnSessionAction={closeOnSessionAction}
                       feedbackCount={unresolvedCount}

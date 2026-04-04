@@ -1,4 +1,4 @@
-import { Archive, ChevronRight, ListChecks, Terminal, X } from "lucide-react";
+import { ChevronRight, ListChecks, Terminal, X } from "lucide-react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { latestEventLabel, latestEventColor } from "@/components/app/agent-event-utils";
@@ -13,8 +13,6 @@ export type PersonaAgentRowProps = {
   isSelected: boolean;
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
-  setDeleteTarget: (agent: Agent | null) => void;
-  setDeleteConfirmOpen: (open: boolean) => void;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
   feedbackCount?: number;
@@ -31,8 +29,6 @@ export function PersonaAgentRow({
   isSelected,
   detachTerminal,
   attachToAgent,
-  setDeleteTarget,
-  setDeleteConfirmOpen,
   onRequestClose,
   closeOnSessionAction,
   feedbackCount,
@@ -125,12 +121,6 @@ export function PersonaAgentRow({
             </Tooltip>
           )
         ) : null}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="rounded p-2 text-muted-foreground/50 hover:text-foreground transition-colors disabled:opacity-30" disabled={child.status === "archiving"} onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
-          </TooltipTrigger>
-          <TooltipContent>Archive</TooltipContent>
-        </Tooltip>
       </div>
     </div>
   );
