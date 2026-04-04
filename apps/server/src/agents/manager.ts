@@ -1456,12 +1456,11 @@ export class AgentManager {
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance =
       `[dispatch:${agentId}] ` +
-      "Dispatch startup rules: Playwright default is headless unless the user explicitly asks for headed mode. " +
-      "Capture at least one screenshot per UI validation flow; publish every screenshot with the dispatch_share MCP tool — never leave screenshots local-only. " +
-      "Call the dispatch_event MCP tool to report status. Valid types: working (actively making progress), blocked (stuck and unable to make progress without help or a change in approach), waiting_user (need user input), done (task complete), idle (no-op turn). " +
-      "Emit working at the start of each turn and when your activity shifts phases. Only use blocked when you are truly stuck — not when you encounter an error you are actively investigating or fixing. Emit a terminal event (done/idle/waiting_user/blocked) before your final response. " +
-      "When done with Playwright validation, call browser_close to shut down the browser. " +
-      "Use the dispatch_pin MCP tool to pin important info so users can find it in the sidebar. Update pins when values change; delete stale ones. " +
+      "Dispatch startup rules: " +
+      "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
+      "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
+      "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
+      "Use dispatch_pin to surface key info in the sidebar. Update pins when values change; delete stale ones. " +
       "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (migrations, commands), string (status, decisions). " +
       "For longer artifacts, write to a file via dispatch_share and pin a reference.";
 
