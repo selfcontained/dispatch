@@ -60,21 +60,24 @@ export async function cleanExpiredSessions(pool: Pool): Promise<void> {
 }
 
 /**
+ * Returns a stable auth token for agent-to-server communication, persisted in the settings table.
+ * Generated automatically on first run and reused across restarts.
+ */
+export async function getOrCreateAuthToken(pool: Pool): Promise<string> {
+  const stored = await getSetting(pool, "auth_token");
+  if (stored) return stored;
+
+  const token = crypto.randomBytes(32).toString("hex");
+  await setSetting(pool, "auth_token", token);
+  return token;
+}
+
+/**
  * Returns a stable cookie-signing secret, persisted in the settings table.
- * If COOKIE_SECRET env var is set, that value is used (and persisted).
- * Otherwise, the DB value is returned — or a new one is generated on first run.
+ * Generated automatically on first run and reused across restarts.
  */
 export async function getOrCreateCookieSecret(pool: Pool): Promise<string> {
-  const envSecret = process.env.COOKIE_SECRET;
   const stored = await getSetting(pool, "cookie_secret");
-
-  if (envSecret) {
-    if (stored !== envSecret) {
-      await setSetting(pool, "cookie_secret", envSecret);
-    }
-    return envSecret;
-  }
-
   if (stored) return stored;
 
   const secret = crypto.randomUUID();

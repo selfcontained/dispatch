@@ -61,12 +61,12 @@ function resolveAgentRuntime(): "tmux" | "inert" {
 }
 
 export function loadConfig(): AppConfig {
-  return {
-    host: process.env.HOST ?? "0.0.0.0",
+  const config: AppConfig = {
+    host: process.env.HOST ?? "127.0.0.1",
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
-    authToken: process.env.AUTH_TOKEN ?? "dev-token",
+    authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
     mediaRoot: process.env.MEDIA_ROOT ?? path.join(process.env.HOME ?? "/tmp", ".dispatch", "media"),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
@@ -84,4 +84,39 @@ export function loadConfig(): AppConfig {
     agentRuntime: resolveAgentRuntime(),
     tls: loadTls(),
   };
+
+  validateConfig(config);
+  return config;
+}
+
+const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
+
+function validateConfig(config: AppConfig): void {
+  if (config.host === "0.0.0.0") {
+    console.warn(
+      `${WARN_PREFIX} Server is binding to 0.0.0.0 (all interfaces). ` +
+        `Ensure a password is set or use HOST=127.0.0.1 to restrict to localhost.`,
+    );
+  }
+
+  try {
+    const dbUrl = new URL(config.databaseUrl);
+    const isDefaultUser = dbUrl.username === "dispatch";
+    const isDefaultPass = dbUrl.password === "dispatch";
+    const isLocalhost = ["127.0.0.1", "localhost", "::1"].includes(dbUrl.hostname);
+    if (isDefaultUser && isDefaultPass && !isLocalhost) {
+      console.warn(
+        `${WARN_PREFIX} Default database credentials (dispatch:dispatch) used with non-localhost host. ` +
+          `Set a strong password via DATABASE_URL.`,
+      );
+    } else if (isDefaultUser && isDefaultPass) {
+      console.warn(
+        `${WARN_PREFIX} Default database credentials (dispatch:dispatch) detected. ` +
+          `Consider setting a unique password in DATABASE_URL for production use.`,
+      );
+    }
+  } catch {
+    // URL parsing failed — not our problem to warn about here
+  }
+
 }
