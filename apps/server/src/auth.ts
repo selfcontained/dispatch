@@ -44,6 +44,10 @@ export async function deleteSession(pool: Pool, token: string): Promise<void> {
   await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
 }
 
+export async function deleteAllSessions(pool: Pool): Promise<void> {
+  await pool.query("DELETE FROM sessions");
+}
+
 export async function changePassword(
   pool: Pool,
   currentPassword: string,

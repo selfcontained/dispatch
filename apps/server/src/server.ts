@@ -14,6 +14,7 @@ import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import type WebSocket from "ws";
 import type nodePty from "node-pty";
+import * as z from "zod/v4";
 
 let pty: typeof nodePty;
 try {
@@ -44,6 +45,7 @@ import {
   createSession,
   validateSession,
   deleteSession,
+  deleteAllSessions,
   changePassword,
   cleanExpiredSessions,
   getOrCreateAuthToken,
@@ -776,6 +778,17 @@ function invalidatePasswordSetCache(): void {
 const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
 
+const SetupBodySchema = z.object({
+  password: z.string().min(8, "Password must be at least 8 characters."),
+});
+const LoginBodySchema = z.object({
+  password: z.string().min(1, "Password is required."),
+});
+const ChangePasswordBodySchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required."),
+  newPassword: z.string().min(8, "New password must be at least 8 characters."),
+});
+
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
   await app.register(fastifyCookie, { secret: cookieSecret });
@@ -836,7 +849,7 @@ async function registerRoutes() {
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
-    if (url.endsWith("/terminal/ws")) return;
+    if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
 
     // If no password is set, all routes are open (first-run mode).
     if (!(await isPasswordSetCached())) return;
@@ -888,11 +901,11 @@ async function registerRoutes() {
     if (await isPasswordSetCached()) {
       return reply.code(400).send({ error: "Password is already set." });
     }
-    const body = request.body as { password?: string } | null;
-    const password = body?.password;
-    if (!password || typeof password !== "string" || password.length < 4) {
-      return reply.code(400).send({ error: "Password must be at least 4 characters." });
+    const parsed = SetupBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
+    const { password } = parsed.data;
     await setPassword(pool, password);
     invalidatePasswordSetCache();
     const token = await createSession(pool);
@@ -908,11 +921,11 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/auth/login", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
-    const body = request.body as { password?: string } | null;
-    const password = body?.password;
-    if (!password || typeof password !== "string") {
-      return reply.code(400).send({ error: "Password is required." });
+    const parsed = LoginBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
+    const { password } = parsed.data;
     if (!(await verifyPassword(pool, password))) {
       return reply.code(401).send({ error: "Invalid password." });
     }
@@ -941,20 +954,25 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/auth/change-password", async (request, reply) => {
-    // Requires valid session (enforced by hook).
-    const body = request.body as { currentPassword?: string; newPassword?: string } | null;
-    const currentPassword = body?.currentPassword;
-    const newPassword = body?.newPassword;
-    if (!currentPassword || !newPassword || typeof currentPassword !== "string" || typeof newPassword !== "string") {
-      return reply.code(400).send({ error: "currentPassword and newPassword are required." });
+    const parsed = ChangePasswordBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
-    if (newPassword.length < 4) {
-      return reply.code(400).send({ error: "New password must be at least 4 characters." });
-    }
+    const { currentPassword, newPassword } = parsed.data;
     const changed = await changePassword(pool, currentPassword, newPassword);
     if (!changed) {
       return reply.code(401).send({ error: "Current password is incorrect." });
     }
+    await deleteAllSessions(pool);
+    const token = await createSession(pool);
+    reply.setCookie(SESSION_COOKIE, token, {
+      path: "/",
+      httpOnly: true,
+      signed: true,
+      sameSite: "lax",
+      secure: config.tls !== null,
+      maxAge: SESSION_MAX_AGE_S,
+    });
     invalidatePasswordSetCache();
     return { ok: true };
   });
