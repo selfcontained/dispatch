@@ -1,4 +1,4 @@
-import { Archive, ChevronRight, Terminal, X } from "lucide-react";
+import { Archive, ChevronRight, ListChecks, Terminal, X } from "lucide-react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { latestEventLabel, latestEventColor } from "@/components/app/agent-event-utils";
@@ -20,6 +20,8 @@ export type PersonaAgentRowProps = {
   feedbackCount?: number;
   isCollapsed?: boolean;
   hasFeedback?: boolean;
+  onTriage?: () => void;
+  triageDisabled?: boolean;
 };
 
 export function PersonaAgentRow({
@@ -36,6 +38,8 @@ export function PersonaAgentRow({
   feedbackCount,
   isCollapsed,
   hasFeedback,
+  onTriage,
+  triageDisabled,
 }: PersonaAgentRowProps): JSX.Element {
   const childIsStopped = childState === "stopped";
   const childIsActive = childState === "active";
@@ -54,18 +58,14 @@ export function PersonaAgentRow({
       {hasFeedback ? (
         <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
       ) : null}
-      <div
-        className="mt-0.5 h-2 w-2 shrink-0 rounded-full"
-        style={{ backgroundColor: `hsl(${colorVar})` }}
-      />
+      <AgentTypeIcon type={child.type} eventType={child.status === "running" ? child.latestEvent?.type : null} className="h-3.5 w-3.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-xs font-medium" style={{ color: `hsl(${colorVar})` }}>
             {child.persona ?? child.name}
           </span>
-          <AgentTypeIcon type={child.type} eventType={child.status === "running" ? child.latestEvent?.type : null} className="h-3.5 w-3.5 shrink-0" />
           {feedbackCount != null && feedbackCount > 0 ? (
-            <span className="text-[9px] text-muted-foreground/50">{feedbackCount}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">{feedbackCount}</span>
           ) : null}
         </div>
         {child.latestEvent ? (
@@ -75,6 +75,22 @@ export function PersonaAgentRow({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-3">
+        {onTriage ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span data-agent-control="true" className={cn(triageDisabled && "cursor-not-allowed")}>
+                <button
+                  aria-label="Auto-triage feedback"
+                  className={cn("rounded p-0.5 transition-colors", triageDisabled ? "text-muted-foreground/25 pointer-events-none" : "text-muted-foreground/50 hover:text-foreground")}
+                  onClick={onTriage}
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{triageDisabled ? "Connect to parent agent to auto-triage" : "Auto-triage feedback"}</TooltipContent>
+          </Tooltip>
+        ) : null}
         {!childIsStopped ? (
           childIsActive ? (
             <Tooltip>

@@ -89,29 +89,31 @@ function FeedbackActions({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost" size="sm"
-                  className={cn(btnClass, !isConnected && "opacity-40")}
-                  disabled={!isConnected}
-                  onClick={() => onForward("wdyt")}
-                >
-                  <MessageCircleQuestion className={iconClass} /> WDYT
-                </Button>
+                <span className={cn(!isConnected && "cursor-not-allowed")}>
+                  <Button
+                    variant="ghost" size="sm"
+                    className={cn(btnClass, !isConnected && "opacity-40 pointer-events-none")}
+                    onClick={() => onForward("wdyt")}
+                  >
+                    <MessageCircleQuestion className={iconClass} /> WDYT
+                  </Button>
+                </span>
               </TooltipTrigger>
-              <TooltipContent>{isConnected ? "Ask what it thinks about this" : "Attach to agent to use"}</TooltipContent>
+              <TooltipContent>{isConnected ? "Ask what it thinks about this" : "Connect to parent agent to forward feedback"}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost" size="sm"
-                  className={cn(btnClass, !isConnected && "opacity-40")}
-                  disabled={!isConnected}
-                  onClick={() => onForward("fix")}
-                >
-                  <Wrench className={iconClass} /> Fix
-                </Button>
+                <span className={cn(!isConnected && "cursor-not-allowed")}>
+                  <Button
+                    variant="ghost" size="sm"
+                    className={cn(btnClass, !isConnected && "opacity-40 pointer-events-none")}
+                    onClick={() => onForward("fix")}
+                  >
+                    <Wrench className={iconClass} /> Fix
+                  </Button>
+                </span>
               </TooltipTrigger>
-              <TooltipContent>{isConnected ? "Tell agent to fix this" : "Attach to agent to use"}</TooltipContent>
+              <TooltipContent>{isConnected ? "Tell agent to fix this" : "Connect to parent agent to forward feedback"}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         ) : null}
@@ -339,6 +341,17 @@ export function ParentFeedbackPanel({
             const items = feedbackByAgent.get(child.id) ?? [];
             const isGroupCollapsed = collapsedGroups.has(child.id);
             const childState = getVisualState?.(child);
+            const unresolvedCount = items.filter((f) => f.status === "open" || f.status === "forwarded").length;
+
+            const canTriage = isConnected && !!sendTerminalInput;
+            const handleTriage = unresolvedCount > 0
+              ? () => {
+                  if (!canTriage) return;
+                  const personaName = child.persona ?? child.name;
+                  const message = `Review and triage the pending feedback from the "${personaName}" persona. Use the dispatch_get_feedback MCP tool to fetch the unresolved items, then address each one: fix the ones that should be fixed and resolve them as you go using dispatch_resolve_feedback. When done, provide a summary report explaining what you addressed and what you chose not to address along with why.`;
+                  sendTerminalInput!(message + "\r");
+                }
+              : undefined;
 
             return (
               <div key={child.id}>
@@ -369,9 +382,11 @@ export function ParentFeedbackPanel({
                       setDeleteConfirmOpen={setDeleteConfirmOpen}
                       onRequestClose={onRequestClose}
                       closeOnSessionAction={closeOnSessionAction}
-                      feedbackCount={items.filter((f) => f.status === "open" || f.status === "forwarded").length}
+                      feedbackCount={unresolvedCount}
                       isCollapsed={isGroupCollapsed}
                       hasFeedback={items.length > 0}
+                      onTriage={handleTriage}
+                      triageDisabled={!canTriage}
                     />
                   </div>
                 ) : null}
