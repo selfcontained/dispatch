@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix persona agents showing parent's token usage by @selfcontained in https://github.com/selfcontained/dispatch/pull/223
+* Add immutable release artifacts by @selfcontained in https://github.com/selfcontained/dispatch/pull/226
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.15...v0.9.16
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.16...v0.9.17
