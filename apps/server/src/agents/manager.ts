@@ -10,7 +10,7 @@ import type { AppConfig } from "../config.js";
 import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
-import { cwdToClaudeProjectDir, discoverSessionFiles, harvestTokenUsage, readSessionStartTimestamp } from "./token-harvester.js";
+import { cwdToClaudeProjectDir, discoverSessionFiles, harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";
 type AgentType = "codex" | "claude" | "opencode";
@@ -65,7 +65,7 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   personaContext: string | null;
-  preExistingSessions: string[] | null;
+  claudeSessionId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -91,7 +91,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
-  preExistingSessions?: string[];
+  claudeSessionId?: string;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -234,12 +234,12 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, pre_existing_sessions, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, claude_session_id, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
         input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
-        input.preExistingSessions ? JSON.stringify(input.preExistingSessions) : null]
+        input.claudeSessionId ?? null]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -1407,95 +1407,37 @@ export class AgentManager {
    * Compute the set of Claude session IDs that belong to a specific agent.
    *
    * Persona agents share the parent's cwd, so their Claude project directory
-   * contains session files from both agents. We use the pre_existing_sessions
-   * snapshot (taken at persona creation) to split ownership:
-   * - Persona: owns exactly the session(s) that appeared after it was created.
-   *   We resolve and persist the persona's session ID so parent harvest can
-   *   exclude it even if new parent sessions are created later.
-   * - Parent: owns everything except sessions mapped to persona children.
+   * contains session files from both agents. We use the claude_session_id
+   * (set at persona creation via --session-id) to split ownership:
+   * - Persona: owns only its pre-assigned claude_session_id.
+   * - Parent: owns everything except sessions assigned to persona children.
    *
    * Returns undefined when the agent has a unique project dir (no splitting needed).
    */
   private async computeOwnedSessionIds(agent: AgentRecord): Promise<string[] | undefined> {
     if (agent.type !== "claude") return undefined;
 
-    const effectiveCwd = agent.worktreePath ?? agent.cwd;
-    const projectDir = cwdToClaudeProjectDir(effectiveCwd);
-
-    // Persona agent: resolve its session ID from the snapshot diff + timestamp check.
-    // Only sessions that (a) weren't in the pre-launch snapshot AND (b) started after
-    // the persona was created can belong to it. This handles the case where the parent
-    // creates new sessions after the persona was launched.
-    if (agent.preExistingSessions?.length) {
-      const allFiles = await discoverSessionFiles(projectDir);
-      const preExisting = new Set(agent.preExistingSessions);
-      const candidateFiles = allFiles.filter((f) => !preExisting.has(path.basename(f, ".jsonl")));
-
-      const agentCreatedAt = new Date(agent.createdAt).getTime();
-      const ownedIds: string[] = [];
-      for (const file of candidateFiles) {
-        const ts = await readSessionStartTimestamp(file);
-        if (ts && new Date(ts).getTime() >= agentCreatedAt) {
-          ownedIds.push(path.basename(file, ".jsonl"));
-        }
-      }
-
-      // Persist the resolved session ID so parent agents can exclude it
-      // without recomputing (and without the snapshot-diff ambiguity).
-      if (ownedIds.length > 0) {
-        await this.pool.query(
-          `UPDATE agents SET claude_session_id = $2 WHERE id = $1`,
-          [agent.id, ownedIds[0]]
-        );
-      }
-      return ownedIds;
+    // Persona agent: owns only the session assigned at creation
+    if (agent.claudeSessionId) {
+      return [agent.claudeSessionId];
     }
 
-    // Parent agent: exclude sessions that belong to persona children.
-    // Prefer the resolved claude_session_id (set at persona harvest time),
-    // but fall back to the snapshot diff if the persona hasn't been harvested yet
-    // (e.g. parent stops/archives before or at the same time as the persona).
-    const { rows: children } = await this.pool.query<{
-      claudeSessionId: string | null;
-      preExistingSessions: string[] | null;
-      createdAt: string;
-    }>(
-      `SELECT claude_session_id AS "claudeSessionId",
-              pre_existing_sessions AS "preExistingSessions",
-              created_at AS "createdAt"
-       FROM agents
-       WHERE parent_agent_id = $1 AND pre_existing_sessions IS NOT NULL AND deleted_at IS NULL`,
+    // Parent agent: exclude sessions that belong to persona children
+    const { rows: children } = await this.pool.query<{ claudeSessionId: string }>(
+      `SELECT claude_session_id AS "claudeSessionId" FROM agents
+       WHERE parent_agent_id = $1 AND claude_session_id IS NOT NULL AND deleted_at IS NULL`,
       [agent.id]
     );
     if (children.length === 0) return undefined;
 
+    const childSessionIds = new Set(children.map((c) => c.claudeSessionId));
+    const effectiveCwd = agent.worktreePath ?? agent.cwd;
+    const projectDir = cwdToClaudeProjectDir(effectiveCwd);
     const allFiles = await discoverSessionFiles(projectDir);
-    const allSessionIds = allFiles.map((f) => path.basename(f, ".jsonl"));
 
-    const childOwnedSessions = new Set<string>();
-    for (const child of children) {
-      if (child.claudeSessionId) {
-        // Resolved: we know exactly which session belongs to this persona
-        childOwnedSessions.add(child.claudeSessionId);
-      } else if (child.preExistingSessions && child.createdAt) {
-        // Not yet resolved: compute from snapshot diff + timestamp.
-        // Only sessions that are new (not in snapshot) AND started after
-        // the child was created can belong to it.
-        const preExisting = new Set(child.preExistingSessions);
-        const childCreatedAt = new Date(child.createdAt).getTime();
-        for (const file of allFiles) {
-          const sid = path.basename(file, ".jsonl");
-          if (preExisting.has(sid)) continue;
-          const ts = await readSessionStartTimestamp(file);
-          if (ts && new Date(ts).getTime() >= childCreatedAt) {
-            childOwnedSessions.add(sid);
-          }
-        }
-      }
-    }
-    if (childOwnedSessions.size === 0) return undefined;
-
-    return allSessionIds.filter((sid) => !childOwnedSessions.has(sid));
+    return allFiles
+      .map((f) => path.basename(f, ".jsonl"))
+      .filter((sid) => !childSessionIds.has(sid));
   }
 
   private async runLifecycleHook(hookName: "stop", agent: AgentRecord): Promise<void> {
@@ -1861,7 +1803,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
-        pre_existing_sessions AS "preExistingSessions",
+        claude_session_id AS "claudeSessionId",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

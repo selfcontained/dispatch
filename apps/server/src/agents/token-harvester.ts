@@ -73,25 +73,6 @@ export async function discoverSessionFiles(dir: string): Promise<string[]> {
     .map((f) => path.join(dir, f));
 }
 
-/** Read the first timestamp from a Claude session JSONL (any entry type). */
-export async function readSessionStartTimestamp(filePath: string): Promise<string | null> {
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
-  });
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line) as Record<string, unknown>;
-      if (typeof entry.timestamp === "string") {
-        rl.close();
-        return entry.timestamp;
-      }
-    } catch { /* skip malformed lines */ }
-  }
-  return null;
-}
-
 async function parseClaudeSessionTokenUsage(filePath: string): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
   const totals = new Map<string, ModelTokenTotals>();

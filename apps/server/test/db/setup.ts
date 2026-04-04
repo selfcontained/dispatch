@@ -137,7 +137,6 @@ export async function runTestMigrations(pool: Pool): Promise<void> {
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS parent_agent_id TEXT;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS persona_context TEXT;
-    ALTER TABLE agents ADD COLUMN IF NOT EXISTS pre_existing_sessions JSONB;
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS claude_session_id TEXT;
 
     CREATE TABLE IF NOT EXISTS agent_feedback (

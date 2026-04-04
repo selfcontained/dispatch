@@ -63,7 +63,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
-import { cwdToClaudeProjectDir, discoverSessionFiles } from "./agents/token-harvester.js";
+import { randomUUID } from "node:crypto";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -3670,15 +3670,13 @@ async function mcpLaunchPersona(
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
 
-  // Snapshot existing Claude session files so the persona agent's token
-  // harvester can exclude them and only count its own usage.
-  let preExistingSessions: string[] | undefined;
+  // For Claude persona agents, pre-assign a session ID via --session-id so we
+  // know exactly which session file belongs to this agent. This avoids ambiguity
+  // when parent and persona share the same Claude project directory.
+  let claudeSessionId: string | undefined;
   if (parent.type === "claude") {
-    const projectDir = cwdToClaudeProjectDir(parentCwd);
-    const existing = await discoverSessionFiles(projectDir);
-    if (existing.length > 0) {
-      preExistingSessions = existing.map((f) => path.basename(f, ".jsonl"));
-    }
+    claudeSessionId = randomUUID();
+    personaArgs.push("--session-id", claudeSessionId);
   }
 
   const agent = await agentManager.createAgent({
@@ -3691,7 +3689,7 @@ async function mcpLaunchPersona(
     persona: opts.persona,
     parentAgentId: agentId,
     personaContext: opts.context,
-    preExistingSessions,
+    claudeSessionId,
   });
 
   queueGitContextRefresh([agent.id]);
