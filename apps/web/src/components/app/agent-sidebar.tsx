@@ -8,7 +8,7 @@ import {
   ChevronLeft,
   Loader2,
   Play,
-  Square,
+  Pause,
   Settings,
   X
 } from "lucide-react";
@@ -297,7 +297,7 @@ export function AgentSidebarContent({
                             <Play className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Resume<br /><span className="text-muted-foreground">Start agent session</span></TooltipContent>
+                        <TooltipContent>Resume<br /><span className="text-muted-foreground">Resume agent session</span></TooltipContent>
                       </Tooltip>
                     ) : agent.status === "archiving" ? null : (
                       <Tooltip>
@@ -311,10 +311,10 @@ export function AgentSidebarContent({
                               setStopConfirmOpen(true);
                             }}
                           >
-                            <Square className="h-3.5 w-3.5" />
+                            <Pause className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Stop<br /><span className="text-muted-foreground">End agent session</span></TooltipContent>
+                        <TooltipContent>Pause<br /><span className="text-muted-foreground">Pause agent session</span></TooltipContent>
                       </Tooltip>
                     )}
 
@@ -526,7 +526,7 @@ export function AgentSidebarContent({
                         {childIsStopped ? (
                           <button data-agent-control="true" aria-label="Resume agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => startAgent(child)}><Play className="h-3.5 w-3.5" /></button>
                         ) : (
-                          <button data-agent-control="true" aria-label="Stop agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Square className="h-3.5 w-3.5" /></button>
+                          <button data-agent-control="true" aria-label="Pause agent" className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors" onClick={() => { setStopTarget(child); setStopConfirmOpen(true); }}><Pause className="h-3.5 w-3.5" /></button>
                         )}
                         <button data-agent-control="true" aria-label="Archive agent" data-testid={`agent-archive-${child.id}`} className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors disabled:opacity-30" disabled={child.status === "archiving"} onClick={() => { setDeleteTarget(child); setDeleteConfirmOpen(true); }}><Archive className="h-3.5 w-3.5" /></button>
                       </div>

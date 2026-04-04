@@ -24,12 +24,8 @@ type SessionTokenSummary = {
 };
 
 type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath"> & {
-  /**
-   * When set, only harvest these specific session IDs (positive filter).
-   * Used when multiple agents share the same Claude project directory
-   * (e.g. persona + parent) so each only counts its own sessions.
-   */
-  ownedSessionIds?: string[];
+  /** When set, only harvest this specific session file instead of all files in the project dir. */
+  cliSessionId?: string;
 };
 
 type HarvestLogger = { warn: (obj: Record<string, unknown>, msg: string) => void };
@@ -132,11 +128,10 @@ async function harvestClaudeTokenUsage(
   let files = await discoverSessionFiles(projectDir);
   if (files.length === 0) return;
 
-  // When multiple agents share the same cwd (e.g. persona + parent), only
-  // harvest sessions that belong to this specific agent.
-  if (agent.ownedSessionIds) {
-    const owned = new Set(agent.ownedSessionIds);
-    files = files.filter((f) => owned.has(path.basename(f, ".jsonl")));
+  // When the agent has a known CLI session ID, only harvest that specific file.
+  // This ensures agents sharing the same cwd don't claim each other's sessions.
+  if (agent.cliSessionId) {
+    files = files.filter((f) => path.basename(f, ".jsonl") === agent.cliSessionId);
     if (files.length === 0) return;
   }
 

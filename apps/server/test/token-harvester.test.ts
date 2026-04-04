@@ -250,16 +250,15 @@ describe("token-harvester", () => {
       await rm(worktreeDir, { recursive: true, force: true });
     });
 
-    it("only harvests owned sessions when ownedSessionIds is set", async () => {
+    it("only harvests the agent's own session when cliSessionId is set", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
       await mkdir(fakeProjectDir, { recursive: true });
 
-      // Create two session files: one parent's and one persona's
-      const parentSession = "parent-session-id";
-      const personaSession = "persona-session-id";
+      const agentSession = "agent-session-id";
+      const otherSession = "other-session-id";
 
       const makeEntry = (tokens: number) =>
         JSON.stringify({
@@ -271,14 +270,8 @@ describe("token-harvester", () => {
           timestamp: "2026-03-28T10:00:00.000Z",
         });
 
-      await writeFile(
-        path.join(fakeProjectDir, `${parentSession}.jsonl`),
-        makeEntry(500) + "\n"
-      );
-      await writeFile(
-        path.join(fakeProjectDir, `${personaSession}.jsonl`),
-        makeEntry(100) + "\n"
-      );
+      await writeFile(path.join(fakeProjectDir, `${agentSession}.jsonl`), makeEntry(500) + "\n");
+      await writeFile(path.join(fakeProjectDir, `${otherSession}.jsonl`), makeEntry(100) + "\n");
 
       const upserted: Array<{ params: unknown[] }> = [];
       const mockPool = {
@@ -288,41 +281,24 @@ describe("token-harvester", () => {
         }),
       };
 
-      // Harvest for persona agent — only owns its own session
       await harvestTokenUsage(mockPool as any, {
-        id: "agt-persona",
+        id: "agt-test",
         type: "claude" as const,
         cwd: tmpDir,
         worktreePath: null,
-        ownedSessionIds: [personaSession],
+        cliSessionId: agentSession,
       });
 
+      // Should only harvest the agent's own session, not the other one
       expect(mockPool.query).toHaveBeenCalledTimes(1);
-      expect(upserted[0].params[0]).toBe("agt-persona");
-      expect(upserted[0].params[1]).toBe(personaSession);
-      expect(upserted[0].params[3]).toBe(100);
-
-      // Reset and harvest for parent — owns only its session
-      mockPool.query.mockClear();
-      upserted.length = 0;
-
-      await harvestTokenUsage(mockPool as any, {
-        id: "agt-parent",
-        type: "claude" as const,
-        cwd: tmpDir,
-        worktreePath: null,
-        ownedSessionIds: [parentSession],
-      });
-
-      expect(mockPool.query).toHaveBeenCalledTimes(1);
-      expect(upserted[0].params[0]).toBe("agt-parent");
-      expect(upserted[0].params[1]).toBe(parentSession);
+      expect(upserted[0].params[0]).toBe("agt-test");
+      expect(upserted[0].params[1]).toBe(agentSession);
       expect(upserted[0].params[3]).toBe(500);
 
       await rm(fakeProjectDir, { recursive: true, force: true });
     });
 
-    it("harvests nothing when ownedSessionIds is an empty array", async () => {
+    it("harvests nothing when cliSessionId does not match any file", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
@@ -341,11 +317,11 @@ describe("token-harvester", () => {
       const mockPool = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
 
       await harvestTokenUsage(mockPool as any, {
-        id: "agt-empty-owned",
+        id: "agt-no-match",
         type: "claude" as const,
         cwd: tmpDir,
         worktreePath: null,
-        ownedSessionIds: [],
+        cliSessionId: "nonexistent-session",
       });
 
       expect(mockPool.query).not.toHaveBeenCalled();
@@ -353,7 +329,7 @@ describe("token-harvester", () => {
       await rm(fakeProjectDir, { recursive: true, force: true });
     });
 
-    it("harvests all sessions when ownedSessionIds is undefined", async () => {
+    it("harvests all sessions when cliSessionId is undefined (legacy agents)", async () => {
       const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
@@ -378,7 +354,7 @@ describe("token-harvester", () => {
         }),
       };
 
-      // No ownedSessionIds — should harvest all sessions
+      // No cliSessionId — should harvest all sessions (backward compat)
       await harvestTokenUsage(mockPool as any, {
         id: "agt-all",
         type: "claude" as const,

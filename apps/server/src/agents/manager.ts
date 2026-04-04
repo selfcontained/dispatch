@@ -10,7 +10,7 @@ import type { AppConfig } from "../config.js";
 import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
-import { cwdToClaudeProjectDir, discoverSessionFiles, harvestTokenUsage } from "./token-harvester.js";
+import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";
 type AgentType = "codex" | "claude" | "opencode";
@@ -65,7 +65,7 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   personaContext: string | null;
-  claudeSessionId: string | null;
+  cliSessionId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -91,7 +91,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
-  claudeSessionId?: string;
+  cliSessionId?: string;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -189,14 +189,14 @@ export class AgentManager {
   }
 
   /** Harvest token usage for an agent, correctly scoping sessions for shared-cwd agents. */
+  /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
-    const ownedSessionIds = await this.computeOwnedSessionIds(agent);
     await harvestTokenUsage(this.pool, {
       id: agent.id,
       type: agent.type,
       cwd: agent.cwd,
       worktreePath: agent.worktreePath,
-      ownedSessionIds,
+      cliSessionId: agent.cliSessionId ?? undefined,
     }, this.logger);
   }
 
@@ -229,17 +229,22 @@ export class AgentManager {
       }
     }
 
+    // Auto-assign a CLI session ID for Claude agents so we can track which
+    // session file belongs to this agent and resume it on restart.
+    const cliSessionId = input.cliSessionId
+      ?? (type === "claude" ? randomUUID() : null);
+
     // Insert the agent record immediately so the API can return fast.
     // The setup script running in tmux will handle worktree/deps/etc.
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, claude_session_id, updated_at)
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, updated_at)
       VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
         input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
-        input.claudeSessionId ?? null]
+        cliSessionId]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -392,6 +397,15 @@ export class AgentManager {
 
     await this.setAgentStatus(id, "creating", null);
 
+    // If the agent has a stored CLI session ID, resume that session.
+    // If not (legacy agent), assign one now so future restarts can resume.
+    let cliSessionId = agent.cliSessionId;
+    const shouldResume = !!cliSessionId;
+    if (!cliSessionId && agent.type === "claude") {
+      cliSessionId = randomUUID();
+      await this.pool.query(`UPDATE agents SET cli_session_id = $2 WHERE id = $1`, [id, cliSessionId]);
+    }
+
     try {
       await this.startAgentSession(
         id,
@@ -400,12 +414,14 @@ export class AgentManager {
         agent.mediaDir ?? this.defaultMediaDir(id),
         agent.type,
         agent.agentArgs ?? [],
-        agent.fullAccess ?? false
+        agent.fullAccess ?? false,
+        cliSessionId ?? undefined,
+        shouldResume
       );
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "working",
-        message: "Session started."
+        message: shouldResume ? "Session resumed." : "Session started."
       });
     } catch (error) {
       const message = this.errorMessage(error);
@@ -475,15 +491,7 @@ export class AgentManager {
       });
 
       // Harvest token usage from session logs (fire-and-forget)
-      this.computeOwnedSessionIds(agent).then((ownedSessionIds) =>
-        harvestTokenUsage(this.pool, {
-          id: agent.id,
-          type: agent.type,
-          cwd: agent.cwd,
-          worktreePath: agent.worktreePath,
-          ownedSessionIds,
-        }, this.logger)
-      ).catch((err) =>
+      this.harvestAgentTokens(agent).catch((err) =>
         this.logger.warn({ err, agentId: id }, "Token harvest failed on stop")
       );
     } catch (error) {
@@ -555,15 +563,7 @@ export class AgentManager {
         if (agent.tmuxSession && (await this.hasAgentSession(agent.tmuxSession))) {
           await this.stopAgentSession(agent.tmuxSession, true);
         }
-        this.computeOwnedSessionIds(agent).then((ownedSessionIds) =>
-          harvestTokenUsage(this.pool, {
-            id: agent.id,
-            type: agent.type,
-            cwd: agent.cwd,
-            worktreePath: agent.worktreePath,
-            ownedSessionIds,
-          }, this.logger)
-        ).catch((err) =>
+        this.harvestAgentTokens(agent).catch((err) =>
           this.logger.warn({ err, agentId: id }, "Token harvest failed during archive")
         );
       } catch (err) {
@@ -1331,7 +1331,9 @@ export class AgentManager {
     mediaDir: string,
     type: AgentType,
     agentArgs: string[],
-    fullAccess: boolean
+    fullAccess: boolean,
+    cliSessionId?: string,
+    resume?: boolean
   ): Promise<void> {
     if (this.config.agentRuntime === "inert") {
       await mkdir(mediaDir, { recursive: true });
@@ -1339,7 +1341,7 @@ export class AgentManager {
     }
 
     await mkdir(mediaDir, { recursive: true });
-    const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess);
+    const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess, cliSessionId, resume);
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
     const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
@@ -1403,42 +1405,7 @@ export class AgentManager {
     }
   }
 
-  /**
-   * Compute the set of Claude session IDs that belong to a specific agent.
-   *
-   * Persona agents share the parent's cwd, so their Claude project directory
-   * contains session files from both agents. We use the claude_session_id
-   * (set at persona creation via --session-id) to split ownership:
-   * - Persona: owns only its pre-assigned claude_session_id.
-   * - Parent: owns everything except sessions assigned to persona children.
-   *
-   * Returns undefined when the agent has a unique project dir (no splitting needed).
-   */
-  private async computeOwnedSessionIds(agent: AgentRecord): Promise<string[] | undefined> {
-    if (agent.type !== "claude") return undefined;
 
-    // Persona agent: owns only the session assigned at creation
-    if (agent.claudeSessionId) {
-      return [agent.claudeSessionId];
-    }
-
-    // Parent agent: exclude sessions that belong to persona children
-    const { rows: children } = await this.pool.query<{ claudeSessionId: string }>(
-      `SELECT claude_session_id AS "claudeSessionId" FROM agents
-       WHERE parent_agent_id = $1 AND claude_session_id IS NOT NULL AND deleted_at IS NULL`,
-      [agent.id]
-    );
-    if (children.length === 0) return undefined;
-
-    const childSessionIds = new Set(children.map((c) => c.claudeSessionId));
-    const effectiveCwd = agent.worktreePath ?? agent.cwd;
-    const projectDir = cwdToClaudeProjectDir(effectiveCwd);
-    const allFiles = await discoverSessionFiles(projectDir);
-
-    return allFiles
-      .map((f) => path.basename(f, ".jsonl"))
-      .filter((sid) => !childSessionIds.has(sid));
-  }
 
   private async runLifecycleHook(hookName: "stop", agent: AgentRecord): Promise<void> {
     const repoRoot = agent.worktreePath ?? agent.cwd;
@@ -1472,7 +1439,9 @@ export class AgentManager {
     args: string[],
     mediaDir: string,
     sessionName: string,
-    fullAccess: boolean
+    fullAccess: boolean,
+    cliSessionId?: string,
+    resume?: boolean
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -1557,20 +1526,28 @@ export class AgentManager {
       // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
       // Claude Code and provides the full behavioral spec.
       const systemFlag = `--append-system-prompt ${this.shellEscape(launchGuidance)}`;
+      // Session tracking: --resume continues an existing session, --session-id starts
+      // a new one with a known ID for token attribution and future resume.
+      const sessionFlag = cliSessionId
+        ? (resume ? `--resume ${this.shellEscape(cliSessionId)}` : `--session-id ${this.shellEscape(cliSessionId)}`)
+        : "";
+      const flags = [mcpFlag, systemFlag, sessionFlag].filter(Boolean).join(" ");
       if (args.length === 0) {
-        return `${envPrefix} ${this.shellEscape(cliBin)} ${mcpFlag} ${systemFlag}`;
+        return `${envPrefix} ${this.shellEscape(cliBin)} ${flags}`;
       }
       const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${mcpFlag} ${systemFlag} ${escaped}`;
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${flags} ${escaped}`;
     }
 
     if (type === "opencode") {
       const promptFlag = `--prompt ${this.shellEscape(launchGuidance)}`;
+      const sessionFlag = (resume && cliSessionId) ? `--session ${this.shellEscape(cliSessionId)}` : "";
+      const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
       if (args.length === 0) {
-        return `${envPrefix} ${this.shellEscape(cliBin)} ${promptFlag}`;
+        return `${envPrefix} ${this.shellEscape(cliBin)} ${flagParts}`;
       }
       const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${promptFlag}`;
+      return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${flagParts}`;
     }
 
     // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
@@ -1581,6 +1558,10 @@ export class AgentManager {
       this.shellEscape(`mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`)
     ].join(" ");
     const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(this.config.authToken)}`;
+    // Codex resume: `codex resume <sessionId>` with MCP flags
+    if (resume && cliSessionId) {
+      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
+    }
     if (args.length === 0) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;
     }
@@ -1803,7 +1784,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
-        claude_session_id AS "claudeSessionId",
+        cli_session_id AS "cliSessionId",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

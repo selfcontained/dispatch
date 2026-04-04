@@ -454,7 +454,7 @@ export function DashboardLayout(): JSX.Element {
       }
       await api(`/api/v1/agents/${agent.id}/stop`, {
         method: "POST",
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ force: false }),
       });
     },
     [connectedAgentId, detachAndClearSelection]
