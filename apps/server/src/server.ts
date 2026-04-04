@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
@@ -769,6 +770,7 @@ async function registerRoutes() {
   await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
   await app.register(fastifyWebsocket);
+  await app.register(fastifyRateLimit, { global: false });
 
   // Initialize icon color from DB before serving any requests
   const storedIconColor = await getSetting(pool, ICON_COLOR_KEY);
@@ -871,7 +873,7 @@ async function registerRoutes() {
     return { passwordSet: hasPassword, authenticated };
   });
 
-  app.post("/api/v1/auth/setup", async (request, reply) => {
+  app.post("/api/v1/auth/setup", { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } }, async (request, reply) => {
     if (await isPasswordSetCached()) {
       return reply.code(400).send({ error: "Password is already set." });
     }
@@ -894,7 +896,7 @@ async function registerRoutes() {
     return { ok: true };
   });
 
-  app.post("/api/v1/auth/login", async (request, reply) => {
+  app.post("/api/v1/auth/login", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
     const body = request.body as { password?: string } | null;
     const password = body?.password;
     if (!password || typeof password !== "string") {
