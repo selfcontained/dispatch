@@ -233,7 +233,7 @@ export function DashboardLayout(): JSX.Element {
       }
       return current;
     });
-  }, []);
+  }, [setExpandedAgentId]);
 
   // ── Terminal ──────────────────────────────────────────────────────────
   const {
@@ -408,7 +408,7 @@ export function DashboardLayout(): JSX.Element {
     (agentId: string) => {
       setExpandedAgentId((current) => (current === agentId ? null : agentId));
     },
-    []
+    [setExpandedAgentId]
   );
 
   const attachToAgent = useCallback(
@@ -598,7 +598,6 @@ export function DashboardLayout(): JSX.Element {
               showHeaderStatus={showHeaderStatus}
               statusText={statusText}
               showReconnectIndicator={connState === "reconnecting"}
-              isAttached={isAttached}
               hasActiveAgent={hasActiveAgent}
               unseenMediaCount={unseenMediaCount}
               setLeftOpen={handleSetLeftPanelOpen}

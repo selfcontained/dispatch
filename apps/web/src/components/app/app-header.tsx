@@ -11,7 +11,6 @@ type AppHeaderProps = {
   showHeaderStatus: boolean;
   statusText: string;
   showReconnectIndicator: boolean;
-  isAttached: boolean;
   hasActiveAgent: boolean;
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
@@ -25,7 +24,6 @@ export function AppHeader({
   showHeaderStatus,
   statusText,
   showReconnectIndicator,
-  isAttached,
   hasActiveAgent,
   unseenMediaCount,
   setLeftOpen,

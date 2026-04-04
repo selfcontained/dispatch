@@ -249,7 +249,6 @@ export function ParentFeedbackPanel({
       }
     }
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allAgents, parentAgentId, personas]);
 
   const activeItems = useMemo(() => feedback.filter((f) => f.status === "open" || f.status === "forwarded").sort(bySeverity), [feedback]);
@@ -607,7 +606,6 @@ function useFeedbackData(parentAgentId: string) {
       }
     }
     return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allAgents, parentAgentId, personas]);
 
   const updateStatus = useCallback(async (item: FeedbackItem, status: string) => {

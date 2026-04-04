@@ -73,7 +73,6 @@ export function AgentCard({
   const state = getVisualState(agent);
   const isSelected = selectedAgentId === agent.id;
   const isStopped = state === "stopped";
-  const isActive = state === "active";
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const needsAttention = agent.status === "error";
