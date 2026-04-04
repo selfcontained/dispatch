@@ -45,6 +45,7 @@ import {
   deleteSession,
   changePassword,
   cleanExpiredSessions,
+  getOrCreateAuthToken,
   getOrCreateCookieSecret
 } from "./auth.js";
 import { loadConfig } from "./config.js";
@@ -2798,6 +2799,7 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
 async function start() {
   await waitForDatabase();
   await runMigrations();
+  config.authToken = await getOrCreateAuthToken(pool);
   await agentManager.reconcileAgents();
   const agents = await agentManager.listAgents();
   queueGitContextRefresh(agents.map((agent) => agent.id));

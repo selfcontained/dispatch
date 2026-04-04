@@ -1,5 +1,4 @@
 import "dotenv/config";
-import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -67,7 +66,7 @@ export function loadConfig(): AppConfig {
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
-    authToken: process.env.AUTH_TOKEN ?? crypto.randomBytes(32).toString("hex"),
+    authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
     mediaRoot: process.env.MEDIA_ROOT ?? path.join(process.env.HOME ?? "/tmp", ".dispatch", "media"),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
     codexBin:
@@ -95,9 +94,8 @@ const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
 function validateConfig(config: AppConfig): void {
   if (!process.env.AUTH_TOKEN) {
     console.warn(
-      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session.`,
+      `${WARN_PREFIX} AUTH_TOKEN is not set. A stable token will be auto-generated and persisted in the database.`,
     );
-    console.warn(`  Set AUTH_TOKEN in your environment for a stable token across restarts.`);
   }
 
   if (config.host === "0.0.0.0") {
