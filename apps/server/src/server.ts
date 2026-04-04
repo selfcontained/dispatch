@@ -953,7 +953,7 @@ async function registerRoutes() {
     return { ok: true };
   });
 
-  app.post("/api/v1/auth/change-password", async (request, reply) => {
+  app.post("/api/v1/auth/change-password", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
     const parsed = ChangePasswordBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
@@ -2370,7 +2370,7 @@ async function registerRoutes() {
   .gone{display:flex;align-items:center;justify-content:center;height:100vh;color:#666;font-family:system-ui;font-size:14px}
 </style>
 </head><body>
-<img id="feed" src="/api/v1/agents/${id}/stream" alt="Live stream">
+<img id="feed" src="/api/v1/agents/${escapeHtml(id)}/stream" alt="Live stream">
 <script>
   const img = document.getElementById('feed');
   img.onerror = () => {
