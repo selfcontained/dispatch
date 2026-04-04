@@ -353,7 +353,7 @@ export function ParentFeedbackPanel({
               <div key={child.id}>
                 {getVisualState && detachTerminal && attachToAgent ? (
                   <div
-                    className="cursor-pointer"
+                    className={cn(hasAnyFeedback && "cursor-pointer")}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-agent-control='true']")) return;
                       if (hasAnyFeedback) {
