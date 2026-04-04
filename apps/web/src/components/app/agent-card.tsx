@@ -74,7 +74,7 @@ export function AgentCard({
   const isSelected = selectedAgentId === agent.id;
   const isStopped = state === "stopped";
   const isActive = state === "active";
-  const isExpanded = isActive || expandedAgentId === agent.id;
+  const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const needsAttention = agent.status === "error";
 
@@ -96,7 +96,7 @@ export function AgentCard({
             const target = event.target as HTMLElement;
             if (target.closest("[data-agent-control='true']")) return;
             if (isStopped) return;
-            if (isActive) { detachTerminal(); return; }
+            if (connectedAgentId === agent.id) { detachTerminal(); if (isExpanded) toggleAgentDetails(agent.id); return; }
             if (closeOnSessionAction) onRequestClose?.();
             void attachToAgent(agent);
           }}
@@ -183,16 +183,18 @@ export function AgentCard({
                 variant="ghost"
                 data-agent-control="true"
                 data-testid={`agent-expand-toggle-${agent.id}`}
-                disabled={isActive}
                 onClick={() => {
-                  if (isActive) return;
+                  // If collapsing while a child persona is connected, detach it
+                  if (isExpanded && connectedAgentId && childAgents.some((c) => c.id === connectedAgentId)) {
+                    detachTerminal();
+                  }
                   toggleAgentDetails(agent.id);
                 }}
               >
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", isExpanded && "rotate-180", isActive && "opacity-40")} />
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", isExpanded && "rotate-180")} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{isActive ? "Attached agent stays open" : isExpanded ? "Hide details" : "Show details"}</TooltipContent>
+            <TooltipContent>{isExpanded ? "Hide details" : "Show details"}</TooltipContent>
           </Tooltip>
         </div>
 
