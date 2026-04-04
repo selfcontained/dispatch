@@ -95,11 +95,9 @@ const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
 function validateConfig(config: AppConfig): void {
   if (!process.env.AUTH_TOKEN) {
     console.warn(
-      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session:`,
+      `${WARN_PREFIX} AUTH_TOKEN is not set. A random token has been generated for this session.`,
     );
-    console.warn(`  ${config.authToken}`);
-    console.warn(`  Set AUTH_TOKEN in your environment for stable API access across restarts.`);
-    console.warn(`  Note: this token is visible in logs — keep log files secure.`);
+    console.warn(`  Set AUTH_TOKEN in your environment for a stable token across restarts.`);
   }
 
   if (config.host === "0.0.0.0") {
