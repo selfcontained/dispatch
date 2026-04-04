@@ -59,3 +59,10 @@ export async function teardownTestDb(): Promise<void> {
 export async function runTestMigrations(): Promise<void> {
   await runMigrations(testDatabaseUrl);
 }
+
+/**
+ * Return the connection string for the current test database.
+ */
+export function getTestDatabaseUrl(): string {
+  return testDatabaseUrl;
+}
