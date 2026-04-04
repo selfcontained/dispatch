@@ -358,9 +358,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             .optional()
             .describe("The value to display. Required unless delete is true."),
           type: z
-            .enum(["string", "url", "port", "code", "pr"])
+            .enum(["string", "url", "port", "code", "pr", "filename"])
             .default("string")
-            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon."),
+            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."),
           delete: z
             .boolean()
             .default(false)
