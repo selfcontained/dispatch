@@ -92,12 +92,6 @@ export function loadConfig(): AppConfig {
 const WARN_PREFIX = "\x1b[33m⚠ SECURITY:\x1b[0m";
 
 function validateConfig(config: AppConfig): void {
-  if (!process.env.AUTH_TOKEN) {
-    console.warn(
-      `${WARN_PREFIX} AUTH_TOKEN is not set. A stable token will be auto-generated and persisted in the database.`,
-    );
-  }
-
   if (config.host === "0.0.0.0") {
     console.warn(
       `${WARN_PREFIX} Server is binding to 0.0.0.0 (all interfaces). ` +
@@ -125,10 +119,4 @@ function validateConfig(config: AppConfig): void {
     // URL parsing failed — not our problem to warn about here
   }
 
-  if (!process.env.COOKIE_SECRET) {
-    console.warn(
-      `${WARN_PREFIX} COOKIE_SECRET is not set. A random secret will be generated and persisted in the database. ` +
-        `Set COOKIE_SECRET for consistent sessions across restarts.`,
-    );
-  }
 }

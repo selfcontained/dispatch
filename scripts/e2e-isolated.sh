@@ -35,7 +35,6 @@ export DISPATCH_DB_PORT="$DB_PORT"
 export E2E_PORT="$API_PORT"
 export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DB_PORT}/dispatch_${RUN_ID}"
 export MEDIA_ROOT="/tmp/dispatch-media-${RUN_ID}"
-export AUTH_TOKEN="e2e-test-token-${RUN_ID}"
 
 # Disable TLS so the e2e server runs plain HTTP
 unset TLS_CERT TLS_KEY
