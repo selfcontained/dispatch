@@ -99,6 +99,7 @@ function validateConfig(config: AppConfig): void {
     );
     console.warn(`  ${config.authToken}`);
     console.warn(`  Set AUTH_TOKEN in your environment for stable API access across restarts.`);
+    console.warn(`  Note: this token is visible in logs — keep log files secure.`);
   }
 
   if (config.host === "0.0.0.0") {
