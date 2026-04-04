@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -645,49 +645,52 @@ async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean
     return false;
   }
 
-  const tarball = `/tmp/dispatch-release-${tag}.tar.gz`;
+  // Use a random temp directory to avoid TOCTOU attacks on a predictable path
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-release-"));
+  const tarball = path.join(tmpDir, "release.tar.gz");
 
-  appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
   try {
-    await runCommand("gh", [
-      "release", "download", tag,
-      "--pattern", "dispatch-release.tar.gz",
-      "--output", tarball,
-      "--clobber",
-      "--repo", repo
-    ]);
-  } catch {
-    appendReleaseLog(job, "no release artifact found for this tag");
-    return false;
+    appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
+    try {
+      await runCommand("gh", [
+        "release", "download", tag,
+        "--pattern", "dispatch-release.tar.gz",
+        "--output", tarball,
+        "--repo", repo
+      ]);
+    } catch {
+      appendReleaseLog(job, "no release artifact found for this tag");
+      return false;
+    }
+
+    appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
+    await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    // Validate tarball contents before extraction — reject entries with path
+    // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
+    // default, so this is a real risk if a compromised release artifact is uploaded.
+    appendReleaseLog(job, "==> validating artifact contents");
+    const listing = await runCommand("tar", ["tzf", tarball]);
+    const unsafeEntries = listing.stdout
+      .split("\n")
+      .filter((entry) => entry.startsWith("/") || entry.includes("../"));
+    if (unsafeEntries.length > 0) {
+      throw new Error(
+        `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
+      );
+    }
+
+    appendReleaseLog(job, "==> extracting pre-built artifact");
+    await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
+
+    appendReleaseLog(job, "==> installing dependencies (native modules only)");
+    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+
+    appendReleaseLog(job, "==> deployed from pre-built artifact (no build needed)");
+    return true;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
-
-  appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
-  await runCommand("git", ["-C", serverDir, "checkout", tag]);
-
-  // Validate tarball contents before extraction — reject entries with path
-  // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
-  // default, so this is a real risk if a compromised release artifact is uploaded.
-  appendReleaseLog(job, "==> validating artifact contents");
-  const listing = await runCommand("tar", ["tzf", tarball]);
-  const unsafeEntries = listing.stdout
-    .split("\n")
-    .filter((entry) => entry.startsWith("/") || entry.includes("../"));
-  if (unsafeEntries.length > 0) {
-    await unlink(tarball).catch(() => {});
-    throw new Error(
-      `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
-    );
-  }
-
-  appendReleaseLog(job, "==> extracting pre-built artifact");
-  await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
-  await unlink(tarball).catch(() => {});
-
-  appendReleaseLog(job, "==> installing dependencies (native modules only)");
-  await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
-
-  appendReleaseLog(job, "==> deployed from pre-built artifact (no build needed)");
-  return true;
 }
 
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
