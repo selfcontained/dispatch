@@ -49,7 +49,7 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 - **high**: Significant UX issue that would confuse users or prevent them from completing a task
 - **medium**: Inconsistent behavior, missing state handling, or accessibility gap
 - **low**: Polish item, minor visual issue, or improvement opportunity
-- **info**: Well-implemented pattern worth noting
+- **info**: Notably good UX pattern worth preserving (limit to 2–3 max — don't flag things that are simply correct)
 
 ## Context from parent agent
 {{context}}

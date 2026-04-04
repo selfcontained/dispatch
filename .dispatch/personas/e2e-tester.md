@@ -33,7 +33,7 @@ Your testing MUST focus exclusively on the features and flows introduced or modi
   - high: significant UX issue or incorrect behavior
   - medium: minor visual or behavioral issue
   - low: polish item or suggestion
-  - info: observation or confirmation that something works well
+  - info: notably good UX or behavior worth preserving (limit to 2–3 max — don't flag things that simply work)
 
 ## Context from parent agent
 {{context}}

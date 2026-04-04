@@ -46,7 +46,7 @@ Your review MUST focus exclusively on user-facing impact introduced by the chang
 - **high**: Missing flow or state that users will hit regularly, or significant cognitive load issue
 - **medium**: Incomplete experience, inconsistency with existing product patterns, or unclear messaging
 - **low**: Polish opportunity, minor scope suggestion, or nice-to-have improvement
-- **info**: Good product decision worth noting
+- **info**: Notably good product decision worth preserving (limit to 2–3 max — don't flag things that are simply correct)
 
 ## Context from parent agent
 {{context}}

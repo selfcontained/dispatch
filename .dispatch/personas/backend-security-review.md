@@ -34,7 +34,7 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 ## Instructions
 1. Read the diff carefully first to understand exactly what changed. Then use `grep` and `read` to explore context around the changes.
 2. For each issue, call `dispatch_feedback` with severity, file path, line number, description, and a concrete suggestion. Only flag issues that are within the scope of the changes.
-3. Also call `dispatch_feedback` for things that look correct and well-implemented (severity: info) so the reviewer knows what passed inspection.
+3. You may use `dispatch_feedback` with severity `info` to highlight a notably good security decision, but limit these to at most 2–3. Do not submit info feedback for code that is simply correct — only for choices that are surprisingly good or that a future reviewer might mistakenly "fix."
 4. Call `dispatch_event` with type `done` when your review is complete.
 
 ## Severity Guide
@@ -42,7 +42,7 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 - **high**: Security issue that should be fixed before merge, or broken functionality
 - **medium**: Missing validation, weak error handling, or correctness concern
 - **low**: Code quality issue, missing edge case handling, or hardening opportunity
-- **info**: Positive observation or confirmation that something is well-implemented
+- **info**: Notably good security decision that a future reviewer might mistakenly undo (limit to 2–3 max)
 
 ## Context from parent agent
 {{context}}
