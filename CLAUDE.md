@@ -31,14 +31,14 @@ dispatch/
 - You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.
 - **Event types and when to use them:**
   - `working` — You are actively making progress: reading files, writing code, running commands, researching. Use a short message describing the current activity (e.g., "Reading agent-sidebar.tsx", "Running E2E tests", "Refactoring auth middleware").
-  - `blocked` — You hit an error, a failing test, a missing dependency, or any obstacle you are actively trying to resolve. Message should describe the blocker (e.g., "Type error in agent-type-icon.tsx", "E2E test 'sidebar toggle' failing").
+  - `blocked` — You are stuck and unable to make progress without help or a change in approach. Do not use blocked for errors you are actively investigating or fixing — stay in `working` for those. Message should describe why you are stuck (e.g., "Cannot resolve missing API key", "Repeated test failure after 3 different approaches").
   - `waiting_user` — You need a decision, clarification, or approval before continuing. Message should describe what you need (e.g., "Should I delete the legacy endpoint?", "Need confirmation on color palette").
   - `done` — The task is complete and all checks pass. Message should summarize what was accomplished.
   - `idle` — No meaningful action was taken this turn (e.g., an informational question was answered).
 - **Required checkpoints (minimum):**
   1. **Start of turn**: `working` with what you are about to do.
   2. **Phase transitions**: Call `working` again with an updated message whenever your activity shifts to a distinct phase (e.g., moving from research → implementation → testing → validation). This keeps the UI status current.
-  3. **On error or obstacle**: Switch to `blocked` immediately. When you unblock yourself, switch back to `working`.
+  3. **When truly stuck**: Switch to `blocked` only when you cannot make further progress on your own.
   4. **Before final response**: Emit a terminal event — `done`, `idle`, `waiting_user`, or `blocked`.
 - **Hard requirements:**
   - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.

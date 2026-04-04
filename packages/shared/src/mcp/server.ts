@@ -313,7 +313,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       "dispatch_event",
       {
         description:
-          "Report agent status to Dispatch. Must be called at the start of each turn (working), when blocked (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
+          "Report agent status to Dispatch. Must be called at the start of each turn (working), when stuck and unable to proceed (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
         inputSchema: {
           type: z.enum(["working", "blocked", "waiting_user", "done", "idle"]).describe("The status event type."),
           message: z.string().describe("A short description of what is happening."),
