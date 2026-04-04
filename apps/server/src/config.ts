@@ -62,7 +62,7 @@ function resolveAgentRuntime(): "tmux" | "inert" {
 
 export function loadConfig(): AppConfig {
   const config: AppConfig = {
-    host: process.env.HOST ?? "127.0.0.1",
+    host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
@@ -95,7 +95,7 @@ function validateConfig(config: AppConfig): void {
   if (config.host === "0.0.0.0") {
     console.warn(
       `${WARN_PREFIX} Server is binding to 0.0.0.0 (all interfaces). ` +
-        `Ensure a password is set or use HOST=127.0.0.1 to restrict to localhost.`,
+        `Ensure a password is set or use DISPATCH_HOST=127.0.0.1 to restrict to localhost.`,
     );
   }
 
