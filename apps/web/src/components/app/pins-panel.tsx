@@ -2,24 +2,11 @@ import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-reac
 import { useCallback, useRef, useState } from "react";
 
 import { type AgentPin } from "@/components/app/types";
+import { splitPinValues } from "@/lib/pins";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 const SAFE_URL_RE = /^https?:\/\//i;
 const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
-
-/** Split a pin value into individual items if the type supports it. */
-function splitValues(pin: AgentPin): string[] {
-  // Filenames support comma- or newline-delimited lists.
-  if (pin.type === "filename") {
-    const parts = pin.value.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
-    return parts.length > 0 ? parts : [pin.value];
-  }
-  if (pin.type === "port") {
-    const parts = pin.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-    return parts.length > 0 ? parts : [pin.value];
-  }
-  return [pin.value];
-}
 
 /** Turn a GitHub PR URL into "owner/repo#123"; fall back to the raw value. */
 function formatPrDisplay(value: string): string {
@@ -127,7 +114,7 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
 }
 
 function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
-  const values = splitValues(pin);
+  const values = splitPinValues(pin.type, pin.value);
   const isMulti = values.length > 1;
 
   return (
