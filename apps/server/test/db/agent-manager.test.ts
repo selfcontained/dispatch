@@ -535,6 +535,43 @@ describe("AgentManager", () => {
       expect(reconciled!.lastError).toContain("unexpected argument '--append-system-prompt'");
     });
 
+    it("should not classify a clean exit as an error from generic stderr text", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await manager.completeSetup(agent.id, {
+        effectiveCwd: "/tmp",
+        worktreePath: null,
+        worktreeBranch: null
+      });
+      await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:0");
+      await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "warning: previous command printed an error banner\n");
+
+      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const mockRunCommand = vi.mocked(runCommand);
+      mockRunCommand.mockImplementation(async (_cmd, args) => {
+        if (args[0] === "has-session") {
+          return { exitCode: 1, stdout: "", stderr: "" };
+        }
+        if (args[0] === "list-sessions" || args[0] === "list-panes") {
+          return { exitCode: 1, stdout: "", stderr: "no server running" };
+        }
+        if (_cmd === "ps") {
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (_cmd === "launchctl") {
+          return { exitCode: 113, stdout: "", stderr: "service not found" };
+        }
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      await manager.reconcileAgents();
+
+      const reconciled = await manager.getAgent(agent.id);
+      expect(reconciled!.status).toBe("stopped");
+      expect(reconciled!.latestEvent?.type).toBe("idle");
+      expect(reconciled!.latestEvent?.message).toContain("Session ended normally.");
+      expect(reconciled!.latestEvent?.message).toContain("error banner");
+    });
+
     it("should capture a missing-session diagnostic snapshot", async () => {
       const tempHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-agent-manager-home-"));
       const previousHome = process.env.HOME;

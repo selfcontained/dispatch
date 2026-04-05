@@ -918,8 +918,7 @@ export class AgentManager {
         }
         const setupLogTail = await this.readSetupLogTail(row.id);
         const errorDetail = setupLogTail || null;
-        const setupLogIndicatesFailure = /\b(error|failed|exception|unexpected)\b/i.test(setupLogTail);
-        const launchFailed = row.status === "creating" || (exitInfo !== null && exitInfo !== 0) || setupLogIndicatesFailure;
+        const launchFailed = row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
         const nextStatus: AgentStatus = launchFailed ? "error" : "stopped";
         const baseMessage = launchFailed
           ? (row.status === "creating"
