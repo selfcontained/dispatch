@@ -9,14 +9,9 @@ const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
 
 /** Split a pin value into individual items if the type supports it. */
 function splitValues(pin: AgentPin): string[] {
-  // URLs split on newline only — commas appear legitimately in query strings.
-  if (pin.type === "url") {
-    const parts = pin.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
-    return parts.length > 0 ? parts : [pin.value];
-  }
-  // Other list-like types split on commas or newlines.
-  if (pin.type === "string" || pin.type === "port" || pin.type === "filename") {
-    const parts = pin.value.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+  // Filenames split on commas (e.g. "file1.ts, file2.ts").
+  if (pin.type === "filename") {
+    const parts = pin.value.split(",").map((s) => s.trim()).filter(Boolean);
     return parts.length > 0 ? parts : [pin.value];
   }
   return [pin.value];
@@ -118,20 +113,17 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
             {display}
           </span>
         )}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-              title="Open in browser"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          ) : null}
-          <CopyButton value={value} />
-        </div>
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            title="Open in browser"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
       </div>
       {isPlainString && (clamped || expanded) && (
         <button
@@ -155,11 +147,9 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
           {pin.label}
         </div>
-        {isMulti && (
-          <div className="ml-auto">
-            <CopyButton value={values.join("\n")} title="Copy all" />
-          </div>
-        )}
+        <div className="ml-auto">
+          <CopyButton value={pin.value} title={isMulti ? "Copy all" : "Copy to clipboard"} />
+        </div>
       </div>
       <div className="flex flex-col gap-1 mt-1">
         {values.map((v, i) => (
