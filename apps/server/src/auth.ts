@@ -7,6 +7,10 @@ import { getSetting, setSetting } from "./db/settings.js";
 const BCRYPT_COST = 12;
 const SESSION_TTL_DAYS = 30;
 
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 export async function isPasswordSet(pool: Pool): Promise<boolean> {
   return (await getSetting(pool, "password_hash")) !== null;
 }
@@ -27,21 +31,37 @@ export async function createSession(pool: Pool): Promise<string> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
   await pool.query(
     "INSERT INTO sessions (token, expires_at) VALUES ($1, $2)",
-    [token, expiresAt]
+    [hashToken(token), expiresAt]
   );
   return token;
 }
 
 export async function validateSession(pool: Pool, token: string): Promise<boolean> {
+  const hashed = hashToken(token);
   const result = await pool.query(
+    "SELECT 1 FROM sessions WHERE token = $1 AND expires_at > NOW()",
+    [hashed]
+  );
+  if ((result.rowCount ?? 0) > 0) return true;
+
+  // Backwards compat: check for legacy plaintext token and upgrade it
+  const legacy = await pool.query(
     "SELECT 1 FROM sessions WHERE token = $1 AND expires_at > NOW()",
     [token]
   );
-  return (result.rowCount ?? 0) > 0;
+  if ((legacy.rowCount ?? 0) > 0) {
+    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [hashed, token]);
+    return true;
+  }
+  return false;
 }
 
 export async function deleteSession(pool: Pool, token: string): Promise<void> {
-  await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
+  const result = await pool.query("DELETE FROM sessions WHERE token = $1", [hashToken(token)]);
+  if ((result.rowCount ?? 0) === 0) {
+    // Backwards compat: try legacy plaintext token
+    await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
+  }
 }
 
 export async function deleteAllSessions(pool: Pool): Promise<void> {
@@ -84,7 +104,7 @@ export async function getOrCreateCookieSecret(pool: Pool): Promise<string> {
   const stored = await getSetting(pool, "cookie_secret");
   if (stored) return stored;
 
-  const secret = crypto.randomUUID();
+  const secret = crypto.randomBytes(32).toString("hex");
   await setSetting(pool, "cookie_secret", secret);
   return secret;
 }
