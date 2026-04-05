@@ -7,6 +7,8 @@ import { getSetting, setSetting } from "./db/settings.js";
 const BCRYPT_COST = 12;
 const SESSION_TTL_DAYS = 30;
 
+// SHA-256 is safe here because session tokens are random UUIDs (122 bits of entropy).
+// Do not reuse this for user-supplied or low-entropy values.
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
@@ -38,30 +40,23 @@ export async function createSession(pool: Pool): Promise<string> {
 
 export async function validateSession(pool: Pool, token: string): Promise<boolean> {
   const hashed = hashToken(token);
+  // Single query checks both hashed and legacy plaintext tokens to avoid timing side-channel
   const result = await pool.query(
-    "SELECT 1 FROM sessions WHERE token = $1 AND expires_at > NOW()",
-    [hashed]
+    "SELECT token FROM sessions WHERE (token = $1 OR token = $2) AND expires_at > NOW() LIMIT 1",
+    [hashed, token]
   );
-  if ((result.rowCount ?? 0) > 0) return true;
+  if ((result.rowCount ?? 0) === 0) return false;
 
-  // Backwards compat: check for legacy plaintext token and upgrade it
-  const legacy = await pool.query(
-    "SELECT 1 FROM sessions WHERE token = $1 AND expires_at > NOW()",
-    [token]
-  );
-  if ((legacy.rowCount ?? 0) > 0) {
-    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [hashed, token]);
-    return true;
+  // Upgrade legacy plaintext token to hashed in-place
+  const matched = result.rows[0].token as string;
+  if (matched !== hashed) {
+    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [hashed, matched]);
   }
-  return false;
+  return true;
 }
 
 export async function deleteSession(pool: Pool, token: string): Promise<void> {
-  const result = await pool.query("DELETE FROM sessions WHERE token = $1", [hashToken(token)]);
-  if ((result.rowCount ?? 0) === 0) {
-    // Backwards compat: try legacy plaintext token
-    await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
-  }
+  await pool.query("DELETE FROM sessions WHERE token = $1 OR token = $2", [hashToken(token), token]);
 }
 
 export async function deleteAllSessions(pool: Pool): Promise<void> {
