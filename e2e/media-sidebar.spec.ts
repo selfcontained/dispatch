@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { cleanupE2EAgents, createAgentViaAPI, loadApp, uploadMediaViaAPI } from "./helpers";
+import { cleanupE2EAgents, createAgentViaAPI, loadApp, setAgentPinsViaDB, uploadMediaViaAPI } from "./helpers";
 
 test.describe("Media sidebar", () => {
   test.afterAll(async ({ request }) => {
@@ -94,5 +94,40 @@ test.describe("Media sidebar", () => {
     });
     const body = (await res.json()) as { files: Array<{ seen?: boolean }> };
     expect(body.files[0].seen).toBe(true);
+  });
+
+  test("preserves string pin whitespace and splits filename pins", async ({ page, request }) => {
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pins-${Date.now()}` });
+    await setAgentPinsViaDB(agent.id, [
+      { label: "Notes", type: "string", value: "line 1\n\n  line 2" },
+      { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
+      { label: "Ports", type: "port", value: "3000 4000,\n5000" },
+      { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
+      { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
+      { label: "Review", type: "pr", value: "Review queue" },
+      { label: "Agent ID", type: "code", value: "DISPATCH_AGENT_ID=agt_123" },
+    ]);
+
+    await loadApp(page);
+
+    await page.getByText(agent.name, { exact: true }).click();
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await expect(mediaSidebar).toBeVisible();
+
+    const notesText = await mediaSidebar.locator("pre").textContent();
+    expect(notesText).toBe("line 1\n\n  line 2");
+
+    await expect(mediaSidebar.getByText("one.ts", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("two.ts", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("three.ts", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("3000", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("4000", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByRole("link", { name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" })).toBeVisible();
+    await expect(mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })).toBeVisible();
+    await expect(mediaSidebar.getByText("Review queue", { exact: true })).toBeVisible();
+    await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
   });
 });
