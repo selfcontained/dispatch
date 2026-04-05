@@ -9,11 +9,10 @@ const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
-  "create_worktree",
-  "cleanup_worktree",
+
   "create_pr",
-  "enable_pr_automerge",
-  "merge_pr_now",
+
+
   "get_pr_status",
   "dispatch_event",
   "dispatch_share"

@@ -241,12 +241,11 @@ const SECTIONS: SectionDef[] = [
             regardless of repo configuration:
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
-            <li><Code>create_worktree</Code> — create an isolated git worktree for parallel work</li>
-            <li><Code>cleanup_worktree</Code> — remove a worktree when done</li>
+
             <li><Code>create_pr</Code> — open a pull request from the current branch</li>
             <li><Code>get_pr_status</Code> — check CI status on a pull request</li>
-            <li><Code>merge_pr_now</Code> — merge a pull request</li>
-            <li><Code>enable_pr_automerge</Code> — auto-merge a PR when checks pass</li>
+
+
             <li><Code>dispatch_event</Code> — report agent status (working, blocked, done)</li>
             <li><Code>dispatch_share</Code> — publish a screenshot or image to the session's media stream</li>
             <li><Code>dispatch_feedback</Code> — submit a structured finding with severity, file reference, and suggestion</li>
@@ -328,18 +327,8 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           </P>
         </Section>
 
-        <Section>
-          <H3>On-demand worktrees</H3>
-          <P>
-            Agents can also create worktrees during a session by calling
-            the <Code>create_worktree</Code> tool. This is useful when an
-            agent decides mid-task that it needs isolation.
-          </P>
-          <CodeBlock>{`
-# What happens behind the scenes:
-git worktree add -b fix-auth ../project-fix-auth main
-cd ../project-fix-auth`}</CodeBlock>
-        </Section>
+
+
 
         <Section>
           <H3>Worktree location</H3>
@@ -359,9 +348,7 @@ cd ../project-fix-auth`}</CodeBlock>
             unmerged commits and uncommitted changes. If the worktree is
             clean, it's removed automatically. If there are outstanding
             changes, you're asked whether to keep the worktree for manual
-            review or remove it. Agents can also
-            call <Code>cleanup_worktree</Code> directly to remove a
-            worktree during a session.
+            review or remove it.
           </P>
         </Section>
 
