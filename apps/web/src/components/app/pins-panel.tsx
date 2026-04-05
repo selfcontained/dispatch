@@ -101,7 +101,7 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
         </span>
       ) : (
         <span
-          className="min-w-0 text-xs text-foreground"
+          className="min-w-0 break-words text-xs text-foreground"
         >
           {display}
         </span>
