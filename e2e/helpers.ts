@@ -18,6 +18,12 @@ type AgentResult = {
   worktreeBranch: string | null;
 };
 
+type AgentPinRecord = {
+  label: string;
+  value: string;
+  type: "string" | "url" | "port" | "code" | "pr" | "filename";
+};
+
 /**
  * Create an agent via the REST API (faster than going through the UI every time).
  * When useWorktree is true, polls until the setup script completes (status transitions
@@ -121,6 +127,23 @@ export async function uploadMediaViaAPI(
 
   if (!res.ok()) {
     throw new Error(`Media upload failed with ${res.status()}`);
+  }
+}
+
+export async function setAgentPinsViaDB(agentId: string, pins: AgentPinRecord[]): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed agent pins.");
+  }
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    await pool.query(
+      "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
+      [agentId, JSON.stringify(pins)]
+    );
+  } finally {
+    await pool.end();
   }
 }
 

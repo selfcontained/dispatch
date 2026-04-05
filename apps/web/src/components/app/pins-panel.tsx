@@ -9,9 +9,13 @@ const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
 
 /** Split a pin value into individual items if the type supports it. */
 function splitValues(pin: AgentPin): string[] {
-  // Filenames split on commas (e.g. "file1.ts, file2.ts").
+  // Filenames support comma- or newline-delimited lists.
   if (pin.type === "filename") {
-    const parts = pin.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const parts = pin.value.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : [pin.value];
+  }
+  if (pin.type === "port") {
+    const parts = pin.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
     return parts.length > 0 ? parts : [pin.value];
   }
   return [pin.value];
@@ -96,9 +100,15 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
         </span>
       ) : (
         <ScrollArea className="min-w-0 max-h-32">
-          <span className="break-words text-xs text-foreground">
-            {display}
-          </span>
+          {type === "string" ? (
+            <pre className="m-0 whitespace-pre-wrap break-words font-sans text-xs text-foreground">
+              {display}
+            </pre>
+          ) : (
+            <span className="break-words text-xs text-foreground">
+              {display}
+            </span>
+          )}
         </ScrollArea>
       )}
       {href && (

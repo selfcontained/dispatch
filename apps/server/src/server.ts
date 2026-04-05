@@ -63,6 +63,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
+import { isPinType, validatePinValue } from "./pins.js";
 import { randomUUID } from "node:crypto";
 import {
   computeActivityStats,
@@ -3651,19 +3652,18 @@ async function mcpResolveFeedback(
   return record;
 }
 
-const VALID_PIN_TYPES = ["string", "url", "port", "code", "pr", "filename"] as const;
-
 async function mcpUpsertPin(
   agentId: string,
   pin: { label: string; value: string; type: string }
 ): Promise<void> {
-  if (!VALID_PIN_TYPES.includes(pin.type as (typeof VALID_PIN_TYPES)[number])) {
+  if (!isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
+  validatePinValue(pin.type, pin.value);
   const agent = await agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
-    type: pin.type as (typeof VALID_PIN_TYPES)[number]
+    type: pin.type
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
