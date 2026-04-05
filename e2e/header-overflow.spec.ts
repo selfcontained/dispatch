@@ -7,12 +7,12 @@ test.describe("Header overflow", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("long agent status messages stay constrained inside the header", async ({ page, request }) => {
+  test("long agent status messages do not appear inside the slim terminal header", async ({ page, request }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-${Date.now()}`,
     });
     const longMessage =
-      "This is a deliberately long agent description used to verify the header keeps its width constrained and truncates the message instead of letting the layout grow past the viewport width while a session is attached and actively reporting status updates.";
+      "This is a deliberately long agent description used to verify that status text no longer reserves a dedicated header row or pushes the terminal layout beyond the viewport width while a session is attached and actively reporting status updates.";
 
     await setAgentLatestEventViaAPI(request, agent.id, { type: "working", message: longMessage });
     await loadApp(page);
@@ -21,39 +21,24 @@ test.describe("Header overflow", () => {
     await agentCard.waitFor({ state: "visible", timeout: 10_000 });
     await page.getByTestId(`agent-row-${agent.id}`).click();
 
-    const status = page.getByTestId("app-header-status");
-    await expect(status).toBeVisible({ timeout: 10_000 });
-    await expect(status).toHaveAttribute("title", longMessage);
-    await expect(status).toContainText("This is a deliberately long agent description");
-
     const dimensions = await page.evaluate(() => {
       const header = document.querySelector("[data-testid='app-header']");
       const statusText = document.querySelector("[data-testid='app-header-status']");
       const main = document.querySelector("main");
-      const statusRect = statusText?.getBoundingClientRect();
       return {
         viewportWidth: window.innerWidth,
         documentScrollWidth: document.documentElement.scrollWidth,
         headerWidth: header?.getBoundingClientRect().width ?? 0,
-        headerScrollWidth: header?.scrollWidth ?? 0,
         mainWidth: main?.getBoundingClientRect().width ?? 0,
-        statusClientWidth: statusText?.clientWidth ?? 0,
-        statusScrollWidth: statusText?.scrollWidth ?? 0,
-        statusClientHeight: statusText?.clientHeight ?? 0,
-        statusScrollHeight: statusText?.scrollHeight ?? 0,
-        statusHeight: statusRect?.height ?? 0,
-        lineClamp: statusText ? window.getComputedStyle(statusText).webkitLineClamp : null
+        statusNodeCount: statusText ? 1 : 0,
       };
     });
 
+    await expect(page.getByTestId("app-header")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("app-header-status")).toHaveCount(0);
+
     expect(dimensions.documentScrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
     expect(dimensions.headerWidth).toBeLessThanOrEqual(dimensions.mainWidth);
-    expect(dimensions.headerScrollWidth).toBeLessThanOrEqual(dimensions.headerWidth);
-    expect(dimensions.lineClamp).toBe("2");
-    expect(dimensions.statusHeight).toBeGreaterThan(20);
-    expect(
-      dimensions.statusScrollWidth > dimensions.statusClientWidth ||
-      dimensions.statusScrollHeight > dimensions.statusClientHeight
-    ).toBeTruthy();
+    expect(dimensions.statusNodeCount).toBe(0);
   });
 });

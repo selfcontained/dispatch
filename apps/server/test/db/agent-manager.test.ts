@@ -169,6 +169,21 @@ describe("AgentManager", () => {
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
       expect(setupScript).toContain("mcp_servers.dispatch.bearer_token_env_var=");
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
+      expect(setupScript).toContain("do not start repo work or infer a task from branch/worktree context alone");
+    });
+
+    it("should translate appended system prompts into a single Codex startup prompt", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        useWorktree: false,
+        agentArgs: ["--append-system-prompt", "Persona review instructions", "--model", "gpt-5"],
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("Persona review instructions");
+      expect(setupScript).toContain("--model");
+      expect(setupScript).not.toContain("--append-system-prompt");
     });
 
     it("should inject an agent-scoped MCP URL into Claude launches", async () => {
@@ -456,6 +471,11 @@ describe("AgentManager", () => {
   describe("reconcileAgents", () => {
     it("should mark agents as stopped when tmux session is gone", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await manager.completeSetup(agent.id, {
+        effectiveCwd: "/tmp",
+        worktreePath: null,
+        worktreeBranch: null,
+      });
 
       // Now make tmux report no session
       const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
@@ -480,6 +500,39 @@ describe("AgentManager", () => {
 
       const reconciled = await manager.getAgent(agent.id);
       expect(reconciled!.status).toBe("stopped");
+    });
+
+    it("should surface startup crashes as blocked errors with setup details", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:2");
+      await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "error: unexpected argument '--append-system-prompt' found\n");
+
+      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const mockRunCommand = vi.mocked(runCommand);
+      mockRunCommand.mockImplementation(async (_cmd, args) => {
+        if (args[0] === "has-session") {
+          return { exitCode: 1, stdout: "", stderr: "" };
+        }
+        if (args[0] === "list-sessions" || args[0] === "list-panes") {
+          return { exitCode: 1, stdout: "", stderr: "no server running" };
+        }
+        if (_cmd === "ps") {
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (_cmd === "launchctl") {
+          return { exitCode: 113, stdout: "", stderr: "service not found" };
+        }
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      await manager.reconcileAgents();
+
+      const reconciled = await manager.getAgent(agent.id);
+      expect(reconciled!.status).toBe("error");
+      expect(reconciled!.latestEvent?.type).toBe("blocked");
+      expect(reconciled!.latestEvent?.message).toContain("Launch failed");
+      expect(reconciled!.latestEvent?.message).toContain("unexpected argument '--append-system-prompt'");
+      expect(reconciled!.lastError).toContain("unexpected argument '--append-system-prompt'");
     });
 
     it("should capture a missing-session diagnostic snapshot", async () => {

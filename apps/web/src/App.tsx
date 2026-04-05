@@ -368,23 +368,6 @@ export function DashboardLayout(): JSX.Element {
   // ── Derived values ────────────────────────────────────────────────────
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const hasActiveAgent = Boolean(validatedSelectedAgentId);
-  const showHeaderStatus = connState !== "disconnected";
-
-
-
-  const statusText = useMemo(() => {
-    if (connState === "reconnecting") {
-      if (connectedAgent) return `Reconnecting to session ${connectedAgent.name}...`;
-      return "Reconnecting session...";
-    }
-    if (connState === "connected" && connectedAgent) {
-      if (connectedAgent.latestEvent?.message) return connectedAgent.latestEvent.message;
-      return `Connected to session ${connectedAgent.name}`;
-    }
-    if (apiState === "down") return "Unable to reach API service.";
-    return "Tap an agent row to focus it.";
-  }, [apiState, connectedAgent, connState]);
-
   // ── Agent action callbacks ────────────────────────────────────────────
   const resolveCreateDefaultCwd = useCallback((): string => {
     const activeCwd = agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
@@ -595,8 +578,6 @@ export function DashboardLayout(): JSX.Element {
               leftOpen={leftPanelOpen}
               mediaOpen={mediaPanelOpen}
               isMobile={isMobile}
-              showHeaderStatus={showHeaderStatus}
-              statusText={statusText}
               showReconnectIndicator={connState === "reconnecting"}
               hasActiveAgent={hasActiveAgent}
               unseenMediaCount={unseenMediaCount}
