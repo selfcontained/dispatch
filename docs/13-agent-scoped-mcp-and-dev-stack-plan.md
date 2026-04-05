@@ -8,7 +8,7 @@ Add repo-specific MCP tools in a way that is safe, launch-time configurable, and
 
 Branch: `agent-scoped-mcp-repo-tools`
 
-Worktree: `/Users/brad/dev/apps/dispatch-dispatch-agent-scoped-mcp-repo-tools`
+Worktree: `.dispatch/worktrees/agent-scoped-mcp-repo-tools`
 
 Completed changes:
 

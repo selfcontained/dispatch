@@ -25,32 +25,6 @@ export type CreatePrResult = {
   isDraft: boolean | null;
 };
 
-export type EnablePrAutomergeInput = {
-  cwd: string;
-  prNumber?: number;
-  mergeMethod?: "squash" | "merge" | "rebase";
-};
-
-export type EnablePrAutomergeResult = {
-  prNumber: number | null;
-  url: string | null;
-  mergeMethod: "squash" | "merge" | "rebase";
-  autoMergeEnabled: boolean;
-};
-
-export type MergePrNowInput = {
-  cwd: string;
-  prNumber?: number;
-  mergeMethod?: "squash" | "merge" | "rebase";
-};
-
-export type MergePrNowResult = {
-  prNumber: number | null;
-  url: string | null;
-  mergeMethod: "squash" | "merge" | "rebase";
-  merged: boolean;
-};
-
 export type GetPrStatusInput = {
   cwd: string;
   prNumber?: number;
@@ -139,60 +113,6 @@ export async function createPr(
   };
 }
 
-export async function enablePrAutomerge(
-  input: EnablePrAutomergeInput,
-  commandRunner: CommandRunner = runCommand
-): Promise<EnablePrAutomergeResult> {
-  const cwd = requireString(input.cwd, "cwd");
-  const repoRoot = await resolveRepoRoot(cwd, commandRunner);
-  const mergeMethod = normalizeMergeMethod(input.mergeMethod);
-  const prSelector = input.prNumber ? String(input.prNumber) : undefined;
-
-  const args = ["pr", "merge"];
-  if (prSelector) {
-    args.push(prSelector);
-  }
-  args.push("--auto", mergeMethodFlag(mergeMethod));
-
-  await commandRunner("gh", args, { cwd: repoRoot });
-  const status = await getPrStatus({ cwd: repoRoot, prNumber: input.prNumber }, commandRunner);
-  return {
-    prNumber: status.number,
-    url: status.url,
-    mergeMethod,
-    autoMergeEnabled: status.autoMergeEnabled
-  };
-}
-
-export async function mergePrNow(
-  input: MergePrNowInput,
-  commandRunner: CommandRunner = runCommand
-): Promise<MergePrNowResult> {
-  const cwd = requireString(input.cwd, "cwd");
-  const repoRoot = await resolveRepoRoot(cwd, commandRunner);
-  const mergeMethod = normalizeMergeMethod(input.mergeMethod);
-  const prSelector = input.prNumber ? String(input.prNumber) : undefined;
-
-  const args = ["pr", "merge"];
-  if (prSelector) {
-    args.push(prSelector);
-  }
-  args.push(mergeMethodFlag(mergeMethod));
-
-  // Skip --delete-branch: in worktrees it fails because gh tries to checkout
-  // the base branch locally, which is already checked out in the main worktree.
-  // Remote branch cleanup is left to GitHub's "Automatically delete head branches" setting.
-
-  await commandRunner("gh", args, { cwd: repoRoot });
-  const status = await getPrStatus({ cwd: repoRoot, prNumber: input.prNumber }, commandRunner);
-  return {
-    prNumber: status.number,
-    url: status.url,
-    mergeMethod,
-    merged: status.state === "MERGED"
-  };
-}
-
 export async function getPrStatus(
   input: GetPrStatusInput,
   commandRunner: CommandRunner = runCommand
@@ -271,26 +191,6 @@ async function ensureRemoteBranch(repoRoot: string, branchName: string, commandR
   }
 
   await commandRunner("git", ["-C", repoRoot, "push", "origin", branchName]);
-}
-
-function normalizeMergeMethod(value: string | undefined): "squash" | "merge" | "rebase" {
-  if (!value) {
-    return "squash";
-  }
-  if (value === "squash" || value === "merge" || value === "rebase") {
-    return value;
-  }
-  throw new GitHubPrError("mergeMethod must be squash, merge, or rebase.", 400);
-}
-
-function mergeMethodFlag(method: "squash" | "merge" | "rebase"): "--squash" | "--merge" | "--rebase" {
-  if (method === "merge") {
-    return "--merge";
-  }
-  if (method === "rebase") {
-    return "--rebase";
-  }
-  return "--squash";
 }
 
 function requireString(value: string | undefined, fieldName: string): string {

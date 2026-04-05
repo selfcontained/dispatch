@@ -8,22 +8,22 @@ import { cwdToClaudeProjectDir } from "../src/agents/token-harvester.js";
 describe("token-harvester", () => {
   describe("cwdToClaudeProjectDir", () => {
     it("encodes a simple path by sanitizing non-alphanumeric path chars", () => {
-      const result = cwdToClaudeProjectDir("/Users/brad/dev/apps/dispatch");
+      const result = cwdToClaudeProjectDir("/home/testuser/dev/apps/dispatch");
       expect(result).toBe(
-        path.join(os.homedir(), ".claude", "projects", "-Users-brad-dev-apps-dispatch")
+        path.join(os.homedir(), ".claude", "projects", "-home-testuser-dev-apps-dispatch")
       );
     });
 
     it("handles nested worktree paths", () => {
       const result = cwdToClaudeProjectDir(
-        "/Users/brad/dev/apps/dispatch/.dispatch/worktrees/agt-abc123"
+        "/home/testuser/dev/apps/dispatch/.dispatch/worktrees/agt-abc123"
       );
       expect(result).toBe(
         path.join(
           os.homedir(),
           ".claude",
           "projects",
-          "-Users-brad-dev-apps-dispatch--dispatch-worktrees-agt-abc123"
+          "-home-testuser-dev-apps-dispatch--dispatch-worktrees-agt-abc123"
         )
       );
     });

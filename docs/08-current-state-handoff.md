@@ -97,12 +97,11 @@ Three agent CLIs are supported, each configurable via Settings:
 
 | Tool | Description |
 |------|-------------|
-| `create_worktree` | Create isolated git worktree |
-| `cleanup_worktree` | Remove worktree and optionally delete branch |
+
 | `create_pr` | Open GitHub pull request |
 | `get_pr_status` | Check PR CI status and reviews |
-| `merge_pr_now` | Merge a pull request |
-| `enable_pr_automerge` | Auto-merge when checks pass |
+
+
 | `dispatch_event` | Report agent status |
 | `dispatch_share` | Upload media to session |
 | `dispatch_feedback` | Submit structured finding |
