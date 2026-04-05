@@ -3651,7 +3651,7 @@ async function mcpResolveFeedback(
   return record;
 }
 
-const VALID_PIN_TYPES = ["string", "url", "port", "code", "pr"] as const;
+const VALID_PIN_TYPES = ["string", "url", "port", "code", "pr", "filename"] as const;
 
 async function mcpUpsertPin(
   agentId: string,
