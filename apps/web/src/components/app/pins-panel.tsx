@@ -1,8 +1,8 @@
 import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { type AgentPin } from "@/components/app/types";
-import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const SAFE_URL_RE = /^https?:\/\//i;
 const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
@@ -72,66 +72,45 @@ function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedVal
 
 function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string }): JSX.Element {
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, value);
-  const isPlainString = !href && !badge;
-  const [expanded, setExpanded] = useState(false);
-  const [clamped, setClamped] = useState(false);
-  const textRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-    setClamped(el.scrollHeight > el.clientHeight);
-  }, [display]);
 
   return (
-    <div>
-      <div className={cn("flex gap-1.5", isPlainString ? "items-start" : "items-center")}>
-        {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
-        {icon === "file" && <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
-        {href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="min-w-0 truncate text-xs text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
-            title={tooltip}
-          >
-            {display}
-          </a>
-        ) : badge ? (
-          <span
-            className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-            title={tooltip}
-          >
-            {display}
-          </span>
-        ) : (
-          <span
-            ref={textRef}
-            className={cn("min-w-0 break-words text-xs text-foreground", !expanded && "line-clamp-6")}
-          >
-            {display}
-          </span>
-        )}
-        {href && (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-            title="Open in browser"
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-      {isPlainString && (clamped || expanded) && (
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+    <div className="flex items-center gap-1.5">
+      {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
+      {icon === "file" && <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="min-w-0 truncate text-xs text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
+          title={tooltip}
         >
-          {expanded ? "Show less" : "Show more"}
-        </button>
+          {display}
+        </a>
+      ) : badge ? (
+        <span
+          className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+          title={tooltip}
+        >
+          {display}
+        </span>
+      ) : (
+        <ScrollArea className="min-w-0 max-h-32">
+          <span className="break-words text-xs text-foreground">
+            {display}
+          </span>
+        </ScrollArea>
+      )}
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          title="Open in browser"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </a>
       )}
     </div>
   );
