@@ -2,7 +2,34 @@ import ReactMarkdown from "react-markdown";
 
 import { cn } from "@/lib/utils";
 
-export function Markdown({ children, className }: { children: string; className?: string }): JSX.Element {
+type MarkdownProps = {
+  children: string;
+  className?: string;
+  variant?: "default" | "pin";
+};
+
+export function Markdown({ children, className, variant = "default" }: MarkdownProps): JSX.Element {
+  if (variant === "pin") {
+    return (
+      <div
+        className={cn(
+          "max-w-none text-xs text-foreground",
+          "[&_p]:my-1 [&_p]:[overflow-wrap:anywhere]",
+          "[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-4",
+          "[&_li]:my-0.5 [&_li]:[overflow-wrap:anywhere]",
+          "[&_strong]:font-semibold [&_em]:italic",
+          "[&_pre]:my-1 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-hidden [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2",
+          "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[11px] [&_code]:break-words [&_code]:whitespace-pre-wrap",
+          className,
+        )}
+      >
+        <ReactMarkdown allowedElements={["p", "ul", "li", "strong", "em", "code", "pre"]}>
+          {children}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(

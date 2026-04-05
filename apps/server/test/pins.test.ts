@@ -7,6 +7,7 @@ describe("pin validation", () => {
     expect(isPinType("string")).toBe(true);
     expect(isPinType("url")).toBe(true);
     expect(isPinType("port")).toBe(true);
+    expect(isPinType("markdown")).toBe(true);
     expect(isPinType("bogus")).toBe(false);
   });
 
@@ -34,6 +35,31 @@ describe("pin validation", () => {
     expect(() => validatePinValue("port", "localhost:3000")).toThrow(/integers/i);
     expect(() => validatePinValue("port", "-1")).toThrow(/integers/i);
     expect(() => validatePinValue("port", "65536")).toThrow(/0 and 65535/i);
+  });
+
+  it("accepts constrained markdown pins", () => {
+    expect(() => validatePinValue("markdown", "**Status**\n- Ready\n- Branch: `feat/log-rotation`\n\n```sh\npnpm run check\n```")).not.toThrow();
+  });
+
+  it("rejects markdown pins with links", () => {
+    expect(() => validatePinValue("markdown", "[Dispatch](https://github.com/selfcontained/dispatch)")).toThrow(/do not support links/i);
+  });
+
+  it("rejects markdown pins with images", () => {
+    expect(() => validatePinValue("markdown", "![diagram](https://example.com/image.png)")).toThrow(/do not support images/i);
+  });
+
+  it("rejects markdown pins with raw html", () => {
+    expect(() => validatePinValue("markdown", "<b>unsafe</b>")).toThrow(/do not support raw HTML/i);
+  });
+
+  it("rejects markdown pins with nested lists", () => {
+    expect(() => validatePinValue("markdown", "- top\n  - nested")).toThrow(/do not support nested lists/i);
+  });
+
+  it("rejects markdown pins with oversized code blocks", () => {
+    const longBlock = Array.from({ length: 21 }, (_, i) => `line ${i + 1}`).join("\n");
+    expect(() => validatePinValue("markdown", `\`\`\`txt\n${longBlock}\n\`\`\``)).toThrow(/code blocks must be 20 lines or fewer/i);
   });
 
   it("does not validate other pin types specially", () => {

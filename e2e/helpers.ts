@@ -21,7 +21,7 @@ type AgentResult = {
 type AgentPinRecord = {
   label: string;
   value: string;
-  type: "string" | "url" | "port" | "code" | "pr" | "filename";
+  type: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
 };
 
 /**

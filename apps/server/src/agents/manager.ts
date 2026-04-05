@@ -17,7 +17,7 @@ type AgentType = "codex" | "claude" | "opencode";
 type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 type ArchivePhase = "stopping" | "worktree-check" | "worktree-cleanup" | "finalizing" | null;
-type PinType = "string" | "url" | "port" | "code" | "pr" | "filename";
+type PinType = "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
 
 export type AgentPin = {
   label: string;

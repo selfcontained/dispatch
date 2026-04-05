@@ -100,6 +100,11 @@ test.describe("Media sidebar", () => {
     const agent = await createAgentViaAPI(request, { name: `e2e-agent-pins-${Date.now()}` });
     await setAgentPinsViaDB(agent.id, [
       { label: "Notes", type: "string", value: "line 1\n\n  line 2" },
+      {
+        label: "Summary",
+        type: "markdown",
+        value: "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
+      },
       { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
       { label: "Ports", type: "port", value: "3000 4000,\n5000" },
       { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
@@ -116,8 +121,25 @@ test.describe("Media sidebar", () => {
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
 
-    const notesText = await mediaSidebar.locator("pre").textContent();
+    const notesText = await mediaSidebar.locator("[data-pin-label='Notes'] pre").textContent();
     expect(notesText).toBe("line 1\n\n  line 2");
+
+    const markdownPin = mediaSidebar.locator("[data-pin-label='Summary'] [data-testid='markdown-pin-body']");
+    await expect(markdownPin.getByText("Status", { exact: true })).toBeVisible();
+    await expect(markdownPin.locator("strong").first()).toHaveText("Status");
+    await expect(markdownPin.getByText("Ready for review", { exact: true })).toBeVisible();
+    await expect(markdownPin).toContainText("https://example.com/visible");
+    await expect(markdownPin.getByText("feat/log-rotation", { exact: true })).toBeVisible();
+    await expect(markdownPin).toContainText("pnpm run check");
+    await expect(markdownPin).toContainText("pnpm run test");
+    await expect(markdownPin.getByRole("link")).toHaveCount(0);
+
+    const scrollMetrics = await mediaSidebar.locator("[data-pin-label='Summary'] [data-testid='markdown-pin-scroll']").evaluate((el) => {
+      const container = el as HTMLElement;
+      return { clientHeight: container.clientHeight, scrollHeight: container.scrollHeight };
+    });
+    expect(scrollMetrics).not.toBeNull();
+    expect(scrollMetrics!.scrollHeight).toBeGreaterThan(scrollMetrics!.clientHeight);
 
     await expect(mediaSidebar.getByText("one.ts", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("two.ts", { exact: true })).toBeVisible();
