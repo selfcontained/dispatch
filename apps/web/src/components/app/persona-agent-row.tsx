@@ -42,6 +42,7 @@ export function PersonaAgentRow({
   const childIsStopped = childState === "stopped";
   const childIsActive = childState === "active";
   const colorVar = `var(--chart-${(childIndex % 4) + 1})`;
+  const personaMessage = child.latestEvent?.message?.split("\n")[0] ?? null;
 
   return (
     <div
@@ -49,7 +50,7 @@ export function PersonaAgentRow({
       className={cn(
         "flex items-center gap-2 border-r-2 px-2 py-1.5 transition-colors duration-200",
         hasFeedback && "cursor-pointer hover:bg-muted/50",
-        childIsStopped && "opacity-50",
+        childIsStopped && child.status !== "error" && "opacity-50",
         isSelected ? "border-r-status-done" : "border-r-transparent"
       )}
     >
@@ -71,6 +72,14 @@ export function PersonaAgentRow({
         {child.latestEvent ? (
           <div className="mt-0.5 text-[10px]">
             <span className={cn("font-medium", latestEventColor(child.latestEvent.type))}>{latestEventLabel(child.latestEvent.type)}</span>
+          </div>
+        ) : null}
+        {child.status === "error" && personaMessage ? (
+          <div
+            className="mt-0.5 truncate text-[10px] text-status-blocked/90"
+            title={child.latestEvent?.message ?? child.lastError ?? undefined}
+          >
+            {personaMessage}
           </div>
         ) : null}
       </div>

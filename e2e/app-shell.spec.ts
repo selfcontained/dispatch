@@ -6,15 +6,16 @@ test.describe("App shell", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("renders the main layout — sidebar, header, terminal pane, and status footer", async ({
+  test("renders the main layout with a slim terminal header row", async ({
     page,
   }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
-    await expect(page.getByTestId("app-header")).toBeVisible();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await expect(page.getByTestId("status-footer")).toBeVisible();
+    await expect(page.getByTestId("app-header")).toBeVisible();
+    await expect(page.getByTestId("app-header-status")).toHaveCount(0);
   });
 
   test("shows the empty-state prompt when no agent is selected", async ({ page }) => {

@@ -918,12 +918,18 @@ export class AgentManager {
         }
         const setupLogTail = await this.readSetupLogTail(row.id);
         const errorDetail = setupLogTail || null;
-        await this.setAgentStatus(row.id, "stopped", errorDetail, row.tmuxSession ?? undefined);
-        const baseMessage = exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly.";
+        const launchFailed = row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
+        const nextStatus: AgentStatus = launchFailed ? "error" : "stopped";
+        const baseMessage = launchFailed
+          ? (row.status === "creating"
+            ? (exitInfo !== null ? `Launch failed with exit code ${exitInfo}.` : "Launch failed before the session became ready.")
+            : (exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly."))
+          : "Session ended normally.";
+        await this.setAgentStatus(row.id, nextStatus, errorDetail, row.tmuxSession ?? undefined);
         await this.setSystemLatestEvent(row.id, {
-          type: "idle",
+          type: launchFailed ? "blocked" : "idle",
           message: setupLogTail ? `${baseMessage}\n${setupLogTail}` : baseMessage,
-          metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}) }
+          metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}), launchFailed }
         });
         const agent = await this.getAgent(row.id);
         if (agent) {
@@ -1457,6 +1463,7 @@ export class AgentManager {
     const launchGuidance =
       `[dispatch:${agentId}] ` +
       "Dispatch startup rules: " +
+      "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
       "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
       "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
       "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
@@ -1517,6 +1524,7 @@ export class AgentManager {
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
     const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
     const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
+    const { passthroughArgs, appendedSystemPrompt } = this.normalizeAgentArgsForType(type, args);
 
     if (type === "claude") {
       const mcpConfig = this.shellEscape(JSON.stringify({
@@ -1549,13 +1557,14 @@ export class AgentManager {
     }
 
     if (type === "opencode") {
-      const promptFlag = `--prompt ${this.shellEscape(launchGuidance)}`;
+      const startupPrompt = appendedSystemPrompt ? `${launchGuidance}\n\n${appendedSystemPrompt}` : launchGuidance;
+      const promptFlag = `--prompt ${this.shellEscape(startupPrompt)}`;
       const sessionFlag = (resume && cliSessionId) ? `--session ${this.shellEscape(cliSessionId)}` : "";
       const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
-      if (args.length === 0) {
+      if (passthroughArgs.length === 0) {
         return `${envPrefix} ${this.shellEscape(cliBin)} ${flagParts}`;
       }
-      const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
+      const escaped = passthroughArgs.map((arg) => this.shellEscape(arg)).join(" ");
       return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${flagParts}`;
     }
 
@@ -1571,11 +1580,12 @@ export class AgentManager {
     if (resume && cliSessionId) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
     }
-    if (args.length === 0) {
-      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(launchGuidance)}`;
+    const startupPrompt = appendedSystemPrompt ? `${launchGuidance}\n\n${appendedSystemPrompt}` : launchGuidance;
+    if (passthroughArgs.length === 0) {
+      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(startupPrompt)}`;
     }
-    const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
-    return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(launchGuidance)}`;
+    const escaped = passthroughArgs.map((arg) => this.shellEscape(arg)).join(" ");
+    return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(startupPrompt)}`;
   }
 
   private dispatchMcpUrl(agentId: string): string {
@@ -1584,6 +1594,30 @@ export class AgentManager {
 
   private shellEscape(value: string): string {
     return `'${value.replaceAll("'", `'\\''`)}'`;
+  }
+
+  private normalizeAgentArgsForType(
+    type: AgentType,
+    args: string[]
+  ): { passthroughArgs: string[]; appendedSystemPrompt: string | null } {
+    if (type === "claude") {
+      return { passthroughArgs: args, appendedSystemPrompt: null };
+    }
+
+    const passthroughArgs: string[] = [];
+    let appendedSystemPrompt: string | null = null;
+
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--append-system-prompt" && typeof args[index + 1] === "string") {
+        appendedSystemPrompt = args[index + 1] ?? null;
+        index += 1;
+        continue;
+      }
+      passthroughArgs.push(arg);
+    }
+
+    return { passthroughArgs, appendedSystemPrompt };
   }
 
   private async validateWorkingDirectory(rawCwd: string): Promise<string> {
