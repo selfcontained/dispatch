@@ -7,6 +7,12 @@ import { getSetting, setSetting } from "./db/settings.js";
 const BCRYPT_COST = 12;
 const SESSION_TTL_DAYS = 30;
 
+// SHA-256 is safe here because session tokens are random UUIDs (122 bits of entropy).
+// Do not reuse this for user-supplied or low-entropy values.
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 export async function isPasswordSet(pool: Pool): Promise<boolean> {
   return (await getSetting(pool, "password_hash")) !== null;
 }
@@ -27,21 +33,30 @@ export async function createSession(pool: Pool): Promise<string> {
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
   await pool.query(
     "INSERT INTO sessions (token, expires_at) VALUES ($1, $2)",
-    [token, expiresAt]
+    [hashToken(token), expiresAt]
   );
   return token;
 }
 
 export async function validateSession(pool: Pool, token: string): Promise<boolean> {
+  const hashed = hashToken(token);
+  // Single query checks both hashed and legacy plaintext tokens to avoid timing side-channel
   const result = await pool.query(
-    "SELECT 1 FROM sessions WHERE token = $1 AND expires_at > NOW()",
-    [token]
+    "SELECT token FROM sessions WHERE (token = $1 OR token = $2) AND expires_at > NOW() LIMIT 1",
+    [hashed, token]
   );
-  return (result.rowCount ?? 0) > 0;
+  if ((result.rowCount ?? 0) === 0) return false;
+
+  // Upgrade legacy plaintext token to hashed in-place
+  const matched = result.rows[0].token as string;
+  if (matched !== hashed) {
+    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [hashed, matched]);
+  }
+  return true;
 }
 
 export async function deleteSession(pool: Pool, token: string): Promise<void> {
-  await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
+  await pool.query("DELETE FROM sessions WHERE token = $1 OR token = $2", [hashToken(token), token]);
 }
 
 export async function deleteAllSessions(pool: Pool): Promise<void> {
@@ -84,7 +99,7 @@ export async function getOrCreateCookieSecret(pool: Pool): Promise<string> {
   const stored = await getSetting(pool, "cookie_secret");
   if (stored) return stored;
 
-  const secret = crypto.randomUUID();
+  const secret = crypto.randomBytes(32).toString("hex");
   await setSetting(pool, "cookie_secret", secret);
   return secret;
 }
