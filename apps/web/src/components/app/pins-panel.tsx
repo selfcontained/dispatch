@@ -2,6 +2,7 @@ import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-reac
 import { useCallback, useRef, useState } from "react";
 
 import { type AgentPin } from "@/components/app/types";
+import { cn } from "@/lib/utils";
 
 const SAFE_URL_RE = /^https?:\/\//i;
 const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
@@ -78,7 +79,7 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, value);
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className={cn("flex gap-1.5", href || badge ? "items-center" : "items-start")}>
       {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
       {icon === "file" && <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
       {href ? (
