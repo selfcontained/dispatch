@@ -1,5 +1,5 @@
 ## What's Changed
-* Allow string pins to wrap instead of truncating by @selfcontained in https://github.com/selfcontained/dispatch/pull/231
+* Remove hardcoded /Users/brad/ paths from tests and docs (CRU-62) by @selfcontained in https://github.com/selfcontained/dispatch/pull/232
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.21...v0.9.22
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.22...v0.9.23
