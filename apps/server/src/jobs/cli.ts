@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-type ParsedArgs =
+export type ParsedArgs =
   | { command: "run"; name: string; dir: string; noWait: boolean }
   | { command: "enable"; name: string; dir: string }
   | { command: "disable"; name: string; dir: string }
@@ -118,7 +118,7 @@ async function historyCommand(args: { name: string; dir: string; limit: number }
 // Arg parsing
 // ---------------------------------------------------------------------------
 
-function parseArgs(args: string[]): ParsedArgs {
+export function parseArgs(args: string[]): ParsedArgs {
   if (args[0] !== "jobs") usage();
   const subcommand = args[1];
 
@@ -280,7 +280,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function formatTimeAgo(dateStr: unknown): string {
+export function formatTimeAgo(dateStr: unknown): string {
   if (typeof dateStr !== "string") return "unknown";
   const ms = Date.now() - new Date(dateStr).getTime();
   if (ms < 0) return "just now";
@@ -293,7 +293,7 @@ function formatTimeAgo(dateStr: unknown): string {
   return `${days}d ago`;
 }
 
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
@@ -317,7 +317,11 @@ Commands:
   process.exit(1);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+// Only run when executed directly (not imported for testing)
+const isDirectExecution = process.argv[1]?.endsWith("cli.ts") || process.argv[1]?.endsWith("cli.js");
+if (isDirectExecution) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

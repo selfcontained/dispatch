@@ -87,6 +87,11 @@ export async function removeCronEntry(directory: string, name: string): Promise<
 /** List all Dispatch-managed cron entries. */
 export async function listCronEntries(): Promise<Array<{ directory: string; name: string; schedule: string }>> {
   const lines = await readCrontab();
+  return parseCronLines(lines);
+}
+
+/** Parse Dispatch-managed entries from raw crontab lines. Pure function, testable without system access. */
+export function parseCronLines(lines: string[]): Array<{ directory: string; name: string; schedule: string }> {
   const entries: Array<{ directory: string; name: string; schedule: string }> = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -146,7 +151,7 @@ export function describeCronSchedule(schedule: string): string {
 }
 
 /** Remove lines associated with a specific tag (the tag line + the cron line after it). */
-function removeTaggedLines(lines: string[], tag: string): string[] {
+export function removeTaggedLines(lines: string[], tag: string): string[] {
   const result: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (lines[i] === tag) {
@@ -159,7 +164,7 @@ function removeTaggedLines(lines: string[], tag: string): string[] {
   return result;
 }
 
-function shellEscape(value: string): string {
+export function shellEscape(value: string): string {
   // If the value is safe, return as-is
   if (/^[A-Za-z0-9_./:=-]+$/.test(value)) return value;
   // Otherwise single-quote it, escaping embedded single quotes
