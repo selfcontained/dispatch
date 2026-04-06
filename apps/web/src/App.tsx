@@ -627,6 +627,7 @@ export function DashboardLayout(): JSX.Element {
             mediaFiles={mediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
+            selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
@@ -694,6 +695,7 @@ export function DashboardLayout(): JSX.Element {
               mediaFiles={mediaFiles}
               selectedAgentId={focusedAgentId}
               selectedAgentName={focusedAgent?.name ?? null}
+              selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
               selectedAgentPins={focusedAgent?.pins ?? []}
               animatingMediaKeys={animatingMediaKeys}
               unseenMediaCount={unseenMediaCount}

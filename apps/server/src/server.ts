@@ -65,6 +65,7 @@ import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { isPinType, validatePinValue } from "./pins.js";
 import { randomUUID } from "node:crypto";
+import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -467,11 +468,6 @@ function rewindReleaseLog(job: ReleaseJob, count: number): void {
   }
 }
 
-/** Strip ANSI escape sequences for clean log display */
-function stripAnsi(str: string): string {
-  return str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
-}
-
 function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
   job.phase = phase;
   broadcastReleaseEvent({ type: "phase", phase, error });
@@ -491,45 +487,14 @@ function streamProcess(
       stdio: ["ignore", "pipe", "pipe"]
     });
 
-    let buffer = "";
-    let lastWasCR = false;
+    const processor = new ReleaseLogStreamProcessor({
+      append: (line) => appendReleaseLog(job, line),
+      replace: (line) => replaceReleaseLog(job, line),
+      rewind: (count) => rewindReleaseLog(job, count)
+    }, onLine);
+
     const processChunk = (chunk: Buffer): void => {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const rawLine of lines) {
-        // Detect ANSI cursor-up sequence (ESC[<N>A) used by tools like
-        // `gh run watch` to redraw multi-line output blocks in-place.
-        const cursorUpMatch = rawLine.match(/\x1b\[(\d+)A/);
-        if (cursorUpMatch) {
-          rewindReleaseLog(job, parseInt(cursorUpMatch[1], 10));
-        }
-
-        const line = stripAnsi(rawLine);
-
-        // A line may contain \r-separated segments (in-place terminal updates).
-        // Only the final segment matters; earlier ones were meant to be overwritten.
-        const crParts = line.split("\r").filter(Boolean);
-        if (crParts.length > 1 || lastWasCR) {
-          // Replace the previous log entry with the last \r segment
-          const final = crParts[crParts.length - 1] ?? "";
-          replaceReleaseLog(job, final);
-          onLine?.(final);
-        } else {
-          appendReleaseLog(job, crParts[0] ?? line);
-          onLine?.(crParts[0] ?? line);
-        }
-        lastWasCR = false;
-      }
-      // If the remaining buffer contains \r, the next output will overwrite
-      if (buffer.includes("\r")) {
-        const crParts = buffer.split("\r").filter(Boolean);
-        const final = crParts[crParts.length - 1] ?? "";
-        replaceReleaseLog(job, final);
-        onLine?.(final);
-        buffer = "";
-        lastWasCR = true;
-      }
+      processor.push(chunk);
     };
 
     child.stdout.on("data", processChunk);
@@ -537,10 +502,7 @@ function streamProcess(
 
     child.on("error", (err) => reject(err));
     child.on("close", (code) => {
-      if (buffer) {
-        appendReleaseLog(job, buffer);
-        onLine?.(buffer);
-      }
+      processor.finish();
       if (code !== 0) {
         reject(new Error(`Process exited with code ${code}`));
       } else {
