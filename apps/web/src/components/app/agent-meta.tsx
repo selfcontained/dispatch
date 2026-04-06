@@ -10,7 +10,19 @@ type AgentMetaProps = {
   truncateStart?: boolean;
 };
 
-export function FrontTruncatedValue({ value, mono }: { value: string; mono: boolean }): JSX.Element {
+type FrontTruncatedValueProps = {
+  value: string;
+  mono: boolean;
+  className?: string;
+  tooltipClassName?: string;
+};
+
+export function FrontTruncatedValue({
+  value,
+  mono,
+  className,
+  tooltipClassName,
+}: FrontTruncatedValueProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [display, setDisplay] = useState(value);
 
@@ -53,12 +65,12 @@ export function FrontTruncatedValue({ value, mono }: { value: string; mono: bool
       <TooltipTrigger asChild>
         <div
           ref={containerRef}
-          className={cn("text-foreground whitespace-nowrap overflow-hidden", mono && "font-mono text-[11px]")}
+          className={cn("text-foreground whitespace-nowrap overflow-hidden", mono && "font-mono text-[11px]", className)}
         >
           {display}
         </div>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-[360px] break-all text-xs font-mono">
+      <TooltipContent side="right" className={cn("max-w-[360px] break-all text-xs font-mono", tooltipClassName)}>
         {value}
       </TooltipContent>
     </Tooltip>

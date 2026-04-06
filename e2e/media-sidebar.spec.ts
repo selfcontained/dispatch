@@ -97,7 +97,8 @@ test.describe("Media sidebar", () => {
   });
 
   test("preserves string pin whitespace and splits filename pins", async ({ page, request }) => {
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pins-${Date.now()}` });
+    const workspaceRoot = process.cwd();
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pins-${Date.now()}`, cwd: workspaceRoot });
     await setAgentPinsViaDB(agent.id, [
       { label: "Notes", type: "string", value: "line 1\n\n  line 2" },
       {
@@ -106,6 +107,7 @@ test.describe("Media sidebar", () => {
         value: "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
       },
       { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
+      { label: "Long file", type: "filename", value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx` },
       { label: "Ports", type: "port", value: "3000 4000,\n5000" },
       { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
       { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
@@ -144,6 +146,11 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("one.ts", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("two.ts", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("three.ts", { exact: true })).toBeVisible();
+    const longFilePin = mediaSidebar.locator("[data-pin-label='Long file']");
+    await expect(longFilePin).toContainText("pins-panel.tsx");
+    await expect(longFilePin).toContainText("apps/web/src/components/app/pins-panel.tsx");
+    await expect(longFilePin).not.toContainText(workspaceRoot);
+    await expect(longFilePin).not.toContainText("pins-panel.tsx/");
     await expect(mediaSidebar.getByText("3000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("4000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();

@@ -1,5 +1,6 @@
 import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-react";
 
+import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
@@ -30,6 +31,24 @@ function CopyButton({ value, title }: { value: string; title?: string }): JSX.El
 }
 
 type ResolvedValue = { display: string; tooltip: string; href: string | null; badge: boolean; icon: "pr" | "file" | null };
+
+function trimFilenameForDisplay(value: string, workspaceRoot: string | null): string {
+  if (!workspaceRoot) {
+    return value;
+  }
+
+  const normalizedRoot = workspaceRoot.endsWith("/") ? workspaceRoot.slice(0, -1) : workspaceRoot;
+  if (!normalizedRoot) {
+    return value;
+  }
+
+  if (value === normalizedRoot) {
+    return ".";
+  }
+
+  const prefix = `${normalizedRoot}/`;
+  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
+}
 
 function shouldRenderMarkdownAsPlainText(value: string): boolean {
   const sanitized = value.replace(/```[^\n]*\n[\s\S]*?```/g, "");
@@ -95,12 +114,21 @@ function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedVal
   return { display: value, tooltip: value, href: null, badge: false, icon: null };
 }
 
-function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string }): JSX.Element {
+function PinValueRow({
+  type,
+  value,
+  workspaceRoot,
+}: {
+  type: AgentPin["type"];
+  value: string;
+  workspaceRoot: string | null;
+}): JSX.Element {
   if (type === "markdown") {
     return <MarkdownPinBody value={value} />;
   }
 
-  const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, value);
+  const displayValue = type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : value;
+  const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, displayValue);
 
   return (
     <div className="flex items-center gap-1.5">
@@ -117,12 +145,21 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
           {display}
         </a>
       ) : badge ? (
-        <span
-          className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-          title={tooltip}
-        >
-          {display}
-        </span>
+        type === "filename" ? (
+          <FrontTruncatedValue
+            value={display}
+            mono
+            className="min-w-0 rounded bg-muted px-1.5 py-0.5"
+            tooltipClassName="max-w-[480px]"
+          />
+        ) : (
+          <span
+            className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+            title={tooltip}
+          >
+            {display}
+          </span>
+        )
       ) : (
         <ScrollArea className="min-w-0 max-h-32">
           {type === "string" ? (
@@ -151,7 +188,7 @@ function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string })
   );
 }
 
-function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
+function PinItem({ pin, workspaceRoot }: { pin: AgentPin; workspaceRoot: string | null }): JSX.Element {
   const values = splitPinValues(pin.type, pin.value);
   const isMulti = values.length > 1;
 
@@ -167,7 +204,7 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
       </div>
       <div className="flex flex-col gap-1 mt-1">
         {values.map((v, i) => (
-          <PinValueRow key={i} type={pin.type} value={v} />
+          <PinValueRow key={i} type={pin.type} value={v} workspaceRoot={workspaceRoot} />
         ))}
       </div>
     </div>
@@ -177,9 +214,10 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
 type PinsPanelProps = {
   pins: AgentPin[];
   selectedAgentName: string | null;
+  selectedAgentWorkspaceRoot: string | null;
 };
 
-export function PinsPanel({ pins, selectedAgentName }: PinsPanelProps): JSX.Element {
+export function PinsPanel({ pins, selectedAgentName, selectedAgentWorkspaceRoot }: PinsPanelProps): JSX.Element {
   if (pins.length === 0) {
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
@@ -193,7 +231,7 @@ export function PinsPanel({ pins, selectedAgentName }: PinsPanelProps): JSX.Elem
   return (
     <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
       {pins.map((pin) => (
-        <PinItem key={pin.label.toLowerCase()} pin={pin} />
+        <PinItem key={pin.label.toLowerCase()} pin={pin} workspaceRoot={selectedAgentWorkspaceRoot} />
       ))}
     </div>
   );

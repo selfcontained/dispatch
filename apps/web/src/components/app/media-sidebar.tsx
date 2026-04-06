@@ -19,6 +19,7 @@ type MediaSidebarSharedProps = {
   mediaFiles: MediaFile[];
   selectedAgentId: string | null;
   selectedAgentName: string | null;
+  selectedAgentWorkspaceRoot: string | null;
   selectedAgentPins: AgentPin[];
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
@@ -175,6 +176,7 @@ export function MediaSidebarContent({
   mediaFiles,
   selectedAgentId,
   selectedAgentName,
+  selectedAgentWorkspaceRoot,
   selectedAgentPins,
   animatingMediaKeys,
   mediaViewportRef,
@@ -254,7 +256,11 @@ export function MediaSidebarContent({
 
       {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
       <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "pins" && "hidden")}>
-        <PinsPanel pins={selectedAgentPins} selectedAgentName={selectedAgentName} />
+        <PinsPanel
+          pins={selectedAgentPins}
+          selectedAgentName={selectedAgentName}
+          selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
+        />
       </div>
       <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "media" && "hidden")}>
         <MediaContent
