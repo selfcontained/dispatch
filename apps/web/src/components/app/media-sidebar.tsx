@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useRef } from "react";
-import { ChevronRight, ExternalLink, FileText, MonitorPlay, Pin, X, Image, File as FileIcon, Video } from "lucide-react";
+import { ChevronRight, ExternalLink, FileText, MonitorPlay, X, Image, File as FileIcon, Video } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
@@ -190,7 +190,6 @@ export function MediaSidebarContent({
   openLightbox,
   hasStream,
   streamUrl,
-  unseenMediaCount,
   onRequestClose,
   closeButtonIcon = "x",
   className
@@ -205,8 +204,6 @@ export function MediaSidebarContent({
       setActiveTab("pins");
     }
   }
-
-  const pinCount = selectedAgentPins.length;
 
   return (
     <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
