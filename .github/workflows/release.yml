@@ -104,8 +104,13 @@ jobs:
           fi
           git add package.json apps/*/package.json packages/*/package.json pnpm-lock.yaml release-notes/current.md
           git commit -m "Release ${NEW_VERSION}"
+          # Pull in any commits that landed on main during the CI run
+          git pull --rebase origin main
           git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
-          git push origin main --follow-tags
+          # Push branch first, then tag separately — if the branch push
+          # fails we don't leave an orphan tag on the remote.
+          git push origin main
+          git push origin "${NEW_VERSION}"
           echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
