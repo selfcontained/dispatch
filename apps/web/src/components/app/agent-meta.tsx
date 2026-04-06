@@ -1,5 +1,5 @@
 import { useRef, useState, useLayoutEffect } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type AgentMetaProps = {
@@ -63,19 +63,22 @@ export function FrontTruncatedValue({
   }, [value]);
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div
-          ref={containerRef}
-          className={cn("text-foreground whitespace-nowrap overflow-hidden", mono && "font-mono text-[11px]", className)}
-        >
-          {display}
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="right" className={cn("max-w-[360px] break-all text-xs font-mono", tooltipClassName)}>
-        {tooltipValue ?? value}
-      </TooltipContent>
-    </Tooltip>
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            ref={containerRef}
+            className={cn("text-foreground whitespace-nowrap overflow-hidden", mono && "font-mono text-[11px]", className)}
+            title={tooltipValue ?? value}
+          >
+            {display}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" className={cn("max-w-[360px] break-all text-xs font-mono", tooltipClassName)}>
+          {tooltipValue ?? value}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

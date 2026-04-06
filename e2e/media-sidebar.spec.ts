@@ -127,6 +127,7 @@ test.describe("Media sidebar", () => {
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
+    await mediaSidebar.getByRole("button", { name: "Pins" }).evaluate((el) => (el as HTMLButtonElement).click());
 
     const notesPre = mediaSidebar.locator("[data-pin-label='Notes'] pre");
     await expect(notesPre).toHaveText("line 1\n\n  line 2");
@@ -153,8 +154,7 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("three.ts", { exact: true })).toBeVisible();
     const workspaceRootPin = mediaSidebar.locator("[data-pin-label='Workspace root']");
     await expect(workspaceRootPin).toContainText("./");
-    await workspaceRootPin.locator("div").nth(1).hover();
-    await expect(page.getByRole("tooltip")).toContainText(workspaceRoot);
+    await expect(workspaceRootPin.locator(`[title="${workspaceRoot}"]`)).toHaveText("./");
     const longFilePin = mediaSidebar.locator("[data-pin-label='Long file']");
     await expect(longFilePin).toContainText("pins-panel.tsx");
     await expect(longFilePin).toContainText("apps/web/src/components/app/pins-panel.tsx");
