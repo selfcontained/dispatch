@@ -1,6 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { cleanupE2EAgents, createAgentViaAPI, loadApp, setAgentPinsViaDB, uploadMediaViaAPI } from "./helpers";
+
+async function openMediaSidebarForAgent(page: Page, agent: { id: string; name: string }) {
+  await page.getByText(agent.name, { exact: true }).click();
+  await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveClass(/bg-muted\/60/);
+  const toggle = page.getByTestId("toggle-media-sidebar");
+  await expect(toggle).toBeVisible();
+  await toggle.evaluate((el) => (el as HTMLButtonElement).click());
+}
 
 test.describe("Media sidebar", () => {
   test.afterAll(async ({ request }) => {
@@ -15,8 +23,7 @@ test.describe("Media sidebar", () => {
 
     await loadApp(page);
 
-    await page.getByText(firstAgent.name, { exact: true }).click();
-    await page.getByTestId("toggle-media-sidebar").click();
+    await openMediaSidebarForAgent(page, firstAgent);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
@@ -44,8 +51,7 @@ test.describe("Media sidebar", () => {
 
     await loadApp(page);
 
-    await page.getByText(agent.name, { exact: true }).click();
-    await page.getByTestId("toggle-media-sidebar").click();
+    await openMediaSidebarForAgent(page, agent);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
@@ -78,8 +84,7 @@ test.describe("Media sidebar", () => {
     await uploadMediaViaAPI(request, agent.id, "Seen test image", "seen-test.png");
 
     await loadApp(page);
-    await page.getByText(agent.name, { exact: true }).click();
-    await page.getByTestId("toggle-media-sidebar").click();
+    await openMediaSidebarForAgent(page, agent);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
@@ -107,6 +112,7 @@ test.describe("Media sidebar", () => {
         value: "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
       },
       { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
+      { label: "Workspace root", type: "filename", value: workspaceRoot },
       { label: "Long file", type: "filename", value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx` },
       { label: "Ports", type: "port", value: "3000 4000,\n5000" },
       { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
@@ -117,14 +123,13 @@ test.describe("Media sidebar", () => {
 
     await loadApp(page);
 
-    await page.getByText(agent.name, { exact: true }).click();
-    await page.getByTestId("toggle-media-sidebar").click();
+    await openMediaSidebarForAgent(page, agent);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
 
-    const notesText = await mediaSidebar.locator("[data-pin-label='Notes'] pre").textContent();
-    expect(notesText).toBe("line 1\n\n  line 2");
+    const notesPre = mediaSidebar.locator("[data-pin-label='Notes'] pre");
+    await expect(notesPre).toHaveText("line 1\n\n  line 2");
 
     const markdownPin = mediaSidebar.locator("[data-pin-label='Summary'] [data-testid='markdown-pin-body']");
     await expect(markdownPin.getByText("Status", { exact: true })).toBeVisible();
@@ -146,6 +151,10 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("one.ts", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("two.ts", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("three.ts", { exact: true })).toBeVisible();
+    const workspaceRootPin = mediaSidebar.locator("[data-pin-label='Workspace root']");
+    await expect(workspaceRootPin).toContainText("./");
+    await workspaceRootPin.locator("div").nth(1).hover();
+    await expect(page.getByRole("tooltip")).toContainText(workspaceRoot);
     const longFilePin = mediaSidebar.locator("[data-pin-label='Long file']");
     await expect(longFilePin).toContainText("pins-panel.tsx");
     await expect(longFilePin).toContainText("apps/web/src/components/app/pins-panel.tsx");

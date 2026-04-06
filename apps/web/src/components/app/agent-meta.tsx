@@ -15,6 +15,7 @@ type FrontTruncatedValueProps = {
   mono: boolean;
   className?: string;
   tooltipClassName?: string;
+  tooltipValue?: string;
 };
 
 export function FrontTruncatedValue({
@@ -22,6 +23,7 @@ export function FrontTruncatedValue({
   mono,
   className,
   tooltipClassName,
+  tooltipValue,
 }: FrontTruncatedValueProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [display, setDisplay] = useState(value);
@@ -71,7 +73,7 @@ export function FrontTruncatedValue({
         </div>
       </TooltipTrigger>
       <TooltipContent side="right" className={cn("max-w-[360px] break-all text-xs font-mono", tooltipClassName)}>
-        {value}
+        {tooltipValue ?? value}
       </TooltipContent>
     </Tooltip>
   );

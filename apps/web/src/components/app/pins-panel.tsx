@@ -32,22 +32,24 @@ function CopyButton({ value, title }: { value: string; title?: string }): JSX.El
 
 type ResolvedValue = { display: string; tooltip: string; href: string | null; badge: boolean; icon: "pr" | "file" | null };
 
-function trimFilenameForDisplay(value: string, workspaceRoot: string | null): string {
+function trimFilenameForDisplay(value: string, workspaceRoot: string | null): { display: string; tooltip: string } {
   if (!workspaceRoot) {
-    return value;
+    return { display: value, tooltip: value };
   }
 
   const normalizedRoot = workspaceRoot.endsWith("/") ? workspaceRoot.slice(0, -1) : workspaceRoot;
   if (!normalizedRoot) {
-    return value;
+    return { display: value, tooltip: value };
   }
 
   if (value === normalizedRoot) {
-    return ".";
+    return { display: "./", tooltip: value };
   }
 
   const prefix = `${normalizedRoot}/`;
-  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
+  return value.startsWith(prefix)
+    ? { display: value.slice(prefix.length), tooltip: value }
+    : { display: value, tooltip: value };
 }
 
 function shouldRenderMarkdownAsPlainText(value: string): boolean {
@@ -127,8 +129,9 @@ function PinValueRow({
     return <MarkdownPinBody value={value} />;
   }
 
-  const displayValue = type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : value;
-  const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, displayValue);
+  const filenameValue = type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
+  const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, filenameValue?.display ?? value);
+  const tooltipValue = filenameValue?.tooltip ?? tooltip;
 
   return (
     <div className="flex items-center gap-1.5">
@@ -151,6 +154,7 @@ function PinValueRow({
             mono
             className="min-w-0 rounded bg-muted px-1.5 py-0.5"
             tooltipClassName="max-w-[480px]"
+            tooltipValue={tooltipValue}
           />
         ) : (
           <span
