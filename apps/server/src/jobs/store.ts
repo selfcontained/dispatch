@@ -82,7 +82,6 @@ export class JobStore {
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
       ON CONFLICT (directory, name)
       DO UPDATE SET
-        file_path = EXCLUDED.file_path,
         prompt = EXCLUDED.prompt,
         updated_at = NOW()
       RETURNING ${this.jobColumns()}
