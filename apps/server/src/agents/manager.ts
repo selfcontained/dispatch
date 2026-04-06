@@ -17,7 +17,7 @@ type AgentType = "codex" | "claude" | "opencode";
 type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
 type ArchivePhase = "stopping" | "worktree-check" | "worktree-cleanup" | "finalizing" | null;
-type PinType = "string" | "url" | "port" | "code" | "pr" | "filename";
+type PinType = "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
 
 export type AgentPin = {
   label: string;
@@ -1467,8 +1467,8 @@ export class AgentManager {
       "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
       "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
       "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
-      "Use dispatch_pin to surface key info in the sidebar. Update pins when values change; delete stale ones. " +
-      "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions). " +
+      "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
+      "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
       "For longer artifacts, write to a file via dispatch_share and pin a reference.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;

@@ -1,7 +1,8 @@
 import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 
 import { type AgentPin } from "@/components/app/types";
+import { Markdown } from "@/components/ui/markdown";
+import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -15,20 +16,11 @@ function formatPrDisplay(value: string): string {
 }
 
 function CopyButton({ value, title }: { value: string; title?: string }): JSX.Element {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
-  }, [value]);
+  const [copied, copyText] = useCopyText();
 
   return (
     <button
-      onClick={handleCopy}
+      onClick={() => copyText(value)}
       className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       title={title ?? "Copy to clipboard"}
     >
@@ -38,6 +30,48 @@ function CopyButton({ value, title }: { value: string; title?: string }): JSX.El
 }
 
 type ResolvedValue = { display: string; tooltip: string; href: string | null; badge: boolean; icon: "pr" | "file" | null };
+
+function shouldRenderMarkdownAsPlainText(value: string): boolean {
+  const sanitized = value.replace(/```[^\n]*\n[\s\S]*?```/g, "");
+  const unsupportedPatterns = [
+    /!\[[^\]]*]\((?:[^()\\]|\\.)+\)/,
+    /\[[^\]]+]\((?:[^()\\]|\\.)+\)/,
+    /\[[^\]]+]\[[^\]]*]/,
+    /^\s*\[[^\]]+]:\s*\S+/m,
+    /<\/?[A-Za-z][^>]*>/,
+    /^\s{0,3}#{1,6}\s/m,
+    /^\s{0,3}>\s/m,
+    /^\s{0,3}\d+\.\s/m,
+    /^(?: {2,}|\t+)[-*+]\s/m,
+    /^(?: {2,}|\t+)\d+\.\s/m,
+    /^\s*\|.+\|\s*$/m,
+    /^\s*\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)+\s*\|?\s*$/m,
+  ];
+  return unsupportedPatterns.some((pattern) => pattern.test(sanitized));
+}
+
+function MarkdownPinBody({ value }: { value: string }): JSX.Element {
+  const renderAsPlainText = shouldRenderMarkdownAsPlainText(value);
+
+  return (
+    <div
+      className="min-w-0 max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-border/60 bg-background/40"
+      data-testid="markdown-pin-scroll"
+    >
+      <div className="p-2" data-testid="markdown-pin-body">
+        {renderAsPlainText ? (
+          <pre className="m-0 whitespace-pre-wrap break-words font-sans text-xs text-foreground">
+            {value}
+          </pre>
+        ) : (
+          <Markdown variant="pin">
+            {value}
+          </Markdown>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedValue {
   if (type === "pr" && SAFE_URL_RE.test(value)) {
@@ -62,6 +96,10 @@ function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedVal
 }
 
 function PinValueRow({ type, value }: { type: AgentPin["type"]; value: string }): JSX.Element {
+  if (type === "markdown") {
+    return <MarkdownPinBody value={value} />;
+  }
+
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, value);
 
   return (
@@ -118,7 +156,7 @@ function PinItem({ pin }: { pin: AgentPin }): JSX.Element {
   const isMulti = values.length > 1;
 
   return (
-    <div className="px-4 py-2.5 border-b border-border last:border-b-0">
+    <div className="px-4 py-2.5 border-b border-border last:border-b-0" data-testid="pin-item" data-pin-label={pin.label}>
       <div className="flex items-center gap-1">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
           {pin.label}
@@ -146,7 +184,7 @@ export function PinsPanel({ pins, selectedAgentName }: PinsPanelProps): JSX.Elem
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
         {selectedAgentName
-          ? "No pins yet. Agents can pin URLs, files, ports, and other info here."
+          ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
           : "Focus an agent to view pins."}
       </div>
     );

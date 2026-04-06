@@ -43,6 +43,12 @@ describe("splitPinValues", () => {
     ]);
   });
 
+  it("does not split markdown pins", () => {
+    expect(splitPinValues("markdown", "**Status**\n- Ready\n- Branch: `feat/log-rotation`")).toEqual([
+      "**Status**\n- Ready\n- Branch: `feat/log-rotation`",
+    ]);
+  });
+
   it("preserves the original value when split delimiters produce no tokens", () => {
     expect(splitPinValues("filename", ",\n")).toEqual([",\n"]);
     expect(splitPinValues("port", " , \n ")).toEqual([" , \n "]);
