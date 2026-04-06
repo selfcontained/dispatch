@@ -61,6 +61,7 @@ hljs.registerLanguage("nim", nim);
 
 import { Button } from "@/components/ui/button";
 import { useCopyText } from "@/hooks/use-copy";
+import { cn } from "@/lib/utils";
 
 const EXT_TO_LANG: Record<string, string> = {
   ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript",
@@ -83,10 +84,18 @@ const TEXT_EXTENSIONS = new Set([
   ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
 ]);
 
-export function isTextFile(name: string): boolean {
+function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");
-  if (dot === -1) return false;
-  return TEXT_EXTENSIONS.has(name.slice(dot).toLowerCase());
+  return dot === -1 ? "" : name.slice(dot).toLowerCase();
+}
+
+export function isTextFile(name: string): boolean {
+  const ext = fileExtension(name);
+  return ext !== "" && TEXT_EXTENSIONS.has(ext);
+}
+
+function isMarkdownFile(name: string): boolean {
+  return fileExtension(name) === ".md";
 }
 
 const TIMESTAMP_RE = /-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/;
@@ -136,8 +145,7 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
 
   const highlightedHtml = useMemo(() => {
     if (!content) return null;
-    const dot = fileName.lastIndexOf(".");
-    const ext = dot !== -1 ? fileName.slice(dot).toLowerCase() : "";
+    const ext = fileExtension(fileName);
     const lang = EXT_TO_LANG[ext];
     if (lang) {
       try {
@@ -153,6 +161,9 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
     }
   }, [content, fileName]);
 
+  const shouldWrapText = isMarkdownFile(fileName);
+  const textWrapClassName = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+
   if (error) {
     return <div className="grid h-full place-items-center text-sm text-destructive">{error}</div>;
   }
@@ -164,9 +175,16 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       {highlightedHtml ? (
-        <pre className="p-4 text-sm leading-relaxed"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} /></pre>
+        <pre className={cn("p-4 text-sm leading-relaxed", shouldWrapText && textWrapClassName)}>
+          <code
+            className={cn("hljs", shouldWrapText && textWrapClassName)}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+          />
+        </pre>
       ) : (
-        <pre className="p-4 text-sm leading-relaxed text-foreground"><code>{content}</code></pre>
+        <pre className={cn("p-4 text-sm leading-relaxed text-foreground", shouldWrapText && textWrapClassName)}>
+          <code className={cn(shouldWrapText && textWrapClassName)}>{content}</code>
+        </pre>
       )}
     </div>
   );
