@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { Pool } from "pg";
@@ -20,6 +22,7 @@ vi.mock("@dispatch/shared/lib/run-command.js", () => ({
 
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } = await import("../../src/agents/manager.js");
+const execFileAsync = promisify(execFile);
 
 let pool: Pool;
 
@@ -199,10 +202,45 @@ describe("AgentManager", () => {
       const agent = await manager.createAgent({ cwd: "/tmp", type: "opencode", useWorktree: false });
 
       const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
-      expect(setupScript).toContain(`export DISPATCH_MCP_ENTRY='{"type":"remote"`);
-      expect(setupScript).toContain(`json.loads(os.environ['DISPATCH_MCP_ENTRY'])`);
+      expect(setupScript).toContain(`MCP_ENTRY='{"type":"remote"`);
+      expect(setupScript).toContain(`node --input-type=module -e`);
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
-      expect(setupScript).not.toContain(`cfg['mcp']['dispatch'] = {"type":"remote"`);
+      expect(setupScript).not.toContain(`python3 -c`);
+    });
+
+    it("should execute the generated OpenCode MCP config merge script", async () => {
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-opencode-config-"));
+      try {
+        await writeFile(
+          path.join(tempDir, "opencode.json"),
+          JSON.stringify({
+            theme: "system",
+            mcp: {
+              existing: { type: "local", command: ["echo", "ok"] },
+            },
+          })
+        );
+
+        const agent = await manager.createAgent({ cwd: "/tmp", type: "opencode", useWorktree: false });
+        const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+        const configBlock = setupScript.match(
+          /# --- Configure opencode MCP ---\n(?<block>[\s\S]*?)\n# exec replaces this shell/
+        )?.groups?.block;
+        expect(configBlock).toBeTruthy();
+
+        await execFileAsync("bash", ["-c", `set -euo pipefail\nok() { :; }\nEFFECTIVE_CWD=${JSON.stringify(tempDir)}\n${configBlock}`]);
+
+        const config = JSON.parse(await readFile(path.join(tempDir, "opencode.json"), "utf-8"));
+        expect(config.theme).toBe("system");
+        expect(config.mcp.existing).toEqual({ type: "local", command: ["echo", "ok"] });
+        expect(config.mcp.dispatch).toEqual({
+          type: "remote",
+          url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
+          headers: { Authorization: "Bearer test-token" },
+        });
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
 
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
