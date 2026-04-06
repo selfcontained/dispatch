@@ -1,8 +1,8 @@
 import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
+import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -16,20 +16,11 @@ function formatPrDisplay(value: string): string {
 }
 
 function CopyButton({ value, title }: { value: string; title?: string }): JSX.Element {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), 1500);
-    }).catch(() => {});
-  }, [value]);
+  const [copied, copyText] = useCopyText();
 
   return (
     <button
-      onClick={handleCopy}
+      onClick={() => copyText(value)}
       className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       title={title ?? "Copy to clipboard"}
     >
