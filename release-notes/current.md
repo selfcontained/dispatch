@@ -1,5 +1,5 @@
 ## What's Changed
-* [codex] Refine terminal header and persona launch handling by @selfcontained in https://github.com/selfcontained/dispatch/pull/234
+* [codex] Clarify pin guidance in launch prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/235
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.24...v0.9.25
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.25...v0.9.26
