@@ -291,6 +291,7 @@ export class AgentManager {
         // dep install, and then exec's into the agent CLI — all visible in the terminal.
         const setupScript = this.generateSetupScript({
           agentId: id,
+          agentType: type,
           originalCwd,
           useWorktree,
           worktreeBranchName,
@@ -1911,6 +1912,7 @@ export class AgentManager {
 
   private generateSetupScript(params: {
     agentId: string;
+    agentType: AgentType;
     originalCwd: string;
     useWorktree: boolean;
     worktreeBranchName?: string;
@@ -1922,6 +1924,7 @@ export class AgentManager {
   }): string {
     const {
       agentId,
+      agentType,
       originalCwd,
       useWorktree,
       worktreeBranchName,
@@ -2089,6 +2092,42 @@ export class AgentManager {
       `cd "$EFFECTIVE_CWD"`,
       `${curlComplete('$EFFECTIVE_CWD', '$WORKTREE_PATH', '$WORKTREE_BRANCH')}`,
       ``,
+    );
+
+    // Opencode: write opencode.json with dispatch MCP server config so the agent
+    // can call dispatch_event, dispatch_pin, etc.
+    if (agentType === "opencode") {
+      const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
+      const mcpEntry = JSON.stringify({
+        type: "remote",
+        url: dispatchMcpUrl,
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      lines.push(
+        `# --- Configure opencode MCP ---`,
+        `OPENCODE_CFG="$EFFECTIVE_CWD/opencode.json"`,
+        `if [ -f "$OPENCODE_CFG" ]; then`,
+        `  # Merge dispatch MCP entry into existing config`,
+        `  EXISTING=$(cat "$OPENCODE_CFG")`,
+        `  echo "$EXISTING" | python3 -c "`,
+        `import json, sys`,
+        `cfg = json.load(sys.stdin)`,
+        `cfg.setdefault('mcp', {})`,
+        `cfg['mcp']['dispatch'] = ${mcpEntry}`,
+        `print(json.dumps(cfg, indent=2))`,
+        `" > "$OPENCODE_CFG.tmp" && mv "$OPENCODE_CFG.tmp" "$OPENCODE_CFG"`,
+        `  ok "Merged dispatch MCP into existing opencode.json"`,
+        `else`,
+        `  cat > "$OPENCODE_CFG" << 'OPENCODE_EOF'`,
+        `${JSON.stringify({ mcp: { dispatch: JSON.parse(mcpEntry) } }, null, 2)}`,
+        `OPENCODE_EOF`,
+        `  ok "Created opencode.json with dispatch MCP"`,
+        `fi`,
+        ``,
+      );
+    }
+
+    lines.push(
       `# exec replaces this shell with the agent CLI — seamless transition`,
       `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`,
     );
