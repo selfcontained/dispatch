@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { readJobDefinition } from "./parser.js";
+import { readJobDefinition, jobFilePath } from "./parser.js";
 import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
 import { installCronEntry, removeCronEntry, getNextRun } from "./cron.js";
 
@@ -199,7 +199,7 @@ export class JobService {
     job: JobRecord;
     runs: JobRunRecord[];
   }> {
-    const job = await this.store.getJobByDirectoryAndName(input.directory, input.name);
+    const job = await this.store.getJobByDirectoryAndFilePath(input.directory, jobFilePath(input.directory, input.name));
     if (!job) throw new Error(`Job "${input.name}" not found in directory "${input.directory}".`);
     const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
     return { job, runs };
@@ -215,7 +215,7 @@ export class JobService {
       const definition = await readJobDefinition(directory, name);
       return await this.store.upsertJobFromDefinition(definition);
     } catch {
-      const existing = await this.store.getJobByDirectoryAndName(directory, name);
+      const existing = await this.store.getJobByDirectoryAndFilePath(directory, jobFilePath(directory, name));
       if (!existing) {
         throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
       }

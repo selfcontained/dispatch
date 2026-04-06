@@ -70,9 +70,12 @@ export class JobStore {
 
   /**
    * Insert a new job from a file definition (seeds all fields), or update
-   * an existing job's prompt and file_path only. Config fields like schedule,
+   * an existing job's prompt and name only. Config fields like schedule,
    * timeouts, notify, and full_access are set on first insert but preserved
    * on subsequent upserts so user overrides (via enable/UI) aren't clobbered.
+   *
+   * Unique identity is (directory, file_path). Name is a display label
+   * from frontmatter that can change without creating a new job.
    */
   async upsertJobFromDefinition(definition: JobDefinition): Promise<JobRecord> {
     const id = randomUUID();
@@ -80,8 +83,9 @@ export class JobStore {
       `
       INSERT INTO jobs (id, directory, name, file_path, schedule, timeout_ms, needs_input_timeout_ms, notify, prompt, full_access)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-      ON CONFLICT (directory, name)
+      ON CONFLICT (directory, file_path)
       DO UPDATE SET
+        name = EXCLUDED.name,
         prompt = EXCLUDED.prompt,
         updated_at = NOW()
       RETURNING ${this.jobColumns()}
@@ -312,10 +316,10 @@ export class JobStore {
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
 
-  async getJobByDirectoryAndName(directory: string, name: string): Promise<JobRecord | null> {
+  async getJobByDirectoryAndFilePath(directory: string, filePath: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
-      [path.resolve(directory), name]
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND file_path = $2`,
+      [path.resolve(directory), filePath]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }

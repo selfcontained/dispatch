@@ -22,12 +22,17 @@ export type JobDefinition = {
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
-export async function readJobDefinition(directory: string, name: string): Promise<JobDefinition> {
+/** Build the expected file path for a job given its directory and file stem. */
+export function jobFilePath(directory: string, name: string): string {
   const normalizedName = normalizeJobName(name);
+  return path.join(path.resolve(directory), ".dispatch", "jobs", `${normalizedName}.md`);
+}
+
+export async function readJobDefinition(directory: string, name: string): Promise<JobDefinition> {
+  const filePath = jobFilePath(directory, name);
   const normalizedDirectory = path.resolve(directory);
-  const filePath = path.join(normalizedDirectory, ".dispatch", "jobs", `${normalizedName}.md`);
   const raw = await readFile(filePath, "utf8");
-  return parseJobDefinition(raw, { directory: normalizedDirectory, filePath, fallbackName: normalizedName });
+  return parseJobDefinition(raw, { directory: normalizedDirectory, filePath, fallbackName: normalizeJobName(name) });
 }
 
 export function parseJobDefinition(raw: string, opts: {

@@ -117,15 +117,15 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     expect(disabled.enabled).toBe(false);
   });
 
-  it("getJobByDirectoryAndName finds job", async () => {
+  it("getJobByDirectoryAndFilePath finds job", async () => {
     await store.upsertJobFromDefinition(definition);
-    const found = await store.getJobByDirectoryAndName("/tmp/test-repo", "cleanup");
+    const found = await store.getJobByDirectoryAndFilePath("/tmp/test-repo", "/tmp/test-repo/.dispatch/jobs/cleanup.md");
     expect(found).toBeDefined();
     expect(found!.name).toBe("cleanup");
   });
 
-  it("getJobByDirectoryAndName returns null for unknown", async () => {
-    const found = await store.getJobByDirectoryAndName("/nonexistent", "nope");
+  it("getJobByDirectoryAndFilePath returns null for unknown", async () => {
+    const found = await store.getJobByDirectoryAndFilePath("/nonexistent", "/nonexistent/.dispatch/jobs/nope.md");
     expect(found).toBeNull();
   });
 

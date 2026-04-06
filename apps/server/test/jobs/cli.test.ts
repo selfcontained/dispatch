@@ -155,7 +155,8 @@ describe("formatTimeUntil", () => {
   });
 
   it("returns days for distant timestamps", () => {
-    const inThreeDays = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    // Add a small buffer so we're solidly in "3 days" territory
+    const inThreeDays = new Date(Date.now() + 3 * 86_400_000 + 3_600_000).toISOString();
     expect(formatTimeUntil(inThreeDays)).toBe("in 3d");
   });
 
