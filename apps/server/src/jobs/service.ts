@@ -10,7 +10,7 @@ import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import type { JobDefinition } from "./parser.js";
 import { readJobDefinition } from "./parser.js";
 import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
-import { installCronEntry, removeCronEntry } from "./cron.js";
+import { installCronEntry, removeCronEntry, getNextRun } from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
 
@@ -181,8 +181,16 @@ export class JobService {
     return updated;
   }
 
-  async listJobs(): Promise<JobWithLatestRun[]> {
-    return await this.store.listJobs();
+  async listJobs(): Promise<Array<JobWithLatestRun & { nextRun: string | null }>> {
+    const jobs = await this.store.listJobs();
+    return jobs.map((job) => {
+      let nextRun: string | null = null;
+      if (job.enabled && job.schedule) {
+        const next = getNextRun(job.schedule);
+        if (next) nextRun = next.toISOString();
+      }
+      return { ...job, nextRun };
+    });
   }
 
   async listRunsForJob(input: { name: string; directory: string; limit?: number }): Promise<{

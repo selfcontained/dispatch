@@ -73,8 +73,10 @@ async function listCommand(): Promise<void> {
     const lastRun = job.lastRunStatus
       ? `last: ${job.lastRunStatus} (${formatTimeAgo(job.lastRunStartedAt)})`
       : "never run";
+    const schedule = job.schedule ? `schedule: ${job.schedule}` : "no schedule";
+    const nextRun = job.enabled && job.nextRun ? `next: ${formatTimeUntil(job.nextRun)}` : null;
     console.log(`  ${job.name}  [${status}]  ${job.directory}`);
-    console.log(`    ${lastRun}`);
+    console.log(`    ${schedule}  ${lastRun}${nextRun ? `  ${nextRun}` : ""}`);
   }
 }
 
@@ -278,6 +280,22 @@ function authHeader(): Record<string, string> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function formatTimeUntil(dateStr: unknown): string {
+  if (typeof dateStr !== "string") return "unknown";
+  const ms = new Date(dateStr).getTime() - Date.now();
+  if (ms <= 0) return "now";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const remMins = mins % 60;
+    return remMins > 0 ? `in ${hours}h ${remMins}m` : `in ${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  return `in ${days}d`;
 }
 
 export function formatTimeAgo(dateStr: unknown): string {

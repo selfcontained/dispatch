@@ -14,6 +14,7 @@ export type JobRecord = {
   directory: string;
   name: string;
   filePath: string | null;
+  schedule: string | null;
   enabled: boolean;
   agentType: JobAgentType;
   useWorktree: boolean;
@@ -67,13 +68,13 @@ export class JobStore {
     const id = randomUUID();
     const result = await this.pool.query(
       `
-      INSERT INTO jobs (id, directory, name, file_path, full_access)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO jobs (id, directory, name, file_path, schedule, full_access)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (directory, name)
-      DO UPDATE SET file_path = EXCLUDED.file_path, full_access = EXCLUDED.full_access, updated_at = NOW()
+      DO UPDATE SET file_path = EXCLUDED.file_path, schedule = EXCLUDED.schedule, full_access = EXCLUDED.full_access, updated_at = NOW()
       RETURNING ${this.jobColumns()}
       `,
-      [id, path.resolve(definition.directory), definition.name, definition.filePath, definition.fullAccess]
+      [id, path.resolve(definition.directory), definition.name, definition.filePath, definition.schedule, definition.fullAccess]
     );
     return mapJob(result.rows[0]);
   }
@@ -234,6 +235,7 @@ export class JobStore {
       SELECT
         j.id, j.directory, j.name,
         j.file_path AS "filePath",
+        j.schedule,
         j.enabled,
         j.agent_type AS "agentType",
         j.use_worktree AS "useWorktree",
@@ -348,6 +350,7 @@ export class JobStore {
       directory,
       name,
       file_path AS "filePath",
+      schedule,
       enabled,
       agent_type AS "agentType",
       use_worktree AS "useWorktree",

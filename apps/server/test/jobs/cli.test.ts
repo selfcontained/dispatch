@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { parseArgs, formatTimeAgo, formatDuration } from "../../src/jobs/cli.js";
+import { parseArgs, formatTimeAgo, formatTimeUntil, formatDuration } from "../../src/jobs/cli.js";
 
 describe("CLI parseArgs", () => {
   // parseArgs calls process.exit on error — mock it to throw instead
@@ -135,6 +135,32 @@ describe("formatTimeAgo", () => {
   it("returns 'just now' for future timestamps", () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     expect(formatTimeAgo(future)).toBe("just now");
+  });
+});
+
+describe("formatTimeUntil", () => {
+  it("returns 'now' for past timestamps", () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    expect(formatTimeUntil(past)).toBe("now");
+  });
+
+  it("returns minutes for near-future timestamps", () => {
+    const inFiveMin = new Date(Date.now() + 5 * 60_000 + 30_000).toISOString();
+    expect(formatTimeUntil(inFiveMin)).toBe("in 5m");
+  });
+
+  it("returns hours and minutes for multi-hour timestamps", () => {
+    const inTwoHours = new Date(Date.now() + 2 * 3_600_000 + 15 * 60_000).toISOString();
+    expect(formatTimeUntil(inTwoHours)).toBe("in 2h 15m");
+  });
+
+  it("returns days for distant timestamps", () => {
+    const inThreeDays = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    expect(formatTimeUntil(inThreeDays)).toBe("in 3d");
+  });
+
+  it("returns 'unknown' for non-string input", () => {
+    expect(formatTimeUntil(null)).toBe("unknown");
   });
 });
 
