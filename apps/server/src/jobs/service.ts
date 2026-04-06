@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -8,7 +9,10 @@ import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import type { JobDefinition } from "./parser.js";
 import { readJobDefinition } from "./parser.js";
-import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord } from "./store.js";
+import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
+import { installCronEntry, removeCronEntry } from "./cron.js";
+
+export type JobRunCallback = (run: JobRunRecord) => void;
 
 type RunJobInput = {
   name: string;
@@ -32,6 +36,7 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export class JobService {
   private readonly store: JobStore;
   private readonly monitors = new Map<string, Promise<JobRunRecord>>();
+  private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
 
   constructor(
     pool: Pool,
@@ -40,6 +45,21 @@ export class JobService {
     private readonly config: AppConfig
   ) {
     this.store = new JobStore(pool);
+  }
+
+  /** Register a callback that fires when a job run reaches a notable state. */
+  onRunStateChange(cb: JobRunCallback): void {
+    this.onRunStateChangeCallbacks.push(cb);
+  }
+
+  private emitRunStateChange(run: JobRunRecord): void {
+    for (const cb of this.onRunStateChangeCallbacks) {
+      try {
+        cb(run);
+      } catch (err) {
+        this.logger.warn({ err, runId: run.id }, "onRunStateChange callback error");
+      }
+    }
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
@@ -105,17 +125,21 @@ export class JobService {
   async completeRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
     const run = await this.store.completeRunForAgent(agentId, report);
     this.monitors.delete(run.id);
+    this.emitRunStateChange(run);
     return run;
   }
 
   async failRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
     const run = await this.store.failRunForAgent(agentId, report);
     this.monitors.delete(run.id);
+    this.emitRunStateChange(run);
     return run;
   }
 
   async markNeedsInputForAgent(agentId: string, question: string): Promise<JobRunRecord> {
-    return await this.store.markNeedsInputForAgent(agentId, question);
+    const run = await this.store.markNeedsInputForAgent(agentId, question);
+    this.emitRunStateChange(run);
+    return run;
   }
 
   async logForAgent(
@@ -123,6 +147,56 @@ export class JobService {
     input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
   ): Promise<JobRunRecord> {
     return await this.store.logForAgent(agentId, input);
+  }
+
+  async enableJob(input: { name: string; directory: string }): Promise<JobRecord> {
+    const definition = await readJobDefinition(input.directory, input.name);
+    if (!definition.schedule) {
+      throw new Error(`Job "${definition.name}" has no schedule defined in its frontmatter.`);
+    }
+    const job = await this.store.upsertJobFromDefinition(definition);
+    const updated = await this.store.setEnabled(job.id, true);
+
+    await installCronEntry({
+      directory: updated.directory,
+      name: updated.name,
+      schedule: definition.schedule,
+      dispatchBin: this.resolveDispatchBin(),
+      authToken: this.config.authToken,
+      serverUrl: `http://127.0.0.1:${this.config.port}`
+    });
+
+    this.logger.info({ jobId: updated.id, name: updated.name, schedule: definition.schedule }, "Job enabled with cron schedule");
+    return updated;
+  }
+
+  async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
+    const definition = await readJobDefinition(input.directory, input.name);
+    const job = await this.store.upsertJobFromDefinition(definition);
+    const updated = await this.store.setEnabled(job.id, false);
+
+    await removeCronEntry(updated.directory, updated.name);
+
+    this.logger.info({ jobId: updated.id, name: updated.name }, "Job disabled, cron entry removed");
+    return updated;
+  }
+
+  async listJobs(): Promise<JobWithLatestRun[]> {
+    return await this.store.listJobs();
+  }
+
+  async listRunsForJob(input: { name: string; directory: string; limit?: number }): Promise<{
+    job: JobRecord;
+    runs: JobRunRecord[];
+  }> {
+    const job = await this.store.getJobByDirectoryAndName(input.directory, input.name);
+    if (!job) throw new Error(`Job "${input.name}" not found in directory "${input.directory}".`);
+    const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
+    return { job, runs };
+  }
+
+  private resolveDispatchBin(): string {
+    return path.join(this.config.dispatchBinDir, "dispatch");
   }
 
   private startMonitor(runId: string): void {
@@ -191,7 +265,7 @@ export class JobService {
   }
 
   private async markTimedOut(run: JobRunRecord, message: string): Promise<JobRunRecord> {
-    return await this.store.markTimedOut(run.id, {
+    const updated = await this.store.markTimedOut(run.id, {
       status: "failed",
       summary: message,
       tasks: [
@@ -203,13 +277,15 @@ export class JobService {
         }
       ]
     });
+    this.emitRunStateChange(updated);
+    return updated;
   }
 
   private async markCrashed(run: JobRunRecord, message: string, taskName = "guardrails"): Promise<JobRunRecord> {
     const diagnostics = run.agentId ? await this.readAgentDiagnostics(run.agentId) : "";
     const fullMessage = diagnostics ? `${message}\n\n${diagnostics}` : message;
     this.logger.warn({ runId: run.id, agentId: run.agentId }, message);
-    return await this.store.markCrashed(run.id, {
+    const updated = await this.store.markCrashed(run.id, {
       status: "failed",
       summary: message,
       tasks: [
@@ -221,6 +297,8 @@ export class JobService {
         }
       ]
     });
+    this.emitRunStateChange(updated);
+    return updated;
   }
 
   private async readAgentDiagnostics(agentId: string): Promise<string> {

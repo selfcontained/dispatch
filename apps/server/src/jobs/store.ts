@@ -41,6 +41,15 @@ export type JobRunRecord = {
 
 const ACTIVE_RUN_STATUSES: JobRunStatus[] = ["started", "running", "needs_input"];
 
+export type JobWithLatestRun = JobRecord & {
+  lastRunId: string | null;
+  lastRunStatus: JobRunStatus | null;
+  lastRunStartedAt: string | null;
+  lastRunCompletedAt: string | null;
+  lastRunDurationMs: number | null;
+  lastRunReport: JobReport | null;
+};
+
 export type JobRunConfig = {
   directory: string;
   filePath: string;
@@ -220,6 +229,82 @@ export class JobStore {
     return result.rows.map((row) => mapRun(row));
   }
 
+  async listJobs(): Promise<JobWithLatestRun[]> {
+    const result = await this.pool.query(`
+      SELECT
+        j.id, j.directory, j.name,
+        j.file_path AS "filePath",
+        j.enabled,
+        j.agent_type AS "agentType",
+        j.use_worktree AS "useWorktree",
+        j.branch_name AS "branchName",
+        j.full_access AS "fullAccess",
+        j.additional_instructions AS "additionalInstructions",
+        j.created_at AS "createdAt",
+        j.updated_at AS "updatedAt",
+        lr.id AS "lastRunId",
+        lr.status AS "lastRunStatus",
+        lr.started_at AS "lastRunStartedAt",
+        lr.completed_at AS "lastRunCompletedAt",
+        lr.duration_ms AS "lastRunDurationMs",
+        lr.report AS "lastRunReport"
+      FROM jobs j
+      LEFT JOIN LATERAL (
+        SELECT id, status, started_at, completed_at, duration_ms, report
+        FROM job_runs
+        WHERE job_id = j.id
+        ORDER BY started_at DESC
+        LIMIT 1
+      ) lr ON true
+      ORDER BY j.name ASC, j.directory ASC
+    `);
+    return result.rows.map((row) => mapJobWithLatestRun(row));
+  }
+
+  async listRunsForJob(jobId: string, limit = 20): Promise<JobRunRecord[]> {
+    const result = await this.pool.query(
+      `
+      SELECT ${this.runColumns()}
+      FROM job_runs
+      WHERE job_id = $1
+      ORDER BY started_at DESC
+      LIMIT $2
+      `,
+      [jobId, limit]
+    );
+    return result.rows.map((row) => mapRun(row));
+  }
+
+  async getJob(jobId: string): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.jobColumns()} FROM jobs WHERE id = $1`,
+      [jobId]
+    );
+    return result.rows[0] ? mapJob(result.rows[0]) : null;
+  }
+
+  async getJobByDirectoryAndName(directory: string, name: string): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
+      [path.resolve(directory), name]
+    );
+    return result.rows[0] ? mapJob(result.rows[0]) : null;
+  }
+
+  async setEnabled(jobId: string, enabled: boolean): Promise<JobRecord> {
+    const result = await this.pool.query(
+      `
+      UPDATE jobs
+      SET enabled = $2, updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${this.jobColumns()}
+      `,
+      [jobId, enabled]
+    );
+    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+    return mapJob(result.rows[0]);
+  }
+
   private async setTerminalRunForAgent(
     agentId: string,
     status: "completed" | "failed",
@@ -298,6 +383,10 @@ function mapJob(row: Record<string, unknown>): JobRecord {
 
 function mapRun(row: Record<string, unknown>): JobRunRecord {
   return row as JobRunRecord;
+}
+
+function mapJobWithLatestRun(row: Record<string, unknown>): JobWithLatestRun {
+  return row as JobWithLatestRun;
 }
 
 function isUniqueViolation(error: unknown): boolean {
