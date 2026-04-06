@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
-import type { JobDefinition } from "./parser.js";
+import type { JobDefinition, JobNotifyConfig } from "./parser.js";
 import { appendJobLog, validateJobReport, validateTerminalJobReport, type JobReport } from "./report.js";
 
 export type JobRunStatus = "started" | "running" | "completed" | "failed" | "needs_input" | "timed_out" | "crashed";
@@ -15,6 +15,10 @@ export type JobRecord = {
   name: string;
   filePath: string | null;
   schedule: string | null;
+  timeoutMs: number | null;
+  needsInputTimeoutMs: number | null;
+  notify: JobNotifyConfig | null;
+  prompt: string | null;
   enabled: boolean;
   agentType: JobAgentType;
   useWorktree: boolean;
@@ -68,13 +72,32 @@ export class JobStore {
     const id = randomUUID();
     const result = await this.pool.query(
       `
-      INSERT INTO jobs (id, directory, name, file_path, schedule, full_access)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO jobs (id, directory, name, file_path, schedule, timeout_ms, needs_input_timeout_ms, notify, prompt, full_access)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
       ON CONFLICT (directory, name)
-      DO UPDATE SET file_path = EXCLUDED.file_path, schedule = EXCLUDED.schedule, full_access = EXCLUDED.full_access, updated_at = NOW()
+      DO UPDATE SET
+        file_path = EXCLUDED.file_path,
+        schedule = EXCLUDED.schedule,
+        timeout_ms = EXCLUDED.timeout_ms,
+        needs_input_timeout_ms = EXCLUDED.needs_input_timeout_ms,
+        notify = EXCLUDED.notify,
+        prompt = EXCLUDED.prompt,
+        full_access = EXCLUDED.full_access,
+        updated_at = NOW()
       RETURNING ${this.jobColumns()}
       `,
-      [id, path.resolve(definition.directory), definition.name, definition.filePath, definition.schedule, definition.fullAccess]
+      [
+        id,
+        path.resolve(definition.directory),
+        definition.name,
+        definition.filePath,
+        definition.schedule,
+        definition.timeoutMs,
+        definition.needsInputTimeoutMs,
+        JSON.stringify(definition.notify),
+        definition.body,
+        definition.fullAccess,
+      ]
     );
     return mapJob(result.rows[0]);
   }
@@ -236,6 +259,10 @@ export class JobStore {
         j.id, j.directory, j.name,
         j.file_path AS "filePath",
         j.schedule,
+        j.timeout_ms AS "timeoutMs",
+        j.needs_input_timeout_ms AS "needsInputTimeoutMs",
+        j.notify,
+        j.prompt,
         j.enabled,
         j.agent_type AS "agentType",
         j.use_worktree AS "useWorktree",
@@ -351,6 +378,10 @@ export class JobStore {
       name,
       file_path AS "filePath",
       schedule,
+      timeout_ms AS "timeoutMs",
+      needs_input_timeout_ms AS "needsInputTimeoutMs",
+      notify,
+      prompt,
       enabled,
       agent_type AS "agentType",
       use_worktree AS "useWorktree",

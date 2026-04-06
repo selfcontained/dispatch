@@ -28,6 +28,8 @@ export type RunJobResult = {
   report: JobRunRecord["report"];
 };
 
+const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_STATUSES = new Set<JobRunRecord["status"]>(["completed", "failed", "timed_out", "crashed"]);
 const ACTIVE_RUN_STATUSES = new Set<JobRunRecord["status"]>(["started", "running", "needs_input"]);
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -63,8 +65,8 @@ export class JobService {
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
-    const definition = await readJobDefinition(input.directory, input.name);
-    const job = await this.store.upsertJobFromDefinition(definition);
+    // Try reading the file to refresh stored config; fall back to DB if file is gone
+    const { job, definition } = await this.resolveJobAndDefinition(input.directory, input.name);
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
       throw new Error(`Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`);
@@ -201,6 +203,45 @@ export class JobService {
     if (!job) throw new Error(`Job "${input.name}" not found in directory "${input.directory}".`);
     const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
     return { job, runs };
+  }
+
+  /**
+   * Try to read the job definition file and upsert the DB record.
+   * If the file doesn't exist, fall back to the stored DB record and
+   * synthesize a definition from it. Throws if neither source has a prompt.
+   */
+  private async resolveJobAndDefinition(
+    directory: string,
+    name: string
+  ): Promise<{ job: JobRecord; definition: JobDefinition }> {
+    try {
+      const definition = await readJobDefinition(directory, name);
+      const job = await this.store.upsertJobFromDefinition(definition);
+      return { job, definition };
+    } catch (fileError) {
+      // File missing or unreadable — try DB fallback
+      const existing = await this.store.getJobByDirectoryAndName(directory, name);
+      if (!existing?.prompt) {
+        // No stored prompt either — can't run
+        throw fileError;
+      }
+      this.logger.info(
+        { jobName: name, directory },
+        "Job file not found, using stored configuration"
+      );
+      const definition: JobDefinition = {
+        name: existing.name,
+        schedule: existing.schedule,
+        timeoutMs: existing.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        needsInputTimeoutMs: existing.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
+        fullAccess: existing.fullAccess,
+        notify: existing.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
+        body: existing.prompt,
+        filePath: existing.filePath ?? "",
+        directory: existing.directory,
+      };
+      return { job: existing, definition };
+    }
   }
 
   private resolveDispatchBin(): string {
