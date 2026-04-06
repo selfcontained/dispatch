@@ -88,7 +88,15 @@ slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
-jobService.onRunStateChange((run) => void jobNotifier.onJobRunStateChange(run));
+const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
+jobService.onRunStateChange((run) => {
+  void jobNotifier.onJobRunStateChange(run);
+  // Auto-archive job agents when the run reaches a terminal state.
+  // needs_input is excluded — user may need to interact with the agent.
+  if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
+    void autoArchiveJobAgent(run.agentId);
+  }
+});
 // Suppress agent-level Slack notifications for job agents (job notifier handles those)
 agentManager.onLatestEvent((agent) => {
   void jobService.getLatestRunForAgent(agent.id).then((run) => {
@@ -97,6 +105,34 @@ agentManager.onLatestEvent((agent) => {
 });
 const activeArchives = new Set<Promise<void>>();
 const archivingAgentIds = new Set<string>();
+
+async function autoArchiveJobAgent(agentId: string): Promise<void> {
+  if (archivingAgentIds.has(agentId)) return;
+  try {
+    const agent = await agentManager.beginArchive(agentId, "auto");
+    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+    archivingAgentIds.add(agentId);
+    const archivePromise = agentManager.executeArchive(agentId, {
+      onPhaseChange: (updated) => {
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+      },
+      onComplete: (deletedIds) => {
+        for (const deletedId of deletedIds) {
+          uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+          archivingAgentIds.delete(deletedId);
+        }
+        activeArchives.delete(archivePromise);
+      },
+      onError: () => {
+        archivingAgentIds.delete(agentId);
+        activeArchives.delete(archivePromise);
+      },
+    });
+    activeArchives.add(archivePromise);
+  } catch (err) {
+    app.log.warn({ err, agentId }, "Auto-archive of job agent failed");
+  }
+}
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
