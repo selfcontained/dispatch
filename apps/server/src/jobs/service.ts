@@ -7,7 +7,6 @@ import type { Pool } from "pg";
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import type { JobDefinition } from "./parser.js";
 import { readJobDefinition } from "./parser.js";
 import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
 import { installCronEntry, removeCronEntry, getNextRun } from "./cron.js";
@@ -65,19 +64,21 @@ export class JobService {
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
-    // Try reading the file to refresh stored config; fall back to DB if file is gone
-    const { job, definition } = await this.resolveJobAndDefinition(input.directory, input.name);
+    // Pre-execute: sync file → DB if the file exists
+    const job = await this.syncJobFromFile(input.directory, input.name);
+
+    if (!job.prompt) {
+      throw new Error(`Job "${job.name}" has no prompt configured. Add a prompt to the job file or configure it in the UI.`);
+    }
+
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
       throw new Error(`Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`);
     }
 
+    // Everything below reads from the DB record only
     let run = await this.store.createRun(job.id, buildRunConfig(job));
-    const prompt = buildJobPrompt(definition, {
-      jobId: job.id,
-      runId: run.id,
-      additionalInstructions: job.additionalInstructions
-    });
+    const prompt = buildJobPrompt(job, run.id);
 
     try {
       const agent = await this.agentManager.createAgent({
@@ -152,8 +153,7 @@ export class JobService {
   }
 
   async enableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    // Upsert from file if it exists (seeds config on first enable)
-    const job = await this.upsertFromFileIfExists(input.directory, input.name);
+    const job = await this.syncJobFromFile(input.directory, input.name);
     const schedule = job.schedule;
     if (!schedule) {
       throw new Error(`Job "${job.name}" has no schedule configured.`);
@@ -174,7 +174,7 @@ export class JobService {
   }
 
   async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const job = await this.upsertFromFileIfExists(input.directory, input.name);
+    const job = await this.syncJobFromFile(input.directory, input.name);
     const updated = await this.store.setEnabled(job.id, false);
 
     await removeCronEntry(updated.directory, updated.name);
@@ -206,57 +206,21 @@ export class JobService {
   }
 
   /**
-   * Try to upsert from the file definition. If file exists, refreshes
-   * prompt/filePath in DB. If file is missing, returns the existing
-   * DB record. Throws if neither source exists.
+   * Pre-execute step: try to read the job file and upsert the DB record
+   * (refreshes prompt and file_path only). If the file is missing, returns
+   * the existing DB record. Throws if neither source exists.
    */
-  private async upsertFromFileIfExists(directory: string, name: string): Promise<JobRecord> {
+  private async syncJobFromFile(directory: string, name: string): Promise<JobRecord> {
     try {
       const definition = await readJobDefinition(directory, name);
       return await this.store.upsertJobFromDefinition(definition);
     } catch {
       const existing = await this.store.getJobByDirectoryAndName(directory, name);
-      if (!existing) throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
-      return existing;
-    }
-  }
-
-  /**
-   * Try to read the job definition file and upsert the DB record.
-   * If the file doesn't exist, fall back to the stored DB record and
-   * synthesize a definition from it. Throws if neither source has a prompt.
-   */
-  private async resolveJobAndDefinition(
-    directory: string,
-    name: string
-  ): Promise<{ job: JobRecord; definition: JobDefinition }> {
-    try {
-      const definition = await readJobDefinition(directory, name);
-      const job = await this.store.upsertJobFromDefinition(definition);
-      return { job, definition };
-    } catch (fileError) {
-      // File missing or unreadable — try DB fallback
-      const existing = await this.store.getJobByDirectoryAndName(directory, name);
-      if (!existing?.prompt) {
-        // No stored prompt either — can't run
-        throw fileError;
+      if (!existing) {
+        throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
       }
-      this.logger.info(
-        { jobName: name, directory },
-        "Job file not found, using stored configuration"
-      );
-      const definition: JobDefinition = {
-        name: existing.name,
-        schedule: existing.schedule,
-        timeoutMs: existing.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        needsInputTimeoutMs: existing.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
-        fullAccess: existing.fullAccess,
-        notify: existing.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
-        body: existing.prompt,
-        filePath: existing.filePath ?? "",
-        directory: existing.directory,
-      };
-      return { job: existing, definition };
+      this.logger.info({ jobName: name, directory }, "Job file not found, using stored configuration");
+      return existing;
     }
   }
 
@@ -408,18 +372,14 @@ function buildRunConfig(job: JobRecord): JobRunConfig {
   };
 }
 
-function buildJobPrompt(definition: JobDefinition, opts: {
-  jobId: string;
-  runId: string;
-  additionalInstructions: JobRecord["additionalInstructions"];
-}): string {
-  const additional = opts.additionalInstructions?.trim()
-    ? `\n\nAdditional server-side instructions:\n${opts.additionalInstructions.trim()}`
+function buildJobPrompt(job: JobRecord, runId: string): string {
+  const additional = job.additionalInstructions?.trim()
+    ? `\n\nAdditional server-side instructions:\n${job.additionalInstructions.trim()}`
     : "";
   return [
     "You are running as a Dispatch Job agent.",
-    `Job ID: ${opts.jobId}`,
-    `Run ID: ${opts.runId}`,
+    `Job ID: ${job.id}`,
+    `Run ID: ${runId}`,
     "Use the job-specific MCP tools for lifecycle control.",
     "Call job_log for task-level progress.",
     "Call exactly one terminal tool before stopping: job_complete(report), job_failed(report), or job_needs_input(question).",
@@ -427,7 +387,7 @@ function buildJobPrompt(definition: JobDefinition, opts: {
     "Use repo tools when they are relevant to the job.",
     additional,
     "\nJob prompt:",
-    definition.body
+    job.prompt!
   ].filter(Boolean).join("\n");
 }
 
