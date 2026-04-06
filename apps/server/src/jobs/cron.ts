@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { Cron } from "croner";
 
@@ -22,13 +25,16 @@ async function readCrontab(): Promise<string[]> {
   return stdout.split("\n");
 }
 
-/** Write lines back to the user crontab. */
+/** Write lines back to the user crontab via a temp file (avoids stdin pipe issues on macOS). */
 async function writeCrontab(lines: string[]): Promise<void> {
   const content = lines.join("\n");
-  await new Promise<void>((resolve, reject) => {
-    const proc = execFile("crontab", ["-"], (err) => (err ? reject(err) : resolve()));
-    proc.stdin?.end(content);
-  });
+  const tmpFile = path.join(tmpdir(), `dispatch-crontab-${process.pid}.tmp`);
+  try {
+    await writeFile(tmpFile, content, "utf8");
+    await exec("crontab", [tmpFile]);
+  } finally {
+    await unlink(tmpFile).catch(() => {});
+  }
 }
 
 /**
