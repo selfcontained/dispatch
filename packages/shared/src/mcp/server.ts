@@ -56,6 +56,16 @@ export type GetFeedbackResult = {
   personas: PersonaFeedbackGroup[];
 };
 
+export type JobTools = {
+  complete: (agentId: string, report: unknown) => Promise<{ runId: string; status: string }>;
+  failed: (agentId: string, report: unknown) => Promise<{ runId: string; status: string }>;
+  needsInput: (agentId: string, question: string) => Promise<{ runId: string; status: string }>;
+  log: (
+    agentId: string,
+    input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
+  ) => Promise<{ runId: string; status: string }>;
+};
+
 export type PinInput = {
   label: string;
   value?: string;
@@ -100,6 +110,8 @@ export type McpRequestContext = {
     agentId: string,
     label: string
   ) => Promise<void>;
+  jobTools?: JobTools;
+  enableBuiltinTools?: boolean;
 };
 
 export async function handleMcpRequest(
@@ -128,59 +140,61 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
 
-  server.registerTool(
-    "create_pr",
-    {
-      description: "Create a GitHub pull request for the current branch.",
-      inputSchema: {
-        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
-        baseBranch: z.string().default("main").describe("Base branch to target."),
-        title: z.string().optional().describe("Explicit PR title."),
-        body: z.string().optional().describe("Explicit PR body."),
-        draft: z.boolean().default(false).describe("Create the PR as a draft."),
-        fillFromCommits: z.boolean().default(false).describe("Let gh derive title/body from commits.")
+  if (context.enableBuiltinTools !== false) {
+    server.registerTool(
+      "create_pr",
+      {
+        description: "Create a GitHub pull request for the current branch.",
+        inputSchema: {
+          cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
+          baseBranch: z.string().default("main").describe("Base branch to target."),
+          title: z.string().optional().describe("Explicit PR title."),
+          body: z.string().optional().describe("Explicit PR body."),
+          draft: z.boolean().default(false).describe("Create the PR as a draft."),
+          fillFromCommits: z.boolean().default(false).describe("Let gh derive title/body from commits.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await createPr({
+            ...args,
+            cwd: resolveCwd(args.cwd, defaultCwd)
+          });
+          return {
+            content: [{ type: "text", text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.` }],
+            structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
       }
-    },
-    async (args) => {
-      try {
-        const result = await createPr({
-          ...args,
-          cwd: resolveCwd(args.cwd, defaultCwd)
-        });
-        return {
-          content: [{ type: "text", text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.` }],
-          structuredContent: result
-        };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
+    );
 
-  server.registerTool(
-    "get_pr_status",
-    {
-      description: "Fetch status details for a pull request.",
-      inputSchema: {
-        cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
-        prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch.")
+    server.registerTool(
+      "get_pr_status",
+      {
+        description: "Fetch status details for a pull request.",
+        inputSchema: {
+          cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
+          prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await getPrStatus({
+            ...args,
+            cwd: resolveCwd(args.cwd, defaultCwd)
+          });
+          return {
+            content: [{ type: "text", text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.` }],
+            structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
       }
-    },
-    async (args) => {
-      try {
-        const result = await getPrStatus({
-          ...args,
-          cwd: resolveCwd(args.cwd, defaultCwd)
-        });
-        return {
-          content: [{ type: "text", text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.` }],
-          structuredContent: result
-        };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
+    );
+  }
 
   // TODO: Remove bin/dispatch-event and bin/dispatch-share once all agents use these MCP tools.
   if (context.agent && context.upsertEvent) {
@@ -529,6 +543,99 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           return {
             content: [{ type: "text", text: `Feedback #${result.id} marked as ${result.status}.` }]
           };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (context.agent && context.jobTools) {
+    const agentId = context.agent.id;
+    const jobTools = context.jobTools;
+    const reportSchema = z.object({
+      status: z.enum(["completed", "failed"]),
+      summary: z.string().min(1),
+      tasks: z.array(z.object({
+        name: z.string().min(1),
+        status: z.enum(["success", "skipped", "error"]),
+        summary: z.string(),
+        errors: z.array(z.object({
+          message: z.string().min(1),
+          recoverable: z.boolean().optional(),
+          action: z.string().optional()
+        })).optional()
+      }))
+    });
+
+    server.registerTool(
+      "job_complete",
+      {
+        description: "Submit the terminal structured report for a successful Dispatch job run.",
+        inputSchema: {
+          report: reportSchema.describe("Structured job report. report.status must be completed.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await jobTools.complete(agentId, args.report);
+          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+
+    server.registerTool(
+      "job_failed",
+      {
+        description: "Submit the terminal structured report for a failed Dispatch job run.",
+        inputSchema: {
+          report: reportSchema.describe("Structured job report. report.status must be failed.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await jobTools.failed(agentId, args.report);
+          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+
+    server.registerTool(
+      "job_needs_input",
+      {
+        description: "Pause a Dispatch job run when human input is required.",
+        inputSchema: {
+          question: z.string().min(1).describe("The question or decision needed from a human.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await jobTools.needsInput(agentId, args.question);
+          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+
+    server.registerTool(
+      "job_log",
+      {
+        description: "Append structured progress for a task within the active Dispatch job run.",
+        inputSchema: {
+          task: z.string().min(1).describe("Task name this log entry belongs to."),
+          message: z.string().min(1).describe("Progress message."),
+          level: z.enum(["debug", "info", "warn", "error"]).default("info").describe("Log severity.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await jobTools.log(agentId, args);
+          return { content: [{ type: "text", text: `Logged progress for job run ${result.runId}.` }], structuredContent: result };
         } catch (error) {
           return toToolError(error);
         }

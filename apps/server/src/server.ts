@@ -64,6 +64,7 @@ import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { isPinType, validatePinValue } from "./pins.js";
+import { JobService } from "./jobs/service.js";
 import { randomUUID } from "node:crypto";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
@@ -85,6 +86,7 @@ const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
+const jobService = new JobService(pool, agentManager, app.log, config);
 const activeArchives = new Set<Promise<void>>();
 const archivingAgentIds = new Set<string>();
 
@@ -828,6 +830,11 @@ const ChangePasswordBodySchema = z.object({
   currentPassword: z.string().min(1, "Current password is required."),
   newPassword: z.string().min(8, "New password must be at least 8 characters."),
 });
+const RunJobBodySchema = z.object({
+  name: z.string().min(1, "Job name is required."),
+  directory: z.string().min(1, "Job directory is required."),
+  wait: z.boolean().optional(),
+});
 
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
@@ -1018,6 +1025,24 @@ async function registerRoutes() {
   });
 
   // ---------------------------------------------------------------------------
+  // Jobs routes
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/v1/jobs/run", async (request, reply) => {
+    const parsed = RunJobBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+
+    try {
+      return await jobService.runJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // MCP routes
   // ---------------------------------------------------------------------------
 
@@ -1026,12 +1051,53 @@ async function registerRoutes() {
     await handleMcpRequest(request.raw, reply.raw, request.body);
   });
 
+  app.post("/api/mcp/jobs/:runId/:agentId", async (request, reply) => {
+    const params = request.params as { runId?: string; agentId?: string };
+    const runId = params.runId ?? "";
+    const agentId = params.agentId ?? "";
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    const run = await jobService.getActiveRunForAgent(agentId);
+    if (!run || run.id !== runId || run.agentId !== agentId) {
+      return reply.code(404).send({ error: "Active job run not found for agent." });
+    }
+
+    let repoRoot: string | null = null;
+    let worktreeRoot: string | null = null;
+    try {
+      repoRoot = await resolveRepoRoot(agent.cwd);
+      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
+    } catch {
+      // Agent may not be in a git repository — MCP still works, just without repo context.
+    }
+
+    reply.hijack();
+    await handleMcpRequest(request.raw, reply.raw, request.body, {
+      agent,
+      repoRoot,
+      worktreeRoot,
+      enableBuiltinTools: false,
+      jobTools: {
+        complete: mcpJobComplete,
+        failed: mcpJobFailed,
+        needsInput: mcpJobNeedsInput,
+        log: mcpJobLog,
+      },
+    });
+  });
+
   app.post("/api/mcp/:agentId", async (request, reply) => {
     const params = request.params as { agentId?: string };
     const agentId = params.agentId ?? "";
     const agent = await agentManager.getAgent(agentId);
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
+    }
+    const jobRun = await jobService.getLatestRunForAgent(agentId);
+    if (jobRun) {
+      return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
     let repoRoot: string | null = null;
@@ -2870,6 +2936,7 @@ async function start() {
   await runMigrations();
   config.authToken = await getOrCreateAuthToken(pool);
   await agentManager.reconcileAgents();
+  await jobService.reconcileActiveRuns();
   const agents = await agentManager.listAgents();
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
@@ -3636,6 +3703,29 @@ async function mcpDeletePin(
 ): Promise<void> {
   const agent = await agentManager.deletePin(agentId, label);
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
+  const run = await jobService.completeRunForAgent(agentId, report);
+  return { runId: run.id, status: run.status };
+}
+
+async function mcpJobFailed(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
+  const run = await jobService.failRunForAgent(agentId, report);
+  return { runId: run.id, status: run.status };
+}
+
+async function mcpJobNeedsInput(agentId: string, question: string): Promise<{ runId: string; status: string }> {
+  const run = await jobService.markNeedsInputForAgent(agentId, question);
+  return { runId: run.id, status: run.status };
+}
+
+async function mcpJobLog(
+  agentId: string,
+  input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
+): Promise<{ runId: string; status: string }> {
+  const run = await jobService.logForAgent(agentId, input);
+  return { runId: run.id, status: run.status };
 }
 
 async function mcpLaunchPersona(

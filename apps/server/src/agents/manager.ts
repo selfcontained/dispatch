@@ -92,6 +92,7 @@ type CreateAgentInput = {
   parentAgentId?: string;
   personaContext?: string;
   cliSessionId?: string;
+  jobRunId?: string;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -284,7 +285,7 @@ export class AgentManager {
         await this.ensureNoExistingSession(tmuxSession);
 
         // Build the agent command that the setup script will exec into
-        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess, cliSessionId ?? undefined, false);
+        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess, cliSessionId ?? undefined, false, input.jobRunId);
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
         // Generate a setup script that handles worktree creation, env copy,
@@ -300,6 +301,7 @@ export class AgentManager {
           agentName: name,
           agentCommand,
           exitFile,
+          jobRunId: input.jobRunId,
         });
 
         const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
@@ -1456,21 +1458,23 @@ export class AgentManager {
     sessionName: string,
     fullAccess: boolean,
     cliSessionId?: string,
-    resume?: boolean
+    resume?: boolean,
+    jobRunId?: string
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
-    const launchGuidance =
-      `[dispatch:${agentId}] ` +
-      "Dispatch startup rules: " +
-      "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
-      "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
-      "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
-      "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
-      "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
-      "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-      "For longer artifacts, write to a file via dispatch_share and pin a reference.";
+    const launchGuidance = jobRunId
+      ? `[dispatch:${agentId}] Dispatch job startup rules: You are running a Dispatch job run (${jobRunId}). Do not use normal agent lifecycle tools such as dispatch_event; job agents have a dedicated MCP route. Use job_log for progress, use repo tools when relevant, and call a job terminal tool when the job is complete, failed, or needs input.`
+      : `[dispatch:${agentId}] ` +
+        "Dispatch startup rules: " +
+        "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
+        "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
+        "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
+        "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
+        "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
+        "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
+        "For longer artifacts, write to a file via dispatch_share and pin a reference.";
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
@@ -1523,7 +1527,7 @@ export class AgentManager {
 
     const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
-    const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
+    const dispatchMcpUrl = this.dispatchMcpUrl(agentId, jobRunId);
     const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
     const { passthroughArgs, appendedSystemPrompt } = this.normalizeAgentArgsForType(type, args);
 
@@ -1589,8 +1593,9 @@ export class AgentManager {
     return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(startupPrompt)}`;
   }
 
-  private dispatchMcpUrl(agentId: string): string {
-    return `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}/api/mcp/${agentId}`;
+  private dispatchMcpUrl(agentId: string, jobRunId?: string): string {
+    const path = jobRunId ? `/api/mcp/jobs/${jobRunId}/${agentId}` : `/api/mcp/${agentId}`;
+    return `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}${path}`;
   }
 
   private shellEscape(value: string): string {
@@ -1921,6 +1926,7 @@ export class AgentManager {
     agentName: string;
     agentCommand: string;
     exitFile: string;
+    jobRunId?: string;
   }): string {
     const {
       agentId,
@@ -2094,10 +2100,9 @@ export class AgentManager {
       ``,
     );
 
-    // Opencode: write opencode.json with dispatch MCP server config so the agent
-    // can call dispatch_event, dispatch_pin, etc.
+    // Opencode: write opencode.json with the Dispatch MCP server config.
     if (agentType === "opencode") {
-      const dispatchMcpUrl = this.dispatchMcpUrl(agentId);
+      const dispatchMcpUrl = this.dispatchMcpUrl(agentId, params.jobRunId);
       const mcpEntry = JSON.stringify({
         type: "remote",
         url: dispatchMcpUrl,

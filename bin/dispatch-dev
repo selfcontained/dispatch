@@ -187,15 +187,33 @@ cmd_up() {
     fi
 
     DEV_CONTAINER_SUFFIX="$SUFFIX"
-    DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
     DEV_COMPOSE_PROJECT="dispatch-dev-${SUFFIX}"
 
-    echo "Starting database on port ${DEV_DB_PORT}..."
+    local db_attempt=1
+    local db_max_attempts=5
+    local compose_output
+    compose_output="$(log_dir)/db-up.log"
+    while [ $db_attempt -le $db_max_attempts ]; do
+      DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
 
-    DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" up -d --wait 2>&1
+      echo "Starting database on port ${DEV_DB_PORT}..."
 
-    echo "Database ready on port ${DEV_DB_PORT}"
+      if DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
+        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" up -d --wait >"$compose_output" 2>&1; then
+        cat "$compose_output"
+        echo "Database ready on port ${DEV_DB_PORT}"
+        break
+      fi
+
+      cat "$compose_output"
+      if [ -n "${RESTART_DB_PORT:-}" ] || ! grep -q "address already in use" "$compose_output" || [ $db_attempt -eq $db_max_attempts ]; then
+        exit 1
+      fi
+
+      echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v >/dev/null 2>&1 || true
+      db_attempt=$((db_attempt + 1))
+    done
   fi
 
   # --- API Server ---
