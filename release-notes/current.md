@@ -1,5 +1,6 @@
 ## What's Changed
-* [codex] Clarify pin guidance in launch prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/235
+* [codex] Fix release log dedupe and filename pin display by @selfcontained in https://github.com/selfcontained/dispatch/pull/236
+* Configure dispatch MCP server for opencode agents by @selfcontained in https://github.com/selfcontained/dispatch/pull/237
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.25...v0.9.26
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.26...v0.9.27
