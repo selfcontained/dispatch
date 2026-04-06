@@ -27,6 +27,8 @@ describe("migrations", () => {
     expect(tableNames).toContain("media");
     expect(tableNames).toContain("media_seen");
     expect(tableNames).toContain("simulator_reservations");
+    expect(tableNames).toContain("jobs");
+    expect(tableNames).toContain("job_runs");
     expect(tableNames).toContain("pgmigrations");
   });
 
