@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, FileText, GitPullRequest } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, GitPullRequest, Pin } from "lucide-react";
 
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
@@ -183,9 +183,14 @@ export function PinsPanel({ pins, selectedAgentName }: PinsPanelProps): JSX.Elem
   if (pins.length === 0) {
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
-        {selectedAgentName
-          ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
-          : "Focus an agent to view pins."}
+        <div className="flex flex-col items-center gap-2">
+          <Pin className="h-8 w-8 text-muted-foreground" />
+          <div className="mt-20">
+            {selectedAgentName
+              ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
+              : "Focus an agent to view pins."}
+          </div>
+        </div>
       </div>
     );
   }
