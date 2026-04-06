@@ -195,6 +195,16 @@ describe("AgentManager", () => {
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
     });
 
+    it("should inject an agent-scoped MCP config into OpenCode launches without inline JSON quoting bugs", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "opencode", useWorktree: false });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain(`DISPATCH_MCP_ENTRY='{"type":"remote"`);
+      expect(setupScript).toContain(`json.loads(os.environ['DISPATCH_MCP_ENTRY'])`);
+      expect(setupScript).toContain(`/api/mcp/${agent.id}`);
+      expect(setupScript).not.toContain(`cfg['mcp']['dispatch'] = {"type":"remote"`);
+    });
+
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: true });
 
