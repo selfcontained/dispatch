@@ -2111,7 +2111,7 @@ export class AgentManager {
       lines.push(
         `# --- Configure opencode MCP ---`,
         `OPENCODE_CFG="$EFFECTIVE_CWD/opencode.json"`,
-        `DISPATCH_MCP_ENTRY='${this.shellQuote(mcpEntry)}'`,
+        `export DISPATCH_MCP_ENTRY='${this.shellQuote(mcpEntry)}'`,
         `if [ -f "$OPENCODE_CFG" ]; then`,
         `  # Merge dispatch MCP entry into existing config`,
         `  EXISTING=$(cat "$OPENCODE_CFG")`,
