@@ -68,6 +68,12 @@ export type JobRunConfig = {
 export class JobStore {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * Insert a new job from a file definition (seeds all fields), or update
+   * an existing job's prompt and file_path only. Config fields like schedule,
+   * timeouts, notify, and full_access are set on first insert but preserved
+   * on subsequent upserts so user overrides (via enable/UI) aren't clobbered.
+   */
   async upsertJobFromDefinition(definition: JobDefinition): Promise<JobRecord> {
     const id = randomUUID();
     const result = await this.pool.query(
@@ -77,12 +83,7 @@ export class JobStore {
       ON CONFLICT (directory, name)
       DO UPDATE SET
         file_path = EXCLUDED.file_path,
-        schedule = EXCLUDED.schedule,
-        timeout_ms = EXCLUDED.timeout_ms,
-        needs_input_timeout_ms = EXCLUDED.needs_input_timeout_ms,
-        notify = EXCLUDED.notify,
         prompt = EXCLUDED.prompt,
-        full_access = EXCLUDED.full_access,
         updated_at = NOW()
       RETURNING ${this.jobColumns()}
       `,

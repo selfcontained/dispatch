@@ -72,7 +72,7 @@ export class JobService {
       throw new Error(`Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`);
     }
 
-    let run = await this.store.createRun(job.id, buildRunConfig(definition));
+    let run = await this.store.createRun(job.id, buildRunConfig(job));
     const prompt = buildJobPrompt(definition, {
       jobId: job.id,
       runId: run.id,
@@ -152,29 +152,29 @@ export class JobService {
   }
 
   async enableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const definition = await readJobDefinition(input.directory, input.name);
-    if (!definition.schedule) {
-      throw new Error(`Job "${definition.name}" has no schedule defined in its frontmatter.`);
+    // Upsert from file if it exists (seeds config on first enable)
+    const job = await this.upsertFromFileIfExists(input.directory, input.name);
+    const schedule = job.schedule;
+    if (!schedule) {
+      throw new Error(`Job "${job.name}" has no schedule configured.`);
     }
-    const job = await this.store.upsertJobFromDefinition(definition);
     const updated = await this.store.setEnabled(job.id, true);
 
     await installCronEntry({
       directory: updated.directory,
       name: updated.name,
-      schedule: definition.schedule,
+      schedule,
       dispatchBin: this.resolveDispatchBin(),
       authToken: this.config.authToken,
       serverUrl: `http://127.0.0.1:${this.config.port}`
     });
 
-    this.logger.info({ jobId: updated.id, name: updated.name, schedule: definition.schedule }, "Job enabled with cron schedule");
+    this.logger.info({ jobId: updated.id, name: updated.name, schedule }, "Job enabled with cron schedule");
     return updated;
   }
 
   async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const definition = await readJobDefinition(input.directory, input.name);
-    const job = await this.store.upsertJobFromDefinition(definition);
+    const job = await this.upsertFromFileIfExists(input.directory, input.name);
     const updated = await this.store.setEnabled(job.id, false);
 
     await removeCronEntry(updated.directory, updated.name);
@@ -203,6 +203,22 @@ export class JobService {
     if (!job) throw new Error(`Job "${input.name}" not found in directory "${input.directory}".`);
     const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
     return { job, runs };
+  }
+
+  /**
+   * Try to upsert from the file definition. If file exists, refreshes
+   * prompt/filePath in DB. If file is missing, returns the existing
+   * DB record. Throws if neither source exists.
+   */
+  private async upsertFromFileIfExists(directory: string, name: string): Promise<JobRecord> {
+    try {
+      const definition = await readJobDefinition(directory, name);
+      return await this.store.upsertJobFromDefinition(definition);
+    } catch {
+      const existing = await this.store.getJobByDirectoryAndName(directory, name);
+      if (!existing) throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
+      return existing;
+    }
   }
 
   /**
@@ -380,15 +396,15 @@ function buildAgentArgs(agentType: JobRecord["agentType"], prompt: string, fullA
   return fullAccess && fullAccessArg ? [...args, fullAccessArg] : args;
 }
 
-function buildRunConfig(definition: JobDefinition): JobRunConfig {
+function buildRunConfig(job: JobRecord): JobRunConfig {
   return {
-    directory: definition.directory,
-    filePath: definition.filePath,
-    name: definition.name,
-    schedule: definition.schedule,
-    timeoutMs: definition.timeoutMs,
-    needsInputTimeoutMs: definition.needsInputTimeoutMs,
-    notify: definition.notify
+    directory: job.directory,
+    filePath: job.filePath ?? "",
+    name: job.name,
+    schedule: job.schedule,
+    timeoutMs: job.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    needsInputTimeoutMs: job.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
+    notify: job.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
   };
 }
 
