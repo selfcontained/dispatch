@@ -1515,6 +1515,12 @@ export class AgentManager {
       `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`
     ];
 
+    // Forward the clipboard display to agent sessions so CLI tools can read
+    // images pasted via the browser clipboard (xclip needs a DISPLAY).
+    if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
+      envPrefixParts.push(`DISPATCH_COPY_DISPLAY=${this.shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`);
+    }
+
     // When TLS is enabled with a CA cert, tell agent CLI tools to trust it
     // so loopback MCP connections don't fail certificate verification.
     // TLS_CA should point at the CA that signed the server cert (e.g. mkcert's rootCA.pem).
