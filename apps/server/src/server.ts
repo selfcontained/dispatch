@@ -2119,7 +2119,7 @@ async function registerRoutes() {
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
-          ), 0)::int AS "totalTokens"
+          ), 0)::bigint AS "totalTokens"
          FROM agents a
          ${whereClause}
          ORDER BY ${sortSql}
@@ -2131,25 +2131,18 @@ async function registerRoutes() {
     const parentIds = agentsResult.rows.map((a: { id: string }) => a.id);
 
     // Fetch child (persona/review) agents for these parents
-    let childrenByParent: Record<string, Array<{
+    type ChildAgent = {
       id: string;
       name: string;
       persona: string | null;
       status: string;
       totalTokens: number;
       createdAt: string;
-    }>> = {};
+    };
+    const childrenByParent = new Map<string, ChildAgent[]>();
 
     if (parentIds.length > 0) {
-      const childResult = await pool.query<{
-        id: string;
-        name: string;
-        persona: string | null;
-        status: string;
-        totalTokens: number;
-        createdAt: string;
-        parentAgentId: string;
-      }>(
+      const childResult = await pool.query<ChildAgent & { parentAgentId: string }>(
         `SELECT
           a.id,
           a.name,
@@ -2158,7 +2151,7 @@ async function registerRoutes() {
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
-          ), 0)::int AS "totalTokens",
+          ), 0)::bigint AS "totalTokens",
           a.created_at AS "createdAt",
           a.parent_agent_id AS "parentAgentId"
          FROM agents a
@@ -2168,8 +2161,9 @@ async function registerRoutes() {
       );
       for (const child of childResult.rows) {
         const pid = child.parentAgentId;
-        if (!childrenByParent[pid]) childrenByParent[pid] = [];
-        childrenByParent[pid].push({
+        let list = childrenByParent.get(pid);
+        if (!list) { list = []; childrenByParent.set(pid, list); }
+        list.push({
           id: child.id,
           name: child.name,
           persona: child.persona,
@@ -2181,7 +2175,7 @@ async function registerRoutes() {
     }
 
     const agents = agentsResult.rows.map((agent: { id: string; totalTokens: number }) => {
-      const children = childrenByParent[agent.id] ?? [];
+      const children = childrenByParent.get(agent.id) ?? [];
       const childTokens = children.reduce((sum, c) => sum + c.totalTokens, 0);
       return {
         ...agent,
