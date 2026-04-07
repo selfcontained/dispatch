@@ -1,4 +1,4 @@
-CREATE TABLE persona_reviews (
+CREATE TABLE IF NOT EXISTS persona_reviews (
   id SERIAL PRIMARY KEY,
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   parent_agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -12,5 +12,5 @@ CREATE TABLE persona_reviews (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_persona_reviews_agent_id ON persona_reviews(agent_id);
-CREATE INDEX idx_persona_reviews_parent_agent_id ON persona_reviews(parent_agent_id);
+CREATE INDEX IF NOT EXISTS idx_persona_reviews_agent_id ON persona_reviews(agent_id);
+CREATE INDEX IF NOT EXISTS idx_persona_reviews_parent_agent_id ON persona_reviews(parent_agent_id);
