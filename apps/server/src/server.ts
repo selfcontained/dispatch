@@ -2899,6 +2899,7 @@ async function registerRoutes() {
         body.status as "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
       );
       if (!updated) return reply.code(404).send({ error: "Feedback not found." });
+      uiEventBroker.publish({ type: "feedback.updated", agentId, feedback: updated });
       return { feedback: updated };
     } catch (error) {
       return handleAgentError(reply, error);
