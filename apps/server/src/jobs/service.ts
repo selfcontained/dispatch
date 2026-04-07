@@ -39,6 +39,7 @@ export class JobService {
   private readonly monitors = new Map<string, Promise<JobRunRecord>>();
   private readonly schedulers = new Map<string, Cron>();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
+  private stopping = false;
 
   constructor(
     pool: Pool,
@@ -232,8 +233,9 @@ export class JobService {
     this.logger.info({ count: this.schedulers.size }, "Started in-process schedulers for enabled jobs");
   }
 
-  /** Stop all in-process schedulers. Called on server shutdown. */
+  /** Stop all in-process schedulers and signal monitors to exit. Called on server shutdown. */
   stopAllSchedulers(): void {
+    this.stopping = true;
     for (const cron of this.schedulers.values()) {
       cron.stop();
     }
@@ -307,7 +309,7 @@ export class JobService {
     let current = await this.store.getRun(runId);
     if (!current) throw new Error(`Job run ${runId} not found.`);
 
-    while (ACTIVE_RUN_STATUSES.has(current.status)) {
+    while (ACTIVE_RUN_STATUSES.has(current.status) && !this.stopping) {
       const now = Date.now();
       const startedAt = new Date(current.startedAt).getTime();
       const statusUpdatedAt = new Date(current.statusUpdatedAt).getTime();
