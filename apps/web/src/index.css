@@ -365,14 +365,21 @@ html[data-theme="matrix"] body::after {
     touch-action: none;
   }
 
-  /* Re-enable pan-y on explicitly scrollable containers so internal
-     scroll areas (sidebar lists, dialog bodies, etc.) still work. */
+  /* Re-enable pan on explicitly scrollable containers so internal
+     scroll areas (sidebar lists, dialog bodies, code blocks, etc.)
+     still work. */
   [style*="overflow"]:not([style*="hidden"]),
   .overflow-y-auto,
   .overflow-auto,
   .overflow-y-scroll,
   .overflow-scroll {
     touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
+
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    touch-action: pan-x pan-y;
     overscroll-behavior: contain;
   }
 }
