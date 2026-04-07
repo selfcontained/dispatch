@@ -1,5 +1,5 @@
 ## What's Changed
-* Improve media sidebar and pins panel empty states by @selfcontained in https://github.com/selfcontained/dispatch/pull/238
+* Add dispatch jobs scheduling, notifications, and auto-archive (Phase 2) by @selfcontained in https://github.com/selfcontained/dispatch/pull/243
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.31...v0.9.32
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.32...v0.9.33
