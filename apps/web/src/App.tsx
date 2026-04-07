@@ -227,12 +227,7 @@ export function DashboardLayout(): JSX.Element {
   const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
 
   const ensureAuxExpanded = useCallback((agentId: string) => {
-    setExpandedAgentId((current) => {
-      if (current === null || current === agentId) {
-        return agentId;
-      }
-      return current;
-    });
+    setExpandedAgentId(agentId);
   }, [setExpandedAgentId]);
 
   // ── Terminal ──────────────────────────────────────────────────────────
