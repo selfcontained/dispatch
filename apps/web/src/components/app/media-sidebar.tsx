@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useRef } from "react";
-import { ChevronRight, ExternalLink, FileText, MonitorPlay, X } from "lucide-react";
+import { ChevronRight, ExternalLink, FileText, MonitorPlay, X, Image, File as FileIcon, Video } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
@@ -93,7 +93,16 @@ function MediaContent({
       <div ref={mediaViewportRef} className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         {mediaFiles.length === 0 && !hasStream ? (
           <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
-            {selectedAgentId ? "No media yet." : "Focus an agent to view media."}
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-8">
+                <Image className="h-8 w-8 text-muted-foreground" />
+                <Video className="h-8 w-8 text-muted-foreground" />
+                <FileIcon className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <div className="mt-20">
+                {selectedAgentId ? "No media yet. Agents can share screenshots, videos and documents." : "Focus an agent to view media."}
+              </div>
+            </div>
           </div>
         ) : mediaFiles.length === 0 ? null : (
           mediaFiles.map((file) => {
@@ -183,11 +192,11 @@ export function MediaSidebarContent({
   openLightbox,
   hasStream,
   streamUrl,
-  unseenMediaCount,
   onRequestClose,
   closeButtonIcon = "x",
-  className
-}: MediaSidebarContentProps): JSX.Element {
+  className,
+  unseenMediaCount
+}: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
   const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
   const prevAgentIdRef = useRef(selectedAgentId);
 
@@ -198,8 +207,6 @@ export function MediaSidebarContent({
       setActiveTab("pins");
     }
   }
-
-  const pinCount = selectedAgentPins.length;
 
   return (
     <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
@@ -216,14 +223,14 @@ export function MediaSidebarContent({
             )}
           >
             Pins
-            {pinCount > 0 && activeTab !== "pins" ? (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold text-muted-foreground">
-                {pinCount}
-              </span>
-            ) : null}
             {activeTab === "pins" ? (
               <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
             ) : null}
+            {selectedAgentPins.length > 0 && (
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
+                {selectedAgentPins.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab("media")}
@@ -235,14 +242,14 @@ export function MediaSidebarContent({
             )}
           >
             Media
-            {unseenMediaCount > 0 && activeTab !== "media" ? (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/20 px-1 text-[10px] font-semibold text-blue-400">
-                {unseenMediaCount}
-              </span>
-            ) : null}
             {activeTab === "media" ? (
               <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
             ) : null}
+            {unseenMediaCount > 0 && (
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
+                {unseenMediaCount}
+              </span>
+            )}
           </button>
         </div>
         {onRequestClose ? (
