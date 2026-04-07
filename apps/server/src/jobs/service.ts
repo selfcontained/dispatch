@@ -72,6 +72,8 @@ export class JobService {
       throw new Error(`Job "${job.name}" has no prompt configured. Add a prompt to the job file or configure it in the UI.`);
     }
 
+    // Pre-check for user-friendly error message. The DB unique index
+    // (idx_job_runs_one_active_per_job) is the real guard against concurrent races.
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
       throw new Error(`Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`);
@@ -83,7 +85,7 @@ export class JobService {
 
     try {
       const agent = await this.agentManager.createAgent({
-        name: `job-${job.name}-${run.id.slice(0, 8)}`,
+        name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
         type: job.agentType,
         cwd: job.directory,
         agentArgs: buildAgentArgs(job.agentType, prompt, job.fullAccess),
@@ -440,6 +442,10 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeAgentName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
 }
 
 function isFileNotFound(err: unknown): boolean {

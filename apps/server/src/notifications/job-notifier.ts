@@ -87,9 +87,9 @@ export class JobNotifier {
     }
 
     const cfg = EVENT_CONFIG[event];
-    const jobName = run.config.name;
+    const jobName = escapeSlackMrkdwn(run.config.name);
     const directory = run.config.directory;
-    const summary = run.report?.summary ?? run.pendingQuestion ?? "";
+    const summary = escapeSlackMrkdwn(run.report?.summary ?? run.pendingQuestion ?? "");
     const duration = run.durationMs != null ? this.formatDuration(run.durationMs) : null;
 
     const statusLabel = run.status === "timed_out" ? "timed out" : run.status;
@@ -151,4 +151,9 @@ export class JobNotifier {
     const remMins = mins % 60;
     return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
   }
+}
+
+/** Escape characters that Slack interprets as mrkdwn or link syntax. */
+function escapeSlackMrkdwn(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
