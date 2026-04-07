@@ -3033,6 +3033,7 @@ async function start() {
   config.authToken = await getOrCreateAuthToken(pool);
   await agentManager.reconcileAgents();
   await jobService.reconcileActiveRuns();
+  await jobService.startSchedulers();
   const agents = await agentManager.listAgents();
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
@@ -3711,6 +3712,7 @@ async function shutdown(code: number): Promise<void> {
   }
   shuttingDown = true;
 
+  jobService.stopAllSchedulers();
   streamManager.stopAll();
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();

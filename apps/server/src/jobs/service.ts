@@ -1,15 +1,15 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
+import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { readJobDefinition, jobFilePath } from "./parser.js";
 import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
-import { installCronEntry, removeCronEntry, getNextRun } from "./cron.js";
+import { getNextRun, validateCronExpression } from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
 
@@ -37,6 +37,7 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export class JobService {
   private readonly store: JobStore;
   private readonly monitors = new Map<string, Promise<JobRunRecord>>();
+  private readonly schedulers = new Map<string, Cron>();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
 
   constructor(
@@ -158,28 +159,20 @@ export class JobService {
     if (!schedule) {
       throw new Error(`Job "${job.name}" has no schedule configured.`);
     }
+    if (!validateCronExpression(schedule)) {
+      throw new Error(`Job "${job.name}" has an invalid cron expression: "${schedule}"`);
+    }
     const updated = await this.store.setEnabled(job.id, true);
-
-    await installCronEntry({
-      directory: updated.directory,
-      name: updated.name,
-      schedule,
-      dispatchBin: this.resolveDispatchBin(),
-      authToken: this.config.authToken,
-      serverUrl: `http://127.0.0.1:${this.config.port}`
-    });
-
-    this.logger.info({ jobId: updated.id, name: updated.name, schedule }, "Job enabled with cron schedule");
+    this.scheduleJob(updated);
+    this.logger.info({ jobId: updated.id, name: updated.name, schedule }, "Job enabled with in-process scheduler");
     return updated;
   }
 
   async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
     const job = await this.syncJobFromFile(input.directory, input.name);
     const updated = await this.store.setEnabled(job.id, false);
-
-    await removeCronEntry(updated.directory, updated.name);
-
-    this.logger.info({ jobId: updated.id, name: updated.name }, "Job disabled, cron entry removed");
+    this.stopScheduler(updated.id);
+    this.logger.info({ jobId: updated.id, name: updated.name }, "Job disabled, scheduler stopped");
     return updated;
   }
 
@@ -224,8 +217,55 @@ export class JobService {
     }
   }
 
-  private resolveDispatchBin(): string {
-    return path.join(this.config.dispatchBinDir, "dispatch");
+  /** Load all enabled jobs from DB and start their in-process schedulers. Called on server startup. */
+  async startSchedulers(): Promise<void> {
+    const jobs = await this.store.listJobs();
+    for (const job of jobs) {
+      if (job.enabled && job.schedule) {
+        this.scheduleJob(job);
+      }
+    }
+    this.logger.info({ count: this.schedulers.size }, "Started in-process schedulers for enabled jobs");
+  }
+
+  /** Stop all in-process schedulers. Called on server shutdown. */
+  stopAllSchedulers(): void {
+    for (const [jobId, cron] of this.schedulers) {
+      cron.stop();
+    }
+    this.schedulers.clear();
+  }
+
+  private scheduleJob(job: JobRecord): void {
+    this.stopScheduler(job.id);
+    if (!job.schedule) return;
+
+    const cronJob = new Cron(job.schedule, async () => {
+      try {
+        const activeRun = await this.store.findActiveRun(job.id);
+        if (activeRun) {
+          this.logger.info(
+            { jobId: job.id, name: job.name, activeRunId: activeRun.id },
+            "Skipping scheduled run — job already has an active run"
+          );
+          return;
+        }
+        await this.runJob({ name: job.name, directory: job.directory, wait: false });
+      } catch (err) {
+        this.logger.error({ err, jobId: job.id, name: job.name }, "Scheduled job run failed");
+      }
+    });
+
+    this.schedulers.set(job.id, cronJob);
+    this.logger.info({ jobId: job.id, name: job.name, schedule: job.schedule }, "In-process scheduler started");
+  }
+
+  private stopScheduler(jobId: string): void {
+    const existing = this.schedulers.get(jobId);
+    if (existing) {
+      existing.stop();
+      this.schedulers.delete(jobId);
+    }
   }
 
   private startMonitor(runId: string): void {
