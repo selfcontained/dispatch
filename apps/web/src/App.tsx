@@ -227,12 +227,7 @@ export function DashboardLayout(): JSX.Element {
   const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
 
   const ensureAuxExpanded = useCallback((agentId: string) => {
-    setExpandedAgentId((current) => {
-      if (current === null || current === agentId) {
-        return agentId;
-      }
-      return current;
-    });
+    setExpandedAgentId(agentId);
   }, [setExpandedAgentId]);
 
   // ── Terminal ──────────────────────────────────────────────────────────
@@ -599,12 +594,17 @@ export function DashboardLayout(): JSX.Element {
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
                 {feedbackDetailRendered ? (
                   "summaryAgentId" in feedbackDetailRendered ? (
-                    <ReviewSummaryPanel
-                      key={`summary-${feedbackDetailRendered.summaryAgentId}`}
-                      parentAgentId={feedbackDetailRendered.parentAgentId}
-                      summaryAgentId={feedbackDetailRendered.summaryAgentId}
-                      onClose={() => setFeedbackDetail(null)}
-                    />
+                    (() => {
+                      const summaryAgent = agents.find((a) => a.id === feedbackDetailRendered.summaryAgentId);
+                      return summaryAgent ? (
+                        <ReviewSummaryPanel
+                          key={`summary-${feedbackDetailRendered.summaryAgentId}`}
+                          parentAgentId={feedbackDetailRendered.parentAgentId}
+                          agent={summaryAgent}
+                          onClose={() => setFeedbackDetail(null)}
+                        />
+                      ) : null;
+                    })()
                   ) : (
                     <FeedbackDetailPanel
                       key={feedbackDetailRendered.parentAgentId}
