@@ -392,7 +392,9 @@ export function DashboardLayout(): JSX.Element {
   const attachToAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
-      ensureAuxExpanded(agent.id);
+      // Child persona agents are rendered inside their parent's expanded card,
+      // so expand the parent instead of the child to keep it visible.
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
@@ -402,7 +404,7 @@ export function DashboardLayout(): JSX.Element {
   const startAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
-      ensureAuxExpanded(agent.id);
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       await api(`/api/v1/agents/${agent.id}/start`, {
         method: "POST",
         body: JSON.stringify({}),
