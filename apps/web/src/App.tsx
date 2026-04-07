@@ -16,7 +16,7 @@ import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sideba
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
-import { type FeedbackDetailState, FeedbackDetailPanel } from "@/components/app/feedback-panel";
+import { type FeedbackDetailState, FeedbackDetailPanel, ReviewSummaryPanel } from "@/components/app/feedback-panel";
 import {
   type Agent,
   type AgentVisualState,
@@ -598,15 +598,24 @@ export function DashboardLayout(): JSX.Element {
             {!isMobile ? (
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
                 {feedbackDetailRendered ? (
-                  <FeedbackDetailPanel
-                    key={feedbackDetailRendered.parentAgentId}
-                    parentAgentId={feedbackDetailRendered.parentAgentId}
-                    itemId={feedbackDetailRendered.itemId}
-                    isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={() => setFeedbackDetail(null)}
-                    onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
-                  />
+                  "summaryAgentId" in feedbackDetailRendered ? (
+                    <ReviewSummaryPanel
+                      key={`summary-${feedbackDetailRendered.summaryAgentId}`}
+                      parentAgentId={feedbackDetailRendered.parentAgentId}
+                      summaryAgentId={feedbackDetailRendered.summaryAgentId}
+                      onClose={() => setFeedbackDetail(null)}
+                    />
+                  ) : (
+                    <FeedbackDetailPanel
+                      key={feedbackDetailRendered.parentAgentId}
+                      parentAgentId={feedbackDetailRendered.parentAgentId}
+                      itemId={feedbackDetailRendered.itemId}
+                      isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
+                      sendTerminalInput={sendTerminalInput}
+                      onClose={() => setFeedbackDetail(null)}
+                      onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
+                    />
+                  )
                 ) : null}
               </div>
             ) : null}

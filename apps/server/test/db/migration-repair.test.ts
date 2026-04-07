@@ -49,7 +49,8 @@ describe("migration drift repair", () => {
   it("allows 0005 to be safely re-run during manual recovery", async () => {
     await pool.query(
       `DELETE FROM pgmigrations
-       WHERE name IN ('0005_jobs-file-path-unique', '0006_jobs-schedule-repair')`
+       WHERE name IN ('0005_jobs-file-path-unique', '0006_jobs-schedule-repair')
+          OR name > '0006'`
     );
 
     await expect(runMigrations(getTestDatabaseUrl())).resolves.not.toThrow();

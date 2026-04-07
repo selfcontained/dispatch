@@ -49,7 +49,7 @@ export function PersonaLauncher({
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" disabled={disabled} className="gap-1.5 border border-border/60 bg-background/50 text-muted-foreground hover:text-foreground hover:bg-muted/60">
           <Sparkles className="h-3 w-3" />
-          Launch Persona
+          Launch Reviewer
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">

@@ -38,6 +38,14 @@ export type Agent = {
   persona?: string | null;
   parentAgentId?: string | null;
   personaContext?: string | null;
+  review?: {
+    status: string;
+    message: string | null;
+    verdict: string | null;
+    summary: string | null;
+    filesReviewed: string[] | null;
+    updatedAt: string;
+  } | null;
   hasStream?: boolean;
   createdAt: string;
   updatedAt: string;

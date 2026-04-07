@@ -35,6 +35,15 @@ export function validateTerminalJobReport(value: unknown, expectedStatus: "compl
   return report;
 }
 
+const MAX_SUMMARY_LENGTH = 10_000;
+const MAX_TASK_NAME_LENGTH = 200;
+const MAX_ERROR_MESSAGE_LENGTH = 10_000;
+const MAX_LOG_MESSAGE_LENGTH = 5_000;
+const MAX_TASKS = 100;
+const MAX_ERRORS_PER_TASK = 100;
+const MAX_LOGS_PER_TASK = 500;
+const MAX_REPORT_BYTES = 1_000_000; // 1 MB
+
 export function validateJobReport(value: unknown): JobReport {
   if (!isRecord(value)) throw new Error("report must be an object.");
   const status = value.status;
@@ -42,9 +51,16 @@ export function validateJobReport(value: unknown): JobReport {
     throw new Error('report.status must be one of: "completed", "failed", "running".');
   }
   const summary = readNonEmptyString(value.summary, "report.summary");
+  if (summary.length > MAX_SUMMARY_LENGTH) throw new Error(`report.summary exceeds ${MAX_SUMMARY_LENGTH} character limit.`);
   if (!Array.isArray(value.tasks)) throw new Error("report.tasks must be an array.");
+  if (value.tasks.length > MAX_TASKS) throw new Error(`report.tasks exceeds ${MAX_TASKS} task limit.`);
   const tasks = value.tasks.map((task, index) => validateTask(task, index));
-  return { status, summary, tasks };
+  const report: JobReport = { status, summary, tasks };
+  const serialized = JSON.stringify(report);
+  if (Buffer.byteLength(serialized, "utf-8") > MAX_REPORT_BYTES) {
+    throw new Error(`Report exceeds ${MAX_REPORT_BYTES / 1_000_000}MB size limit.`);
+  }
+  return report;
 }
 
 export function appendJobLog(report: JobReport | null, input: {
@@ -67,18 +83,23 @@ export function appendJobLog(report: JobReport | null, input: {
 
   let task = next.tasks.find((candidate) => candidate.name === taskName);
   if (!task) {
+    if (next.tasks.length >= MAX_TASKS) {
+      throw new Error(`Cannot add task "${taskName}": report already has ${MAX_TASKS} tasks.`);
+    }
     task = { name: taskName, status: "success", summary: "", logs: [] };
     next.tasks.push(task);
   }
 
-  task.logs = [
+  const logs = [
     ...(task.logs ?? []),
     {
-      message,
+      message: message.slice(0, MAX_LOG_MESSAGE_LENGTH),
       level: input.level,
       createdAt: new Date().toISOString()
     }
   ];
+  // Keep only the most recent entries if we exceed the cap
+  task.logs = logs.length > MAX_LOGS_PER_TASK ? logs.slice(-MAX_LOGS_PER_TASK) : logs;
   return next;
 }
 
@@ -88,17 +109,18 @@ function validateTask(value: unknown, index: number): JobReportTask {
   if (status !== "success" && status !== "skipped" && status !== "error") {
     throw new Error(`report.tasks[${index}].status must be one of: "success", "skipped", "error".`);
   }
-  const task: JobReportTask = {
-    name: readNonEmptyString(value.name, `report.tasks[${index}].name`),
-    status,
-    summary: typeof value.summary === "string" ? value.summary : ""
-  };
+  const name = readNonEmptyString(value.name, `report.tasks[${index}].name`);
+  if (name.length > MAX_TASK_NAME_LENGTH) throw new Error(`report.tasks[${index}].name exceeds ${MAX_TASK_NAME_LENGTH} character limit.`);
+  const summary = typeof value.summary === "string" ? value.summary.slice(0, MAX_SUMMARY_LENGTH) : "";
+  const task: JobReportTask = { name, status, summary };
   if (value.errors !== undefined) {
     if (!Array.isArray(value.errors)) throw new Error(`report.tasks[${index}].errors must be an array.`);
+    if (value.errors.length > MAX_ERRORS_PER_TASK) throw new Error(`report.tasks[${index}].errors exceeds ${MAX_ERRORS_PER_TASK} error limit.`);
     task.errors = value.errors.map((error, errorIndex) => validateTaskError(error, index, errorIndex));
   }
   if (value.logs !== undefined) {
     if (!Array.isArray(value.logs)) throw new Error(`report.tasks[${index}].logs must be an array.`);
+    if (value.logs.length > MAX_LOGS_PER_TASK) throw new Error(`report.tasks[${index}].logs exceeds ${MAX_LOGS_PER_TASK} log limit.`);
     task.logs = value.logs.map((log, logIndex) => validateTaskLog(log, index, logIndex));
   }
   return task;
@@ -106,11 +128,12 @@ function validateTask(value: unknown, index: number): JobReportTask {
 
 function validateTaskError(value: unknown, taskIndex: number, errorIndex: number): JobReportError {
   if (!isRecord(value)) throw new Error(`report.tasks[${taskIndex}].errors[${errorIndex}] must be an object.`);
+  const message = readNonEmptyString(value.message, `report.tasks[${taskIndex}].errors[${errorIndex}].message`);
   const error: JobReportError = {
-    message: readNonEmptyString(value.message, `report.tasks[${taskIndex}].errors[${errorIndex}].message`)
+    message: message.slice(0, MAX_ERROR_MESSAGE_LENGTH)
   };
   if (typeof value.recoverable === "boolean") error.recoverable = value.recoverable;
-  if (typeof value.action === "string") error.action = value.action;
+  if (typeof value.action === "string") error.action = value.action.slice(0, MAX_ERROR_MESSAGE_LENGTH);
   return error;
 }
 
