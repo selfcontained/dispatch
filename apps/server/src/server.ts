@@ -2061,7 +2061,7 @@ async function registerRoutes() {
       : "created_at";
     const order = typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
 
-    const conditions: string[] = [];
+    const conditions: string[] = ["a.parent_agent_id IS NULL"];
     const params: unknown[] = [];
 
     if (search) {
@@ -2128,7 +2128,69 @@ async function registerRoutes() {
       ),
     ]);
 
-    return { agents: agentsResult.rows, total: countResult.rows[0]?.total ?? 0, limit, offset };
+    const parentIds = agentsResult.rows.map((a: { id: string }) => a.id);
+
+    // Fetch child (persona/review) agents for these parents
+    let childrenByParent: Record<string, Array<{
+      id: string;
+      name: string;
+      persona: string | null;
+      status: string;
+      totalTokens: number;
+      createdAt: string;
+    }>> = {};
+
+    if (parentIds.length > 0) {
+      const childResult = await pool.query<{
+        id: string;
+        name: string;
+        persona: string | null;
+        status: string;
+        totalTokens: number;
+        createdAt: string;
+        parentAgentId: string;
+      }>(
+        `SELECT
+          a.id,
+          a.name,
+          a.persona,
+          a.status,
+          COALESCE((
+            SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
+            FROM agent_token_usage WHERE agent_id = a.id
+          ), 0)::int AS "totalTokens",
+          a.created_at AS "createdAt",
+          a.parent_agent_id AS "parentAgentId"
+         FROM agents a
+         WHERE a.parent_agent_id = ANY($1)
+         ORDER BY a.created_at ASC`,
+        [parentIds]
+      );
+      for (const child of childResult.rows) {
+        const pid = child.parentAgentId;
+        if (!childrenByParent[pid]) childrenByParent[pid] = [];
+        childrenByParent[pid].push({
+          id: child.id,
+          name: child.name,
+          persona: child.persona,
+          status: child.status,
+          totalTokens: child.totalTokens,
+          createdAt: child.createdAt,
+        });
+      }
+    }
+
+    const agents = agentsResult.rows.map((agent: { id: string; totalTokens: number }) => {
+      const children = childrenByParent[agent.id] ?? [];
+      const childTokens = children.reduce((sum, c) => sum + c.totalTokens, 0);
+      return {
+        ...agent,
+        children,
+        groupTotalTokens: agent.totalTokens + childTokens,
+      };
+    });
+
+    return { agents, total: countResult.rows[0]?.total ?? 0, limit, offset };
   });
 
   app.get("/api/v1/history/agents/:id", async (request, reply) => {
