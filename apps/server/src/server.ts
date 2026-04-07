@@ -3988,8 +3988,11 @@ async function mcpLaunchPersona(
     persona: opts.persona,
   });
 
+  // Re-fetch so the SSE event includes the review subquery data
+  const agentWithReview = await agentManager.getAgent(agent.id);
+
   queueGitContextRefresh([agent.id]);
-  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agentWithReview ?? agent) });
 
   // Send initial prompt to the persona agent after it starts up
   if (agent.tmuxSession) {
