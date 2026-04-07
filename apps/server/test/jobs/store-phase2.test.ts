@@ -129,6 +129,51 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     expect(found).toBeNull();
   });
 
+  it("upsert stores full config on first insert", async () => {
+    const job = await store.upsertJobFromDefinition({
+      ...definition,
+      name: "config-test",
+      filePath: "/tmp/test-repo/.dispatch/jobs/config-test.md",
+      schedule: "30 2 * * 1-5",
+      timeoutMs: 120_000,
+      needsInputTimeoutMs: 7_200_000,
+      notify: { onComplete: ["slack"], onError: ["slack"], onNeedsInput: ["slack"] },
+      body: "Original prompt",
+    });
+    expect(job.schedule).toBe("30 2 * * 1-5");
+    expect(job.timeoutMs).toBe(120_000);
+    expect(job.needsInputTimeoutMs).toBe(7_200_000);
+    expect(job.notify).toEqual({ onComplete: ["slack"], onError: ["slack"], onNeedsInput: ["slack"] });
+    expect(job.prompt).toBe("Original prompt");
+  });
+
+  it("upsert only updates prompt and name on conflict, preserves config", async () => {
+    // First insert seeds all config
+    await store.upsertJobFromDefinition({
+      ...definition,
+      name: "upsert-test",
+      filePath: "/tmp/test-repo/.dispatch/jobs/upsert-test.md",
+      schedule: "0 3 * * *",
+      timeoutMs: 300_000,
+      body: "First prompt",
+    });
+
+    // Second upsert changes prompt and name, but config should be preserved
+    const updated = await store.upsertJobFromDefinition({
+      ...definition,
+      name: "Upsert Test Renamed",
+      filePath: "/tmp/test-repo/.dispatch/jobs/upsert-test.md",
+      schedule: "*/5 * * * *",  // different schedule — should NOT overwrite
+      timeoutMs: 60_000,        // different timeout — should NOT overwrite
+      body: "Updated prompt",
+    });
+
+    expect(updated.name).toBe("Upsert Test Renamed"); // name updated
+    expect(updated.prompt).toBe("Updated prompt");     // prompt updated
+    expect(updated.schedule).toBe("0 3 * * *");        // preserved from first insert
+    expect(updated.timeoutMs).toBe(300_000);            // preserved from first insert
+  });
+
   it("listRunsForJob respects limit", async () => {
     const job = await store.upsertJobFromDefinition({
       ...definition,
