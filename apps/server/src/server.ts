@@ -1458,7 +1458,7 @@ async function registerRoutes() {
     };
   });
 
-  // Write an image from the browser clipboard to the host's macOS pasteboard.
+  // Write an image from the browser clipboard to the host's system clipboard.
   // This bridges remote browser sessions to the local system clipboard so that
   // CLI tools (e.g. Claude CLI) can read pasted images via native APIs.
   app.post("/api/v1/clipboard/image", async (request, reply) => {
@@ -1477,19 +1477,33 @@ async function registerRoutes() {
     await writeFile(tmpPath, buffer);
 
     try {
-      const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn("osascript", [
-          "-e",
-          `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
-        ]);
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
-        proc.on("error", reject);
-      });
+      if (os.platform() === "darwin") {
+        const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn("osascript", [
+            "-e",
+            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
+          ]);
+          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
+          proc.on("error", reject);
+        });
+      } else {
+        const display = process.env.DISPATCH_COPY_DISPLAY;
+        if (!display) {
+          return reply.code(500).send({ error: "DISPATCH_COPY_DISPLAY is not set. Clipboard image paste on Linux requires Xvfb and xclip." });
+        }
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn("xclip", ["-selection", "clipboard", "-t", mime, "-i", tmpPath], {
+            env: { ...process.env, DISPLAY: display }
+          });
+          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`)));
+          proc.on("error", reject);
+        });
+      }
       return reply.code(200).send({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return reply.code(500).send({ error: `Failed to write to pasteboard: ${message}` });
+      return reply.code(500).send({ error: `Failed to write to clipboard: ${message}` });
     } finally {
       await unlink(tmpPath).catch(() => {});
     }
