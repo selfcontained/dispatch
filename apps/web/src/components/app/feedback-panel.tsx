@@ -894,21 +894,17 @@ export function FeedbackDetailPanel({
 
 export function ReviewSummaryPanel({
   parentAgentId,
-  summaryAgentId,
+  agent,
   onClose,
 }: {
   parentAgentId: string;
-  summaryAgentId: string;
+  agent: Agent;
   onClose: () => void;
 }): JSX.Element | null {
   const { personaAttribution } = useFeedbackData(parentAgentId);
-  const { data: allAgents = [] } = useQuery<Agent[]>({ queryKey: ["agents"], enabled: false });
-  const agent = allAgents.find((a) => a.id === summaryAgentId);
 
   const panelRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { panelRef.current?.focus(); }, [summaryAgentId]);
-
-  if (!agent) return null;
+  useEffect(() => { panelRef.current?.focus(); }, [agent.id]);
 
   const verdict = getVerdict(agent);
   const summary = getReviewSummary(agent);
