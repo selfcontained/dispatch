@@ -8,6 +8,15 @@ const HISTORY_QUERY_OPTIONS = {
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export type HistoryChildAgent = {
+  id: string;
+  name: string;
+  persona: string | null;
+  status: string;
+  totalTokens: number;
+  createdAt: string;
+};
+
 export type HistoryAgent = {
   id: string;
   name: string;
@@ -33,6 +42,8 @@ export type HistoryAgent = {
   updatedAt: string;
   durationMs: number;
   totalTokens: number;
+  children: HistoryChildAgent[];
+  groupTotalTokens: number;
 };
 
 export type HistoryAgentsResponse = {
