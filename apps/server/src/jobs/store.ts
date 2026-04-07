@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
-import type { JobDefinition } from "./parser.js";
+import type { JobDefinition, JobNotifyConfig } from "./parser.js";
 import { appendJobLog, validateJobReport, validateTerminalJobReport, type JobReport } from "./report.js";
 
 export type JobRunStatus = "started" | "running" | "completed" | "failed" | "needs_input" | "timed_out" | "crashed";
@@ -14,6 +14,11 @@ export type JobRecord = {
   directory: string;
   name: string;
   filePath: string | null;
+  schedule: string | null;
+  timeoutMs: number | null;
+  needsInputTimeoutMs: number | null;
+  notify: JobNotifyConfig | null;
+  prompt: string | null;
   enabled: boolean;
   agentType: JobAgentType;
   useWorktree: boolean;
@@ -41,6 +46,15 @@ export type JobRunRecord = {
 
 const ACTIVE_RUN_STATUSES: JobRunStatus[] = ["started", "running", "needs_input"];
 
+export type JobWithLatestRun = JobRecord & {
+  lastRunId: string | null;
+  lastRunStatus: JobRunStatus | null;
+  lastRunStartedAt: string | null;
+  lastRunCompletedAt: string | null;
+  lastRunDurationMs: number | null;
+  lastRunReport: JobReport | null;
+};
+
 export type JobRunConfig = {
   directory: string;
   filePath: string;
@@ -54,17 +68,40 @@ export type JobRunConfig = {
 export class JobStore {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * Insert a new job from a file definition (seeds all fields), or update
+   * an existing job's prompt and name only. Config fields like schedule,
+   * timeouts, notify, and full_access are set on first insert but preserved
+   * on subsequent upserts so user overrides (via enable/UI) aren't clobbered.
+   *
+   * Unique identity is (directory, file_path). Name is a display label
+   * from frontmatter that can change without creating a new job.
+   */
   async upsertJobFromDefinition(definition: JobDefinition): Promise<JobRecord> {
     const id = randomUUID();
     const result = await this.pool.query(
       `
-      INSERT INTO jobs (id, directory, name, file_path, full_access)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (directory, name)
-      DO UPDATE SET file_path = EXCLUDED.file_path, full_access = EXCLUDED.full_access, updated_at = NOW()
+      INSERT INTO jobs (id, directory, name, file_path, schedule, timeout_ms, needs_input_timeout_ms, notify, prompt, full_access)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+      ON CONFLICT (directory, file_path)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        prompt = EXCLUDED.prompt,
+        updated_at = NOW()
       RETURNING ${this.jobColumns()}
       `,
-      [id, path.resolve(definition.directory), definition.name, definition.filePath, definition.fullAccess]
+      [
+        id,
+        path.resolve(definition.directory),
+        definition.name,
+        definition.filePath,
+        definition.schedule,
+        definition.timeoutMs,
+        definition.needsInputTimeoutMs,
+        JSON.stringify(definition.notify),
+        definition.body,
+        definition.fullAccess,
+      ]
     );
     return mapJob(result.rows[0]);
   }
@@ -220,6 +257,87 @@ export class JobStore {
     return result.rows.map((row) => mapRun(row));
   }
 
+  async listJobs(): Promise<JobWithLatestRun[]> {
+    const result = await this.pool.query(`
+      SELECT
+        j.id, j.directory, j.name,
+        j.file_path AS "filePath",
+        j.schedule,
+        j.timeout_ms AS "timeoutMs",
+        j.needs_input_timeout_ms AS "needsInputTimeoutMs",
+        j.notify,
+        j.prompt,
+        j.enabled,
+        j.agent_type AS "agentType",
+        j.use_worktree AS "useWorktree",
+        j.branch_name AS "branchName",
+        j.full_access AS "fullAccess",
+        j.additional_instructions AS "additionalInstructions",
+        j.created_at AS "createdAt",
+        j.updated_at AS "updatedAt",
+        lr.id AS "lastRunId",
+        lr.status AS "lastRunStatus",
+        lr.started_at AS "lastRunStartedAt",
+        lr.completed_at AS "lastRunCompletedAt",
+        lr.duration_ms AS "lastRunDurationMs",
+        lr.report AS "lastRunReport"
+      FROM jobs j
+      LEFT JOIN LATERAL (
+        SELECT id, status, started_at, completed_at, duration_ms, report
+        FROM job_runs
+        WHERE job_id = j.id
+        ORDER BY started_at DESC
+        LIMIT 1
+      ) lr ON true
+      ORDER BY j.name ASC, j.directory ASC
+    `);
+    return result.rows.map((row) => mapJobWithLatestRun(row));
+  }
+
+  async listRunsForJob(jobId: string, limit = 20): Promise<JobRunRecord[]> {
+    const result = await this.pool.query(
+      `
+      SELECT ${this.runColumns()}
+      FROM job_runs
+      WHERE job_id = $1
+      ORDER BY started_at DESC
+      LIMIT $2
+      `,
+      [jobId, limit]
+    );
+    return result.rows.map((row) => mapRun(row));
+  }
+
+  async getJob(jobId: string): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.jobColumns()} FROM jobs WHERE id = $1`,
+      [jobId]
+    );
+    return result.rows[0] ? mapJob(result.rows[0]) : null;
+  }
+
+  async getJobByDirectoryAndFilePath(directory: string, filePath: string): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND file_path = $2`,
+      [path.resolve(directory), filePath]
+    );
+    return result.rows[0] ? mapJob(result.rows[0]) : null;
+  }
+
+  async setEnabled(jobId: string, enabled: boolean): Promise<JobRecord> {
+    const result = await this.pool.query(
+      `
+      UPDATE jobs
+      SET enabled = $2, updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${this.jobColumns()}
+      `,
+      [jobId, enabled]
+    );
+    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+    return mapJob(result.rows[0]);
+  }
+
   private async setTerminalRunForAgent(
     agentId: string,
     status: "completed" | "failed",
@@ -263,6 +381,11 @@ export class JobStore {
       directory,
       name,
       file_path AS "filePath",
+      schedule,
+      timeout_ms AS "timeoutMs",
+      needs_input_timeout_ms AS "needsInputTimeoutMs",
+      notify,
+      prompt,
       enabled,
       agent_type AS "agentType",
       use_worktree AS "useWorktree",
@@ -298,6 +421,10 @@ function mapJob(row: Record<string, unknown>): JobRecord {
 
 function mapRun(row: Record<string, unknown>): JobRunRecord {
   return row as JobRunRecord;
+}
+
+function mapJobWithLatestRun(row: Record<string, unknown>): JobWithLatestRun {
+  return row as JobWithLatestRun;
 }
 
 function isUniqueViolation(error: unknown): boolean {

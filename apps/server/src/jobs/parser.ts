@@ -21,13 +21,19 @@ export type JobDefinition = {
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const MAX_PROMPT_BYTES = 100 * 1024; // 100 KB — avoids exceeding OS CLI arg limits
+
+/** Build the expected file path for a job given its directory and file stem. */
+export function jobFilePath(directory: string, name: string): string {
+  const normalizedName = normalizeJobName(name);
+  return path.join(path.resolve(directory), ".dispatch", "jobs", `${normalizedName}.md`);
+}
 
 export async function readJobDefinition(directory: string, name: string): Promise<JobDefinition> {
-  const normalizedName = normalizeJobName(name);
+  const filePath = jobFilePath(directory, name);
   const normalizedDirectory = path.resolve(directory);
-  const filePath = path.join(normalizedDirectory, ".dispatch", "jobs", `${normalizedName}.md`);
   const raw = await readFile(filePath, "utf8");
-  return parseJobDefinition(raw, { directory: normalizedDirectory, filePath, fallbackName: normalizedName });
+  return parseJobDefinition(raw, { directory: normalizedDirectory, filePath, fallbackName: normalizeJobName(name) });
 }
 
 export function parseJobDefinition(raw: string, opts: {
@@ -41,6 +47,9 @@ export function parseJobDefinition(raw: string, opts: {
   if (!name) throw new Error("Job frontmatter must include name.");
   const prompt = body.trim();
   if (!prompt) throw new Error("Job markdown body must include prompt instructions.");
+  if (Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) {
+    throw new Error(`Job prompt exceeds maximum size of ${MAX_PROMPT_BYTES / 1024}KB.`);
+  }
 
   const schedule = readString(parsed.schedule, "schedule");
   if (schedule && !isValidCronSchedule(schedule)) {
@@ -63,7 +72,7 @@ export function parseJobDefinition(raw: string, opts: {
 function normalizeJobName(name: string): string {
   const normalized = name.trim();
   if (!normalized) throw new Error("Job name is required.");
-  if (normalized.includes("/") || normalized.includes("\\") || normalized === "." || normalized === "..") {
+  if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("..") || normalized === ".") {
     throw new Error("Job name must be a file stem, not a path.");
   }
   return normalized.endsWith(".md") ? normalized.slice(0, -3) : normalized;

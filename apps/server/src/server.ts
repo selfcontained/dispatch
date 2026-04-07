@@ -60,6 +60,7 @@ import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
+import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
@@ -84,11 +85,59 @@ const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
-agentManager.onLatestEvent((agent) => void slackNotifier.onAgentEvent(agent));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const jobService = new JobService(pool, agentManager, app.log, config);
+const jobNotifier = new JobNotifier(pool, app.log);
+const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
+jobService.onRunStateChange((run) => {
+  void jobNotifier.onJobRunStateChange(run);
+  // Auto-archive job agents when the run reaches a terminal state.
+  // needs_input is excluded — user may need to interact with the agent.
+  if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
+    void autoArchiveJobAgent(run.agentId);
+  }
+});
+// Suppress agent-level Slack notifications for job agents (job notifier handles those).
+// Job agents are named "job-*" — skip the DB lookup for regular agents.
+agentManager.onLatestEvent((agent) => {
+  if (!agent.name?.startsWith("job-")) {
+    void slackNotifier.onAgentEvent(agent);
+    return;
+  }
+  void jobService.getLatestRunForAgent(agent.id).then((run) => {
+    if (!run) void slackNotifier.onAgentEvent(agent);
+  });
+});
 const activeArchives = new Set<Promise<void>>();
 const archivingAgentIds = new Set<string>();
+
+async function autoArchiveJobAgent(agentId: string): Promise<void> {
+  if (archivingAgentIds.has(agentId)) return;
+  try {
+    const agent = await agentManager.beginArchive(agentId, "auto");
+    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+    archivingAgentIds.add(agentId);
+    const archivePromise = agentManager.executeArchive(agentId, {
+      onPhaseChange: (updated) => {
+        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+      },
+      onComplete: (deletedIds) => {
+        for (const deletedId of deletedIds) {
+          uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+          archivingAgentIds.delete(deletedId);
+        }
+        activeArchives.delete(archivePromise);
+      },
+      onError: () => {
+        archivingAgentIds.delete(agentId);
+        activeArchives.delete(archivePromise);
+      },
+    });
+    activeArchives.add(archivePromise);
+  } catch (err) {
+    app.log.warn({ err, agentId }, "Auto-archive of job agent failed");
+  }
+}
 
 const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -835,6 +884,15 @@ const RunJobBodySchema = z.object({
   directory: z.string().min(1, "Job directory is required."),
   wait: z.boolean().optional(),
 });
+const JobEnableDisableBodySchema = z.object({
+  name: z.string().min(1, "Job name is required."),
+  directory: z.string().min(1, "Job directory is required."),
+});
+const JobHistoryParamsSchema = z.object({
+  name: z.string().min(1, "Job name is required."),
+  directory: z.string().min(1, "Job directory is required."),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
 
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
@@ -1039,6 +1097,49 @@ async function registerRoutes() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.get("/api/v1/jobs", async () => {
+    return await jobService.listJobs();
+  });
+
+  app.post("/api/v1/jobs/enable", async (request, reply) => {
+    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.enableJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.post("/api/v1/jobs/disable", async (request, reply) => {
+    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.disableJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.get("/api/v1/jobs/history", async (request, reply) => {
+    const parsed = JobHistoryParamsSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.listRunsForJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(404).send({ error: message });
     }
   });
 
@@ -2937,6 +3038,7 @@ async function start() {
   config.authToken = await getOrCreateAuthToken(pool);
   await agentManager.reconcileAgents();
   await jobService.reconcileActiveRuns();
+  await jobService.startSchedulers();
   const agents = await agentManager.listAgents();
   queueGitContextRefresh(agents.map((agent) => agent.id));
   startGitContextRefreshLoop();
@@ -3615,6 +3717,7 @@ async function shutdown(code: number): Promise<void> {
   }
   shuttingDown = true;
 
+  jobService.stopAllSchedulers();
   streamManager.stopAll();
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();
