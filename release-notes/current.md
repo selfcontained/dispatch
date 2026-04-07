@@ -1,5 +1,5 @@
 ## What's Changed
-* [codex] Harden job migrations by @selfcontained in https://github.com/selfcontained/dispatch/pull/244
+* Add persona-specific MCP tools and review lifecycle by @selfcontained in https://github.com/selfcontained/dispatch/pull/245
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.33...v0.9.34
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.34...v0.9.35
