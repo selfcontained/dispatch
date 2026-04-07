@@ -65,8 +65,6 @@ function shouldRenderMarkdownAsPlainText(value: string): boolean {
     /^\s{0,3}\d+\.\s/m,
     /^(?: {2,}|\t+)[-*+]\s/m,
     /^(?: {2,}|\t+)\d+\.\s/m,
-    /^\s*\|.+\|\s*$/m,
-    /^\s*\|?\s*:?-{3,}:?(?:\s*\|\s*:?-{3,}:?)+\s*\|?\s*$/m,
   ];
   return unsupportedPatterns.some((pattern) => pattern.test(sanitized));
 }
@@ -75,9 +73,10 @@ function MarkdownPinBody({ value }: { value: string }): JSX.Element {
   const renderAsPlainText = shouldRenderMarkdownAsPlainText(value);
 
   return (
-    <div
-      className="min-w-0 max-h-48 overflow-y-auto overflow-x-hidden rounded-md border border-border/60 bg-background/40"
+    <ScrollArea
+      className="min-w-0 max-h-48 rounded-md border border-border/60 bg-background/40"
       data-testid="markdown-pin-scroll"
+      horizontal
     >
       <div className="p-2" data-testid="markdown-pin-body">
         {renderAsPlainText ? (
@@ -90,7 +89,7 @@ function MarkdownPinBody({ value }: { value: string }): JSX.Element {
           </Markdown>
         )}
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 
