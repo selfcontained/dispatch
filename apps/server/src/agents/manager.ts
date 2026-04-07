@@ -1741,6 +1741,26 @@ export class AgentManager {
     agentId: string,
     input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
   ): Promise<PersonaReviewRecord> {
+    const VALID_VERDICTS = ["approve", "request_changes"];
+    if (!VALID_VERDICTS.includes(input.verdict)) {
+      throw new AgentError(`verdict must be one of: ${VALID_VERDICTS.join(", ")}`, 400);
+    }
+    if (input.summary.length > 10_000) {
+      throw new AgentError("summary exceeds 10,000 character limit.", 400);
+    }
+    if (input.message && input.message.length > 5_000) {
+      throw new AgentError("message exceeds 5,000 character limit.", 400);
+    }
+    if (input.filesReviewed) {
+      if (input.filesReviewed.length > 500) {
+        throw new AgentError("filesReviewed exceeds 500 item limit.", 400);
+      }
+      for (const filePath of input.filesReviewed) {
+        if (filePath.length > 500) {
+          throw new AgentError("Individual file path in filesReviewed exceeds 500 character limit.", 400);
+        }
+      }
+    }
     const result = await this.pool.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
        SET status = 'complete', verdict = $2, summary = $3,

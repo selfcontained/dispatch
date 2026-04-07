@@ -636,6 +636,7 @@ html[data-theme="matrix"] [role="button"] {
   );
   background-size: 200% 100%;
   animation: persona-reviewing-shimmer 3s ease-in-out infinite;
+  border-radius: 0.375rem;
 }
 
 /* Pause GPU-composited animations when the page is hidden to reduce energy */

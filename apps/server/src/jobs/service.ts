@@ -9,7 +9,7 @@ import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { readJobDefinition, jobFilePath } from "./parser.js";
 import { JobStore, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
-import { getNextRun, validateCronExpression } from "./cron.js";
+import { getNextRun, validateCronExpression, validateCronInterval } from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
 
@@ -164,6 +164,10 @@ export class JobService {
     }
     if (!validateCronExpression(schedule)) {
       throw new Error(`Job "${job.name}" has an invalid cron expression: "${schedule}"`);
+    }
+    const intervalError = validateCronInterval(schedule);
+    if (intervalError) {
+      throw new Error(`Job "${job.name}": ${intervalError}`);
     }
     const updated = await this.store.setEnabled(job.id, true);
     this.scheduleJob(updated);
