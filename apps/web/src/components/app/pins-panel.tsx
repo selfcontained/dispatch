@@ -227,7 +227,7 @@ export function PinsPanel({ pins, selectedAgentName, selectedAgentWorkspaceRoot 
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
         <div className="flex flex-col items-center gap-2">
           <Pin className="h-8 w-8 text-muted-foreground" />
-          <div className="mt-20">
+          <div className="mt-4">
             {selectedAgentName
               ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
               : "Focus an agent to view pins."}

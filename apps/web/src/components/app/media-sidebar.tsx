@@ -99,7 +99,7 @@ function MediaContent({
                 <Video className="h-8 w-8 text-muted-foreground" />
                 <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
-              <div className="mt-20">
+              <div className="mt-4">
                 {selectedAgentId ? "No media yet. Agents can share screenshots, videos and documents." : "Focus an agent to view media."}
               </div>
             </div>

@@ -186,7 +186,8 @@ export function PersonaAgentRow({
               <span data-agent-control="true" className={cn(triageDisabled && "cursor-not-allowed")}>
                 <button
                   aria-label="Auto-triage feedback"
-                  className={cn("rounded p-2 transition-colors", triageDisabled ? "text-muted-foreground/25 pointer-events-none" : "text-muted-foreground/50 hover:text-foreground")}
+                  disabled={triageDisabled}
+                  className={cn("rounded p-2 transition-colors", triageDisabled ? "text-muted-foreground/25" : "text-muted-foreground/50 hover:text-foreground")}
                   onClick={onTriage}
                 >
                   <ListChecks className="h-3.5 w-3.5" />

@@ -338,7 +338,7 @@ export function ParentFeedbackPanel({
     <>
       <div className="mt-1.5">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-          Personas{activeCount > 0 ? ` (${activeCount} findings)` : ""}
+          Reviewers{activeCount > 0 ? ` (${activeCount} findings)` : ""}
         </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
@@ -651,6 +651,10 @@ export function ParentFeedbackPanel({
                         </div>
                       </div>
                     ) : null}
+
+                    {!summary && (!filesReviewed || filesReviewed.length === 0) ? (
+                      <div className="text-sm text-muted-foreground">No summary available.</div>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -962,6 +966,10 @@ export function ReviewSummaryPanel({
               ))}
             </div>
           </div>
+        ) : null}
+
+        {!summary && (!filesReviewed || filesReviewed.length === 0) ? (
+          <div className="text-sm text-muted-foreground">No summary available.</div>
         ) : null}
       </div>
     </div>
