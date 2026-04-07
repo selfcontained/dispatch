@@ -97,8 +97,13 @@ jobService.onRunStateChange((run) => {
     void autoArchiveJobAgent(run.agentId);
   }
 });
-// Suppress agent-level Slack notifications for job agents (job notifier handles those)
+// Suppress agent-level Slack notifications for job agents (job notifier handles those).
+// Job agents are named "job-*" — skip the DB lookup for regular agents.
 agentManager.onLatestEvent((agent) => {
+  if (!agent.name?.startsWith("job-")) {
+    void slackNotifier.onAgentEvent(agent);
+    return;
+  }
   void jobService.getLatestRunForAgent(agent.id).then((run) => {
     if (!run) void slackNotifier.onAgentEvent(agent);
   });

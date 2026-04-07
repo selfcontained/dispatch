@@ -207,7 +207,9 @@ export class JobService {
     try {
       const definition = await readJobDefinition(directory, name);
       return await this.store.upsertJobFromDefinition(definition);
-    } catch {
+    } catch (err) {
+      // Only fall back to DB when the file is missing. Let DB errors and parse errors propagate.
+      if (!isFileNotFound(err)) throw err;
       const existing = await this.store.getJobByDirectoryAndFilePath(directory, jobFilePath(directory, name));
       if (!existing) {
         throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
@@ -230,7 +232,7 @@ export class JobService {
 
   /** Stop all in-process schedulers. Called on server shutdown. */
   stopAllSchedulers(): void {
-    for (const [jobId, cron] of this.schedulers) {
+    for (const cron of this.schedulers.values()) {
       cron.stop();
     }
     this.schedulers.clear();
@@ -240,24 +242,29 @@ export class JobService {
     this.stopScheduler(job.id);
     if (!job.schedule) return;
 
+    const jobId = job.id;
     const cronJob = new Cron(job.schedule, async () => {
       try {
-        const activeRun = await this.store.findActiveRun(job.id);
+        // Look up current job record from DB — name/directory may have changed since scheduling
+        const current = await this.store.getJob(jobId);
+        if (!current || !current.enabled) return;
+
+        const activeRun = await this.store.findActiveRun(jobId);
         if (activeRun) {
           this.logger.info(
-            { jobId: job.id, name: job.name, activeRunId: activeRun.id },
+            { jobId, name: current.name, activeRunId: activeRun.id },
             "Skipping scheduled run — job already has an active run"
           );
           return;
         }
-        await this.runJob({ name: job.name, directory: job.directory, wait: false });
+        await this.runJob({ name: current.name, directory: current.directory, wait: false });
       } catch (err) {
-        this.logger.error({ err, jobId: job.id, name: job.name }, "Scheduled job run failed");
+        this.logger.error({ err, jobId }, "Scheduled job run failed");
       }
     });
 
-    this.schedulers.set(job.id, cronJob);
-    this.logger.info({ jobId: job.id, name: job.name, schedule: job.schedule }, "In-process scheduler started");
+    this.schedulers.set(jobId, cronJob);
+    this.logger.info({ jobId, name: job.name, schedule: job.schedule }, "In-process scheduler started");
   }
 
   private stopScheduler(jobId: string): void {
@@ -433,4 +440,8 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isFileNotFound(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "ENOENT";
 }
