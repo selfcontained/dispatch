@@ -86,6 +86,7 @@ export function loadConfig(): AppConfig {
   };
 
   validateConfig(config);
+  assertSafeDatabaseConfig(config);
   return config;
 }
 
@@ -119,4 +120,31 @@ function validateConfig(config: AppConfig): void {
     // URL parsing failed — not our problem to warn about here
   }
 
+}
+
+export function assertSafeDatabaseConfig(
+  config: Pick<AppConfig, "databaseUrl">,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  if (env.DISPATCH_ALLOW_AGENT_PROD_DB === "1") return;
+
+  const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
+  if (!isAgentContext) return;
+
+  try {
+    const dbUrl = new URL(config.databaseUrl);
+    const databaseName = dbUrl.pathname.replace(/^\/+/, "");
+    if (databaseName !== "dispatch") return;
+
+    throw new Error(
+      "Refusing to use the production 'dispatch' database from a Dispatch agent context. " +
+        "Start local servers with dispatch-dev so DATABASE_URL points at an isolated database, " +
+        "or set DISPATCH_ALLOW_AGENT_PROD_DB=1 for an intentional production operation."
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Refusing to use")) {
+      throw error;
+    }
+    // URL parsing failed — let the database client report the connection error.
+  }
 }
