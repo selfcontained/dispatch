@@ -192,8 +192,9 @@ export function MediaSidebarContent({
   streamUrl,
   onRequestClose,
   closeButtonIcon = "x",
-  className
-}: MediaSidebarContentProps): JSX.Element {
+  className,
+  unseenMediaCount
+}: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
   const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
   const prevAgentIdRef = useRef(selectedAgentId);
 
@@ -223,6 +224,11 @@ export function MediaSidebarContent({
             {activeTab === "pins" ? (
               <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
             ) : null}
+            {selectedAgentPins.length > 0 && (
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
+                {selectedAgentPins.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab("media")}
@@ -237,6 +243,11 @@ export function MediaSidebarContent({
             {activeTab === "media" ? (
               <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
             ) : null}
+            {unseenMediaCount > 0 && (
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
+                {unseenMediaCount}
+              </span>
+            )}
           </button>
         </div>
         {onRequestClose ? (
