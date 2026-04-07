@@ -350,27 +350,31 @@ html[data-theme="matrix"] body::after {
   z-index: 1;
 }
 
-/* iPad PWA: prevent viewport jump when typing space in terminal.
-   The class is added by JS in main.tsx when navigator.standalone is true
-   on an iPad-class device. */
-html.ipad-pwa,
-html.ipad-pwa body {
-  position: fixed;
-  width: 100%;
-  overflow: clip;
-}
+/* Touch devices (phones + tablets): lock the viewport so touch-scroll
+   inside xterm or other internal scrollables cannot shift the body.
+   overflow:hidden alone is insufficient on mobile WebKit. */
+@media (pointer: coarse) {
+  html,
+  html body {
+    position: fixed;
+    width: 100%;
+    overflow: clip;
+  }
 
-html.ipad-pwa #root {
-  touch-action: none;
-}
+  #root {
+    touch-action: none;
+  }
 
-html.ipad-pwa [style*="overflow"]:not([style*="hidden"]),
-html.ipad-pwa .overflow-y-auto,
-html.ipad-pwa .overflow-auto,
-html.ipad-pwa .overflow-y-scroll,
-html.ipad-pwa .overflow-scroll {
-  touch-action: pan-y;
-  overscroll-behavior: contain;
+  /* Re-enable pan-y on explicitly scrollable containers so internal
+     scroll areas (sidebar lists, dialog bodies, etc.) still work. */
+  [style*="overflow"]:not([style*="hidden"]),
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-y-scroll,
+  .overflow-scroll {
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
 }
 
 .terminal-font {
