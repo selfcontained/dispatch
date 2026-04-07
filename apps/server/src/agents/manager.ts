@@ -65,6 +65,14 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   personaContext: string | null;
+  review: {
+    status: string;
+    message: string | null;
+    verdict: string | null;
+    summary: string | null;
+    filesReviewed: string[] | null;
+    updatedAt: string;
+  } | null;
   cliSessionId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -118,6 +126,20 @@ export type FeedbackInput = {
   description: string;
   suggestion?: string;
   mediaRef?: string;
+};
+
+export type PersonaReviewRecord = {
+  id: number;
+  agentId: string;
+  parentAgentId: string;
+  persona: string;
+  status: string;
+  message: string | null;
+  verdict: string | null;
+  summary: string | null;
+  filesReviewed: string[] | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type FeedbackRecord = {
@@ -1678,6 +1700,98 @@ export class AgentManager {
     }
   }
 
+  // --- Persona Reviews ---
+
+  async createPersonaReview(input: {
+    agentId: string;
+    parentAgentId: string;
+    persona: string;
+  }): Promise<PersonaReviewRecord> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona)
+       VALUES ($1, $2, $3)
+       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                 persona, status, message, verdict, summary,
+                 files_reviewed AS "filesReviewed",
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [input.agentId, input.parentAgentId, input.persona]
+    );
+    return result.rows[0]!;
+  }
+
+  async updatePersonaReviewStatus(
+    agentId: string,
+    input: { status: string; message?: string }
+  ): Promise<PersonaReviewRecord> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `UPDATE persona_reviews
+       SET status = $2, message = $3, updated_at = NOW()
+       WHERE agent_id = $1
+       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                 persona, status, message, verdict, summary,
+                 files_reviewed AS "filesReviewed",
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [agentId, input.status, input.message ?? null]
+    );
+    if (result.rowCount === 0) throw new AgentError("No persona review found for agent.", 404);
+    return result.rows[0]!;
+  }
+
+  async completePersonaReview(
+    agentId: string,
+    input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+  ): Promise<PersonaReviewRecord> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `UPDATE persona_reviews
+       SET status = 'complete', verdict = $2, summary = $3,
+           files_reviewed = $4::jsonb, message = $5, updated_at = NOW()
+       WHERE agent_id = $1
+       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                 persona, status, message, verdict, summary,
+                 files_reviewed AS "filesReviewed",
+                 created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [agentId, input.verdict, input.summary, JSON.stringify(input.filesReviewed ?? []), input.message ?? null]
+    );
+    if (result.rowCount === 0) throw new AgentError("No persona review found for agent.", 404);
+    return result.rows[0]!;
+  }
+
+  async getPersonaReview(agentId: string): Promise<PersonaReviewRecord | null> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+              persona, status, message, verdict, summary,
+              files_reviewed AS "filesReviewed",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM persona_reviews WHERE agent_id = $1`,
+      [agentId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async getPersonaReviewsByParent(parentAgentId: string): Promise<PersonaReviewRecord[]> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+              persona, status, message, verdict, summary,
+              files_reviewed AS "filesReviewed",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM persona_reviews WHERE parent_agent_id = $1
+       ORDER BY created_at`,
+      [parentAgentId]
+    );
+    return result.rows;
+  }
+
+  // --- Media ---
+
+  async listMedia(agentId: string): Promise<Array<{ fileName: string; description: string | null; source: string; createdAt: string }>> {
+    const result = await this.pool.query<{ fileName: string; description: string | null; source: string; createdAt: string }>(
+      `SELECT file_name AS "fileName", description, source, created_at AS "createdAt"
+       FROM media WHERE agent_id = $1 ORDER BY created_at`,
+      [agentId]
+    );
+    return result.rows;
+  }
+
   // --- Feedback ---
 
   async submitFeedback(
@@ -1834,6 +1948,15 @@ export class AgentManager {
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
         cli_session_id AS "cliSessionId",
+        (SELECT json_build_object(
+           'status', pr.status,
+           'message', pr.message,
+           'verdict', pr.verdict,
+           'summary', pr.summary,
+           'filesReviewed', pr.files_reviewed,
+           'updatedAt', pr.updated_at
+         ) FROM persona_reviews pr WHERE pr.agent_id = agents.id LIMIT 1
+        ) AS "review",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

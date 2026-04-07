@@ -1196,8 +1196,8 @@ async function registerRoutes() {
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    const jobRun = await jobService.getLatestRunForAgent(agentId);
-    if (jobRun) {
+    const activeJobRun = await jobService.getActiveRunForAgent(agentId);
+    if (activeJobRun) {
       return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
@@ -1212,7 +1212,12 @@ async function registerRoutes() {
 
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
-      agent,
+      agent: {
+        id: agent.id,
+        cwd: agent.cwd,
+        persona: agent.persona,
+        parentAgentId: agent.parentAgentId,
+      },
       repoRoot,
       worktreeRoot,
       upsertEvent: mcpUpsertEvent,
@@ -1223,6 +1228,9 @@ async function registerRoutes() {
       resolveFeedback: mcpResolveFeedback,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
+      getParentContext: mcpGetParentContext,
+      updateReviewStatus: mcpUpdateReviewStatus,
+      completeReview: mcpCompleteReview,
     });
   });
 
@@ -3808,6 +3816,50 @@ async function mcpDeletePin(
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
 
+async function mcpUpdateReviewStatus(
+  agentId: string,
+  input: { status: string; message?: string }
+): Promise<void> {
+  const review = await agentManager.updatePersonaReviewStatus(agentId, input);
+  // Notify UI — the parent's agent card needs to re-render
+  const parent = await agentManager.getAgent(review.parentAgentId);
+  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+}
+
+async function mcpCompleteReview(
+  agentId: string,
+  input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+): Promise<void> {
+  const review = await agentManager.completePersonaReview(agentId, input);
+  const parent = await agentManager.getAgent(review.parentAgentId);
+  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+}
+
+async function mcpGetParentContext(
+  parentAgentId: string
+): Promise<import("@dispatch/shared/mcp/server.js").ParentContextResult> {
+  const parent = await agentManager.getAgent(parentAgentId);
+  if (!parent) throw new Error("Parent agent not found.");
+
+  const pins = (parent.pins ?? []).map((p) => ({
+    label: p.label,
+    value: p.value,
+    type: p.type
+  }));
+
+  const media = await agentManager.listMedia(parentAgentId);
+
+  return {
+    pins,
+    media: media.map((m) => ({
+      fileName: m.fileName,
+      description: m.description,
+      source: m.source,
+      createdAt: m.createdAt
+    }))
+  };
+}
+
 async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
   const run = await jobService.completeRunForAgent(agentId, report);
   return { runId: run.id, status: run.status };
@@ -3918,6 +3970,13 @@ async function mcpLaunchPersona(
     parentAgentId: agentId,
     personaContext: opts.context,
     cliSessionId,
+  });
+
+  // Create the persona review record
+  await agentManager.createPersonaReview({
+    agentId: agent.id,
+    parentAgentId: agentId,
+    persona: opts.persona,
   });
 
   queueGitContextRefresh([agent.id]);

@@ -15,7 +15,12 @@ import {
 } from "../git/worktree.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 
-export type McpAgent = { id: string; cwd: string };
+export type McpAgent = {
+  id: string;
+  cwd: string;
+  persona?: string | null;
+  parentAgentId?: string | null;
+};
 
 export type MediaResult = {
   fileName: string;
@@ -73,6 +78,19 @@ export type PinInput = {
   delete?: boolean;
 };
 
+export type ReviewVerdict = "approve" | "request_changes";
+
+export type ReviewCompletion = {
+  verdict: ReviewVerdict;
+  summary: string;
+  filesReviewed?: string[];
+};
+
+export type ParentContextResult = {
+  pins: Array<{ label: string; value: string; type: string }>;
+  media: Array<{ fileName: string; description: string | null; source: string; createdAt: string }>;
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
@@ -110,6 +128,17 @@ export type McpRequestContext = {
     agentId: string,
     label: string
   ) => Promise<void>;
+  getParentContext?: (
+    parentAgentId: string
+  ) => Promise<ParentContextResult>;
+  updateReviewStatus?: (
+    agentId: string,
+    input: { status: string; message?: string }
+  ) => Promise<void>;
+  completeReview?: (
+    agentId: string,
+    input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+  ) => Promise<void>;
   jobTools?: JobTools;
   enableBuiltinTools?: boolean;
 };
@@ -139,7 +168,129 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     version: "0.0.0"
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
+  const isPersona = !!context.agent?.persona;
 
+  // ── Persona agents get a focused tool set ──────────────────────────
+  if (isPersona) {
+    const agentId = context.agent!.id;
+
+    // review_status — updates the persona_reviews record
+    if (context.updateReviewStatus && context.completeReview) {
+      const updateReviewStatus = context.updateReviewStatus;
+      const completeReview = context.completeReview;
+
+      server.registerTool(
+        "review_status",
+        {
+          description:
+            "Report review progress. Call with status 'reviewing' while actively reviewing code or testing. " +
+            "Call with status 'complete' when the review is finished — include a verdict and summary.",
+          inputSchema: {
+            status: z.enum(["reviewing", "complete"]).describe("Current review status."),
+            message: z.string().describe("Short description of current activity or final summary."),
+            verdict: z
+              .enum(["approve", "request_changes"])
+              .optional()
+              .describe("Review verdict. Required when status is 'complete'."),
+            summary: z
+              .string()
+              .optional()
+              .describe("Summary of the review findings. Required when status is 'complete'."),
+            filesReviewed: z
+              .array(z.string())
+              .optional()
+              .describe("List of file paths that were reviewed.")
+          }
+        },
+        async (args) => {
+          try {
+            if (args.status === "complete") {
+              if (!args.verdict) {
+                return toToolError(new Error("verdict is required when status is 'complete'."));
+              }
+              if (!args.summary) {
+                return toToolError(new Error("summary is required when status is 'complete'."));
+              }
+              await completeReview(agentId, {
+                verdict: args.verdict,
+                summary: args.summary,
+                filesReviewed: args.filesReviewed,
+                message: args.message
+              });
+              return {
+                content: [{ type: "text", text: `Review complete: ${args.verdict}. ${args.summary}` }]
+              };
+            }
+
+            await updateReviewStatus(agentId, {
+              status: "reviewing",
+              message: args.message
+            });
+            return {
+              content: [{ type: "text", text: `Reviewing: ${args.message}` }]
+            };
+          } catch (error) {
+            return toToolError(error);
+          }
+        }
+      );
+    }
+
+    // dispatch_pin
+    registerPinTool(server, context);
+
+    // dispatch_share
+    registerShareTool(server, context);
+
+    // dispatch_feedback
+    registerFeedbackTool(server, context);
+
+    // get_parent_context — persona-only tool to see parent's pins and media
+    if (context.agent!.parentAgentId && context.getParentContext) {
+      const parentAgentId = context.agent!.parentAgentId;
+      const getParentContext = context.getParentContext;
+
+      server.registerTool(
+        "get_parent_context",
+        {
+          description:
+            "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, " +
+            "key files, screenshots, and other context the parent agent has surfaced.",
+          inputSchema: {}
+        },
+        async () => {
+          try {
+            const result = await getParentContext(parentAgentId);
+            const parts: string[] = [];
+            if (result.pins.length > 0) {
+              parts.push("Pins:");
+              for (const pin of result.pins) {
+                parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
+              }
+            } else {
+              parts.push("No pins set by parent agent.");
+            }
+            if (result.media.length > 0) {
+              parts.push("\nShared media:");
+              for (const m of result.media) {
+                parts.push(`  ${m.fileName}: ${m.description ?? "(no description)"}`);
+              }
+            }
+            return {
+              content: [{ type: "text", text: parts.join("\n") }],
+              structuredContent: result
+            };
+          } catch (error) {
+            return toToolError(error);
+          }
+        }
+      );
+    }
+
+    return server;
+  }
+
+  // ── Standard agent tools ───────────────────────────────────────────
   if (context.enableBuiltinTools !== false) {
     server.registerTool(
       "create_pr",
@@ -232,214 +383,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  if (context.agent && context.upsertPin && context.deletePin) {
-    const agentId = context.agent.id;
-    const upsertPin = context.upsertPin;
-    const deletePin = context.deletePin;
-
-    server.registerTool(
-      "dispatch_pin",
-      {
-        description:
-          "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, pass delete: true. " +
-          "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
-        inputSchema: {
-          label: z.string().max(100).describe("Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."),
-          value: z
-            .string()
-            .max(2000)
-            .optional()
-            .describe("The value to display. Required unless delete is true."),
-          type: z
-            .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
-            .default("string")
-            .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."),
-          delete: z
-            .boolean()
-            .default(false)
-            .describe("Set to true to remove the pin with this label.")
-        }
-      },
-      async (args) => {
-        try {
-          if (args.delete) {
-            await deletePin(agentId, args.label);
-            return {
-              content: [{ type: "text", text: `Removed pin "${args.label}".` }]
-            };
-          }
-          if (!args.value) {
-            return toToolError(new Error("value is required when not deleting a pin."));
-          }
-          await upsertPin(agentId, {
-            label: args.label,
-            value: args.value,
-            type: args.type ?? "string"
-          });
-          return {
-            content: [{ type: "text", text: `Pinned "${args.label}": ${args.value}` }]
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (context.agent && context.shareMedia) {
-    const agentId = context.agent.id;
-    const shareMedia = context.shareMedia;
-
-    server.registerTool(
-      "dispatch_share",
-      {
-        description:
-          "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
-        inputSchema: {
-          filePath: z
-            .string()
-            .optional()
-            .describe("Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."),
-          content: z
-            .string()
-            .optional()
-            .describe("Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."),
-          description: z.string().describe("A short description of the shared media."),
-          source: z
-            .enum(["screenshot", "simulator", "text"])
-            .default("screenshot")
-            .describe("The source type of the media. Automatically set to 'text' when sharing text files."),
-          name: z
-            .string()
-            .optional()
-            .describe("Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."),
-          simulatorUdid: z
-            .string()
-            .optional()
-            .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'."),
-          update: z
-            .string()
-            .optional()
-            .describe("fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file.")
-        }
-      },
-      async (args) => {
-        try {
-          let filePath = args.filePath;
-
-          if (args.content !== undefined) {
-            const MAX_CONTENT_BYTES = 32 * 1024;
-            if (Buffer.byteLength(args.content, "utf-8") > MAX_CONTENT_BYTES) {
-              return toToolError(new Error("content exceeds 32KB limit. Write to a file and use filePath instead."));
-            }
-            if (!args.name) {
-              return toToolError(new Error("name is required when using content param (e.g. 'snippet.ts')."));
-            }
-            const { writeFile: writeFileTmp } = await import("node:fs/promises");
-            const tmpDir = process.env.TMPDIR ?? "/tmp";
-            const timestamp = new Date()
-              .toISOString()
-              .replace(/[:.]/g, "-")
-              .replace("T", "-")
-              .replace("Z", "");
-            const tmpPath = `${tmpDir}/dispatch-text-${timestamp}-${args.name}`;
-            await writeFileTmp(tmpPath, args.content, "utf-8");
-            filePath = tmpPath;
-          } else if (args.source === "simulator") {
-            const { execFile } = await import("node:child_process");
-            const { promisify } = await import("node:util");
-            const execFileAsync = promisify(execFile);
-            const udid = args.simulatorUdid ?? "booted";
-            const timestamp = new Date()
-              .toISOString()
-              .replace(/[:.]/g, "-")
-              .replace("T", "-")
-              .replace("Z", "");
-            const tmpPath = `${process.env.TMPDIR ?? "/tmp"}/sim-${timestamp}.png`;
-            await execFileAsync("xcrun", ["simctl", "io", udid, "screenshot", "--type=png", tmpPath]);
-            filePath = tmpPath;
-          }
-
-          if (!filePath) {
-            return toToolError(new Error("filePath is required when source is not 'simulator' and content is not provided."));
-          }
-
-          const result = await shareMedia(agentId, {
-            filePath,
-            description: args.description,
-            source: args.source,
-            name: args.name,
-            update: args.update
-          });
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result)
-              }
-            ],
-            structuredContent: result
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (context.agent && context.submitFeedback) {
-    const agentId = context.agent.id;
-    const submitFeedback = context.submitFeedback;
-
-    server.registerTool(
-      "dispatch_feedback",
-      {
-        description:
-          "Submit a structured feedback finding to Dispatch. Use this to report issues, suggestions, or observations about the code being reviewed. Each call creates one feedback item.",
-        inputSchema: {
-          severity: z
-            .enum(["critical", "high", "medium", "low", "info"])
-            .default("info")
-            .describe("Severity level of the finding."),
-          filePath: z
-            .string()
-            .optional()
-            .describe("File path relative to repo root where the issue was found."),
-          lineNumber: z
-            .number()
-            .optional()
-            .describe("Line number in the file."),
-          description: z.string().describe("What was found — the issue or observation."),
-          suggestion: z
-            .string()
-            .optional()
-            .describe("Suggested fix or action to take."),
-          mediaRef: z
-            .string()
-            .optional()
-            .describe("Filename of a previously shared media file (from dispatch_share) to attach.")
-        }
-      },
-      async (args) => {
-        try {
-          const result = await submitFeedback(agentId, {
-            severity: args.severity,
-            filePath: args.filePath,
-            lineNumber: args.lineNumber,
-            description: args.description,
-            suggestion: args.suggestion,
-            mediaRef: args.mediaRef
-          });
-          return {
-            content: [{ type: "text", text: `Feedback #${result.id} submitted.` }]
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
+  registerPinTool(server, context);
+  registerShareTool(server, context);
+  registerFeedbackTool(server, context);
 
   if (context.agent && context.launchPersona) {
     const agentId = context.agent.id;
@@ -674,6 +620,220 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   return server;
+}
+
+// ── Shared tool registrations (used by both persona and standard agents) ──
+
+function registerPinTool(server: McpServer, context: McpRequestContext): void {
+  if (!context.agent || !context.upsertPin || !context.deletePin) return;
+  const agentId = context.agent.id;
+  const upsertPin = context.upsertPin;
+  const deletePin = context.deletePin;
+
+  server.registerTool(
+    "dispatch_pin",
+    {
+      description:
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, pass delete: true. " +
+        "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
+      inputSchema: {
+        label: z.string().max(100).describe("Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."),
+        value: z
+          .string()
+          .max(2000)
+          .optional()
+          .describe("The value to display. Required unless delete is true."),
+        type: z
+          .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
+          .default("string")
+          .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."),
+        delete: z
+          .boolean()
+          .default(false)
+          .describe("Set to true to remove the pin with this label.")
+      }
+    },
+    async (args) => {
+      try {
+        if (args.delete) {
+          await deletePin(agentId, args.label);
+          return {
+            content: [{ type: "text", text: `Removed pin "${args.label}".` }]
+          };
+        }
+        if (!args.value) {
+          return toToolError(new Error("value is required when not deleting a pin."));
+        }
+        await upsertPin(agentId, {
+          label: args.label,
+          value: args.value,
+          type: args.type ?? "string"
+        });
+        return {
+          content: [{ type: "text", text: `Pinned "${args.label}": ${args.value}` }]
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+}
+
+function registerShareTool(server: McpServer, context: McpRequestContext): void {
+  if (!context.agent || !context.shareMedia) return;
+  const agentId = context.agent.id;
+  const shareMedia = context.shareMedia;
+
+  server.registerTool(
+    "dispatch_share",
+    {
+      description:
+        "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
+      inputSchema: {
+        filePath: z
+          .string()
+          .optional()
+          .describe("Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."),
+        content: z
+          .string()
+          .optional()
+          .describe("Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."),
+        description: z.string().describe("A short description of the shared media."),
+        source: z
+          .enum(["screenshot", "simulator", "text"])
+          .default("screenshot")
+          .describe("The source type of the media. Automatically set to 'text' when sharing text files."),
+        name: z
+          .string()
+          .optional()
+          .describe("Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."),
+        simulatorUdid: z
+          .string()
+          .optional()
+          .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'."),
+        update: z
+          .string()
+          .optional()
+          .describe("fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file.")
+      }
+    },
+    async (args) => {
+      try {
+        let filePath = args.filePath;
+
+        if (args.content !== undefined) {
+          const MAX_CONTENT_BYTES = 32 * 1024;
+          if (Buffer.byteLength(args.content, "utf-8") > MAX_CONTENT_BYTES) {
+            return toToolError(new Error("content exceeds 32KB limit. Write to a file and use filePath instead."));
+          }
+          if (!args.name) {
+            return toToolError(new Error("name is required when using content param (e.g. 'snippet.ts')."));
+          }
+          const { writeFile: writeFileTmp } = await import("node:fs/promises");
+          const tmpDir = process.env.TMPDIR ?? "/tmp";
+          const timestamp = new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "-")
+            .replace("Z", "");
+          const tmpPath = `${tmpDir}/dispatch-text-${timestamp}-${args.name}`;
+          await writeFileTmp(tmpPath, args.content, "utf-8");
+          filePath = tmpPath;
+        } else if (args.source === "simulator") {
+          const { execFile } = await import("node:child_process");
+          const { promisify } = await import("node:util");
+          const execFileAsync = promisify(execFile);
+          const udid = args.simulatorUdid ?? "booted";
+          const timestamp = new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")
+            .replace("T", "-")
+            .replace("Z", "");
+          const tmpPath = `${process.env.TMPDIR ?? "/tmp"}/sim-${timestamp}.png`;
+          await execFileAsync("xcrun", ["simctl", "io", udid, "screenshot", "--type=png", tmpPath]);
+          filePath = tmpPath;
+        }
+
+        if (!filePath) {
+          return toToolError(new Error("filePath is required when source is not 'simulator' and content is not provided."));
+        }
+
+        const result = await shareMedia(agentId, {
+          filePath,
+          description: args.description,
+          source: args.source,
+          name: args.name,
+          update: args.update
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result)
+            }
+          ],
+          structuredContent: result
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+}
+
+function registerFeedbackTool(server: McpServer, context: McpRequestContext): void {
+  if (!context.agent || !context.submitFeedback) return;
+  const agentId = context.agent.id;
+  const submitFeedback = context.submitFeedback;
+
+  server.registerTool(
+    "dispatch_feedback",
+    {
+      description:
+        "Submit a structured feedback finding to Dispatch. Use this to report issues, suggestions, or observations about the code being reviewed. Each call creates one feedback item.",
+      inputSchema: {
+        severity: z
+          .enum(["critical", "high", "medium", "low", "info"])
+          .default("info")
+          .describe("Severity level of the finding."),
+        filePath: z
+          .string()
+          .optional()
+          .describe("File path relative to repo root where the issue was found."),
+        lineNumber: z
+          .number()
+          .optional()
+          .describe("Line number in the file."),
+        description: z.string().describe("What was found — the issue or observation."),
+        suggestion: z
+          .string()
+          .optional()
+          .describe("Suggested fix or action to take."),
+        mediaRef: z
+          .string()
+          .optional()
+          .describe("Filename of a previously shared media file (from dispatch_share) to attach.")
+      }
+    },
+    async (args) => {
+      try {
+        const result = await submitFeedback(agentId, {
+          severity: args.severity,
+          filePath: args.filePath,
+          lineNumber: args.lineNumber,
+          description: args.description,
+          suggestion: args.suggestion,
+          mediaRef: args.mediaRef
+        });
+        return {
+          content: [{ type: "text", text: `Feedback #${result.id} submitted.` }]
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
 }
 
 function cwdSchema(defaultCwd: string | undefined, description: string): z.ZodType<string | undefined> {
