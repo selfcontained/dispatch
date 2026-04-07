@@ -3822,8 +3822,12 @@ async function mcpUpdateReviewStatus(
   input: { status: string; message?: string }
 ): Promise<void> {
   const review = await agentManager.updatePersonaReviewStatus(agentId, input);
-  // Notify UI — the parent's agent card needs to re-render
-  const parent = await agentManager.getAgent(review.parentAgentId);
+  // Notify UI — both the child (owns the review data) and the parent need to re-render
+  const [child, parent] = await Promise.all([
+    agentManager.getAgent(agentId),
+    agentManager.getAgent(review.parentAgentId),
+  ]);
+  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
   if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
 }
 
@@ -3832,7 +3836,11 @@ async function mcpCompleteReview(
   input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
 ): Promise<void> {
   const review = await agentManager.completePersonaReview(agentId, input);
-  const parent = await agentManager.getAgent(review.parentAgentId);
+  const [child, parent] = await Promise.all([
+    agentManager.getAgent(agentId),
+    agentManager.getAgent(review.parentAgentId),
+  ]);
+  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
   if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
 }
 
@@ -3980,8 +3988,11 @@ async function mcpLaunchPersona(
     persona: opts.persona,
   });
 
+  // Re-fetch so the SSE event includes the review subquery data
+  const agentWithReview = await agentManager.getAgent(agent.id);
+
   queueGitContextRefresh([agent.id]);
-  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agentWithReview ?? agent) });
 
   // Send initial prompt to the persona agent after it starts up
   if (agent.tmuxSession) {
