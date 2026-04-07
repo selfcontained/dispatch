@@ -1,5 +1,6 @@
 ## What's Changed
-* Add GFM table support to markdown pins by @selfcontained in https://github.com/selfcontained/dispatch/pull/247
+* Fix review status not updating in sidebar for persona agents by @selfcontained in https://github.com/selfcontained/dispatch/pull/249
+* Fix agent sidebar not expanding/collapsing on selection by @selfcontained in https://github.com/selfcontained/dispatch/pull/248
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.35...v0.9.36
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.36...v0.9.37
