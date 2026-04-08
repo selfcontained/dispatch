@@ -3,6 +3,13 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 
+const apiPort = process.env.VITE_API_TARGET ?? process.env.DISPATCH_PORT;
+if (!apiPort) {
+  throw new Error(
+    "DISPATCH_PORT or VITE_API_TARGET must be set. Use dispatch-dev to start the dev environment.",
+  );
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -51,7 +58,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: process.env.VITE_API_TARGET ?? `http://127.0.0.1:${process.env.DISPATCH_PORT ?? 6767}`,
+        target: process.env.VITE_API_TARGET ?? `http://127.0.0.1:${process.env.DISPATCH_PORT}`,
         changeOrigin: true,
         ws: true
       }
