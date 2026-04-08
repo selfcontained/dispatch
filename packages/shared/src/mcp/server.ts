@@ -176,7 +176,7 @@ export async function handleMcpRequest(
   await transport.handleRequest(req, res, parsedBody);
 }
 
-async function createDispatchMcpServer(context: McpRequestContext): Promise<McpServer> {
+export async function createDispatchMcpServer(context: McpRequestContext): Promise<McpServer> {
   const server = new McpServer({
     name: "dispatch",
     version: "0.0.0"
