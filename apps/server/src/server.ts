@@ -1244,7 +1244,6 @@ async function registerRoutes() {
       worktreeRoot,
       enableBuiltinTools: false,
       toolScope: "job",
-      repoToolEnv: { DISPATCH_AUTH_TOKEN: config.authToken },
       jobTools: {
         complete: mcpJobComplete,
         failed: mcpJobFailed,
