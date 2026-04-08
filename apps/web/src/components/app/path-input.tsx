@@ -37,6 +37,8 @@ type PathInputProps = {
   id?: string;
   /** data-testid for the input */
   "data-testid"?: string;
+  /** data-testid for each history dropdown item */
+  historyItemTestId?: string;
   className?: string;
 };
 
@@ -50,6 +52,7 @@ export function PathInput({
   label,
   id,
   "data-testid": testId,
+  historyItemTestId,
   className,
 }: PathInputProps): JSX.Element {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -233,6 +236,7 @@ export function PathInput({
                     <CommandItem
                       key={dir}
                       value={dir}
+                      data-testid={historyItemTestId}
                       className="group font-mono text-xs"
                       onSelect={() => {
                         onChange(dir);

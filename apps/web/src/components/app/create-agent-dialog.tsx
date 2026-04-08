@@ -200,6 +200,7 @@ export function CreateAgentDialog({
             history={cwdHistory}
             onRemoveHistory={onRemoveCwdHistory}
             data-testid="create-agent-cwd"
+            historyItemTestId="create-agent-cwd-history-option"
           />
 
           <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
