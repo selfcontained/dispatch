@@ -1244,6 +1244,7 @@ async function registerRoutes() {
       worktreeRoot,
       enableBuiltinTools: false,
       toolScope: "job",
+      repoToolEnv: { DISPATCH_AUTH_TOKEN: config.authToken },
       jobTools: {
         complete: mcpJobComplete,
         failed: mcpJobFailed,
@@ -3183,8 +3184,6 @@ async function start() {
   await waitForDatabase();
   await runMigrations();
   config.authToken = await getOrCreateAuthToken(pool);
-  // Expose auth token in process.env so repo tools (e.g. list_agents) can use it
-  process.env.DISPATCH_AUTH_TOKEN = config.authToken;
   await agentManager.reconcileAgents();
   await jobService.reconcileActiveRuns();
   await jobService.startSchedulers();
