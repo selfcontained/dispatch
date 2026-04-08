@@ -15,7 +15,20 @@
     "dev": {
       "dependsOn": ["^build"],
       "persistent": true,
-      "cache": false
+      "cache": false,
+      "passThroughEnv": [
+        "DISPATCH_PORT",
+        "DISPATCH_HOST",
+        "DISPATCH_AGENT_ID",
+        "DISPATCH_AGENT_RUNTIME",
+        "DISPATCH_SESSION_PREFIX",
+        "DISPATCH_ALLOW_AGENT_PROD_DB",
+        "DATABASE_URL",
+        "PORT",
+        "HOST",
+        "TLS_CERT",
+        "TLS_KEY"
+      ]
     },
     "check": {
       "dependsOn": ["^build"]
