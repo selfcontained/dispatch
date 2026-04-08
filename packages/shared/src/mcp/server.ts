@@ -70,6 +70,18 @@ export type JobTools = {
     input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
   ) => Promise<{ runId: string; status: string }>;
   listAgents: () => Promise<Array<{ id: string; name: string; status: string; cwd: string }>>;
+  listRecentPersonaReviews: (sinceDays: number) => Promise<Array<{
+    id: number; agentId: string; parentAgentId: string; persona: string;
+    status: string; message: string | null; verdict: string | null;
+    summary: string | null; filesReviewed: string[] | null;
+    createdAt: string; updatedAt: string;
+  }>>;
+  listRecentFeedback: (sinceDays: number) => Promise<Array<{
+    id: number; agentId: string; persona: string; severity: string;
+    filePath: string | null; lineNumber: number | null;
+    description: string; suggestion: string | null;
+    mediaRef: string | null; status: string; createdAt: string;
+  }>>;
 };
 
 export type PinInput = {
@@ -602,6 +614,48 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           return {
             content: [{ type: "text", text: JSON.stringify({ agents }, null, 2) }],
             structuredContent: { agents }
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+
+    server.registerTool(
+      "list_recent_persona_reviews",
+      {
+        description: "List persona reviews from the last N days. Returns review metadata including persona type, status, verdict, and summary.",
+        inputSchema: {
+          since_days: z.number().int().min(1).max(90).default(7).describe("Number of days to look back (default 7, max 90).")
+        }
+      },
+      async (args) => {
+        try {
+          const reviews = await jobTools.listRecentPersonaReviews(args.since_days);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ reviews, count: reviews.length }, null, 2) }],
+            structuredContent: { reviews, count: reviews.length }
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+
+    server.registerTool(
+      "list_recent_feedback",
+      {
+        description: "List feedback items submitted by persona agents in the last N days. Includes persona type, severity, description, status, and file location.",
+        inputSchema: {
+          since_days: z.number().int().min(1).max(90).default(7).describe("Number of days to look back (default 7, max 90).")
+        }
+      },
+      async (args) => {
+        try {
+          const feedback = await jobTools.listRecentFeedback(args.since_days);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ feedback, count: feedback.length }, null, 2) }],
+            structuredContent: { feedback, count: feedback.length }
           };
         } catch (error) {
           return toToolError(error);

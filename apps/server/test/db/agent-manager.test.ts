@@ -836,6 +836,78 @@ describe("AgentManager", () => {
     });
   });
 
+  describe("listRecentPersonaReviews", () => {
+    it("should return reviews created within the time window", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const child = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+
+      await manager.createPersonaReview({
+        agentId: child.id,
+        parentAgentId: parent.id,
+        persona: "security-review",
+      });
+      await manager.completePersonaReview(child.id, {
+        verdict: "approve",
+        summary: "Looks good",
+      });
+
+      const reviews = await manager.listRecentPersonaReviews(7);
+      expect(reviews.length).toBeGreaterThanOrEqual(1);
+      const review = reviews.find((r) => r.agentId === child.id);
+      expect(review).toBeDefined();
+      expect(review!.persona).toBe("security-review");
+      expect(review!.verdict).toBe("approve");
+      expect(review!.summary).toBe("Looks good");
+    });
+
+    it("should return empty array when no reviews exist in the window", async () => {
+      const reviews = await manager.listRecentPersonaReviews(7);
+      expect(reviews).toEqual([]);
+    });
+  });
+
+  describe("listRecentFeedback", () => {
+    it("should return feedback with persona info within the time window", async () => {
+      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const child = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+
+      await manager.submitFeedback(child.id, {
+        severity: "high",
+        description: "SQL injection risk",
+        filePath: "src/db.ts",
+        lineNumber: 10,
+      });
+      await manager.submitFeedback(child.id, {
+        severity: "low",
+        description: "Minor style issue",
+      });
+
+      const feedback = await manager.listRecentFeedback(7);
+      expect(feedback.length).toBeGreaterThanOrEqual(2);
+      const items = feedback.filter((f) => f.agentId === child.id);
+      expect(items).toHaveLength(2);
+      expect(items[0].persona).toBe("security-review");
+      expect(items[0].severity).toBe("high");
+      expect(items[0].description).toBe("SQL injection risk");
+      expect(items[1].severity).toBe("low");
+    });
+
+    it("should return empty array when no feedback exists in the window", async () => {
+      const feedback = await manager.listRecentFeedback(7);
+      expect(feedback).toEqual([]);
+    });
+  });
+
   describe("cliSessionId", () => {
     it("should store cliSessionId when provided at creation", async () => {
       const agent = await manager.createAgent({
