@@ -1307,6 +1307,7 @@ async function registerRoutes() {
       upsertEvent: mcpUpsertEvent,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
+      listPersonas: mcpListPersonas,
       launchPersona: mcpLaunchPersona,
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
@@ -4044,6 +4045,32 @@ async function mcpJobLog(
 ): Promise<{ runId: string; status: string }> {
   const run = await jobService.logForAgent(agentId, input);
   return { runId: run.id, status: run.status };
+}
+
+async function mcpListPersonas(
+  agentId: string
+): Promise<Array<{ slug: string; name: string; description: string }>> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  const cwd = agent.worktreePath ?? agent.cwd;
+
+  // Try worktree root first
+  let root: string | undefined;
+  try { root = await resolveWorktreeRoot(cwd); } catch {}
+
+  let personas = root ? await loadPersonas(root) : [];
+
+  // Fall back to repo root if worktree had none (or wasn't resolvable)
+  if (personas.length === 0) {
+    let repoRoot: string | undefined;
+    try { repoRoot = await resolveRepoRoot(cwd); } catch {}
+    if (repoRoot && repoRoot !== root) {
+      personas = await loadPersonas(repoRoot);
+    }
+  }
+
+  return personas.map((p) => ({ slug: p.slug, name: p.name, description: p.description }));
 }
 
 async function mcpLaunchPersona(

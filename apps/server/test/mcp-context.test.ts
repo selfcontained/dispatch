@@ -11,6 +11,7 @@ const agent: McpAgent = {
 const sharedCallbacks = {
   shareMedia: vi.fn(async () => ({ fileName: "test.txt", url: "http://localhost/test.txt", sizeBytes: 1, source: "text", description: "test" })),
   submitFeedback: vi.fn(async () => ({ id: 1 })),
+  listPersonas: vi.fn(async () => []),
   launchPersona: vi.fn(async () => ({ agentId: "agt_child", persona: "security-review", parentAgentId: "agt_test123456" })),
   getFeedback: vi.fn(async () => ({ personas: [] })),
   resolveFeedback: vi.fn(async () => ({
@@ -33,6 +34,7 @@ const sharedCallbacks = {
   McpRequestContext,
   | "shareMedia"
   | "submitFeedback"
+  | "listPersonas"
   | "launchPersona"
   | "getFeedback"
   | "resolveFeedback"
@@ -77,6 +79,7 @@ describe("MCP context wiring", () => {
     expect(names).not.toContain("dispatch_pin");
     expect(names).not.toContain("dispatch_share");
     expect(names).not.toContain("dispatch_feedback");
+    expect(names).not.toContain("dispatch_get_personas");
     expect(names).not.toContain("dispatch_launch_persona");
     expect(names).not.toContain("dispatch_get_feedback");
     expect(names).not.toContain("dispatch_resolve_feedback");
@@ -98,6 +101,7 @@ describe("MCP context wiring", () => {
     expect(names).toContain("dispatch_event");
     expect(names).toContain("dispatch_pin");
     expect(names).toContain("dispatch_share");
+    expect(names).toContain("dispatch_get_personas");
     expect(names).toContain("create_pr");
     expect(names).toContain("get_pr_status");
     expect(names).not.toContain("job_log");

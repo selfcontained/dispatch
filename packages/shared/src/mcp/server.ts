@@ -120,6 +120,9 @@ export type McpRequestContext = {
     agentId: string,
     feedback: FeedbackInput
   ) => Promise<{ id: number }>;
+  listPersonas?: (
+    agentId: string
+  ) => Promise<Array<{ slug: string; name: string; description: string }>>;
   launchPersona?: (
     agentId: string,
     opts: { persona: string; context: string }
@@ -400,6 +403,36 @@ export async function createDispatchMcpServer(context: McpRequestContext): Promi
   registerPinTool(server, context);
   registerShareTool(server, context);
   registerFeedbackTool(server, context);
+
+  if (context.agent && context.listPersonas) {
+    const agentId = context.agent.id;
+    const listPersonas = context.listPersonas;
+
+    server.registerTool(
+      "dispatch_get_personas",
+      {
+        description:
+          "List available persona agents that can be launched to review or test your work. " +
+          "Returns each persona's slug (used with dispatch_launch_persona), display name, and description.",
+        inputSchema: {}
+      },
+      async () => {
+        try {
+          const personas = await listPersonas(agentId);
+          if (personas.length === 0) {
+            return {
+              content: [{ type: "text", text: "No personas found in .dispatch/personas/." }]
+            };
+          }
+          return {
+            content: [{ type: "text", text: JSON.stringify(personas, null, 2) }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   if (context.agent && context.launchPersona) {
     const agentId = context.agent.id;
