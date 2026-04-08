@@ -4054,13 +4054,20 @@ async function mcpListPersonas(
   if (!agent) throw new Error("Agent not found.");
 
   const cwd = agent.worktreePath ?? agent.cwd;
-  let personas = await loadPersonas(await resolveWorktreeRoot(cwd).catch(() => resolveRepoRoot(cwd)));
+
+  // Try worktree root first
+  let root: string | undefined;
+  try { root = await resolveWorktreeRoot(cwd); } catch {}
+
+  let personas = root ? await loadPersonas(root) : [];
+
+  // Fall back to repo root if worktree had none (or wasn't resolvable)
   if (personas.length === 0) {
-    // Fall back to repo root if worktree root had none
-    try {
-      const repoRoot = await resolveRepoRoot(cwd);
+    let repoRoot: string | undefined;
+    try { repoRoot = await resolveRepoRoot(cwd); } catch {}
+    if (repoRoot && repoRoot !== root) {
       personas = await loadPersonas(repoRoot);
-    } catch {}
+    }
   }
 
   return personas.map((p) => ({ slug: p.slug, name: p.name, description: p.description }));
