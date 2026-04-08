@@ -159,17 +159,7 @@ export function DashboardLayout(): JSX.Element {
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
-  const homeDirRef = useRef<string | null>(null);
-  const normalizedCwd = (() => {
-    const home = homeDirRef.current;
-    let cwd = createCwd;
-    if (home && cwd.startsWith("~/")) cwd = home + cwd.slice(1);
-    else if (home && cwd === "~") cwd = home;
-    // Strip trailing slash for consistent keys (but keep "/" as-is)
-    if (cwd.length > 1 && cwd.endsWith("/")) cwd = cwd.slice(0, -1);
-    return cwd;
-  })();
-  const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(normalizedCwd));
+  const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [createBaseBranch, setCreateBaseBranch] = useState("main");
@@ -331,18 +321,16 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Fetch system defaults for create dialog CWD ───────────────────────
   useEffect(() => {
+    if (createCwdInitialized) return;
     let cancelled = false;
     void api<{ homeDir: string }>("/api/v1/system/defaults")
       .then((payload) => {
         if (cancelled) return;
-        homeDirRef.current = payload.homeDir;
-        if (!createCwdInitialized) {
-          setCreateCwd(payload.homeDir);
-          setCreateCwdInitialized(true);
-        }
+        setCreateCwd(payload.homeDir);
+        setCreateCwdInitialized(true);
       })
       .catch(() => {
-        if (cancelled || createCwdInitialized) return;
+        if (cancelled) return;
         setCreateCwdInitialized(true);
       });
     return () => { cancelled = true; };
