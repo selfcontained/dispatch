@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
-import { feedbackDetailAtom, expandedAgentIdAtom } from "@/lib/store";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -159,7 +159,7 @@ export function DashboardLayout(): JSX.Element {
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
-  const [createFullAccess, setCreateFullAccess] = useState(false);
+  const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [createBaseBranch, setCreateBaseBranch] = useState("main");
@@ -478,7 +478,6 @@ export function DashboardLayout(): JSX.Element {
 
         setCreateOpen(false);
         setCreateName("");
-        setCreateFullAccess(false);
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
         setCreateBaseBranch("main");
