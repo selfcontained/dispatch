@@ -64,7 +64,7 @@ export type RepoToolDefinition = {
   description: string;
   params?: RepoToolParam[];
   scope?: RepoToolScope[];
-  run: (context: { agentId: string; repoRoot: string; params?: Record<string, unknown> }) => Promise<RepoToolResult>;
+  run: (context: { agentId: string; repoRoot: string; params?: Record<string, unknown>; env?: Record<string, string> }) => Promise<RepoToolResult>;
 };
 
 export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinition[]> {
@@ -79,7 +79,7 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
       description: tool.description,
       params: tool.params,
       scope: tool.scope,
-      run: async ({ agentId, repoRoot: currentRepoRoot, params }) => {
+      run: async ({ agentId, repoRoot: currentRepoRoot, params, env: extraEnv }) => {
         const [command, ...args] = tool.command;
 
         // Append CLI flags from params
@@ -99,6 +99,7 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           cwd: currentRepoRoot,
           env: {
             DISPATCH_AGENT_ID: agentId,
+            ...extraEnv,
           },
           // Allow all exit codes — the agent decides how to handle failures.
           // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).

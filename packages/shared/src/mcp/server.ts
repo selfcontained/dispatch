@@ -142,6 +142,7 @@ export type McpRequestContext = {
   jobTools?: JobTools;
   enableBuiltinTools?: boolean;
   toolScope?: "agent" | "reviewer" | "job";
+  repoToolEnv?: Record<string, string>;
 };
 
 export async function handleMcpRequest(
@@ -608,7 +609,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             const result = await tool.run({
               agentId: context.agent!.id,
               repoRoot: toolsRoot,
-              params: args as Record<string, unknown>
+              params: args as Record<string, unknown>,
+              env: context.repoToolEnv
             });
             return {
               content: [{ type: "text", text: result.message }],
