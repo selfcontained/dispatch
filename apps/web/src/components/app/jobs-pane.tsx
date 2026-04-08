@@ -1,12 +1,13 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, Check, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { PathInput } from "@/components/app/path-input";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -957,29 +958,12 @@ function JobWorktreeOption({
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
       <div className="flex cursor-pointer items-start gap-3" onClick={() => onCheckedChange(!checked)}>
-        <button
-          type="button"
-          role="checkbox"
-          tabIndex={0}
-          aria-checked={checked}
-          onClick={(event) => {
-            event.stopPropagation();
-            onCheckedChange(!checked);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === " " || event.key === "Enter") {
-              event.preventDefault();
-              onCheckedChange(!checked);
-            }
-          }}
-          className={cn(
-            "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
-            checked ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
-          )}
+        <Checkbox
+          checked={checked}
+          onCheckedChange={() => onCheckedChange(!checked)}
+          className="mt-0.5"
           title="Toggle git worktree"
-        >
-          {checked ? <Check className="h-3.5 w-3.5" /> : null}
-        </button>
+        />
         <span className="space-y-1">
           <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
             <GitBranch className="h-3.5 w-3.5" />
@@ -1012,29 +996,12 @@ function JobFullAccessOption({
 }) {
   return (
     <div className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2" onClick={() => onCheckedChange(!checked)}>
-      <button
-        type="button"
-        role="checkbox"
-        tabIndex={0}
-        aria-checked={checked}
-        onClick={(event) => {
-          event.stopPropagation();
-          onCheckedChange(!checked);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === " " || event.key === "Enter") {
-            event.preventDefault();
-            onCheckedChange(!checked);
-          }
-        }}
-        className={cn(
-          "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
-          checked ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
-        )}
+      <Checkbox
+        checked={checked}
+        onCheckedChange={() => onCheckedChange(!checked)}
+        className="mt-0.5"
         title="Toggle full access"
-      >
-        {checked ? <Check className="h-3.5 w-3.5" /> : null}
-      </button>
+      />
       <span className="space-y-1">
         <span className="block text-sm font-medium text-foreground">Run in full access mode</span>
         <span className="block text-xs text-muted-foreground">

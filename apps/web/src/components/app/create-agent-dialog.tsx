@@ -3,6 +3,7 @@ import { Check, ChevronDown, GitBranch, Loader2 } from "lucide-react";
 
 import { PathInput } from "@/components/app/path-input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandLoading } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -205,22 +206,13 @@ export function CreateAgentDialog({
 
           <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
             <div className="flex cursor-pointer items-start gap-3" onClick={() => setCreateUseWorktree((current) => !current)}>
-              <button
-                type="button"
-                role="checkbox"
-                tabIndex={0}
-                aria-checked={createUseWorktree}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setCreateUseWorktree((current) => !current); } }}
-                className={cn(
-                  "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
-                  createUseWorktree ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
-                )}
+              <Checkbox
+                checked={createUseWorktree}
+                onCheckedChange={() => setCreateUseWorktree((current) => !current)}
+                className="mt-0.5"
                 title="Toggle git worktree"
                 data-testid="create-agent-worktree"
-              >
-                {createUseWorktree ? <Check className="h-3.5 w-3.5" /> : null}
-              </button>
+              />
               <span className="space-y-1">
                 <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                   <GitBranch className="h-3.5 w-3.5" />
@@ -317,21 +309,12 @@ export function CreateAgentDialog({
           </div>
 
           <div className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3" onClick={() => setCreateFullAccess((current) => !current)}>
-            <button
-              type="button"
-              role="checkbox"
-              tabIndex={0}
-              aria-checked={createFullAccess}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setCreateFullAccess((current) => !current); } }}
-              className={cn(
-                "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
-                createFullAccess ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
-              )}
+            <Checkbox
+              checked={createFullAccess}
+              onCheckedChange={() => setCreateFullAccess((current) => !current)}
+              className="mt-0.5"
               title="Toggle full access"
-            >
-              {createFullAccess ? <Check className="h-3.5 w-3.5" /> : null}
-            </button>
+            />
             <span className="space-y-1">
               <span className="block text-sm font-medium text-foreground">Start in full access mode</span>
               <span className="block text-xs text-muted-foreground">

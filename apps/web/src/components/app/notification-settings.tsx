@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 
 type NotifyEventType = "done" | "waiting_user" | "blocked";
@@ -166,15 +167,14 @@ export function NotificationSettings(): JSX.Element {
         </p>
         <div className="max-w-lg space-y-2">
           {EVENT_OPTIONS.map(({ id, label, description }) => (
-            <label
+            <div
               key={id}
               className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+              onClick={() => toggleEvent(id)}
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={notifyEvents.includes(id)}
-                onChange={() => toggleEvent(id)}
-                className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                onCheckedChange={() => toggleEvent(id)}
                 data-testid={`notify-event-${id}`}
               />
               <div className="min-w-0">
@@ -185,7 +185,7 @@ export function NotificationSettings(): JSX.Element {
                   {description}
                 </div>
               </div>
-            </label>
+            </div>
           ))}
         </div>
       </div>

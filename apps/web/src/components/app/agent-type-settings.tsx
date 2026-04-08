@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { AGENT_TYPES, AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 
@@ -96,16 +97,15 @@ export function AgentTypeSettings({
           const checked = agentTypes.includes(agentType);
           const disabled = checked && agentTypes.length === 1;
           return (
-            <label
+            <div
               key={agentType}
               className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+              onClick={() => { if (!disabled) void toggleAgentType(agentType); }}
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={checked}
                 disabled={disabled}
-                onChange={() => void toggleAgentType(agentType)}
-                className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                onCheckedChange={() => void toggleAgentType(agentType)}
                 data-testid={`agent-type-toggle-${agentType}`}
               />
               <div className="min-w-0">
@@ -114,7 +114,7 @@ export function AgentTypeSettings({
                   {disabled ? "At least one agent type must stay enabled." : "Available in the create-agent dialog."}
                 </div>
               </div>
-            </label>
+            </div>
           );
         })}
       </div>
