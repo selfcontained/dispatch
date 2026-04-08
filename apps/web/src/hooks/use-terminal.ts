@@ -849,5 +849,6 @@ export function useTerminal(args: {
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    setTerminalHostRef,
   ]);
 }

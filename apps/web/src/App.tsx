@@ -425,7 +425,7 @@ export function DashboardLayout(): JSX.Element {
   const handleAgentsWorkspaceUnmount = useCallback(() => {
     detachAndClearSelection();
     setFeedbackDetail(null);
-  }, [detachAndClearSelection]);
+  }, [detachAndClearSelection, setFeedbackDetail]);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {

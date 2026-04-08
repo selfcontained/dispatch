@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
 import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, Check, CheckCircle2, ChevronDown, Clock, GitBranch, History, ListChecks, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { type Agent } from "@/components/app/types";
@@ -111,13 +111,6 @@ function humanSchedule(schedule: string | null): string {
   }
 }
 
-function nextRunLabel(job: Pick<Job, "enabled" | "nextRun" | "schedule">): string | null {
-  if (!job.schedule) return null;
-  if (!job.enabled) return "Disabled";
-  if (!job.nextRun) return "Next run unavailable";
-  return `Next ${formatDate(job.nextRun)}`;
-}
-
 function triggerSourceLabel(run: JobRun): string {
   return run.config.triggerSource === "scheduled" ? "Scheduled" : "Manual";
 }
@@ -141,7 +134,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
   const [addJobDirectory, setAddJobDirectory] = useState("");
   const [manualScanDirectory, setManualScanDirectory] = useState<string | null>(null);
   const [availableJobsForceKey, setAvailableJobsForceKey] = useState(0);
-  const [actionErrorByJobId, setActionErrorByJobId] = useState<Record<string, string>>({});
+  const [actionErrorByJobId, _setActionErrorByJobId] = useState<Record<string, string>>({});
   const [justAddedJobId, setJustAddedJobId] = useState<string | null>(null);
   const selectedJob = jobs.find((job) => job.id === routeJobId) ?? null;
   const tab: DetailTab = routeSection === "prompt" || routeSection === "history" ? routeSection : "configure";
@@ -159,14 +152,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
     setIsAddingJob(true);
     setAddJobStep("choose");
     setJustAddedJobId(null);
-  };
-
-  const clearActionError = (jobId: string) => {
-    setActionErrorByJobId((current) => {
-      const next = { ...current };
-      delete next[jobId];
-      return next;
-    });
   };
 
   const showDetailPane = !!selectedJob;
@@ -355,10 +340,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
           isScanning={availableJobs.isLoading || availableJobs.isFetching}
           scanError={availableJobs.error instanceof Error ? availableJobs.error.message : null}
           isAdding={addJob.isPending}
-          onCancel={() => {
-            setIsAddingJob(false);
-            setAddJobStep("choose");
-          }}
         />
       </AddJobDialog>
     </section>
@@ -466,7 +447,6 @@ function AddJobFlow({
   scanError,
   onAddJob,
   isAdding,
-  onCancel,
   enabledAgentTypes,
 }: {
   step: AddJobStep;
@@ -480,7 +460,6 @@ function AddJobFlow({
   scanError: string | null;
   onAddJob: (job: AddJobConfig) => Promise<void>;
   isAdding: boolean;
-  onCancel: () => void;
   enabledAgentTypes: AgentType[];
 }) {
   const [selectedJobFilePath, setSelectedJobFilePath] = useState<string | null>(null);
@@ -511,23 +490,29 @@ function AddJobFlow({
     () => discoveredJobs.find((job) => job.filePath === selectedJobFilePath) ?? null,
     [discoveredJobs, selectedJobFilePath]
   );
+  const selectedJobRef = useRef<typeof selectedJob>(null);
   const scannedDirectoryCount = availableDirectories.length;
   const scheduleError = cronError(schedule, enableImmediately);
   const canAddConfiguredJob = !!selectedJob && !!displayName.trim() && !scheduleError && !!msFromMinutes(timeoutMinutes) && !!msFromMinutes(needsInputTimeoutMinutes);
 
   useEffect(() => {
-    if (!selectedJob) return;
-    setDisplayName(selectedJob.name);
-    setSchedule(selectedJob.schedule ?? "");
-    setTimeoutMinutes(minutesFromMs(selectedJob.timeoutMs));
-    setNeedsInputTimeoutMinutes(minutesFromMs(selectedJob.needsInputTimeoutMs));
-    setFullAccess(selectedJob.fullAccess);
+    selectedJobRef.current = selectedJob;
+  }, [selectedJob]);
+
+  useEffect(() => {
+    const job = selectedJobRef.current;
+    if (!job) return;
+    setDisplayName(job.name);
+    setSchedule(job.schedule ?? "");
+    setTimeoutMinutes(minutesFromMs(job.timeoutMs));
+    setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
+    setFullAccess(job.fullAccess);
     setUseWorktree(false);
     setBranchName("");
     setAdditionalInstructions("");
     setEnableImmediately(false);
     setAgentType((current) => enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex");
-  }, [selectedJobFilePath]);
+  }, [enabledAgentTypes, selectedJobFilePath]);
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
