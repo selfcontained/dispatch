@@ -1,6 +1,6 @@
 ## What's Changed
-* Add agent port guard to prevent shadowing prod (CRU-103) by @selfcontained in https://github.com/selfcontained/dispatch/pull/262
-* Fix checkbox inputs losing square aspect ratio on mobile by @selfcontained in https://github.com/selfcontained/dispatch/pull/260
+* Add jobs overview dashboard with metrics, chart, and activity feed by @selfcontained in https://github.com/selfcontained/dispatch/pull/263
+* Validate port flag and clean up install-launchd by @selfcontained in https://github.com/selfcontained/dispatch/pull/264
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.4...v0.11.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.5...v0.11.6
