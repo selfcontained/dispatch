@@ -116,7 +116,12 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 ### How to submit feedback
 - Call \`dispatch_feedback\` for each finding with: severity, file path, line number, description, and a concrete suggestion.
 - Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
-- Call \`dispatch_event\` with type \`done\` when your review is complete.
+
+### Review lifecycle
+- Call \`review_status\` with status \`reviewing\` and a short message when you begin reviewing.
+- Call \`dispatch_feedback\` for each finding as you go.
+- When finished, call \`review_status\` with status \`complete\`, a \`verdict\` (\`approve\` or \`request_changes\`), and a \`summary\` of your findings.
+- Then call \`dispatch_event\` with type \`done\`.
 
 ### Severity levels
 - **critical**: Exploitable vulnerability, data loss risk, or broken core functionality
