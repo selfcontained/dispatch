@@ -1199,6 +1199,15 @@ async function registerRoutes() {
     }
   });
 
+  app.get("/api/v1/jobs/stats", async (_request, reply) => {
+    try {
+      return await jobService.getStats();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
   app.get("/api/v1/jobs/history", async (request, reply) => {
     const parsed = JobHistoryParamsSchema.safeParse(request.query);
     if (!parsed.success) {

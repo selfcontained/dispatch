@@ -149,6 +149,27 @@ export function useJobHistory(job: Job | null) {
   });
 }
 
+export type JobStats = {
+  stats: {
+    totalRuns: number;
+    successCount: number;
+    failureCount: number;
+    avgDurationMs: number | null;
+    daily: Array<{ day: string; completed: number; failed: number }>;
+  };
+  recentRuns: Array<{ id: string; jobId: string; status: JobRunStatus; startedAt: string; durationMs: number | null; jobName: string }>;
+};
+
+export function useJobStats(enabled = true) {
+  return useQuery<JobStats>({
+    queryKey: ["jobs", "stats"],
+    queryFn: () => api<JobStats>("/api/v1/jobs/stats"),
+    enabled,
+    refetchInterval: enabled ? 15_000 : false,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useAvailableJobs(enabled: boolean, directory?: string | null, forceKey = 0) {
   return useQuery<{ directories: AvailableJobsDirectory[] }>({
     queryKey: ["jobs", "available", directory?.trim() ?? "", forceKey],

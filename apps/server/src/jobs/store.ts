@@ -346,6 +346,88 @@ export class JobStore {
     return result.rows.map((row) => mapRun(row));
   }
 
+  async listRecentRuns(limit = 10): Promise<Array<{
+    id: string;
+    jobId: string;
+    status: JobRunStatus;
+    startedAt: string;
+    durationMs: number | null;
+    jobName: string;
+  }>> {
+    const result = await this.pool.query(
+      `
+      SELECT
+        job_runs.id,
+        job_runs.job_id AS "jobId",
+        job_runs.status,
+        job_runs.started_at AS "startedAt",
+        job_runs.duration_ms AS "durationMs",
+        j.name AS "jobName"
+      FROM job_runs
+      JOIN jobs j ON j.id = job_runs.job_id
+      ORDER BY job_runs.started_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    );
+    return result.rows as Array<{
+      id: string;
+      jobId: string;
+      status: JobRunStatus;
+      startedAt: string;
+      durationMs: number | null;
+      jobName: string;
+    }>;
+  }
+
+  async getRunStats(sinceDays = 7): Promise<{
+    totalRuns: number;
+    successCount: number;
+    failureCount: number;
+    avgDurationMs: number | null;
+    daily: Array<{ day: string; completed: number; failed: number }>;
+  }> {
+    const [aggregates, daily] = await Promise.all([
+      this.pool.query(
+        `
+        SELECT
+          COUNT(*)::int AS "totalRuns",
+          COUNT(*) FILTER (WHERE status = 'completed')::int AS "successCount",
+          COUNT(*) FILTER (WHERE status IN ('failed', 'timed_out', 'crashed'))::int AS "failureCount",
+          ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL))::int AS "avgDurationMs"
+        FROM job_runs
+        WHERE started_at >= NOW() - make_interval(days => $1)
+        `,
+        [sinceDays]
+      ),
+      this.pool.query(
+        `
+        SELECT
+          TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+          COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+          COUNT(*) FILTER (WHERE status IN ('failed', 'timed_out', 'crashed'))::int AS failed
+        FROM job_runs
+        WHERE started_at >= NOW() - make_interval(days => $1)
+        GROUP BY day
+        ORDER BY day ASC
+        `,
+        [sinceDays]
+      ),
+    ]);
+    const row = aggregates.rows[0];
+    return {
+      totalRuns: row.totalRuns ?? 0,
+      successCount: row.successCount ?? 0,
+      failureCount: row.failureCount ?? 0,
+      avgDurationMs: row.avgDurationMs ?? null,
+      daily: daily.rows.map((r) => ({
+        day: r.day as string,
+        completed: r.completed as number,
+        failed: r.failed as number,
+      })),
+    };
+  }
+
   async getJob(jobId: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.jobColumns()} FROM jobs WHERE id = $1`,
