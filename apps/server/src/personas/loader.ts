@@ -115,7 +115,13 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 
 ### How to submit feedback
 - Call \`dispatch_feedback\` for each finding with: severity, file path, line number, description, and a concrete suggestion.
+- **Every finding MUST include a concrete suggestion** — what specifically should be changed and how. Findings without suggestions are not actionable and will be ignored.
 - Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
+
+### What NOT to submit
+- **No praise or affirmation feedback.** Do not submit feedback items that say code is "good", "well-written", "correct", "secure", or "properly handled". Positive observations are not findings — they waste reviewer time and bury real issues. If you have nothing to flag, submit fewer items. Quality over quantity.
+- **No pre-existing issues.** If a pattern or vulnerability existed before this diff, it is out of scope. Only flag it if the new changes make it worse or introduce a new instance of it.
+- **No vague observations.** "This could be improved" without a specific suggestion is not useful. Every item must say what to change and how.
 
 ### Review lifecycle
 - Call \`review_status\` with status \`reviewing\` and a short message when you begin reviewing.
@@ -128,10 +134,10 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 - **high**: Significant issue that should be fixed before merge
 - **medium**: Missing validation, weak error handling, or correctness concern
 - **low**: Minor issue, hardening opportunity, or improvement suggestion
-- **info**: Non-obvious good decision that a future contributor might mistakenly undo
+- **info**: Non-obvious good decision that a future contributor might mistakenly undo — use sparingly
 
 ### Info feedback limits
-Keep \`info\` severity feedback to a maximum of 2–3 items per review. Only use info for decisions that are *surprisingly good* or that need to be *preserved* — do not submit info feedback for code that is simply correct or working as expected. The goal is signal, not a checklist of everything that passed inspection.
+Keep \`info\` severity feedback to a maximum of 2 items per review. Only use info for decisions that are *surprisingly good* and that a future contributor might mistakenly undo — the kind of thing worth a code comment. Do not submit info feedback for code that is simply correct, working as expected, or follows standard patterns. When in doubt, don't submit it.
 `.trim();
 
 export function assemblePersonaPrompt(
