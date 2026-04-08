@@ -51,7 +51,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: process.env.VITE_API_TARGET ?? `http://127.0.0.1:${process.env.DISPATCH_PORT ?? 6767}`,
+        target: process.env.VITE_API_TARGET ?? `http://127.0.0.1:${process.env.DISPATCH_PORT}`,
         changeOrigin: true,
         ws: true
       }

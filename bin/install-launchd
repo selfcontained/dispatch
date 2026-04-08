@@ -67,15 +67,14 @@ if [[ ! -f "$SERVER_ENV" ]]; then
   fi
 fi
 
-# Set DISPATCH_PORT in server .env if specified
-if [[ -n "$PORT" ]]; then
-  if grep -q '^DISPATCH_PORT=' "$SERVER_ENV"; then
-    sed -i '' "s/^DISPATCH_PORT=.*/DISPATCH_PORT=$PORT/" "$SERVER_ENV"
-  else
-    echo "DISPATCH_PORT=$PORT" >> "$SERVER_ENV"
-  fi
-  echo "==> set DISPATCH_PORT=$PORT in $SERVER_ENV"
+# Always write DISPATCH_PORT to server .env (required by the server)
+PORT="${PORT:-6767}"
+if grep -q '^DISPATCH_PORT=' "$SERVER_ENV"; then
+  sed -i '' "s/^DISPATCH_PORT=.*/DISPATCH_PORT=$PORT/" "$SERVER_ENV"
+else
+  echo "DISPATCH_PORT=$PORT" >> "$SERVER_ENV"
 fi
+echo "==> set DISPATCH_PORT=$PORT in $SERVER_ENV"
 
 # Check out the latest release tag so the install runs a known-good version
 # and the server can detect future updates via release.json.
