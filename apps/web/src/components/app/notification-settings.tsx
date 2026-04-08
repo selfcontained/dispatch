@@ -167,15 +167,13 @@ export function NotificationSettings(): JSX.Element {
         </p>
         <div className="max-w-lg space-y-2">
           {EVENT_OPTIONS.map(({ id, label, description }) => (
-            <div
+            <label
               key={id}
               className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
-              onClick={() => toggleEvent(id)}
             >
               <Checkbox
                 checked={notifyEvents.includes(id)}
                 onCheckedChange={() => toggleEvent(id)}
-                aria-label={label}
                 data-testid={`notify-event-${id}`}
               />
               <div className="min-w-0">
@@ -186,7 +184,7 @@ export function NotificationSettings(): JSX.Element {
                   {description}
                 </div>
               </div>
-            </div>
+            </label>
           ))}
         </div>
       </div>

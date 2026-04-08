@@ -1,53 +1,27 @@
+import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { Check } from "lucide-react";
+import { type ComponentPropsWithoutRef } from "react";
+
 import { cn } from "@/lib/utils";
 
 export function Checkbox({
-  checked,
-  onCheckedChange,
   className,
-  title,
-  "aria-label": ariaLabel,
-  "data-testid": dataTestId,
-  disabled,
-}: {
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  className?: string;
-  title?: string;
-  "aria-label"?: string;
-  "data-testid"?: string;
-  disabled?: boolean;
-}) {
+  ...props
+}: ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>) {
   return (
-    <button
-      type="button"
-      role="checkbox"
-      tabIndex={0}
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onCheckedChange(!checked);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === " " || e.key === "Enter") {
-          e.preventDefault();
-          if (!disabled) onCheckedChange(!checked);
-        }
-      }}
+    <CheckboxPrimitive.Root
+      {...props}
       className={cn(
-        "inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
-        checked
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-background",
-        disabled && "cursor-not-allowed opacity-50",
+        "peer inline-flex h-5 w-5 shrink-0 items-center justify-center border transition-colors",
+        "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+        "data-[state=unchecked]:border-border data-[state=unchecked]:bg-background",
+        "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
-      title={title}
-      data-testid={dataTestId}
     >
-      {checked ? <Check className="h-3.5 w-3.5" /> : null}
-    </button>
+      <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
+        <Check className="h-3.5 w-3.5" />
+      </CheckboxPrimitive.Indicator>
+    </CheckboxPrimitive.Root>
   );
 }

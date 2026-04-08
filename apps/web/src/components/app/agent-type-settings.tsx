@@ -98,19 +98,17 @@ export function AgentTypeSettings({
           const checked = agentTypes.includes(agentType);
           const disabled = checked && agentTypes.length === 1;
           return (
-            <div
+            <label
               key={agentType}
               className={cn(
                 "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
                 disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
               )}
-              onClick={() => { if (!disabled) void toggleAgentType(agentType); }}
             >
               <Checkbox
                 checked={checked}
                 disabled={disabled}
                 onCheckedChange={() => void toggleAgentType(agentType)}
-                aria-label={AGENT_TYPE_LABELS[agentType]}
                 data-testid={`agent-type-toggle-${agentType}`}
               />
               <div className="min-w-0">
@@ -119,7 +117,7 @@ export function AgentTypeSettings({
                   {disabled ? "At least one agent type must stay enabled." : "Available in the create-agent dialog."}
                 </div>
               </div>
-            </div>
+            </label>
           );
         })}
       </div>

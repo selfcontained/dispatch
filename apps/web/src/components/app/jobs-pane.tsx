@@ -957,7 +957,7 @@ function JobWorktreeOption({
 }) {
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
-      <div className="flex cursor-pointer items-start gap-3" onClick={() => onCheckedChange(!checked)}>
+      <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
@@ -973,7 +973,7 @@ function JobWorktreeOption({
             Creates an isolated worktree and branch when this job runs.
           </span>
         </span>
-      </div>
+      </label>
       {checked ? (
         <div className="ml-8 w-[calc(100%-2rem)]">
           <Input
@@ -995,7 +995,7 @@ function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2" onClick={() => onCheckedChange(!checked)}>
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -1008,7 +1008,7 @@ function JobFullAccessOption({
           Starts the selected agent with its most permissive supported execution mode.
         </span>
       </span>
-    </div>
+    </label>
   );
 }
 

@@ -205,7 +205,7 @@ export function CreateAgentDialog({
           />
 
           <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-            <div className="flex cursor-pointer items-start gap-3" onClick={() => setCreateUseWorktree((current) => !current)}>
+            <label className="flex cursor-pointer items-start gap-3">
               <Checkbox
                 checked={createUseWorktree}
                 onCheckedChange={() => setCreateUseWorktree((current) => !current)}
@@ -222,7 +222,7 @@ export function CreateAgentDialog({
                   Creates an isolated worktree and branch for this agent.
                 </span>
               </span>
-            </div>
+            </label>
             {createUseWorktree ? (
               <div className="ml-8 w-[calc(100%-2rem)] space-y-2">
                 <div className="relative" ref={branchCmdRef}>
@@ -308,7 +308,7 @@ export function CreateAgentDialog({
             ) : null}
           </div>
 
-          <div className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3" onClick={() => setCreateFullAccess((current) => !current)}>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
             <Checkbox
               checked={createFullAccess}
               onCheckedChange={() => setCreateFullAccess((current) => !current)}
@@ -321,7 +321,7 @@ export function CreateAgentDialog({
                 Starts the selected agent with its most permissive supported execution mode.
               </span>
             </span>
-          </div>
+          </label>
 
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" tabIndex={0} onClick={() => setOpen(false)} data-testid="create-agent-cancel">
