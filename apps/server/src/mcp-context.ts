@@ -4,6 +4,7 @@ type SharedAgentToolCallbacks = Pick<
   McpRequestContext,
   | "shareMedia"
   | "submitFeedback"
+  | "listPersonas"
   | "launchPersona"
   | "getFeedback"
   | "resolveFeedback"
@@ -30,6 +31,7 @@ export function buildAgentMcpContext(
     upsertEvent: args.upsertEvent,
     shareMedia: args.shareMedia,
     submitFeedback: args.submitFeedback,
+    listPersonas: args.listPersonas,
     launchPersona: args.launchPersona,
     getFeedback: args.getFeedback,
     resolveFeedback: args.resolveFeedback,
