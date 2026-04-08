@@ -37,6 +37,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+PORT="${PORT:-6767}"
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "error: --port must be numeric" >&2
+  exit 1
+fi
+
 if [[ -f "$PLIST" ]]; then
   echo "launchd service already installed at $PLIST"
   echo "run bin/uninstall-launchd first to reinstall"
@@ -68,7 +74,6 @@ if [[ ! -f "$SERVER_ENV" ]]; then
 fi
 
 # Always write DISPATCH_PORT to server .env (required by the server)
-PORT="${PORT:-6767}"
 if grep -q '^DISPATCH_PORT=' "$SERVER_ENV"; then
   sed -i '' "s/^DISPATCH_PORT=.*/DISPATCH_PORT=$PORT/" "$SERVER_ENV"
 else
@@ -150,7 +155,7 @@ launchctl load "$PLIST"
 echo ""
 echo "installed and started Dispatch as a launchd service"
 echo "server directory: $SERVER_DIR"
-echo "port:             ${PORT:-6767}"
+echo "port:             $PORT"
 echo "logs:             tail -f $LOG_FILE"
 echo ""
 echo "useful commands:"
