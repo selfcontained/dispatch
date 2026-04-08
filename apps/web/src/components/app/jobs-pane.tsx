@@ -973,7 +973,7 @@ function JobWorktreeOption({
             }
           }}
           className={cn(
-            "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
+            "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
             checked ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
           )}
           title="Toggle git worktree"
@@ -1028,7 +1028,7 @@ function JobFullAccessOption({
           }
         }}
         className={cn(
-          "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
+          "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
           checked ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
         )}
         title="Toggle full access"

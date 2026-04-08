@@ -213,7 +213,7 @@ export function CreateAgentDialog({
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setCreateUseWorktree((current) => !current); } }}
                 className={cn(
-                  "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
+                  "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
                   createUseWorktree ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
                 )}
                 title="Toggle git worktree"
@@ -325,7 +325,7 @@ export function CreateAgentDialog({
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); setCreateFullAccess((current) => !current); } }}
               className={cn(
-                "mt-0.5 inline-flex h-5 w-5 items-center justify-center border text-foreground transition-colors",
+                "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center border text-foreground transition-colors",
                 createFullAccess ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"
               )}
               title="Toggle full access"

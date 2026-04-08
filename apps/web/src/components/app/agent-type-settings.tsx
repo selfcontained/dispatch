@@ -105,7 +105,7 @@ export function AgentTypeSettings({
                 checked={checked}
                 disabled={disabled}
                 onChange={() => void toggleAgentType(agentType)}
-                className="h-4 w-4 rounded border-border accent-primary"
+                className="h-4 w-4 shrink-0 rounded border-border accent-primary"
                 data-testid={`agent-type-toggle-${agentType}`}
               />
               <div className="min-w-0">

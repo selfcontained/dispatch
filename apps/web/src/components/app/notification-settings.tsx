@@ -174,7 +174,7 @@ export function NotificationSettings(): JSX.Element {
                 type="checkbox"
                 checked={notifyEvents.includes(id)}
                 onChange={() => toggleEvent(id)}
-                className="h-4 w-4 rounded border-border accent-primary"
+                className="h-4 w-4 shrink-0 rounded border-border accent-primary"
                 data-testid={`notify-event-${id}`}
               />
               <div className="min-w-0">
