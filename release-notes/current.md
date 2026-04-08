@@ -1,6 +1,6 @@
 ## What's Changed
-* Add jobs overview dashboard with metrics, chart, and activity feed by @selfcontained in https://github.com/selfcontained/dispatch/pull/263
-* Validate port flag and clean up install-launchd by @selfcontained in https://github.com/selfcontained/dispatch/pull/264
+* Add weekly analysis jobs: doc-checker, persona-review, test-gap-finder by @selfcontained in https://github.com/selfcontained/dispatch/pull/261
+* Add review_status instructions to persona feedback guidance by @selfcontained in https://github.com/selfcontained/dispatch/pull/266
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.5...v0.11.6
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.6...v0.11.7
