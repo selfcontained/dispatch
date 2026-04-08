@@ -716,7 +716,7 @@ function AddJobFlow({
                         <Input id="job-timeout" value={timeoutMinutes} onChange={(event) => setTimeoutMinutes(event.target.value)} inputMode="numeric" />
                       </div>
                       <div className="min-w-0 space-y-1">
-                        <label className="text-sm text-muted-foreground" htmlFor="job-needs-input-timeout">Needs-input timeout, minutes</label>
+                        <label className="text-sm text-muted-foreground" htmlFor="job-needs-input-timeout">Wait for input, minutes</label>
                         <Input id="job-needs-input-timeout" value={needsInputTimeoutMinutes} onChange={(event) => setNeedsInputTimeoutMinutes(event.target.value)} inputMode="numeric" />
                       </div>
                       <JobWorktreeOption
@@ -1163,7 +1163,7 @@ function SettingsTab({
             <Input id={`settings-timeout-${job.id}`} value={timeoutMinutes} onChange={(event) => setTimeoutMinutes(event.target.value)} inputMode="numeric" />
           </div>
           <div className="space-y-1">
-            <label className="text-sm text-muted-foreground" htmlFor={`settings-needs-input-${job.id}`}>Needs-input timeout, minutes</label>
+            <label className="text-sm text-muted-foreground" htmlFor={`settings-needs-input-${job.id}`}>Wait for input, minutes</label>
             <Input id={`settings-needs-input-${job.id}`} value={needsInputTimeoutMinutes} onChange={(event) => setNeedsInputTimeoutMinutes(event.target.value)} inputMode="numeric" />
           </div>
         </div>

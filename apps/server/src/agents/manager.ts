@@ -983,7 +983,7 @@ export class AgentManager {
   }
 
   private async cleanupOrphanedSessions(): Promise<void> {
-    const SESSION_PREFIX = "dispatch_agt_";
+    const SESSION_PREFIX = `${this.config.sessionPrefix}_agt_`;
 
     let stdout: string | undefined;
     try {
@@ -1994,15 +1994,16 @@ export class AgentManager {
     return `agt_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   }
 
-  /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task". */
+  /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task" or "dispatch_dev_agt_abc123_my-task". */
   private agentIdFromSessionName(sessionName: string): string {
-    const match = sessionName.match(/dispatch_(agt_[a-f0-9]{12})/);
-    return match?.[1] ?? sessionName.replace(/^dispatch_/, "");
+    const match = sessionName.match(/(agt_[a-f0-9]{12})/);
+    return match?.[1] ?? sessionName.replace(/^[^_]*_/, "");
   }
 
   private toSessionName(agentId: string, agentName?: string): string {
+    const prefix = this.config.sessionPrefix;
     if (!agentName) {
-      return `dispatch_${agentId}`;
+      return `${prefix}_${agentId}`;
     }
     // Sanitize: tmux disallows colons and periods in session names.
     // Collapse whitespace/special chars to hyphens, truncate to keep it readable.
@@ -2012,7 +2013,7 @@ export class AgentManager {
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 30);
-    return `dispatch_${agentId}_${slug}`;
+    return `${prefix}_${agentId}_${slug}`;
   }
 
   private defaultMediaDir(agentId: string): string {

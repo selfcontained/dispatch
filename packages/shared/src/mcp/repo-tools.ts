@@ -39,11 +39,14 @@ export type RepoToolParam = {
   description: string;
 };
 
+export type RepoToolScope = "agent" | "reviewer" | "job";
+
 type RepoToolConfig = {
   name: string;
   description: string;
   command: string[];
   params?: RepoToolParam[];
+  scope?: RepoToolScope[];
 };
 
 export type RepoToolResult = {
@@ -60,6 +63,7 @@ export type RepoToolDefinition = {
   name: string;
   description: string;
   params?: RepoToolParam[];
+  scope?: RepoToolScope[];
   run: (context: { agentId: string; repoRoot: string; params?: Record<string, unknown> }) => Promise<RepoToolResult>;
 };
 
@@ -74,6 +78,7 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
       name: prefixedName,
       description: tool.description,
       params: tool.params,
+      scope: tool.scope,
       run: async ({ agentId, repoRoot: currentRepoRoot, params }) => {
         const [command, ...args] = tool.command;
 
@@ -94,7 +99,10 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           cwd: currentRepoRoot,
           env: {
             DISPATCH_AGENT_ID: agentId,
-          }
+          },
+          // Allow all exit codes — the agent decides how to handle failures.
+          // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).
+          allowedExitCodes: Array.from({ length: 256 }, (_, i) => i)
         });
 
         return {
@@ -148,8 +156,9 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   }
 
   const params = parseRepoToolParams(rawTool.params);
+  const scope = parseRepoToolScope(rawTool.scope);
 
-  return { name, description, command, params };
+  return { name, description, command, params, scope };
 }
 
 export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
@@ -202,6 +211,19 @@ function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {
   const description = typeof raw.description === "string" ? raw.description.trim() : undefined;
 
   return { command, ...(description ? { description } : {}) };
+}
+
+const VALID_SCOPES = new Set<RepoToolScope>(["agent", "reviewer", "job"]);
+
+function parseRepoToolScope(raw: unknown): RepoToolScope[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const scopes: RepoToolScope[] = [];
+  for (const entry of raw) {
+    if (typeof entry === "string" && VALID_SCOPES.has(entry as RepoToolScope)) {
+      scopes.push(entry as RepoToolScope);
+    }
+  }
+  return scopes.length > 0 ? scopes : undefined;
 }
 
 function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {

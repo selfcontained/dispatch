@@ -141,6 +141,7 @@ export type McpRequestContext = {
   ) => Promise<void>;
   jobTools?: JobTools;
   enableBuiltinTools?: boolean;
+  toolScope?: "agent" | "reviewer" | "job";
 };
 
 export async function handleMcpRequest(
@@ -591,7 +592,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
 
   const toolsRoot = context.worktreeRoot ?? context.repoRoot;
   if (context.agent && toolsRoot) {
-    const repoTools = await loadRepoTools(toolsRoot);
+    const allRepoTools = await loadRepoTools(toolsRoot);
+    const scope = context.toolScope ?? "agent";
+    const repoTools = allRepoTools.filter((tool) => !tool.scope || tool.scope.includes(scope));
     for (const tool of repoTools) {
       const inputSchema = buildParamSchema(tool.params);
       server.registerTool(
