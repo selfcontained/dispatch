@@ -352,9 +352,10 @@ html[data-theme="matrix"] body::after {
 
 /* Tablets: lock the viewport with position:fixed so touch-scroll inside
    xterm cannot shift the body (overflow:hidden alone is insufficient on
-   mobile WebKit).  We scope this to min-width:768px so phones still get
-   the native keyboard-push behavior that keeps the input visible. */
-@media (pointer: coarse) and (min-width: 768px) {
+   mobile WebKit).  Scoped to min-width AND min-height ≥768px so phones
+   in landscape (wide but short) still get native keyboard-push behavior.
+   See the all-touch-devices block below for the companion rules. */
+@media (pointer: coarse) and (min-width: 768px) and (min-height: 768px) {
   html,
   html body {
     position: fixed;
@@ -364,9 +365,9 @@ html[data-theme="matrix"] body::after {
 }
 
 /* All touch devices: disable root touch-action and re-enable it on
-   explicitly scrollable containers.  On phones the terminal's
-   touchmove preventDefault + touch-action:none on the pane are enough
-   to prevent scroll escape without needing position:fixed. */
+   explicitly scrollable containers.  On phones (<768px in either
+   dimension) these rules are the ONLY scroll-escape prevention —
+   see the tablet-only position:fixed block above. */
 @media (pointer: coarse) {
   #root {
     touch-action: none;
