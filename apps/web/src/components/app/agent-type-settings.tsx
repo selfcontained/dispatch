@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { AGENT_TYPES, AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 
 type AgentTypeSettingsResponse = {
@@ -98,14 +100,15 @@ export function AgentTypeSettings({
           return (
             <label
               key={agentType}
-              className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+              className={cn(
+                "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
+                disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
+              )}
             >
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={checked}
                 disabled={disabled}
-                onChange={() => void toggleAgentType(agentType)}
-                className="h-4 w-4 rounded border-border accent-primary"
+                onCheckedChange={() => void toggleAgentType(agentType)}
                 data-testid={`agent-type-toggle-${agentType}`}
               />
               <div className="min-w-0">
