@@ -18,7 +18,7 @@ Assess the effectiveness of persona-driven code reviews over the past week. Run 
 
 ## Data sources
 
-Query the production database directly (connect to `127.0.0.1:5432`, database `dispatch`, user `dispatch`, password `dispatch`):
+Query the local `dispatch` database via `psql`:
 
 1. **persona_reviews** table — contains review results:
    - `persona`: which persona ran (e.g., "backend-security-review", "frontend-ux-review")
