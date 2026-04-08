@@ -1253,6 +1253,8 @@ async function registerRoutes() {
           const agents = await agentManager.listAgents();
           return agents.map((a) => ({ id: a.id, name: a.name, status: a.status, cwd: a.cwd }));
         },
+        listRecentPersonaReviews: (sinceDays: number) => agentManager.listRecentPersonaReviews(sinceDays),
+        listRecentFeedback: (sinceDays: number) => agentManager.listRecentFeedback(sinceDays),
       },
     });
   });

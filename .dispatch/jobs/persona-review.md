@@ -18,27 +18,26 @@ Assess the effectiveness of persona-driven code reviews over the past week. Run 
 
 ## Data sources
 
-Query the local `dispatch` database via `psql`:
+Use the provided MCP tools to gather data:
 
-1. **persona_reviews** table — contains review results:
+1. **`list_recent_persona_reviews`** — call with `since_days: 7` to get all persona reviews from the last week. Each review includes:
    - `persona`: which persona ran (e.g., "backend-security-review", "frontend-ux-review")
-   - `status`: outcome of the review ("reviewing", "completed", etc.)
+   - `status`: outcome ("reviewing", "complete", etc.)
    - `verdict`: the persona's overall judgment
    - `summary`: text summary of findings
-   - `files_reviewed`: JSON list of files the persona looked at
-   - `created_at`: when the review ran
+   - `filesReviewed`: list of files the persona looked at
+   - `agentId`: the persona agent that ran the review
 
-2. **agent_feedback** table — contains individual findings from persona agents:
-   - `agent_id`: the persona agent that submitted it
+2. **`list_recent_feedback`** — call with `since_days: 7` to get all feedback items from the last week. Each item includes:
+   - `persona`: which persona type submitted it
    - `severity`: "critical", "high", "medium", "low", "info"
-   - `file_path`, `line_number`: location of finding
-   - `description`: what was found (text, not null)
-   - `suggestion`: recommended fix (text, nullable)
-   - `media_ref`: optional reference to a shared media artifact
-   - `status`: "open", "resolved", "dismissed"
-   - `created_at`: when submitted
+   - `filePath`, `lineNumber`: location of finding
+   - `description`: what was found
+   - `suggestion`: recommended fix (may be null)
+   - `status`: "open", "fixed", "dismissed", "ignored"
+   - `agentId`: link back to the persona agent
 
-Link feedback to reviews via `agent_feedback.agent_id = persona_reviews.agent_id`.
+Link feedback to reviews by matching `agentId`.
 
 ## Analysis (last 7 days)
 

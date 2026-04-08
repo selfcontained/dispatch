@@ -1811,6 +1811,34 @@ export class AgentManager {
     return result.rows;
   }
 
+  async listRecentPersonaReviews(sinceDays: number): Promise<PersonaReviewRecord[]> {
+    const result = await this.pool.query<PersonaReviewRecord>(
+      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+              persona, status, message, verdict, summary,
+              files_reviewed AS "filesReviewed",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM persona_reviews
+       WHERE created_at >= NOW() - make_interval(days => $1)
+       ORDER BY created_at`,
+      [sinceDays]
+    );
+    return result.rows;
+  }
+
+  async listRecentFeedback(sinceDays: number): Promise<Array<FeedbackRecord & { persona: string }>> {
+    const result = await this.pool.query<FeedbackRecord & { persona: string }>(
+      `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
+              f.line_number AS "lineNumber", f.description, f.suggestion,
+              f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+       FROM agent_feedback f
+       JOIN agents a ON a.id = f.agent_id
+       WHERE f.created_at >= NOW() - make_interval(days => $1)
+       ORDER BY a.persona, f.created_at ASC`,
+      [sinceDays]
+    );
+    return result.rows;
+  }
+
   // --- Media ---
 
   async listMedia(agentId: string): Promise<Array<{ fileName: string; description: string | null; source: string; createdAt: string }>> {
