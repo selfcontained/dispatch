@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/web",
-  "version": "0.9.33",
+  "version": "0.10.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -35,6 +35,7 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.0",
     "recharts": "^3.8.1",
+    "remark-gfm": "^4.0.1",
     "simple-icons": "^16.11.0",
     "tailwind-merge": "^2.5.4"
   },

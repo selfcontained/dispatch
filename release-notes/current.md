@@ -1,5 +1,5 @@
 ## What's Changed
-* Add dispatch jobs scheduling, notifications, and auto-archive (Phase 2) by @selfcontained in https://github.com/selfcontained/dispatch/pull/243
+* Remember full access mode toggle per working directory by @selfcontained in https://github.com/selfcontained/dispatch/pull/253
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.9.32...v0.9.33
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.10.1...v0.10.2

@@ -111,7 +111,7 @@ export function parseJobDefinition(raw: string, opts: {
 function normalizeJobName(name: string): string {
   const normalized = name.trim();
   if (!normalized) throw new Error("Job name is required.");
-  if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("..") || normalized === ".") {
+  if (normalized.includes("/") || normalized.includes("\\") || normalized.includes("..") || normalized === "." || normalized.includes("\0")) {
     throw new Error("Job name must be a file stem, not a path.");
   }
   return normalized.endsWith(".md") ? normalized.slice(0, -3) : normalized;

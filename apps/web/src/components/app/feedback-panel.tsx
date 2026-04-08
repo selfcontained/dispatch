@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CheckCircle2, ChevronLeft, ChevronRight, Copy, MessageCircleQuestion, RotateCcw, Wrench, X } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
-import { PersonaAgentRow } from "@/components/app/persona-agent-row";
+import { reviewVerdictLabel } from "@/components/app/agent-event-utils";
+import { PersonaAgentRow, getVerdict, getReviewSummary, getFilesReviewed } from "@/components/app/persona-agent-row";
 import { type Agent, type AgentVisualState, type FeedbackItem } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,10 @@ import { Markdown } from "@/components/ui/markdown";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
-export type FeedbackDetailState = { parentAgentId: string; itemId: number } | null;
+export type FeedbackDetailState =
+  | { parentAgentId: string; itemId: number }
+  | { parentAgentId: string; summaryAgentId: string }
+  | null;
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: "bg-red-500",
@@ -199,6 +203,7 @@ export function ParentFeedbackPanel({
 }): JSX.Element | null {
   const queryClient = useQueryClient();
   const [sheetItemId, setSheetItemId] = useState<number | null>(null);
+  const [summaryAgentId, setSummaryAgentId] = useState<string | null>(null);
   const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolvedAgents, setShowResolvedAgents] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -333,7 +338,7 @@ export function ParentFeedbackPanel({
     <>
       <div className="mt-1.5">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-          Personas{activeCount > 0 ? ` (${activeCount} findings)` : ""}
+          Reviewers{activeCount > 0 ? ` (${activeCount} findings)` : ""}
         </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
@@ -348,11 +353,16 @@ export function ParentFeedbackPanel({
             const hasAnyFeedback = unresolvedCount > 0 || resolvedCount > 0;
 
             const canTriage = isConnected && !!sendTerminalInput;
+            const childVerdict = getVerdict(child);
+            const childSummary = getReviewSummary(child);
             const handleTriage = unresolvedCount > 0
               ? () => {
                   if (!canTriage) return;
                   const personaName = child.persona ?? child.name;
-                  const message = `Review and triage the pending feedback from the "${personaName}" persona. Use the dispatch_get_feedback MCP tool to fetch the unresolved items, then address each one: fix the ones that should be fixed and resolve them as you go using dispatch_resolve_feedback. When done, provide a summary report explaining what you addressed and what you chose not to address along with why.`;
+                  const verdictContext = childVerdict
+                    ? `\n\nThe reviewer's verdict was: ${reviewVerdictLabel(childVerdict)}.${childSummary ? ` Their summary: "${childSummary}"` : ""}`
+                    : "";
+                  const message = `Review and triage the pending feedback from the "${personaName}" persona.${verdictContext}\n\nUse the dispatch_get_feedback MCP tool to fetch the unresolved items, then address each one: fix the ones that should be fixed and resolve them as you go using dispatch_resolve_feedback. When done, provide a summary report explaining what you addressed and what you chose not to address along with why.`;
                   sendTerminalInput!(message + "\r");
                 }
               : undefined;
@@ -390,6 +400,13 @@ export function ParentFeedbackPanel({
                       hasFeedback={hasAnyFeedback}
                       onTriage={handleTriage}
                       triageDisabled={!canTriage}
+                      onOpenSummary={() => {
+                        if (onOpenDetail) {
+                          onOpenDetail({ parentAgentId, summaryAgentId: child.id });
+                        } else {
+                          setSummaryAgentId(child.id);
+                        }
+                      }}
                     />
                   </div>
                 ) : null}
@@ -571,6 +588,80 @@ export function ParentFeedbackPanel({
           ) : null}
         </SheetContent>
       </Sheet> : null}
+
+      {/* Review summary sheet */}
+      {(() => {
+        const summaryAgent = summaryAgentId ? childAgents.find((a) => a.id === summaryAgentId) ?? null : null;
+        const verdict = summaryAgent ? getVerdict(summaryAgent) : undefined;
+        const summary = summaryAgent ? getReviewSummary(summaryAgent) : undefined;
+        const filesReviewed = summaryAgent ? getFilesReviewed(summaryAgent) : undefined;
+        const attr = summaryAgent ? personaAttribution.get(summaryAgent.id) : undefined;
+
+        return (
+          <Sheet open={!!summaryAgent} onOpenChange={(open) => { if (!open) setSummaryAgentId(null); }}>
+            <SheetContent side="bottom" hideCloseButton overlayClassName="z-[70]" className="z-[70] flex min-h-[30vh] max-h-[70vh] flex-col overflow-hidden px-6 py-5">
+              {summaryAgent ? (
+                <>
+                  <div className="absolute right-4 top-4 z-10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                      onClick={() => setSummaryAgentId(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <SheetHeader className="shrink-0">
+                    <div className="flex items-center gap-2 pr-16">
+                      {verdict ? (
+                        <Badge variant={verdict === "approve" ? "default" : "error"}>
+                          {reviewVerdictLabel(verdict)}
+                        </Badge>
+                      ) : null}
+                      <SheetTitle className="text-base flex-1">Review Summary</SheetTitle>
+                    </div>
+                    <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      {attr ? (
+                        <>
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: attr.color }} />
+                          <span style={{ color: attr.color }}>{attr.name}</span>
+                        </>
+                      ) : (
+                        <span>{summaryAgent.persona ?? summaryAgent.name}</span>
+                      )}
+                    </SheetDescription>
+                  </SheetHeader>
+
+                  <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
+                    {summary ? (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Summary</div>
+                        <Markdown className="text-sm text-foreground">{summary}</Markdown>
+                      </div>
+                    ) : null}
+
+                    {filesReviewed && filesReviewed.length > 0 ? (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Files Reviewed</div>
+                        <div className="space-y-0.5">
+                          {filesReviewed.map((f) => (
+                            <div key={f} className="font-mono text-xs text-muted-foreground">{f}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!summary && (!filesReviewed || filesReviewed.length === 0) ? (
+                      <div className="text-sm text-muted-foreground">No summary available.</div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </SheetContent>
+          </Sheet>
+        );
+      })()}
     </>
   );
 }
@@ -796,6 +887,86 @@ export function FeedbackDetailPanel({
           statusLabel={STATUS_LABELS[item.status]}
           size="default"
         />
+      </div>
+    </div>
+  );
+}
+
+export function ReviewSummaryPanel({
+  parentAgentId,
+  agent,
+  onClose,
+}: {
+  parentAgentId: string;
+  agent: Agent;
+  onClose: () => void;
+}): JSX.Element | null {
+  const { personaAttribution } = useFeedbackData(parentAgentId);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { panelRef.current?.focus(); }, [agent.id]);
+
+  const verdict = getVerdict(agent);
+  const summary = getReviewSummary(agent);
+  const filesReviewed = getFilesReviewed(agent);
+  const attr = personaAttribution.get(agent.id);
+
+  return (
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      }}
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+    >
+      <div className="flex items-center justify-between shrink-0 mb-3">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {verdict ? (
+            <Badge variant={verdict === "approve" ? "default" : "error"}>
+              {reviewVerdictLabel(verdict)}
+            </Badge>
+          ) : null}
+          <span className="text-base font-semibold truncate">Review Summary</span>
+          {attr ? (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: attr.color }} />
+              <span style={{ color: attr.color }}>{attr.name}</span>
+            </span>
+          ) : null}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 ml-4 opacity-70 hover:opacity-100"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        {summary ? (
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Summary</div>
+            <Markdown className="text-sm text-foreground">{summary}</Markdown>
+          </div>
+        ) : null}
+
+        {filesReviewed && filesReviewed.length > 0 ? (
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Files Reviewed</div>
+            <div className="space-y-0.5">
+              {filesReviewed.map((f) => (
+                <div key={f} className="font-mono text-xs text-muted-foreground">{f}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {!summary && (!filesReviewed || filesReviewed.length === 0) ? (
+          <div className="text-sm text-muted-foreground">No summary available.</div>
+        ) : null}
       </div>
     </div>
   );

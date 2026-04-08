@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { atomFamily } from "jotai/utils";
 import type { FeedbackDetailState } from "@/components/app/feedback-panel";
 
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
@@ -30,3 +31,8 @@ export const mediaSidebarOpenAtom = atomWithLocalStorage("dispatch:mediaSidebarO
 export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">("dispatch:mediaSidebarTab", "pins");
 export const feedbackDetailAtom = atomWithLocalStorage<FeedbackDetailState>("dispatch:feedbackDetail", null);
 export const expandedAgentIdAtom = atomWithLocalStorage<string | null>("dispatch:expandedAgentId", null);
+
+/** Per-directory full-access mode preference, backed by localStorage (sync read). */
+export const fullAccessByCwdAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage(`dispatch:fullAccess:${cwd}`, false),
+);

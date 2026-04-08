@@ -1259,8 +1259,8 @@ async function registerRoutes() {
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    const jobRun = await jobService.getLatestRunForAgent(agentId);
-    if (jobRun) {
+    const activeJobRun = await jobService.getActiveRunForAgent(agentId);
+    if (activeJobRun) {
       return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
@@ -1275,7 +1275,12 @@ async function registerRoutes() {
 
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
-      agent,
+      agent: {
+        id: agent.id,
+        cwd: agent.cwd,
+        persona: agent.persona,
+        parentAgentId: agent.parentAgentId,
+      },
       repoRoot,
       worktreeRoot,
       upsertEvent: mcpUpsertEvent,
@@ -1286,6 +1291,9 @@ async function registerRoutes() {
       resolveFeedback: mcpResolveFeedback,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
+      getParentContext: mcpGetParentContext,
+      updateReviewStatus: mcpUpdateReviewStatus,
+      completeReview: mcpCompleteReview,
     });
   });
 
@@ -1513,7 +1521,7 @@ async function registerRoutes() {
     };
   });
 
-  // Write an image from the browser clipboard to the host's macOS pasteboard.
+  // Write an image from the browser clipboard to the host's system clipboard.
   // This bridges remote browser sessions to the local system clipboard so that
   // CLI tools (e.g. Claude CLI) can read pasted images via native APIs.
   app.post("/api/v1/clipboard/image", async (request, reply) => {
@@ -1532,19 +1540,33 @@ async function registerRoutes() {
     await writeFile(tmpPath, buffer);
 
     try {
-      const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn("osascript", [
-          "-e",
-          `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
-        ]);
-        proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
-        proc.on("error", reject);
-      });
+      if (os.platform() === "darwin") {
+        const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn("osascript", [
+            "-e",
+            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
+          ]);
+          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
+          proc.on("error", reject);
+        });
+      } else {
+        const display = process.env.DISPATCH_COPY_DISPLAY;
+        if (!display) {
+          return reply.code(500).send({ error: "DISPATCH_COPY_DISPLAY is not set. Clipboard image paste on Linux requires Xvfb and xclip." });
+        }
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn("xclip", ["-selection", "clipboard", "-t", mime, "-i", tmpPath], {
+            env: { ...process.env, DISPLAY: display }
+          });
+          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`)));
+          proc.on("error", reject);
+        });
+      }
       return reply.code(200).send({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return reply.code(500).send({ error: `Failed to write to pasteboard: ${message}` });
+      return reply.code(500).send({ error: `Failed to write to clipboard: ${message}` });
     } finally {
       await unlink(tmpPath).catch(() => {});
     }
@@ -2116,7 +2138,7 @@ async function registerRoutes() {
       : "created_at";
     const order = typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
 
-    const conditions: string[] = [];
+    const conditions: string[] = ["a.parent_agent_id IS NULL"];
     const params: unknown[] = [];
 
     if (search) {
@@ -2174,7 +2196,7 @@ async function registerRoutes() {
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
-          ), 0)::int AS "totalTokens"
+          ), 0)::bigint AS "totalTokens"
          FROM agents a
          ${whereClause}
          ORDER BY ${sortSql}
@@ -2183,7 +2205,63 @@ async function registerRoutes() {
       ),
     ]);
 
-    return { agents: agentsResult.rows, total: countResult.rows[0]?.total ?? 0, limit, offset };
+    const parentIds = agentsResult.rows.map((a: { id: string }) => a.id);
+
+    // Fetch child (persona/review) agents for these parents
+    type ChildAgent = {
+      id: string;
+      name: string;
+      persona: string | null;
+      status: string;
+      totalTokens: number;
+      createdAt: string;
+    };
+    const childrenByParent = new Map<string, ChildAgent[]>();
+
+    if (parentIds.length > 0) {
+      const childResult = await pool.query<ChildAgent & { parentAgentId: string }>(
+        `SELECT
+          a.id,
+          a.name,
+          a.persona,
+          a.status,
+          COALESCE((
+            SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
+            FROM agent_token_usage WHERE agent_id = a.id
+          ), 0)::bigint AS "totalTokens",
+          a.created_at AS "createdAt",
+          a.parent_agent_id AS "parentAgentId"
+         FROM agents a
+         WHERE a.parent_agent_id = ANY($1)
+         ORDER BY a.created_at ASC`,
+        [parentIds]
+      );
+      for (const child of childResult.rows) {
+        const pid = child.parentAgentId;
+        let list = childrenByParent.get(pid);
+        if (!list) { list = []; childrenByParent.set(pid, list); }
+        list.push({
+          id: child.id,
+          name: child.name,
+          persona: child.persona,
+          status: child.status,
+          totalTokens: child.totalTokens,
+          createdAt: child.createdAt,
+        });
+      }
+    }
+
+    const agents = agentsResult.rows.map((agent: { id: string; totalTokens: number }) => {
+      const children = childrenByParent.get(agent.id) ?? [];
+      const childTokens = children.reduce((sum, c) => sum + c.totalTokens, 0);
+      return {
+        ...agent,
+        children,
+        groupTotalTokens: agent.totalTokens + childTokens,
+      };
+    });
+
+    return { agents, total: countResult.rows[0]?.total ?? 0, limit, offset };
   });
 
   app.get("/api/v1/history/agents/:id", async (request, reply) => {
@@ -2954,6 +3032,7 @@ async function registerRoutes() {
         body.status as "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
       );
       if (!updated) return reply.code(404).send({ error: "Feedback not found." });
+      uiEventBroker.publish({ type: "feedback.updated", agentId, feedback: updated });
       return { feedback: updated };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -3871,6 +3950,58 @@ async function mcpDeletePin(
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
 
+async function mcpUpdateReviewStatus(
+  agentId: string,
+  input: { status: string; message?: string }
+): Promise<void> {
+  const review = await agentManager.updatePersonaReviewStatus(agentId, input);
+  // Notify UI — both the child (owns the review data) and the parent need to re-render
+  const [child, parent] = await Promise.all([
+    agentManager.getAgent(agentId),
+    agentManager.getAgent(review.parentAgentId),
+  ]);
+  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
+  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+}
+
+async function mcpCompleteReview(
+  agentId: string,
+  input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+): Promise<void> {
+  const review = await agentManager.completePersonaReview(agentId, input);
+  const [child, parent] = await Promise.all([
+    agentManager.getAgent(agentId),
+    agentManager.getAgent(review.parentAgentId),
+  ]);
+  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
+  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+}
+
+async function mcpGetParentContext(
+  parentAgentId: string
+): Promise<import("@dispatch/shared/mcp/server.js").ParentContextResult> {
+  const parent = await agentManager.getAgent(parentAgentId);
+  if (!parent) throw new Error("Parent agent not found.");
+
+  const pins = (parent.pins ?? []).map((p) => ({
+    label: p.label,
+    value: p.value,
+    type: p.type
+  }));
+
+  const media = await agentManager.listMedia(parentAgentId);
+
+  return {
+    pins,
+    media: media.map((m) => ({
+      fileName: m.fileName,
+      description: m.description,
+      source: m.source,
+      createdAt: m.createdAt
+    }))
+  };
+}
+
 async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
   const run = await jobService.completeRunForAgent(agentId, report);
   return { runId: run.id, status: run.status };
@@ -3983,8 +4114,18 @@ async function mcpLaunchPersona(
     cliSessionId,
   });
 
+  // Create the persona review record
+  await agentManager.createPersonaReview({
+    agentId: agent.id,
+    parentAgentId: agentId,
+    persona: opts.persona,
+  });
+
+  // Re-fetch so the SSE event includes the review subquery data
+  const agentWithReview = await agentManager.getAgent(agent.id);
+
   queueGitContextRefresh([agent.id]);
-  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agentWithReview ?? agent) });
 
   // Send initial prompt to the persona agent after it starts up
   if (agent.tmuxSession) {

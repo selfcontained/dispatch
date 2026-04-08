@@ -350,27 +350,38 @@ html[data-theme="matrix"] body::after {
   z-index: 1;
 }
 
-/* iPad PWA: prevent viewport jump when typing space in terminal.
-   The class is added by JS in main.tsx when navigator.standalone is true
-   on an iPad-class device. */
-html.ipad-pwa,
-html.ipad-pwa body {
-  position: fixed;
-  width: 100%;
-  overflow: clip;
-}
+/* Touch devices (phones + tablets): lock the viewport so touch-scroll
+   inside xterm or other internal scrollables cannot shift the body.
+   overflow:hidden alone is insufficient on mobile WebKit. */
+@media (pointer: coarse) {
+  html,
+  html body {
+    position: fixed;
+    width: 100%;
+    overflow: clip;
+  }
 
-html.ipad-pwa #root {
-  touch-action: none;
-}
+  #root {
+    touch-action: none;
+  }
 
-html.ipad-pwa [style*="overflow"]:not([style*="hidden"]),
-html.ipad-pwa .overflow-y-auto,
-html.ipad-pwa .overflow-auto,
-html.ipad-pwa .overflow-y-scroll,
-html.ipad-pwa .overflow-scroll {
-  touch-action: pan-y;
-  overscroll-behavior: contain;
+  /* Re-enable pan on explicitly scrollable containers so internal
+     scroll areas (sidebar lists, dialog bodies, code blocks, etc.)
+     still work. */
+  [style*="overflow"]:not([style*="hidden"]),
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-y-scroll,
+  .overflow-scroll {
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
+
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    touch-action: pan-x pan-y;
+    overscroll-behavior: contain;
+  }
 }
 
 .terminal-font {
@@ -611,11 +622,45 @@ html[data-theme="matrix"] [role="button"] {
   color: hsl(var(--status-waiting));      /* yellow for meta */
 }
 
+/* Persona reviewing animation — subtle pulse on the status icon */
+@keyframes persona-reviewing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-persona-reviewing {
+  animation: persona-reviewing-pulse 2s ease-in-out infinite;
+}
+
+/* Persona reviewing row — subtle left-border shimmer */
+@keyframes persona-reviewing-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.persona-reviewing-row {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--status-working) / 0.04) 40%,
+    hsl(var(--status-working) / 0.08) 50%,
+    hsl(var(--status-working) / 0.04) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: persona-reviewing-shimmer 3s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
 /* Pause GPU-composited animations when the page is hidden to reduce energy */
 html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;
   will-change: auto;
 }
 html[data-hidden] .animate-spin {
+  animation-play-state: paused;
+}
+html[data-hidden] .animate-persona-reviewing {
+  animation-play-state: paused;
+}
+html[data-hidden] .persona-reviewing-row {
   animation-play-state: paused;
 }

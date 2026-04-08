@@ -18,6 +18,13 @@ export function latestEventColor(type: EventType): string {
   return "text-foreground/80";
 }
 
+export type ReviewVerdict = "approve" | "request_changes";
+
+export function reviewVerdictLabel(verdict: ReviewVerdict): string {
+  if (verdict === "approve") return "Approved";
+  return "Changes Requested";
+}
+
 export function formatRelativeTime(value: string): string {
   const date = new Date(value);
   const time = date.getTime();

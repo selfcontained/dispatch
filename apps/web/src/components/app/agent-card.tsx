@@ -327,7 +327,7 @@ export function AgentCard({
                     onRequestClose={onRequestClose}
                     closeOnSessionAction={closeOnSessionAction}
                     onOpenDetail={onOpenFeedbackDetail}
-                    activeDetailItemId={feedbackDetailState?.parentAgentId === agent.id ? feedbackDetailState.itemId : null}
+                    activeDetailItemId={feedbackDetailState?.parentAgentId === agent.id && "itemId" in feedbackDetailState ? feedbackDetailState.itemId : null}
                     childAgents={childAgents}
                     selectedAgentId={selectedAgentId}
                     agentVisualState={getVisualState}

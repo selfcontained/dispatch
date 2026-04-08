@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
-import { feedbackDetailAtom, expandedAgentIdAtom } from "@/lib/store";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -17,7 +17,7 @@ import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sideba
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
-import { type FeedbackDetailState, FeedbackDetailPanel } from "@/components/app/feedback-panel";
+import { type FeedbackDetailState, FeedbackDetailPanel, ReviewSummaryPanel } from "@/components/app/feedback-panel";
 import {
   type Agent,
   type AgentVisualState,
@@ -161,7 +161,7 @@ export function DashboardLayout(): JSX.Element {
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
-  const [createFullAccess, setCreateFullAccess] = useState(false);
+  const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [createBaseBranch, setCreateBaseBranch] = useState("main");
@@ -229,12 +229,7 @@ export function DashboardLayout(): JSX.Element {
   const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
 
   const ensureAuxExpanded = useCallback((agentId: string) => {
-    setExpandedAgentId((current) => {
-      if (current === null || current === agentId) {
-        return agentId;
-      }
-      return current;
-    });
+    setExpandedAgentId(agentId);
   }, [setExpandedAgentId]);
 
   // ── Terminal ──────────────────────────────────────────────────────────
@@ -399,7 +394,9 @@ export function DashboardLayout(): JSX.Element {
   const attachToAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
-      ensureAuxExpanded(agent.id);
+      // Child persona agents are rendered inside their parent's expanded card,
+      // so expand the parent instead of the child to keep it visible.
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
@@ -409,7 +406,7 @@ export function DashboardLayout(): JSX.Element {
   const startAgent = useCallback(
     async (agent: Agent) => {
       setSelectedAgentId(agent.id);
-      ensureAuxExpanded(agent.id);
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       await api(`/api/v1/agents/${agent.id}/start`, {
         method: "POST",
         body: JSON.stringify({}),
@@ -488,7 +485,6 @@ export function DashboardLayout(): JSX.Element {
 
         setCreateOpen(false);
         setCreateName("");
-        setCreateFullAccess(false);
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
         setCreateBaseBranch("main");
@@ -630,15 +626,29 @@ export function DashboardLayout(): JSX.Element {
             {!isMobile && !jobsOpen ? (
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
                 {feedbackDetailRendered ? (
-                  <FeedbackDetailPanel
-                    key={feedbackDetailRendered.parentAgentId}
-                    parentAgentId={feedbackDetailRendered.parentAgentId}
-                    itemId={feedbackDetailRendered.itemId}
-                    isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={() => setFeedbackDetail(null)}
-                    onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
-                  />
+                  "summaryAgentId" in feedbackDetailRendered ? (
+                    (() => {
+                      const summaryAgent = agents.find((a) => a.id === feedbackDetailRendered.summaryAgentId);
+                      return summaryAgent ? (
+                        <ReviewSummaryPanel
+                          key={`summary-${feedbackDetailRendered.summaryAgentId}`}
+                          parentAgentId={feedbackDetailRendered.parentAgentId}
+                          agent={summaryAgent}
+                          onClose={() => setFeedbackDetail(null)}
+                        />
+                      ) : null;
+                    })()
+                  ) : (
+                    <FeedbackDetailPanel
+                      key={feedbackDetailRendered.parentAgentId}
+                      parentAgentId={feedbackDetailRendered.parentAgentId}
+                      itemId={feedbackDetailRendered.itemId}
+                      isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
+                      sendTerminalInput={sendTerminalInput}
+                      onClose={() => setFeedbackDetail(null)}
+                      onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
+                    />
+                  )
                 ) : null}
               </div>
             ) : null}

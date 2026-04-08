@@ -202,19 +202,43 @@ export class JobStore {
     message: string;
     level: "debug" | "info" | "warn" | "error";
   }): Promise<JobRunRecord> {
-    const run = await this.getActiveRunForAgent(agentId);
-    if (!run) throw new Error(`No active job run found for agent ${agentId}.`);
-    const report = appendJobLog(run.report, input);
-    const result = await this.pool.query(
-      `
-      UPDATE job_runs
-      SET report = $2::jsonb
-      WHERE id = $1
-      RETURNING ${this.runColumns()}
-      `,
-      [run.id, JSON.stringify(report)]
-    );
-    return mapRun(result.rows[0]);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query(
+        `
+        SELECT ${this.runColumns()}
+        FROM job_runs
+        WHERE agent_id = $1 AND status = ANY($2::text[])
+        ORDER BY started_at DESC
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [agentId, ACTIVE_RUN_STATUSES]
+      );
+      if (!locked.rows[0]) {
+        await client.query("ROLLBACK");
+        throw new Error(`No active job run found for agent ${agentId}.`);
+      }
+      const run = mapRun(locked.rows[0]);
+      const report = appendJobLog(run.report, input);
+      const result = await client.query(
+        `
+        UPDATE job_runs
+        SET report = $2::jsonb
+        WHERE id = $1
+        RETURNING ${this.runColumns()}
+        `,
+        [run.id, JSON.stringify(report)]
+      );
+      await client.query("COMMIT");
+      return mapRun(result.rows[0]);
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async markTimedOut(runId: string, report: JobReport): Promise<JobRunRecord> {

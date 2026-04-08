@@ -365,9 +365,9 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
   },
   {
     id: "personas",
-    label: "Personas",
+    label: "Reviewers",
     icon: Users,
-    title: "Personas",
+    title: "Reviewers",
     content: (
       <>
         <P>

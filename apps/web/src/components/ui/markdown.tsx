@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
 
@@ -20,10 +21,13 @@ export function Markdown({ children, className, variant = "default" }: MarkdownP
           "[&_strong]:font-semibold [&_em]:italic",
           "[&_pre]:my-1 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-hidden [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2",
           "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[11px] [&_code]:break-words [&_code]:whitespace-pre-wrap",
+          "[&_table]:my-1 [&_table]:min-w-full [&_table]:border-collapse [&_table]:text-[11px]",
+          "[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
+          "[&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1",
           className,
         )}
       >
-        <ReactMarkdown allowedElements={["p", "ul", "li", "strong", "em", "code", "pre"]}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} allowedElements={["p", "ul", "li", "strong", "em", "code", "pre", "table", "thead", "tbody", "tr", "th", "td"]} unwrapDisallowed>
           {children}
         </ReactMarkdown>
       </div>
