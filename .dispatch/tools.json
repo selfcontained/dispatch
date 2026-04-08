@@ -55,12 +55,6 @@
       "scope": ["job"]
     },
     {
-      "name": "list_agents",
-      "description": "List all agents from the local Dispatch server with their IDs and statuses.",
-      "command": ["bash", "-c", "curl -sf -H \"Authorization: Bearer $DISPATCH_AUTH_TOKEN\" http://127.0.0.1:${DISPATCH_PORT}/api/v1/agents"],
-      "scope": ["job"]
-    },
-    {
       "name": "list_candidate_databases",
       "description": "List all dispatch_* databases on local Postgres (port 5432). Returns one database name per line.",
       "command": ["bash", "-c", "PGPASSWORD=dispatch psql -h 127.0.0.1 -p 5432 -U dispatch -d postgres -t -A -c \"SELECT datname FROM pg_database WHERE datname LIKE 'dispatch_%'\" 2>/dev/null || true"],
