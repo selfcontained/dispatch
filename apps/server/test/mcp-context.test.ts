@@ -58,12 +58,11 @@ function toolNames(server: Awaited<ReturnType<typeof createDispatchMcpServer>>):
 }
 
 describe("MCP context wiring", () => {
-  it("keeps dispatch_event off job agents while exposing newer shared tools", async () => {
+  it("keeps job agents limited to job-specific and job-scoped tools", async () => {
     const context = buildJobMcpContext({
       agent,
       repoRoot: null,
       worktreeRoot: null,
-      ...sharedCallbacks,
       jobTools,
     });
 
@@ -71,12 +70,16 @@ describe("MCP context wiring", () => {
 
     expect(names).toContain("job_log");
     expect(names).toContain("job_complete");
-    expect(names).toContain("dispatch_pin");
-    expect(names).toContain("dispatch_share");
-    expect(names).toContain("dispatch_launch_persona");
-    expect(names).toContain("dispatch_get_feedback");
-    expect(names).toContain("dispatch_resolve_feedback");
+    expect(names).toContain("list_agents");
+    expect(names).toContain("list_recent_persona_reviews");
+    expect(names).toContain("list_recent_feedback");
     expect(names).not.toContain("dispatch_event");
+    expect(names).not.toContain("dispatch_pin");
+    expect(names).not.toContain("dispatch_share");
+    expect(names).not.toContain("dispatch_feedback");
+    expect(names).not.toContain("dispatch_launch_persona");
+    expect(names).not.toContain("dispatch_get_feedback");
+    expect(names).not.toContain("dispatch_resolve_feedback");
     expect(names).not.toContain("create_pr");
     expect(names).not.toContain("get_pr_status");
   });

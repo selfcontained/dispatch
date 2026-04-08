@@ -42,7 +42,7 @@ export function buildAgentMcpContext(
 }
 
 export function buildJobMcpContext(
-  args: BaseContextArgs & SharedAgentToolCallbacks & { jobTools: JobTools }
+  args: BaseContextArgs & { jobTools: JobTools }
 ): McpRequestContext {
   return {
     agent: args.agent,
@@ -51,15 +51,5 @@ export function buildJobMcpContext(
     enableBuiltinTools: false,
     toolScope: "job",
     jobTools: args.jobTools,
-    shareMedia: args.shareMedia,
-    submitFeedback: args.submitFeedback,
-    launchPersona: args.launchPersona,
-    getFeedback: args.getFeedback,
-    resolveFeedback: args.resolveFeedback,
-    upsertPin: args.upsertPin,
-    deletePin: args.deletePin,
-    getParentContext: args.getParentContext,
-    updateReviewStatus: args.updateReviewStatus,
-    completeReview: args.completeReview,
   };
 }
