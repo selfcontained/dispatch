@@ -1,5 +1,5 @@
 ## What's Changed
-* Reduce persona praise inflation and require actionable suggestions by @selfcontained in https://github.com/selfcontained/dispatch/pull/268
+* Add dispatch_get_personas MCP tool for persona discovery by @selfcontained in https://github.com/selfcontained/dispatch/pull/270
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.8...v0.11.9
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.9...v0.11.10
