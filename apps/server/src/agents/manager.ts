@@ -1729,6 +1729,10 @@ export class AgentManager {
     agentId: string,
     input: { status: string; message?: string }
   ): Promise<PersonaReviewRecord> {
+    const VALID_STATUSES = ["reviewing"];
+    if (!VALID_STATUSES.includes(input.status)) {
+      throw new AgentError(`Invalid review status "${input.status}". Must be one of: ${VALID_STATUSES.join(", ")}`, 400);
+    }
     const result = await this.pool.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
        SET status = $2, message = $3, updated_at = NOW()
