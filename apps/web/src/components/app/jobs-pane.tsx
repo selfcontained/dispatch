@@ -4,6 +4,7 @@ import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, Check, CheckCircle2
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { PathInput } from "@/components/app/path-input";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -586,13 +587,13 @@ function AddJobFlow({
                   <div className="text-sm font-medium">Scan another project</div>
                   <p className="mt-1 text-xs text-muted-foreground">Pick a directory, scan it, and any jobs found will appear inline below.</p>
                 </div>
-                <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="job-directory">Project path containing `.dispatch/jobs`</label>
-                <Input
-                  id="job-directory"
-                  className="mt-2"
+                <PathInput
+                  className="mt-4"
                   value={directory}
-                  onChange={(event) => setDirectory(event.target.value)}
+                  onChange={setDirectory}
+                  label="Project path containing `.dispatch/jobs`"
                   placeholder="~/code/project"
+                  id="job-directory"
                   data-testid="job-directory-input"
                 />
                 <div className="mt-3 flex justify-end">
