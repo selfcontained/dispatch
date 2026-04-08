@@ -350,24 +350,28 @@ html[data-theme="matrix"] body::after {
   z-index: 1;
 }
 
-/* Touch devices (phones + tablets): lock the viewport so touch-scroll
-   inside xterm or other internal scrollables cannot shift the body.
-   overflow:hidden alone is insufficient on mobile WebKit. */
-@media (pointer: coarse) {
+/* Tablets: lock the viewport with position:fixed so touch-scroll inside
+   xterm cannot shift the body (overflow:hidden alone is insufficient on
+   mobile WebKit).  We scope this to min-width:768px so phones still get
+   the native keyboard-push behavior that keeps the input visible. */
+@media (pointer: coarse) and (min-width: 768px) {
   html,
   html body {
     position: fixed;
     width: 100%;
     overflow: clip;
   }
+}
 
+/* All touch devices: disable root touch-action and re-enable it on
+   explicitly scrollable containers.  On phones the terminal's
+   touchmove preventDefault + touch-action:none on the pane are enough
+   to prevent scroll escape without needing position:fixed. */
+@media (pointer: coarse) {
   #root {
     touch-action: none;
   }
 
-  /* Re-enable pan on explicitly scrollable containers so internal
-     scroll areas (sidebar lists, dialog bodies, code blocks, etc.)
-     still work. */
   [style*="overflow"]:not([style*="hidden"]),
   .overflow-y-auto,
   .overflow-auto,
