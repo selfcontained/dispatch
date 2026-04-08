@@ -623,7 +623,6 @@ export function useTerminal(args: {
     };
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1 || !screenEl) return;
-      e.preventDefault();
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
@@ -640,7 +639,7 @@ export function useTerminal(args: {
       }
     };
     host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: false });
+    host.addEventListener("touchmove", onTouchMove, { passive: true });
 
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {

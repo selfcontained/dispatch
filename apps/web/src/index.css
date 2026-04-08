@@ -350,43 +350,27 @@ html[data-theme="matrix"] body::after {
   z-index: 1;
 }
 
-/* Tablets: lock the viewport with position:fixed so touch-scroll inside
-   xterm cannot shift the body (overflow:hidden alone is insufficient on
-   mobile WebKit).  Scoped to min-width AND min-height ≥768px so phones
-   in landscape (wide but short) still get native keyboard-push behavior.
-   See the all-touch-devices block below for the companion rules. */
-@media (pointer: coarse) and (min-width: 768px) and (min-height: 768px) {
-  html,
-  html body {
-    position: fixed;
-    width: 100%;
-    overflow: clip;
-  }
+/* iPad PWA: prevent viewport jump when typing space in terminal.
+   The class is added by JS in main.tsx when navigator.standalone is true
+   on an iPad-class device. */
+html.ipad-pwa,
+html.ipad-pwa body {
+  position: fixed;
+  width: 100%;
+  overflow: clip;
 }
 
-/* All touch devices: disable root touch-action and re-enable it on
-   explicitly scrollable containers.  On phones (<768px in either
-   dimension) these rules are the ONLY scroll-escape prevention —
-   see the tablet-only position:fixed block above. */
-@media (pointer: coarse) {
-  #root {
-    touch-action: none;
-  }
+html.ipad-pwa #root {
+  touch-action: none;
+}
 
-  [style*="overflow"]:not([style*="hidden"]),
-  .overflow-y-auto,
-  .overflow-auto,
-  .overflow-y-scroll,
-  .overflow-scroll {
-    touch-action: pan-y;
-    overscroll-behavior: contain;
-  }
-
-  .overflow-x-auto,
-  .overflow-x-scroll {
-    touch-action: pan-x pan-y;
-    overscroll-behavior: contain;
-  }
+html.ipad-pwa [style*="overflow"]:not([style*="hidden"]),
+html.ipad-pwa .overflow-y-auto,
+html.ipad-pwa .overflow-auto,
+html.ipad-pwa .overflow-y-scroll,
+html.ipad-pwa .overflow-scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .terminal-font {
