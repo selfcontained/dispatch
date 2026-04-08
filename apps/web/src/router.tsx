@@ -38,6 +38,7 @@ export const router = createBrowserRouter([
               { path: "jobs", element: <></> },
               { path: "jobs/:jobId", element: <></> },
               { path: "jobs/:jobId/:section", element: <></> },
+              { path: "jobs/:jobId/:section/:runId", element: <></> },
             ],
           },
         ],

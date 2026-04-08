@@ -128,7 +128,7 @@ function useActiveRun(job: Job | null, agents: Agent[]) {
 
 export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer }: JobsPaneProps): JSX.Element {
   const navigate = useNavigate();
-  const { jobId: routeJobId, section: routeSection } = useParams();
+  const { jobId: routeJobId, section: routeSection, runId: routeRunId } = useParams();
   const { iconColor } = useIconColor();
   const { instanceName } = useInstanceName();
   const { data: jobs = [], isLoading, error } = useJobs(open);
@@ -292,6 +292,10 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                     }}
                     history={history.data?.runs ?? []}
                     historyLoading={history.isLoading}
+                    selectedRunId={routeRunId ?? null}
+                    onSelectRun={(runId) => {
+                      navigate(`/jobs/${selectedJob.id}/history/${runId}`);
+                    }}
                     activeRunAgent={activeRunAgent}
                     onOpenAgent={onOpenAgent}
                     onRunNow={async (job) => { await runNow.mutateAsync(job); }}
@@ -320,7 +324,13 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                         <div className="text-sm font-semibold">Overview</div>
                       </div>
                     )}
-                    <JobsOverview jobs={jobs} stats={jobStats.data ?? null} statsLoading={jobStats.isLoading} onSelectJob={selectJob} />
+                    <JobsOverview
+                      jobs={jobs}
+                      stats={jobStats.data ?? null}
+                      statsLoading={jobStats.isLoading}
+                      onSelectJob={selectJob}
+                      onSelectRun={(jobId, runId) => navigate(`/jobs/${jobId}/history/${runId}`)}
+                    />
                   </div>
                 )}
               </div>
@@ -390,11 +400,12 @@ function formatTimeUntilDate(iso: string): string {
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-function JobsOverview({ jobs, stats, statsLoading, onSelectJob }: {
+function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
   jobs: Job[];
   stats: import("@/hooks/use-jobs").JobStats | null;
   statsLoading: boolean;
   onSelectJob: (job: Job) => void;
+  onSelectRun: (jobId: string, runId: string) => void;
 }) {
   const upcomingJobs = useMemo(() => {
     return jobs
@@ -518,12 +529,11 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob }: {
             </div>
             <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
               {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).map((run) => {
-                const job = jobs.find((j) => j.id === run.jobId)!;
                 return (
                   <button
                     key={run.id}
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
-                    onClick={() => onSelectJob(job)}
+                    onClick={() => onSelectRun(run.jobId, run.id)}
                   >
                     <Badge className={cn("shrink-0 gap-1 text-[11px]", statusClasses(run.status))}>
                       {statusIcon(run.status)}
@@ -1056,6 +1066,8 @@ function JobDetail({
   isRemoving,
   justAdded,
   onDismissAdded,
+  selectedRunId,
+  onSelectRun,
 }: {
   className?: string;
   job: Job;
@@ -1063,6 +1075,8 @@ function JobDetail({
   onTabChange: (tab: DetailTab) => void;
   history: JobRun[];
   historyLoading: boolean;
+  selectedRunId: string | null;
+  onSelectRun: (runId: string) => void;
   activeRunAgent: Agent | null;
   onOpenAgent: (agent: Agent) => Promise<void>;
   onRunNow: (job: Job) => Promise<void>;
@@ -1162,7 +1176,7 @@ function JobDetail({
 
       {tab === "history" ? (
         <div className="min-h-0 flex-1">
-          <HistoryTab runs={history} loading={historyLoading} />
+          <HistoryTab runs={history} loading={historyLoading} selectedRunId={selectedRunId} onSelectRun={onSelectRun} />
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1 pr-1">
@@ -1607,9 +1621,8 @@ function PromptTab({
   );
 }
 
-function HistoryTab({ runs, loading }: { runs: JobRun[]; loading: boolean }) {
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+function HistoryTab({ runs, loading, selectedRunId, onSelectRun }: { runs: JobRun[]; loading: boolean; selectedRunId: string | null; onSelectRun: (runId: string) => void }) {
+  const selectedRun = (selectedRunId ? runs.find((run) => run.id === selectedRunId) : null) ?? runs[0] ?? null;
   return (
     <div className="mt-4 grid h-full min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       <div className="space-y-2 overflow-y-auto pr-1">
@@ -1622,7 +1635,7 @@ function HistoryTab({ runs, loading }: { runs: JobRun[]; loading: boolean }) {
             key={run.id}
             type="button"
             className={cn("w-full rounded-md border border-border bg-background/50 p-3 text-left hover:bg-muted/40", selectedRun?.id === run.id && "border-primary/60 bg-muted/60")}
-            onClick={() => setSelectedRunId(run.id)}
+            onClick={() => onSelectRun(run.id)}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs">{run.id.slice(0, 8)}</span>
