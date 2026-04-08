@@ -42,7 +42,7 @@ export const TerminalPane = memo(function TerminalPane({
   const showInertState = terminalMode === "inert" && isAttached;
 
   return (
-    <div data-testid="terminal-pane" className="relative h-full min-h-0 overflow-hidden bg-terminal-bg touch-none">
+    <div data-testid="terminal-pane" className="relative h-full min-h-0 overflow-hidden bg-terminal-bg">
       <div
         className={cn(
           "h-full w-full",
