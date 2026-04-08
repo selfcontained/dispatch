@@ -21,3 +21,4 @@ playwright-report/
 .dispatch/config.json
 .dispatch/worktrees/
 opencode.json
+*.tsbuildinfo
