@@ -886,17 +886,29 @@ function resolveTilde(raw: string): string {
   return raw;
 }
 const directoryField = z.string().min(1, "Job directory is required.").transform(resolveTilde);
-const RunJobBodySchema = z.object({
-  name: z.string().min(1, "Job name is required."),
-  directory: directoryField,
+const JobIdSchema = z.object({
+  id: z.string().min(1, "Job ID is required."),
+});
+const RunJobBodySchema = JobIdSchema.extend({
   wait: z.boolean().optional(),
 });
-const JobEnableDisableBodySchema = z.object({
+const CreateJobBodySchema = z.object({
   name: z.string().min(1, "Job name is required."),
   directory: directoryField,
+  prompt: z.string().min(1, "Job prompt is required."),
+  schedule: z.string().nullable().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  needsInputTimeoutMs: z.number().int().positive().optional(),
+  agentType: z.enum(AGENT_TYPES).optional(),
+  useWorktree: z.boolean().optional(),
+  branchName: z.string().nullable().optional(),
+  fullAccess: z.boolean().optional(),
+  additionalInstructions: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
 });
-const AddJobBodySchema = JobEnableDisableBodySchema.extend({
-  displayName: z.string().optional(),
+const UpdateJobBodySchema = JobIdSchema.extend({
+  name: z.string().optional(),
+  prompt: z.string().nullable().optional(),
   schedule: z.string().nullable().optional(),
   timeoutMs: z.number().int().positive().optional(),
   needsInputTimeoutMs: z.number().int().positive().optional(),
@@ -908,13 +920,8 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   enabled: z.boolean().optional(),
 });
 const JobHistoryParamsSchema = z.object({
-  name: z.string().min(1, "Job name is required."),
-  directory: directoryField,
+  id: z.string().min(1, "Job ID is required."),
   limit: z.coerce.number().int().min(1).max(100).optional(),
-});
-const AvailableJobsQuerySchema = z.object({
-  directory: z.string().min(1).transform(resolveTilde).optional(),
-  force: z.coerce.boolean().optional(),
 });
 
 async function registerRoutes() {
@@ -1127,21 +1134,13 @@ async function registerRoutes() {
     return await jobService.listJobs();
   });
 
-  app.get("/api/v1/jobs/available", async (request, reply) => {
-    const parsed = AvailableJobsQuerySchema.safeParse(request.query);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
-    return await jobService.listAvailableJobs(parsed.data);
-  });
-
   app.post("/api/v1/jobs", async (request, reply) => {
-    const parsed = AddJobBodySchema.safeParse(request.body);
+    const parsed = CreateJobBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.addJob(parsed.data);
+      return await jobService.createJob(parsed.data);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1149,7 +1148,7 @@ async function registerRoutes() {
   });
 
   app.patch("/api/v1/jobs", async (request, reply) => {
-    const parsed = AddJobBodySchema.safeParse(request.body);
+    const parsed = UpdateJobBodySchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
@@ -1162,12 +1161,12 @@ async function registerRoutes() {
   });
 
   app.delete("/api/v1/jobs", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    const parsed = JobIdSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.removeJob(parsed.data);
+      return await jobService.removeJob(parsed.data.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1175,12 +1174,12 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/jobs/enable", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    const parsed = JobIdSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.enableJob(parsed.data);
+      return await jobService.enableJob(parsed.data.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1188,12 +1187,12 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/jobs/disable", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    const parsed = JobIdSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.disableJob(parsed.data);
+      return await jobService.disableJob(parsed.data.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1215,7 +1214,7 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.listRunsForJob(parsed.data);
+      return await jobService.listRunsForJob(parsed.data.id, parsed.data.limit);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(404).send({ error: message });

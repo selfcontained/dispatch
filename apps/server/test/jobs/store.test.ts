@@ -20,16 +20,14 @@ afterAll(async () => {
 describe("JobStore", () => {
   it("upserts jobs, tracks runs, and requires terminal structured reports", async () => {
     expect(getTestDatabaseUrl()).toContain("dispatch_test_");
-    const job = await store.upsertJobFromDefinition({
+    const job = await store.createJob({
       name: "janitor",
+      directory: "/tmp/repo",
+      prompt: "Do work",
       schedule: null,
       timeoutMs: 1_000,
       needsInputTimeoutMs: 1_000,
       fullAccess: false,
-      notify: { onComplete: [], onError: [], onNeedsInput: [] },
-      body: "Do work",
-      directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md"
     });
     const run = await store.createRun(job.id, {
       directory: "/tmp/repo",

@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -8,23 +7,23 @@ import { Cron } from "croner";
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { readJobDefinition, jobFilePath, scanJobDefinitions, type JobDefinition } from "./parser.js";
-import { JobStore, type JobAgentType, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
+import { JobStore, type CreateJobInput, type JobAgentType, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
 import { getNextRun, validateCronExpression, validateCronInterval } from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
 
 type RunJobInput = {
-  name: string;
-  directory: string;
+  id: string;
   wait?: boolean;
   triggerSource?: "manual" | "scheduled";
 };
 
-export type AddJobInput = {
-  name: string;
-  directory: string;
-  displayName?: string;
+export type AddJobInput = CreateJobInput;
+
+export type UpdateJobInput = {
+  id: string;
+  name?: string;
+  prompt?: string | null;
   schedule?: string | null;
   timeoutMs?: number;
   needsInputTimeoutMs?: number;
@@ -34,29 +33,6 @@ export type AddJobInput = {
   fullAccess?: boolean;
   additionalInstructions?: string | null;
   enabled?: boolean;
-};
-
-export type AvailableJob = {
-  name: string;
-  fileStem: string;
-  directory: string;
-  filePath: string;
-  schedule: string | null;
-  timeoutMs: number;
-  needsInputTimeoutMs: number;
-  fullAccess: boolean;
-  notify: JobDefinition["notify"];
-  prompt: string;
-  promptPreview: string;
-  alreadyConfigured: boolean;
-  jobId: string | null;
-};
-
-export type AvailableJobsDirectory = {
-  directory: string;
-  source: "agent" | "manual";
-  jobs: AvailableJob[];
-  error: string | null;
 };
 
 export type RunJobResult = {
@@ -69,7 +45,6 @@ export type RunJobResult = {
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-const RECENT_AGENT_SCAN_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const TERMINAL_STATUSES = new Set<JobRunRecord["status"]>(["completed", "failed", "timed_out", "crashed"]);
 const ACTIVE_RUN_STATUSES = new Set<JobRunRecord["status"]>(["started", "running", "needs_input"]);
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -79,7 +54,6 @@ export class JobService {
   private readonly store: JobStore;
   private readonly monitors = new Map<string, Promise<JobRunRecord>>();
   private readonly schedulers = new Map<string, Cron>();
-  private readonly scanCache = new Map<string, { expiresAt: number; result: Awaited<ReturnType<typeof scanJobDefinitions>> }>();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
   private stopping = false;
 
@@ -108,11 +82,13 @@ export class JobService {
   }
 
   async runJob(input: RunJobInput): Promise<RunJobResult> {
-    // Pre-execute: sync file → DB if the file exists
-    const job = await this.syncJobFromFile(input.directory, input.name);
+    const job = await this.store.getJob(input.id);
+    if (!job) {
+      throw new Error(`Job "${input.id}" not found.`);
+    }
 
     if (!job.prompt) {
-      throw new Error(`Job "${job.name}" has no prompt configured. Add a prompt to the job file or configure it in the UI.`);
+      throw new Error(`Job "${job.name}" has no prompt configured. Add a prompt to the job before running it.`);
     }
 
     // Pre-check for user-friendly error message. The DB unique index
@@ -198,68 +174,62 @@ export class JobService {
     return await this.store.logForAgent(agentId, input);
   }
 
-  async addJob(input: AddJobInput): Promise<JobRecord> {
-    const job = await this.syncJobFromFile(input.directory, input.name);
+  async createJob(input: AddJobInput): Promise<JobRecord> {
+    if (!input.name?.trim()) {
+      throw new Error("Job name is required.");
+    }
+    if (!input.prompt?.trim()) {
+      throw new Error("Job prompt is required.");
+    }
+    if (!input.directory?.trim()) {
+      throw new Error("Job directory is required.");
+    }
+
     const schedule = input.schedule === "" ? null : input.schedule;
     if (schedule && !validateCronExpression(schedule)) {
-      throw new Error(`Job "${input.displayName ?? job.name}" has an invalid cron expression: "${schedule}"`);
+      throw new Error(`Job "${input.name}" has an invalid cron expression: "${schedule}"`);
     }
-    if (input.enabled && !schedule && !job.schedule) {
-      throw new Error(`Job "${input.displayName ?? job.name}" needs a schedule before it can be enabled.`);
+    if (input.enabled && !schedule) {
+      throw new Error(`Job "${input.name}" needs a schedule before it can be enabled.`);
     }
 
-    const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
-    const displayName = normalizeOptionalString(input.displayName);
-    const branchName = normalizeNullableString(input.branchName);
-    const additionalInstructions = normalizeNullableString(input.additionalInstructions);
-    if (displayName !== undefined) config.name = displayName;
-    if (input.schedule !== undefined) config.schedule = schedule;
-    if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
-    if (input.needsInputTimeoutMs !== undefined) config.needsInputTimeoutMs = input.needsInputTimeoutMs;
-    if (input.agentType !== undefined) config.agentType = input.agentType;
-    if (input.useWorktree !== undefined) config.useWorktree = input.useWorktree;
-    if (branchName !== undefined) config.branchName = branchName;
-    if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
-    if (additionalInstructions !== undefined) config.additionalInstructions = additionalInstructions;
-    if (input.enabled !== undefined) config.enabled = input.enabled;
-
-    const updated = await this.store.updateJobConfig(job.id, config);
-    if (updated.enabled && updated.schedule) {
-      this.scheduleJob(updated);
+    const job = await this.store.createJob({
+      ...input,
+      schedule,
+    });
+    if (job.enabled && job.schedule) {
+      this.scheduleJob(job);
     }
-    this.logger.info({ jobId: updated.id, name: updated.name }, "Job added from file");
-    return updated;
+    this.logger.info({ jobId: job.id, name: job.name }, "Job created");
+    return job;
   }
 
-  async updateJob(input: AddJobInput): Promise<JobRecord> {
-    const filePath = jobFilePath(input.directory, input.name);
-    const existing = await this.store.getJobByDirectoryAndFilePath(input.directory, filePath);
+  async updateJob(input: UpdateJobInput): Promise<JobRecord> {
+    const existing = await this.store.getJob(input.id);
     if (!existing) {
-      throw new Error(`Job "${input.name}" is not configured in directory "${input.directory}".`);
+      throw new Error(`Job "${input.id}" not found.`);
     }
 
     const schedule = input.schedule === "" ? null : input.schedule;
     const nextSchedule = input.schedule === undefined ? existing.schedule : schedule;
     if (nextSchedule && !validateCronExpression(nextSchedule)) {
-      throw new Error(`Job "${input.displayName ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`);
+      throw new Error(`Job "${input.name ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`);
     }
     if (input.enabled && !nextSchedule) {
-      throw new Error(`Job "${input.displayName ?? existing.name}" needs a schedule before it can be enabled.`);
+      throw new Error(`Job "${input.name ?? existing.name}" needs a schedule before it can be enabled.`);
     }
 
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
-    const displayName = normalizeOptionalString(input.displayName);
-    const branchName = normalizeNullableString(input.branchName);
-    const additionalInstructions = normalizeNullableString(input.additionalInstructions);
-    if (displayName !== undefined) config.name = displayName;
+    if (input.name !== undefined) config.name = input.name;
+    if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
     if (input.needsInputTimeoutMs !== undefined) config.needsInputTimeoutMs = input.needsInputTimeoutMs;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (input.useWorktree !== undefined) config.useWorktree = input.useWorktree;
-    if (branchName !== undefined) config.branchName = branchName;
+    if (input.branchName !== undefined) config.branchName = input.branchName;
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
-    if (additionalInstructions !== undefined) config.additionalInstructions = additionalInstructions;
+    if (input.additionalInstructions !== undefined) config.additionalInstructions = input.additionalInstructions;
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
@@ -272,8 +242,11 @@ export class JobService {
     return updated;
   }
 
-  async enableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const job = await this.syncJobFromFile(input.directory, input.name);
+  async enableJob(id: string): Promise<JobRecord> {
+    const job = await this.store.getJob(id);
+    if (!job) {
+      throw new Error(`Job "${id}" not found.`);
+    }
     const schedule = job.schedule;
     if (!schedule) {
       throw new Error(`Job "${job.name}" has no schedule configured.`);
@@ -291,19 +264,21 @@ export class JobService {
     return updated;
   }
 
-  async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const job = await this.syncJobFromFile(input.directory, input.name);
+  async disableJob(id: string): Promise<JobRecord> {
+    const job = await this.store.getJob(id);
+    if (!job) {
+      throw new Error(`Job "${id}" not found.`);
+    }
     const updated = await this.store.setEnabled(job.id, false);
     this.stopScheduler(updated.id);
     this.logger.info({ jobId: updated.id, name: updated.name }, "Job disabled, scheduler stopped");
     return updated;
   }
 
-  async removeJob(input: { name: string; directory: string }): Promise<JobRecord> {
-    const filePath = jobFilePath(input.directory, input.name);
-    const job = await this.store.getJobByDirectoryAndFilePath(input.directory, filePath);
+  async removeJob(id: string): Promise<JobRecord> {
+    const job = await this.store.getJob(id);
     if (!job) {
-      throw new Error(`Job "${input.name}" is not configured in directory "${input.directory}".`);
+      throw new Error(`Job "${id}" not found.`);
     }
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
@@ -327,13 +302,13 @@ export class JobService {
     });
   }
 
-  async listRunsForJob(input: { name: string; directory: string; limit?: number }): Promise<{
+  async listRunsForJob(id: string, limit?: number): Promise<{
     job: JobRecord;
     runs: JobRunRecord[];
   }> {
-    const job = await this.store.getJobByDirectoryAndFilePath(input.directory, jobFilePath(input.directory, input.name));
-    if (!job) throw new Error(`Job "${input.name}" not found in directory "${input.directory}".`);
-    const runs = await this.store.listRunsForJob(job.id, input.limit ?? 20);
+    const job = await this.store.getJob(id);
+    if (!job) throw new Error(`Job "${id}" not found.`);
+    const runs = await this.store.listRunsForJob(job.id, limit ?? 20);
     return { job, runs };
   }
 
@@ -346,92 +321,6 @@ export class JobService {
       this.store.listRecentRuns(5),
     ]);
     return { stats, recentRuns };
-  }
-
-  async listAvailableJobs(input: { directory?: string; force?: boolean } = {}): Promise<{ directories: AvailableJobsDirectory[] }> {
-    const configuredJobs = await this.store.listJobs();
-    const configuredByFilePath = new Map(configuredJobs.map((job) => [job.filePath, job]));
-    const directories = new Map<string, "agent" | "manual">();
-    const agents = await this.agentManager.listAgents();
-    const recentCutoff = Date.now() - RECENT_AGENT_SCAN_WINDOW_MS;
-
-    for (const agent of agents) {
-      const updatedAt = new Date(agent.updatedAt).getTime();
-      if (!Number.isFinite(updatedAt) || updatedAt < recentCutoff) continue;
-      const directory = agent.cwd.trim();
-      if (directory) directories.set(path.resolve(directory), "agent");
-    }
-
-    const manualDirectory = input.directory?.trim();
-    if (manualDirectory) {
-      directories.set(path.resolve(manualDirectory), "manual");
-    }
-
-    const results = await Promise.all(Array.from(directories.entries()).map(async ([directory, source]) => {
-      const scan = await this.scanDirectory(directory, input.force ?? false);
-      return {
-        directory: scan.directory,
-        source,
-        error: scan.error,
-        jobs: scan.jobs.map((job) => {
-          const configured = configuredByFilePath.get(job.filePath);
-          return {
-            name: job.name,
-            fileStem: path.basename(job.filePath, ".md"),
-            directory: job.directory,
-            filePath: job.filePath,
-            schedule: job.schedule,
-            timeoutMs: job.timeoutMs,
-            needsInputTimeoutMs: job.needsInputTimeoutMs,
-            fullAccess: job.fullAccess,
-            notify: job.notify,
-            prompt: job.body,
-            promptPreview: job.body.slice(0, 160),
-            alreadyConfigured: !!configured,
-            jobId: configured?.id ?? null,
-          };
-        }),
-      };
-    }));
-
-    results.sort((a, b) => {
-      if (a.source !== b.source) return a.source === "manual" ? -1 : 1;
-      return a.directory.localeCompare(b.directory);
-    });
-    return { directories: results };
-  }
-
-  /**
-   * Pre-execute step: try to read the job file and upsert the DB record
-   * (refreshes prompt and file_path only). If the file is missing, returns
-   * the existing DB record. Throws if neither source exists.
-   */
-  private async syncJobFromFile(directory: string, name: string): Promise<JobRecord> {
-    try {
-      const definition = await readJobDefinition(directory, name);
-      return await this.store.upsertJobFromDefinition(definition);
-    } catch (err) {
-      // Only fall back to DB when the file is missing. Let DB errors and parse errors propagate.
-      if (!isFileNotFound(err)) throw err;
-      const existing = await this.store.getJobByDirectoryAndFilePath(directory, jobFilePath(directory, name));
-      if (!existing) {
-        throw new Error(`Job "${name}" not found in directory "${directory}" and no job file exists.`);
-      }
-      this.logger.info({ jobName: name, directory }, "Job file not found, using stored configuration");
-      return existing;
-    }
-  }
-
-  private async scanDirectory(directory: string, force: boolean): Promise<Awaited<ReturnType<typeof scanJobDefinitions>>> {
-    const key = path.resolve(directory);
-    const cached = this.scanCache.get(key);
-    const now = Date.now();
-    if (!force && cached && cached.expiresAt > now) {
-      return cached.result;
-    }
-    const result = await scanJobDefinitions(key);
-    this.scanCache.set(key, { expiresAt: now + 30_000, result });
-    return result;
   }
 
   /** Load all enabled jobs from DB and start their in-process schedulers. Called on server startup. */
@@ -473,7 +362,7 @@ export class JobService {
           );
           return;
         }
-        await this.runJob({ name: jobNameFromRecord(current), directory: current.directory, wait: false, triggerSource: "scheduled" });
+        await this.runJob({ id: jobId, wait: false, triggerSource: "scheduled" });
       } catch (err) {
         this.logger.error({ err, jobId }, "Scheduled job run failed");
       }
@@ -667,24 +556,4 @@ function sleep(ms: number): Promise<void> {
 
 function sanitizeAgentName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
-}
-
-function jobNameFromRecord(job: Pick<JobRecord, "name" | "filePath">): string {
-  if (job.filePath) return path.basename(job.filePath, ".md");
-  return job.name;
-}
-
-function normalizeOptionalString(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function normalizeNullableString(value: string | null | undefined): string | null | undefined {
-  if (value === undefined) return undefined;
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function isFileNotFound(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "ENOENT";
 }

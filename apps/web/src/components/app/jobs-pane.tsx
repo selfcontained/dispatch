@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { PathInput } from "@/components/app/path-input";
@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Bar, BarChart, XAxis } from "recharts";
-import { type AddJobConfig, type AvailableJobsDirectory, type Job, type JobRun, type JobRunStatus, useAvailableJobs, useJobActions, useJobHistory, useJobs, useJobStats } from "@/hooks/use-jobs";
+import { type CreateJobInput, type UpdateJobInput, type Job, type JobRun, type JobRunStatus, useJobActions, useJobHistory, useJobs, useJobStats } from "@/hooks/use-jobs";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { StatCard } from "@/components/app/stat-card";
 import { formatRelativeTime } from "@/lib/format";
@@ -33,8 +33,6 @@ type JobsPaneProps = {
 };
 
 type DetailTab = "configure" | "prompt" | "history";
-type AddJobStep = "choose" | "configure";
-type AddJobSourceTab = "automatic" | "manual";
 
 const ACTIVE_RUN_STATUSES: JobRunStatus[] = ["started", "running", "needs_input"];
 
@@ -78,16 +76,6 @@ function msFromMinutes(value: string): number | undefined {
   const minutes = Number.parseInt(value, 10);
   if (!Number.isFinite(minutes) || minutes <= 0) return undefined;
   return minutes * 60_000;
-}
-
-function fileStemFromPath(filePath: string | null | undefined): string | null {
-  if (!filePath) return null;
-  const fileName = filePath.split("/").pop();
-  return fileName?.endsWith(".md") ? fileName.slice(0, -3) : fileName ?? null;
-}
-
-function jobFileStem(job: Job): string {
-  return fileStemFromPath(job.filePath) ?? job.name;
 }
 
 function errorMessage(error: unknown): string {
@@ -134,12 +122,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
   const { iconColor } = useIconColor();
   const { instanceName } = useInstanceName();
   const { data: jobs = [], isLoading, error } = useJobs(open);
-  const { addJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
+  const { createJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
   const [isAddingJob, setIsAddingJob] = useState(false);
-  const [addJobStep, setAddJobStep] = useState<AddJobStep>("choose");
-  const [addJobDirectory, setAddJobDirectory] = useState("");
-  const [manualScanDirectory, setManualScanDirectory] = useState<string | null>(null);
-  const [availableJobsForceKey, setAvailableJobsForceKey] = useState(0);
   const [actionErrorByJobId, _setActionErrorByJobId] = useState<Record<string, string>>({});
   const [justAddedJobId, setJustAddedJobId] = useState<string | null>(null);
   const showOverview = routeJobId === "overview";
@@ -147,7 +131,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
   const tab: DetailTab = routeSection === "prompt" || routeSection === "history" ? routeSection : "configure";
   const history = useJobHistory(selectedJob);
   const activeRunAgent = useActiveRun(selectedJob, agents);
-  const availableJobs = useAvailableJobs(open, manualScanDirectory, availableJobsForceKey);
   const jobStats = useJobStats(open && !selectedJob);
 
   const selectJob = (job: Job) => {
@@ -158,7 +141,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
 
   const openAddJob = () => {
     setIsAddingJob(true);
-    setAddJobStep("choose");
     setJustAddedJobId(null);
   };
 
@@ -205,7 +187,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                   data-testid="add-job-button"
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Add job
+                  New job
                 </Button>
                 </div>
               </div>
@@ -218,8 +200,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                 ) : jobs.length === 0 ? (
                   <div className="p-4 text-sm text-muted-foreground">
                     <div className="rounded-md border border-dashed border-border p-4">
-                      <div className="font-medium text-foreground">No jobs added yet.</div>
-                      <div className="mt-1 text-xs">Added jobs will appear here with schedule, status, and run controls.</div>
+                      <div className="font-medium text-foreground">No jobs yet.</div>
+                      <div className="mt-1 text-xs">Create a job to set up recurring agent workflows.</div>
                     </div>
                   </div>
                 ) : (
@@ -314,8 +296,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                     onRunNow={async (job) => { await runNow.mutateAsync(job); }}
                     onSetEnabled={async (job, enabled) => { await setEnabled.mutateAsync({ job, enabled }); }}
                     enabledAgentTypes={enabledAgentTypes}
-                    onUpdateJob={async (job) => {
-                      await updateJob.mutateAsync(job);
+                    onUpdateJob={async (input) => {
+                      await updateJob.mutateAsync(input);
                     }}
                     onRemoveJob={async (job) => {
                       await removeJob.mutateAsync(job);
@@ -349,39 +331,18 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
               </div>
               {footer}
             </div>
-      <AddJobDialog
+      <CreateJobDialog
         open={isAddingJob}
-        onOpenChange={(nextOpen) => {
-          setIsAddingJob(nextOpen);
-          if (!nextOpen) setAddJobStep("choose");
+        onOpenChange={setIsAddingJob}
+        enabledAgentTypes={enabledAgentTypes}
+        isCreating={createJob.isPending}
+        onCreateJob={async (input) => {
+          const created = await createJob.mutateAsync(input);
+          setIsAddingJob(false);
+          setJustAddedJobId(created.id);
+          navigate(`/jobs/${created.id}`);
         }}
-      >
-        <AddJobFlow
-          step={addJobStep}
-          directory={addJobDirectory}
-          setDirectory={setAddJobDirectory}
-          setStep={setAddJobStep}
-          onScanDirectory={(directory) => {
-            setManualScanDirectory(directory);
-            setAvailableJobsForceKey((current) => current + 1);
-          }}
-          onRescanSuggestions={() => {
-            setAvailableJobsForceKey((current) => current + 1);
-          }}
-          onAddJob={async (job) => {
-            const added = await addJob.mutateAsync(job);
-            setIsAddingJob(false);
-            setAddJobStep("choose");
-            setJustAddedJobId(added.id);
-            navigate(`/jobs/${added.id}`);
-          }}
-          enabledAgentTypes={enabledAgentTypes}
-          availableDirectories={availableJobs.data?.directories ?? []}
-          isScanning={availableJobs.isLoading || availableJobs.isFetching}
-          scanError={availableJobs.error instanceof Error ? availableJobs.error.message : null}
-          isAdding={addJob.isPending}
-        />
-      </AddJobDialog>
+      />
     </section>
   );
 }
@@ -665,274 +626,94 @@ function JobsNav({
   );
 }
 
-function AddJobDialog({
+function CreateJobDialog({
   open,
   onOpenChange,
-  children,
+  enabledAgentTypes,
+  isCreating,
+  onCreateJob,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
-          <DialogPrimitive.Title className="sr-only">Add job</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">Choose and configure a recurring Dispatch job.</DialogPrimitive.Description>
-          <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon" className="absolute right-3 top-3 z-10" aria-label="Close add job">
-              <X className="h-4 w-4" />
-            </Button>
-          </DialogPrimitive.Close>
-          {children}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
-  );
-}
-
-function AddJobFlow({
-  step,
-  directory,
-  setDirectory,
-  setStep,
-  onScanDirectory,
-  onRescanSuggestions,
-  availableDirectories,
-  isScanning,
-  scanError,
-  onAddJob,
-  isAdding,
-  enabledAgentTypes,
-}: {
-  step: AddJobStep;
-  directory: string;
-  setDirectory: (value: string) => void;
-  setStep: (step: AddJobStep) => void;
-  onScanDirectory: (directory: string) => void;
-  onRescanSuggestions: () => void;
-  availableDirectories: AvailableJobsDirectory[];
-  isScanning: boolean;
-  scanError: string | null;
-  onAddJob: (job: AddJobConfig) => Promise<void>;
-  isAdding: boolean;
   enabledAgentTypes: AgentType[];
+  isCreating: boolean;
+  onCreateJob: (input: CreateJobInput) => Promise<void>;
 }) {
-  const [selectedJobFilePath, setSelectedJobFilePath] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [name, setName] = useState("");
+  const [directory, setDirectory] = useState("");
+  const [prompt, setPrompt] = useState("");
   const [schedule, setSchedule] = useState("");
-  const [timeoutMinutes, setTimeoutMinutes] = useState("");
-  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState("");
   const [agentType, setAgentType] = useState<AgentType>(enabledAgentTypes[0] ?? "codex");
+  const [timeoutMinutes, setTimeoutMinutes] = useState("30");
+  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState("1440");
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [branchName, setBranchName] = useState("");
   const [additionalInstructions, setAdditionalInstructions] = useState("");
   const [enableImmediately, setEnableImmediately] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [sourceTab, setSourceTab] = useState<AddJobSourceTab>("automatic");
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const discoveredJobs = useMemo(
-    () => availableDirectories.flatMap((entry) => entry.jobs.map((job) => ({ ...job, source: entry.source, directoryError: entry.error }))),
-    [availableDirectories]
-  );
-  const automaticJobs = useMemo(() => discoveredJobs.filter((job) => job.source === "agent"), [discoveredJobs]);
-  const manualJobs = useMemo(() => discoveredJobs.filter((job) => job.source === "manual"), [discoveredJobs]);
-  const manualDirectoryResult = useMemo(
-    () => availableDirectories.find((entry) => entry.source === "manual") ?? null,
-    [availableDirectories]
-  );
-  const selectedJob = useMemo(
-    () => discoveredJobs.find((job) => job.filePath === selectedJobFilePath) ?? null,
-    [discoveredJobs, selectedJobFilePath]
-  );
-  const selectedJobRef = useRef<typeof selectedJob>(null);
-  const scannedDirectoryCount = availableDirectories.length;
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const scheduleError = cronError(schedule, enableImmediately);
-  const canAddConfiguredJob = !!selectedJob && !!displayName.trim() && !scheduleError && !!msFromMinutes(timeoutMinutes) && !!msFromMinutes(needsInputTimeoutMinutes);
+  const canCreate = !!name.trim() && !!directory.trim() && !!prompt.trim() && !scheduleError;
 
+  // Reset form when dialog opens
   useEffect(() => {
-    selectedJobRef.current = selectedJob;
-  }, [selectedJob]);
-
-  useEffect(() => {
-    const job = selectedJobRef.current;
-    if (!job) return;
-    setDisplayName(job.name);
-    setSchedule(job.schedule ?? "");
-    setTimeoutMinutes(minutesFromMs(job.timeoutMs));
-    setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
-    setFullAccess(job.fullAccess);
-    setUseWorktree(false);
-    setBranchName("");
-    setAdditionalInstructions("");
-    setEnableImmediately(false);
-    setAgentType((current) => enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex");
-  }, [enabledAgentTypes, selectedJobFilePath]);
+    if (open) {
+      setName("");
+      setDirectory("");
+      setPrompt("");
+      setSchedule("");
+      setAgentType(enabledAgentTypes[0] ?? "codex");
+      setTimeoutMinutes("30");
+      setNeedsInputTimeoutMinutes("1440");
+      setFullAccess(false);
+      setUseWorktree(false);
+      setBranchName("");
+      setAdditionalInstructions("");
+      setEnableImmediately(false);
+      setAdvancedOpen(false);
+      setSubmitError(null);
+    }
+  }, [open, enabledAgentTypes]);
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className={cn("rounded-full px-2 py-0.5", step === "choose" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>1</span>
-          Choose Job
-          <span className="text-muted-foreground/50">/</span>
-          <span className={cn("rounded-full px-2 py-0.5", step === "configure" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>2</span>
-          Configure
-      </div>
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
+        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+          <DialogPrimitive.Title className="sr-only">Create job</DialogPrimitive.Title>
+          <DialogPrimitive.Description className="sr-only">Create a new recurring Dispatch job.</DialogPrimitive.Description>
+          <DialogPrimitive.Close asChild>
+            <Button variant="ghost" size="icon" className="absolute right-3 top-3 z-10" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogPrimitive.Close>
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
+            <div className="text-lg font-semibold">New job</div>
+            <p className="mt-1 text-sm text-muted-foreground">Create a recurring agent automation.</p>
 
-      {step === "choose" ? (
-        <div className="mt-6 flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-2">
-            <TabButton active={sourceTab === "automatic"} onClick={() => setSourceTab("automatic")} icon={<RefreshCw className="h-4 w-4" />}>Automatic</TabButton>
-            <TabButton active={sourceTab === "manual"} onClick={() => setSourceTab("manual")} icon={<Search className="h-4 w-4" />}>Manual</TabButton>
-          </div>
-
-          <ScrollArea className="mt-4 min-h-0 flex-1 pr-1">
-            {sourceTab === "automatic" ? (
-              <div>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium">Suggested jobs</div>
-                    <p className="mt-1 text-xs text-muted-foreground">Dispatch scans recent agent working directories for `.dispatch/jobs/*.md` workflows.</p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={onRescanSuggestions} disabled={isScanning}>
-                    {isScanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                    Rescan
-                  </Button>
-                </div>
-                {scanError ? (
-                  <div className="mt-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{scanError}</div>
-                ) : automaticJobs.length > 0 ? (
-                  <div className="mt-3 space-y-2">
-                    {automaticJobs.slice(0, 5).map((job) => (
-                      <button
-                        key={job.filePath}
-                        type="button"
-                        disabled={job.alreadyConfigured}
-                        className={cn("w-full rounded-md border border-border p-3 text-left", job.alreadyConfigured ? "opacity-60" : "hover:bg-muted/40")}
-                        onClick={() => {
-                          setSelectedJobFilePath(job.filePath);
-                          setSubmitError(null);
-                          setStep("configure");
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium">{job.name}</div>
-                            <div className="truncate font-mono text-xs text-muted-foreground">{shortPath(job.directory)}</div>
-                          </div>
-                          <Badge>{job.alreadyConfigured ? "Added" : "Agent"}</Badge>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                          <span>{humanSchedule(job.schedule)}</span>
-                          {!job.alreadyConfigured ? <span className="font-medium text-primary">Configure</span> : null}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                    {scannedDirectoryCount > 0 ? "No job files found in recent agent working directories." : "No recent agent directories to scan yet."}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div>
-                <div>
-                  <div className="text-sm font-medium">Scan another project</div>
-                  <p className="mt-1 text-xs text-muted-foreground">Pick a directory, scan it, and any jobs found will appear inline below.</p>
-                </div>
-                <PathInput
-                  className="mt-4"
-                  value={directory}
-                  onChange={setDirectory}
-                  label="Project path containing `.dispatch/jobs`"
-                  placeholder="~/code/project"
-                  id="job-directory"
-                  data-testid="job-directory-input"
-                />
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    variant="primary"
-                    disabled={!directory.trim() || isScanning}
-                    onClick={() => onScanDirectory(directory)}
-                    data-testid="scan-jobs-button"
-                  >
-                    {isScanning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-                    Scan directory
-                  </Button>
-                </div>
-                {scanError ? (
-                  <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{scanError}</div>
-                ) : null}
-                {manualDirectoryResult ? (
-                  <div className="mt-4">
-                    <div className="text-xs font-medium text-muted-foreground">Scan results</div>
-                    {manualJobs.length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        {manualJobs.map((job) => (
-                          <button
-                            key={job.filePath}
-                            type="button"
-                            disabled={job.alreadyConfigured}
-                            className={cn("w-full rounded-md border border-border p-3 text-left", job.alreadyConfigured ? "opacity-60" : "hover:bg-muted/40")}
-                            onClick={() => {
-                              setSelectedJobFilePath(job.filePath);
-                              setSubmitError(null);
-                              setStep("configure");
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium">{job.name}</div>
-                                <div className="truncate font-mono text-xs text-muted-foreground">{shortPath(job.directory)}</div>
-                              </div>
-                              <Badge>{job.alreadyConfigured ? "Added" : "Manual"}</Badge>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <span>{humanSchedule(job.schedule)}</span>
-                              {!job.alreadyConfigured ? <span className="font-medium text-primary">Configure</span> : null}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-2 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                        No jobs found in that directory.
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </ScrollArea>
-        </div>
-      ) : (
-        <div className="mt-6 flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="min-h-0 flex-1 pr-1">
-            <div className="grid min-w-0 gap-4">
-            {selectedJob ? (
-              <>
+            <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
+              <div className="grid min-w-0 gap-4">
                 <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
-                  <div className="text-sm font-medium">Review job</div>
-                  <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{selectedJob.filePath}</div>
-                  <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-                    <span>
-                      <span className="block font-medium text-foreground">Enabled</span>
-                      <span className="block text-xs text-muted-foreground">Run this job on its schedule after adding it.</span>
-                    </span>
-                    <SwitchToggle checked={enableImmediately} onCheckedChange={setEnableImmediately} ariaLabel="Enable job" />
-                  </label>
-                  <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">
+                  <div className="grid min-w-0 gap-3 md:grid-cols-2">
                     <div className="min-w-0 space-y-1 md:col-span-2">
-                      <label className="text-sm text-muted-foreground" htmlFor="job-display-name">Name</label>
-                      <Input id="job-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                      <label className="text-sm text-muted-foreground" htmlFor="create-job-name">Name</label>
+                      <Input id="create-job-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily cleanup" data-testid="create-job-name" />
+                    </div>
+                    <div className="min-w-0 space-y-1 md:col-span-2">
+                      <label className="text-sm text-muted-foreground" htmlFor="create-job-directory">Working directory</label>
+                      <PathInput
+                        value={directory}
+                        onChange={setDirectory}
+                        label="Working directory"
+                        placeholder="~/code/project"
+                        id="create-job-directory"
+                        data-testid="create-job-directory"
+                      />
                     </div>
                     <div className="min-w-0 space-y-1">
-                      <label className="text-sm text-muted-foreground" htmlFor="job-schedule">Cron schedule</label>
-                      <Input id="job-schedule" value={schedule} onChange={(event) => setSchedule(event.target.value)} placeholder="*/30 * * * *" className="font-mono text-xs" />
+                      <label className="text-sm text-muted-foreground" htmlFor="create-job-schedule">Cron schedule</label>
+                      <Input id="create-job-schedule" value={schedule} onChange={(e) => setSchedule(e.target.value)} placeholder="*/30 * * * *" className="font-mono text-xs" />
                       {scheduleError ? <div className="text-xs text-status-blocked">{scheduleError}</div> : null}
                       {!scheduleError && schedule.trim() ? <div className="text-xs text-muted-foreground">{humanSchedule(schedule)}</div> : null}
                     </div>
@@ -950,13 +731,45 @@ function AddJobFlow({
                       </Select>
                     </div>
                   </div>
+                  <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                    <span>
+                      <span className="block font-medium text-foreground">Enabled</span>
+                      <span className="block text-xs text-muted-foreground">Run this job on its schedule after creating it.</span>
+                    </span>
+                    <SwitchToggle checked={enableImmediately} onCheckedChange={setEnableImmediately} ariaLabel="Enable job" />
+                  </label>
                 </div>
 
                 <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
-                  <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setAdvancedOpen((current) => !current)}>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-foreground" htmlFor="create-job-prompt">Prompt</label>
+                    <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
+                  </div>
+                  <textarea
+                    id="create-job-prompt"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Describe what this job should do..."
+                    className="mt-3 min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    data-testid="create-job-prompt"
+                  />
+                  <div className="mt-3 space-y-1">
+                    <label className="text-sm text-muted-foreground" htmlFor="create-job-additional">Additional instructions</label>
+                    <textarea
+                      id="create-job-additional"
+                      value={additionalInstructions}
+                      onChange={(e) => setAdditionalInstructions(e.target.value)}
+                      placeholder="Optional instructions appended when the job runs"
+                      className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+
+                <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
+                  <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setAdvancedOpen((c) => !c)}>
                     <div>
                       <div className="text-sm font-medium">Advanced settings</div>
-                      <div className="mt-1 text-xs text-muted-foreground">Timeouts, worktree behavior, permissions, and additional run instructions.</div>
+                      <div className="mt-1 text-xs text-muted-foreground">Timeouts, worktree behavior, and permissions.</div>
                     </div>
                     <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
                   </button>
@@ -969,85 +782,64 @@ function AddJobFlow({
                   >
                     <div className="min-h-0">
                       <div className="grid min-w-0 gap-3 md:grid-cols-2">
-                      <div className="min-w-0 space-y-1">
-                        <label className="text-sm text-muted-foreground" htmlFor="job-timeout">Run timeout, minutes</label>
-                        <Input id="job-timeout" value={timeoutMinutes} onChange={(event) => setTimeoutMinutes(event.target.value)} inputMode="numeric" />
-                      </div>
-                      <div className="min-w-0 space-y-1">
-                        <label className="text-sm text-muted-foreground" htmlFor="job-needs-input-timeout">Wait for input, minutes</label>
-                        <Input id="job-needs-input-timeout" value={needsInputTimeoutMinutes} onChange={(event) => setNeedsInputTimeoutMinutes(event.target.value)} inputMode="numeric" />
-                      </div>
-                      <JobWorktreeOption
-                        checked={useWorktree}
-                        branchName={branchName}
-                        onCheckedChange={setUseWorktree}
-                        onBranchNameChange={setBranchName}
-                      />
-                      <JobFullAccessOption checked={fullAccess} onCheckedChange={setFullAccess} />
+                        <div className="min-w-0 space-y-1">
+                          <label className="text-sm text-muted-foreground" htmlFor="create-job-timeout">Run timeout, minutes</label>
+                          <Input id="create-job-timeout" value={timeoutMinutes} onChange={(e) => setTimeoutMinutes(e.target.value)} inputMode="numeric" />
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <label className="text-sm text-muted-foreground" htmlFor="create-job-input-timeout">Wait for input, minutes</label>
+                          <Input id="create-job-input-timeout" value={needsInputTimeoutMinutes} onChange={(e) => setNeedsInputTimeoutMinutes(e.target.value)} inputMode="numeric" />
+                        </div>
+                        <JobWorktreeOption
+                          checked={useWorktree}
+                          branchName={branchName}
+                          onCheckedChange={setUseWorktree}
+                          onBranchNameChange={setBranchName}
+                        />
+                        <JobFullAccessOption checked={fullAccess} onCheckedChange={setFullAccess} />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="min-w-0 rounded-md border border-border bg-muted/20 p-4">
-                  <div className="text-sm font-medium">Prompt</div>
-                  <ScrollArea className="mt-2 max-h-60 rounded-md border border-border bg-background/60">
-                    <pre className="whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-foreground">
-                      {selectedJob.prompt?.trim() || selectedJob.promptPreview || "No prompt configured."}
-                    </pre>
-                  </ScrollArea>
-                  <div className="mt-4 space-y-1">
-                    <label className="text-sm font-medium text-foreground" htmlFor="job-additional-instructions">Additional instructions</label>
-                    <p className="text-xs text-muted-foreground">Optional instructions appended when the job runs.</p>
-                    <textarea
-                      id="job-additional-instructions"
-                      value={additionalInstructions}
-                      onChange={(event) => setAdditionalInstructions(event.target.value)}
-                      placeholder="Optional instructions appended when the job runs"
-                      className="mt-2 min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">Choose a job before configuring it.</div>
-            )}
-            {submitError ? (
-              <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{submitError}</div>
-            ) : null}
+                {submitError ? (
+                  <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{submitError}</div>
+                ) : null}
+              </div>
+            </ScrollArea>
+
+            <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                disabled={!canCreate || isCreating}
+                data-testid="create-job-submit"
+                onClick={() => {
+                  setSubmitError(null);
+                  void onCreateJob({
+                    name: name.trim(),
+                    directory: directory.trim(),
+                    prompt: prompt.trim(),
+                    schedule: schedule.trim() || null,
+                    timeoutMs: msFromMinutes(timeoutMinutes),
+                    needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
+                    agentType,
+                    useWorktree,
+                    branchName: useWorktree ? branchName : null,
+                    fullAccess,
+                    additionalInstructions: additionalInstructions.trim() || null,
+                    enabled: enableImmediately,
+                  }).catch((error) => setSubmitError(errorMessage(error)));
+                }}
+              >
+                {isCreating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Create job
+              </Button>
+            </div>
           </div>
-        </ScrollArea>
-          <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
-            <Button variant="ghost" onClick={() => setStep("choose")}>Back</Button>
-            <Button
-              variant="primary"
-              disabled={!canAddConfiguredJob || isAdding}
-              onClick={() => {
-                if (!selectedJob) return;
-                setSubmitError(null);
-                void onAddJob({
-                  name: selectedJob.fileStem,
-                  directory: selectedJob.directory,
-                  displayName,
-                  schedule: schedule.trim() || null,
-                  timeoutMs: msFromMinutes(timeoutMinutes),
-                  needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
-                  agentType,
-                  useWorktree,
-                  branchName: useWorktree ? branchName : null,
-                  fullAccess,
-                  additionalInstructions,
-                  enabled: enableImmediately,
-                }).catch((error) => setSubmitError(errorMessage(error)));
-              }}
-            >
-              {isAdding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Add job
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 
@@ -1082,11 +874,11 @@ function JobDetail({
   onSelectRun: (runId: string) => void;
   activeRunAgent: Agent | null;
   onOpenAgent: (agent: Agent) => Promise<void>;
-  onRunNow: (job: Job) => Promise<void>;
-  onSetEnabled: (job: Job, enabled: boolean) => Promise<void>;
+  onRunNow: (job: Pick<Job, "id">) => Promise<void>;
+  onSetEnabled: (job: Pick<Job, "id">, enabled: boolean) => Promise<void>;
   enabledAgentTypes: AgentType[];
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
-  onRemoveJob: (job: Job) => Promise<void>;
+  onUpdateJob: (input: UpdateJobInput) => Promise<void>;
+  onRemoveJob: (job: Pick<Job, "id">) => Promise<void>;
   isUpdating: boolean;
   isRemoving: boolean;
   justAdded: boolean;
@@ -1098,7 +890,7 @@ function JobDetail({
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-xl font-semibold">{job.name}</h2>
-          <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={job.filePath ?? job.directory}>{job.filePath ?? job.directory}</div>
+          <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={job.directory}>{job.directory}</div>
         </div>
         <Button
           size="sm"
@@ -1131,7 +923,7 @@ function JobDetail({
 
       {justAdded ? (
         <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-4">
-          <div className="text-sm font-semibold text-status-done">Job added</div>
+          <div className="text-sm font-semibold text-status-done">Job created</div>
           <div className="mt-1 text-sm text-muted-foreground">
             {job.enabled && job.nextRun ? `Scheduled next run: ${formatDate(job.nextRun)}.` : "This job is saved but not enabled on a schedule yet."}
           </div>
@@ -1313,8 +1105,8 @@ function SettingsTab({
 }: {
   job: Job;
   enabledAgentTypes: AgentType[];
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
-  onRemoveJob: (job: Job) => Promise<void>;
+  onUpdateJob: (input: UpdateJobInput) => Promise<void>;
+  onRemoveJob: (job: Pick<Job, "id">) => Promise<void>;
   isUpdating: boolean;
   isRemoving: boolean;
 }) {
@@ -1414,9 +1206,8 @@ function SettingsTab({
               setSaveError(null);
               setSaved(false);
               void onUpdateJob({
-                name: jobFileStem(job),
-                directory: job.directory,
-                displayName,
+                id: job.id,
+                name: displayName,
                 schedule: schedule.trim() || null,
                 timeoutMs: msFromMinutes(timeoutMinutes),
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
@@ -1441,7 +1232,7 @@ function SettingsTab({
       <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
         <div className="text-sm font-medium text-status-blocked">Remove job</div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Remove this saved job, schedule, and run history from this Dispatch instance. This does not delete the markdown job file.
+          Remove this job, its schedule, and run history from this Dispatch instance.
         </p>
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
@@ -1495,7 +1286,7 @@ function RemoveJobDialog({
         <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl outline-none">
           <DialogPrimitive.Title className="text-base font-semibold">Remove job?</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
-            Remove <span className="font-medium text-foreground">{job.name}</span> from this Dispatch instance? This removes its saved schedule and run history, but does not delete the markdown job file.
+            Remove <span className="font-medium text-foreground">{job.name}</span> from this Dispatch instance? This removes its schedule and run history.
           </DialogPrimitive.Description>
           <div className="mt-5 flex justify-end gap-2">
             <DialogPrimitive.Close asChild>
@@ -1518,14 +1309,16 @@ function PromptTab({
   isUpdating,
 }: {
   job: Job;
-  onUpdateJob: (job: AddJobConfig) => Promise<void>;
+  onUpdateJob: (input: UpdateJobInput) => Promise<void>;
   isUpdating: boolean;
 }) {
+  const [prompt, setPrompt] = useState(job.prompt ?? "");
   const [additionalInstructions, setAdditionalInstructions] = useState(job.additionalInstructions ?? "");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    setPrompt(job.prompt ?? "");
     setAdditionalInstructions(job.additionalInstructions ?? "");
     setSaveError(null);
     setSaved(false);
@@ -1534,13 +1327,17 @@ function PromptTab({
   return (
     <div className="mt-4 grid gap-4">
       <div className="rounded-md border border-border bg-background/50 p-4">
-        <div className="text-sm font-medium">Prompt</div>
-        <p className="mt-1 text-xs text-muted-foreground">This prompt is read from the saved job file and is read-only for now.</p>
-        <ScrollArea className="mt-4 h-[min(45vh,360px)] rounded-md border border-border bg-muted/20">
-          <pre className="whitespace-pre-wrap p-4 font-mono text-xs leading-5 text-foreground">
-            {job.prompt?.trim() || "No prompt configured."}
-          </pre>
-        </ScrollArea>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-foreground" htmlFor={`prompt-main-${job.id}`}>Prompt</label>
+          <p className="text-xs text-muted-foreground">The instructions the agent follows when this job runs.</p>
+        </div>
+        <textarea
+          id={`prompt-main-${job.id}`}
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="Describe what this job should do..."
+          className="mt-3 min-h-[min(45vh,360px)] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm leading-5 ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
         <div className="mt-4 space-y-1">
           <label className="text-sm font-medium text-foreground" htmlFor={`prompt-instructions-${job.id}`}>Additional instructions</label>
           <p className="text-xs text-muted-foreground">Optional instructions appended when the job runs.</p>
@@ -1553,7 +1350,7 @@ function PromptTab({
           />
         </div>
         {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
-        {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt settings saved.</div> : null}
+        {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt saved.</div> : null}
         <div className="mt-4 flex justify-end">
           <Button
             variant="primary"
@@ -1562,18 +1359,9 @@ function PromptTab({
               setSaveError(null);
               setSaved(false);
               void onUpdateJob({
-                name: jobFileStem(job),
-                directory: job.directory,
-                displayName: job.name,
-                schedule: job.schedule,
-                timeoutMs: job.timeoutMs ?? undefined,
-                needsInputTimeoutMs: job.needsInputTimeoutMs ?? undefined,
-                agentType: job.agentType,
-                useWorktree: job.useWorktree,
-                branchName: job.branchName,
-                fullAccess: job.fullAccess,
+                id: job.id,
+                prompt,
                 additionalInstructions,
-                enabled: job.enabled,
               }).then(() => {
                 setSaved(true);
               }).catch((error) => {
@@ -1582,7 +1370,7 @@ function PromptTab({
             }}
           >
             {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Save prompt settings
+            Save prompt
           </Button>
         </div>
       </div>
@@ -1649,9 +1437,15 @@ function RunReport({ run }: { run: JobRun | null }) {
                 {error.action ? <div className="mt-1 text-xs text-muted-foreground">{error.action}</div> : null}
               </div>
             ))}
-            {task.logs?.slice(-5).map((log, logIndex) => (
-              <div key={logIndex} className="mt-2 font-mono text-xs text-muted-foreground">[{log.level}] {log.message}</div>
-            ))}
+            {task.logs && task.logs.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {task.logs.map((log, logIndex) => (
+                  <div key={logIndex} className={cn("rounded px-2 py-1 font-mono text-xs", log.level === "error" ? "bg-status-blocked/10 text-status-blocked" : log.level === "warn" ? "bg-status-waiting/10 text-status-waiting" : "bg-muted/50 text-muted-foreground")}>
+                    [{log.level}] {log.message}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
