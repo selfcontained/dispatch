@@ -1,4 +1,4 @@
-import { memo, type RefObject, useEffect, useState } from "react";
+import { memo, type RefCallback, useEffect, useState } from "react";
 import { Archive, Loader2, TerminalSquare } from "lucide-react";
 
 import { type Agent, type ConnState } from "@/components/app/types";
@@ -10,7 +10,7 @@ type TerminalPaneProps = {
   statusMessage: string;
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
-  terminalHostRef: RefObject<HTMLDivElement>;
+  terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
 };
 

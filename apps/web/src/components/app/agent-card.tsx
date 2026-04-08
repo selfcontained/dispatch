@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Archive,
   ChevronDown,
+  ListChecks,
   Loader2,
   Play,
   Pause,
@@ -76,6 +77,7 @@ export function AgentCard({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const needsAttention = agent.status === "error";
+  const isJobAgent = agent.name.startsWith("job-");
 
   return (
     <React.Fragment>
@@ -116,6 +118,16 @@ export function AgentCard({
               title={agent.lastError ?? "Agent entered an error state and may need attention."}
             >
               Attention
+            </Badge>
+          ) : null}
+
+          {isJobAgent ? (
+            <Badge
+              className="border-status-working/45 bg-status-working/15 text-status-working"
+              title="Job-spawned agent"
+            >
+              <ListChecks className="mr-1 h-3 w-3" />
+              Job
             </Badge>
           ) : null}
 

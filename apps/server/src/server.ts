@@ -888,10 +888,26 @@ const JobEnableDisableBodySchema = z.object({
   name: z.string().min(1, "Job name is required."),
   directory: z.string().min(1, "Job directory is required."),
 });
+const AddJobBodySchema = JobEnableDisableBodySchema.extend({
+  displayName: z.string().optional(),
+  schedule: z.string().nullable().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  needsInputTimeoutMs: z.number().int().positive().optional(),
+  agentType: z.enum(AGENT_TYPES).optional(),
+  useWorktree: z.boolean().optional(),
+  branchName: z.string().nullable().optional(),
+  fullAccess: z.boolean().optional(),
+  additionalInstructions: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+});
 const JobHistoryParamsSchema = z.object({
   name: z.string().min(1, "Job name is required."),
   directory: z.string().min(1, "Job directory is required."),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+const AvailableJobsQuerySchema = z.object({
+  directory: z.string().min(1).optional(),
+  force: z.coerce.boolean().optional(),
 });
 
 async function registerRoutes() {
@@ -1102,6 +1118,53 @@ async function registerRoutes() {
 
   app.get("/api/v1/jobs", async () => {
     return await jobService.listJobs();
+  });
+
+  app.get("/api/v1/jobs/available", async (request, reply) => {
+    const parsed = AvailableJobsQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    return await jobService.listAvailableJobs(parsed.data);
+  });
+
+  app.post("/api/v1/jobs", async (request, reply) => {
+    const parsed = AddJobBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.addJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.patch("/api/v1/jobs", async (request, reply) => {
+    const parsed = AddJobBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.updateJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  app.delete("/api/v1/jobs", async (request, reply) => {
+    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0].message });
+    }
+    try {
+      return await jobService.removeJob(parsed.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: message });
+    }
   });
 
   app.post("/api/v1/jobs/enable", async (request, reply) => {
