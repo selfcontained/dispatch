@@ -68,6 +68,7 @@ import { isPinType, validatePinValue } from "./pins.js";
 import { JobService } from "./jobs/service.js";
 import { randomUUID } from "node:crypto";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
+import { buildAgentMcpContext, buildJobMcpContext } from "./mcp-context.js";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -1253,12 +1254,20 @@ async function registerRoutes() {
     }
 
     reply.hijack();
-    await handleMcpRequest(request.raw, reply.raw, request.body, {
+    await handleMcpRequest(request.raw, reply.raw, request.body, buildJobMcpContext({
       agent,
       repoRoot,
       worktreeRoot,
-      enableBuiltinTools: false,
-      toolScope: "job",
+      shareMedia: mcpShareMedia,
+      submitFeedback: mcpSubmitFeedback,
+      launchPersona: mcpLaunchPersona,
+      getFeedback: mcpGetFeedback,
+      resolveFeedback: mcpResolveFeedback,
+      upsertPin: mcpUpsertPin,
+      deletePin: mcpDeletePin,
+      getParentContext: mcpGetParentContext,
+      updateReviewStatus: mcpUpdateReviewStatus,
+      completeReview: mcpCompleteReview,
       jobTools: {
         complete: mcpJobComplete,
         failed: mcpJobFailed,
@@ -1271,7 +1280,7 @@ async function registerRoutes() {
         listRecentPersonaReviews: (sinceDays: number) => agentManager.listRecentPersonaReviews(sinceDays),
         listRecentFeedback: (sinceDays: number) => agentManager.listRecentFeedback(sinceDays),
       },
-    });
+    }));
   });
 
   app.post("/api/mcp/:agentId", async (request, reply) => {
@@ -1296,7 +1305,7 @@ async function registerRoutes() {
     }
 
     reply.hijack();
-    await handleMcpRequest(request.raw, reply.raw, request.body, {
+    await handleMcpRequest(request.raw, reply.raw, request.body, buildAgentMcpContext({
       agent: {
         id: agent.id,
         cwd: agent.cwd,
@@ -1316,7 +1325,7 @@ async function registerRoutes() {
       getParentContext: mcpGetParentContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
-    });
+    }));
   });
 
   app.get("/api/mcp", async (_, reply) => {
