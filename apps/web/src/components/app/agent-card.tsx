@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   Archive,
   ChevronDown,
-  ListChecks,
+  AlarmClock,
   Loader2,
   Play,
   Pause,
@@ -126,7 +126,7 @@ export function AgentCard({
               className="border-status-working/45 bg-status-working/15 text-status-working"
               title="Job-spawned agent"
             >
-              <ListChecks className="mr-1 h-3 w-3" />
+              <AlarmClock className="mr-1 h-3 w-3" />
               Job
             </Badge>
           ) : null}
