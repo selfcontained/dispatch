@@ -5,8 +5,7 @@ timeout: 15m
 needs_input_timeout: 18h
 full_access: false
 notify:
-  on_complete:
-    - slack
+  on_complete: []
   on_error:
     - slack
   on_needs_input:
@@ -31,9 +30,11 @@ Query the production database directly (connect to `127.0.0.1:5432`, database `d
 
 2. **agent_feedback** table — contains individual findings from persona agents:
    - `agent_id`: the persona agent that submitted it
-   - `severity`: "critical", "warning", "info", "suggestion"
+   - `severity`: "critical", "high", "medium", "low", "info"
    - `file_path`, `line_number`: location of finding
-   - `category`, `message`: what was found
+   - `description`: what was found (text, not null)
+   - `suggestion`: recommended fix (text, nullable)
+   - `media_ref`: optional reference to a shared media artifact
    - `status`: "open", "resolved", "dismissed"
    - `created_at`: when submitted
 

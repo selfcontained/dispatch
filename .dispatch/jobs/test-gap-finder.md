@@ -5,8 +5,7 @@ timeout: 15m
 needs_input_timeout: 18h
 full_access: false
 notify:
-  on_complete:
-    - slack
+  on_complete: []
   on_error:
     - slack
   on_needs_input:
@@ -32,7 +31,7 @@ Ignore non-source files: configs, migrations, docs, tests themselves, CSS, stati
 
 ### 2. Classify changes
 
-For each changed source file, read it and understand what changed (use `git diff main~20..main -- <file>` or similar to see the diff). Classify the change:
+For each changed source file, read it and understand what changed. To get the diff for the same 7-day window, first find the oldest commit: `OLDEST=$(git log --since="7 days ago" --format=%H main | tail -1)`, then use `git diff $OLDEST..main -- <file>`. Classify the change:
 
 - **New file** — entirely new module/component
 - **New endpoint/route** — a new API route was added

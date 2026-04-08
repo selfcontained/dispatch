@@ -5,8 +5,7 @@ timeout: 15m
 needs_input_timeout: 18h
 full_access: false
 notify:
-  on_complete:
-    - slack
+  on_complete: []
   on_error:
     - slack
   on_needs_input:
