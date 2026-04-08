@@ -69,6 +69,7 @@ export type JobTools = {
     agentId: string,
     input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
   ) => Promise<{ runId: string; status: string }>;
+  listAgents: () => Promise<Array<{ id: string; name: string; status: string; cwd: string }>>;
 };
 
 export type PinInput = {
@@ -141,6 +142,7 @@ export type McpRequestContext = {
   ) => Promise<void>;
   jobTools?: JobTools;
   enableBuiltinTools?: boolean;
+  toolScope?: "agent" | "reviewer" | "job";
 };
 
 export async function handleMcpRequest(
@@ -587,11 +589,32 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         }
       }
     );
+
+    server.registerTool(
+      "list_agents",
+      {
+        description: "List all agents from this Dispatch server with their IDs, names, and statuses.",
+        inputSchema: {}
+      },
+      async () => {
+        try {
+          const agents = await jobTools.listAgents();
+          return {
+            content: [{ type: "text", text: JSON.stringify({ agents }, null, 2) }],
+            structuredContent: { agents }
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
   }
 
   const toolsRoot = context.worktreeRoot ?? context.repoRoot;
   if (context.agent && toolsRoot) {
-    const repoTools = await loadRepoTools(toolsRoot);
+    const allRepoTools = await loadRepoTools(toolsRoot);
+    const scope = context.toolScope ?? "agent";
+    const repoTools = allRepoTools.filter((tool) => !tool.scope || tool.scope.includes(scope));
     for (const tool of repoTools) {
       const inputSchema = buildParamSchema(tool.params);
       server.registerTool(

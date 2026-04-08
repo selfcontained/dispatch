@@ -26,8 +26,11 @@
     },
     {
       "name": "dev_down",
-      "description": "Stop the repo's dev environment and remove its database container.",
-      "command": ["./bin/dispatch-dev", "down"]
+      "description": "Stop a dev environment and remove its database container. Without a suffix, stops the current agent's dev environment.",
+      "command": ["./bin/dispatch-dev", "down"],
+      "params": [
+        { "name": "suffix", "type": "string", "flag": "--suffix", "description": "Target a specific dev environment by its suffix (e.g. agt_abc123def456)." }
+      ]
     },
     {
       "name": "dev_status",
@@ -38,6 +41,24 @@
       "name": "dev_logs",
       "description": "Show recent API server logs from the dev environment.",
       "command": ["./bin/dispatch-dev", "logs"]
+    },
+    {
+      "name": "list_dev_containers",
+      "description": "List all running dispatch-dev Postgres containers. Returns one container name per line.",
+      "command": ["docker", "ps", "--filter", "name=dispatch-postgres-", "--format", "{{.Names}}"],
+      "scope": ["job"]
+    },
+    {
+      "name": "list_dispatch_sessions",
+      "description": "List tmux sessions belonging to this Dispatch server. Returns one session name per line. Uses DISPATCH_SESSION_PREFIX to filter (defaults to 'dispatch').",
+      "command": ["bash", "-c", "PREFIX=${DISPATCH_SESSION_PREFIX:-dispatch}; tmux list-sessions -F '#{session_name}' 2>/dev/null | grep \"^${PREFIX}_agt_\" || true"],
+      "scope": ["job"]
+    },
+    {
+      "name": "list_candidate_databases",
+      "description": "List all dispatch_* databases on local Postgres (port 5432). Returns one database name per line.",
+      "command": ["bash", "-c", "PGPASSWORD=dispatch psql -h 127.0.0.1 -p 5432 -U dispatch -d postgres -t -A -c \"SELECT datname FROM pg_database WHERE datname LIKE 'dispatch_%'\" 2>/dev/null || true"],
+      "scope": ["job"]
     }
   ]
 }

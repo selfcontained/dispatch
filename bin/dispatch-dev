@@ -235,8 +235,9 @@ cmd_up() {
     # Unset TLS so dev servers run plain HTTP
     unset TLS_CERT TLS_KEY 2>/dev/null || true
 
-    # Override port and set agent runtime — always explicit so .env doesn't leak
+    # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
     export DISPATCH_PORT="$DEV_API_PORT"
+    export DISPATCH_SESSION_PREFIX="dispatch_dev"
     if [ "$OPT_LIVE" = "1" ]; then
       export DISPATCH_AGENT_RUNTIME="tmux"
     else

@@ -609,7 +609,13 @@ function buildAgentArgs(agentType: JobRecord["agentType"], prompt: string, fullA
       : agentType === "codex"
         ? CODEX_FULL_ACCESS_ARG
         : null;
-  return fullAccess && fullAccessArg ? [...args, fullAccessArg] : args;
+  if (fullAccess && fullAccessArg) args.push(fullAccessArg);
+  if (agentType === "claude") {
+    // Claude Code needs a positional prompt arg to start an interactive session
+    // with an initial message. Without it the agent sits idle waiting for input.
+    args.push("Run the job described in your system prompt now.");
+  }
+  return args;
 }
 
 function buildRunConfig(job: JobRecord, triggerSource: "manual" | "scheduled"): JobRunConfig {

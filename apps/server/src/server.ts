@@ -1243,11 +1243,16 @@ async function registerRoutes() {
       repoRoot,
       worktreeRoot,
       enableBuiltinTools: false,
+      toolScope: "job",
       jobTools: {
         complete: mcpJobComplete,
         failed: mcpJobFailed,
         needsInput: mcpJobNeedsInput,
         log: mcpJobLog,
+        listAgents: async () => {
+          const agents = await agentManager.listAgents();
+          return agents.map((a) => ({ id: a.id, name: a.name, status: a.status, cwd: a.cwd }));
+        },
       },
     });
   });
