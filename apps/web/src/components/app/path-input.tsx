@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronDown, GitBranch, Loader2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, GitBranch, Loader2, X } from "lucide-react";
 
 import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
