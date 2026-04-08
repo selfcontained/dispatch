@@ -10,7 +10,8 @@
     "./mcp/repo-tools.js": "./dist/mcp/repo-tools.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

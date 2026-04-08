@@ -4,23 +4,25 @@
   "private": true,
   "description": "Local-first control plane for remote Codex CLI agents with simulator media",
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter @dispatch/server dev",
-    "build": "pnpm -r build",
-    "build:web": "pnpm --filter @dispatch/web build",
-    "check:web": "pnpm --filter @dispatch/web check",
-    "lint:web": "pnpm --filter @dispatch/web lint",
-    "finalize:web": "pnpm run check:web && pnpm run build:web",
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "build:web": "turbo build --filter=@dispatch/web",
+    "check": "turbo check",
+    "check:web": "turbo check --filter=@dispatch/web",
+    "lint:web": "turbo lint --filter=@dispatch/web",
+    "finalize:web": "turbo check build --filter=@dispatch/web",
     "start": "pnpm --filter @dispatch/server start",
     "release": "bin/dispatch-server update",
     "db:migrate": "pnpm --filter @dispatch/server db:migrate",
-    "check": "pnpm --filter @dispatch/shared build && pnpm --filter @dispatch/server check && pnpm run check:web",
-    "test": "pnpm --filter @dispatch/server test",
-    "test:watch": "pnpm --filter @dispatch/server test:watch",
+    "test": "turbo test",
+    "test:watch": "turbo test:watch",
     "test:e2e": "bash scripts/e2e-isolated.sh",
+    "verify": "turbo lint check test build",
     "prepare": "husky"
   },
   "pnpm": {
@@ -35,7 +37,7 @@
       "eslint --config apps/web/eslint.config.js"
     ],
     "**/*.{ts,tsx}": [
-      "bash -c 'pnpm run check'"
+      "bash -c 'turbo check'"
     ]
   },
   "devDependencies": {
@@ -44,6 +46,7 @@
     "lint-staged": "^16.4.0",
     "playwright": "^1.54.2",
     "sharp": "^0.34.5",
+    "turbo": "^2.9.5",
     "typescript": "^5.9.3"
   }
 }
