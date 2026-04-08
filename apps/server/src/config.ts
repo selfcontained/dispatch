@@ -61,10 +61,18 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   }
 }
 
+function parsePort(value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid port: ${value}`);
+  }
+  return port;
+}
+
 export function loadConfig(): AppConfig {
   const config: AppConfig = {
     host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
-    port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
+    port: parsePort(process.env.DISPATCH_PORT ?? process.env.PORT ?? "6767"),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()

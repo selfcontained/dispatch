@@ -60,16 +60,14 @@ dispatch/
 
 ## Pre-Completion Checks (Mandatory)
 Before marking any task as done, run the following checks and fix any failures:
-1. **Type checking**: `pnpm run check` (runs `tsc --noEmit` for backend + web).
-2. **Web finalization**: If any files under `apps/web/` changed, run `pnpm run finalize:web` (type check + production build).
-3. **E2E tests**: `pnpm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
-4. **Unit tests**: `pnpm run test` (Vitest) if backend logic changed.
+1. **Verify**: `pnpm run verify` — runs lint, type checking, unit tests, and production build across all packages in one command (powered by Turborepo with caching).
+2. **E2E tests**: `pnpm run test:e2e` (Playwright). Always spins up its own isolated DB and server — safe to run alongside other agents.
 - Do not consider a task complete until all applicable checks pass.
 - If a pre-existing test is flaky (fails before your changes too), note it in your response but do not skip the rest of the suite.
 
 ## Web Finalization
-- If any files under `apps/web/` changed, run `pnpm run finalize:web` before marking the task complete.
-- After running `pnpm run finalize:web`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
+- If any files under `apps/web/` changed, `pnpm run verify` already covers type checking and production build.
+- After running `pnpm run verify`, verify the served app via `dispatch-dev` when the task affects UI/theme/rendering behavior.
 - After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
 - In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 

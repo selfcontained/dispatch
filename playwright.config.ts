@@ -32,8 +32,8 @@ export default defineConfig({
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD
-      ? "pnpm run dev"
-      : "pnpm run build:web && pnpm run dev",
+      ? "turbo build --filter=@dispatch/shared && pnpm --filter @dispatch/server dev"
+      : "turbo build --filter=@dispatch/web && pnpm --filter @dispatch/server dev",
     env: {
       DATABASE_URL: databaseUrl,
       DISPATCH_PORT: devPort,
