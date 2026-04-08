@@ -63,6 +63,20 @@ export type JobRunConfig = {
   timeoutMs: number;
   needsInputTimeoutMs: number;
   notify: JobDefinition["notify"];
+  triggerSource?: "manual" | "scheduled";
+};
+
+export type JobConfigUpdate = {
+  name?: string;
+  schedule?: string | null;
+  timeoutMs?: number;
+  needsInputTimeoutMs?: number;
+  agentType?: JobAgentType;
+  useWorktree?: boolean;
+  branchName?: string | null;
+  fullAccess?: boolean;
+  additionalInstructions?: string | null;
+  enabled?: boolean;
 };
 
 export class JobStore {
@@ -357,6 +371,58 @@ export class JobStore {
       RETURNING ${this.jobColumns()}
       `,
       [jobId, enabled]
+    );
+    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+    return mapJob(result.rows[0]);
+  }
+
+  async updateJobConfig(jobId: string, input: JobConfigUpdate): Promise<JobRecord> {
+    const result = await this.pool.query(
+      `
+      UPDATE jobs
+      SET name = COALESCE($2, name),
+          schedule = CASE WHEN $3 THEN $4 ELSE schedule END,
+          timeout_ms = COALESCE($5, timeout_ms),
+          needs_input_timeout_ms = COALESCE($6, needs_input_timeout_ms),
+          agent_type = COALESCE($7, agent_type),
+          use_worktree = COALESCE($8, use_worktree),
+          branch_name = CASE WHEN $9 THEN $10 ELSE branch_name END,
+          full_access = COALESCE($11, full_access),
+          additional_instructions = CASE WHEN $12 THEN $13 ELSE additional_instructions END,
+          enabled = COALESCE($14, enabled),
+          updated_at = NOW()
+      WHERE id = $1
+      RETURNING ${this.jobColumns()}
+      `,
+      [
+        jobId,
+        input.name,
+        Object.prototype.hasOwnProperty.call(input, "schedule"),
+        input.schedule ?? null,
+        input.timeoutMs,
+        input.needsInputTimeoutMs,
+        input.agentType,
+        input.useWorktree,
+        Object.prototype.hasOwnProperty.call(input, "branchName"),
+        input.branchName ?? null,
+        input.fullAccess,
+        Object.prototype.hasOwnProperty.call(input, "additionalInstructions"),
+        input.additionalInstructions ?? null,
+        input.enabled,
+      ]
+    );
+    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+    return mapJob(result.rows[0]);
+  }
+
+  async deleteJob(jobId: string): Promise<JobRecord> {
+    const result = await this.pool.query(
+      `
+      DELETE FROM jobs
+      WHERE id = $1
+      RETURNING ${this.jobColumns()}
+      `,
+      [jobId]
     );
     if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
     return mapJob(result.rows[0]);

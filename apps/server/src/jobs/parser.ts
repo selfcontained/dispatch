@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export type JobNotifyConfig = {
@@ -19,6 +19,12 @@ export type JobDefinition = {
   directory: string;
 };
 
+export type JobScanResult = {
+  directory: string;
+  jobs: JobDefinition[];
+  error: string | null;
+};
+
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const MAX_PROMPT_BYTES = 100 * 1024; // 100 KB — avoids exceeding OS CLI arg limits
@@ -34,6 +40,39 @@ export async function readJobDefinition(directory: string, name: string): Promis
   const normalizedDirectory = path.resolve(directory);
   const raw = await readFile(filePath, "utf8");
   return parseJobDefinition(raw, { directory: normalizedDirectory, filePath, fallbackName: normalizeJobName(name) });
+}
+
+export async function scanJobDefinitions(directory: string): Promise<JobScanResult> {
+  const normalizedDirectory = path.resolve(directory);
+  const jobsDir = path.join(normalizedDirectory, ".dispatch", "jobs");
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(jobsDir, { withFileTypes: true });
+  } catch (error) {
+    if (isFileNotFound(error)) return { directory: normalizedDirectory, jobs: [], error: null };
+    return { directory: normalizedDirectory, jobs: [], error: error instanceof Error ? error.message : String(error) };
+  }
+
+  const jobs: JobDefinition[] = [];
+  const errors: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = path.join(jobsDir, entry.name);
+    try {
+      const raw = await readFile(filePath, "utf8");
+      jobs.push(parseJobDefinition(raw, {
+        directory: normalizedDirectory,
+        filePath,
+        fallbackName: entry.name.slice(0, -3),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${entry.name}: ${message}`);
+    }
+  }
+
+  jobs.sort((a, b) => a.name.localeCompare(b.name));
+  return { directory: normalizedDirectory, jobs, error: errors.length > 0 ? errors.join("; ") : null };
 }
 
 export function parseJobDefinition(raw: string, opts: {
@@ -228,4 +267,8 @@ function isValidCronSchedule(value: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "ENOENT";
 }

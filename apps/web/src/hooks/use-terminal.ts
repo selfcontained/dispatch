@@ -1,4 +1,4 @@
-import { type MutableRefObject, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MutableRefObject, type RefCallback, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
@@ -79,7 +79,7 @@ export function useTerminal(args: {
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
   statusMessage: string;
-  terminalHostRef: RefObject<HTMLDivElement>;
+  terminalHostRef: RefCallback<HTMLDivElement>;
   ctrlPendingRef: MutableRefObject<boolean>;
   focusTerminal: () => void;
   ensureTerminalConnected: (clearScreen?: boolean, userInitiated?: boolean, targetAgentId?: string) => Promise<void>;
@@ -110,7 +110,12 @@ export function useTerminal(args: {
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
 
-  const terminalHostRef = useRef<HTMLDivElement>(null);
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const [terminalHostElement, setTerminalHostElement] = useState<HTMLDivElement | null>(null);
+  const setTerminalHostRef = useCallback((node: HTMLDivElement | null) => {
+    terminalHostRef.current = node;
+    setTerminalHostElement(node);
+  }, []);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ctrlPendingRef = useRef(false);
@@ -540,7 +545,7 @@ export function useTerminal(args: {
 
   // xterm initialization.
   useEffect(() => {
-    const host = terminalHostRef.current;
+    const host = terminalHostElement;
     if (!host) return;
 
     const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
@@ -708,7 +713,7 @@ export function useTerminal(args: {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [authState, invalidateAttachAttempt, sendResize]);
+  }, [authState, invalidateAttachAttempt, sendResize, terminalHostElement]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {
@@ -827,12 +832,13 @@ export function useTerminal(args: {
     terminalMode,
     terminalPlaceholderMessage,
     statusMessage,
-    terminalHostRef: terminalHostRef as RefObject<HTMLDivElement>,
+    terminalHostRef: setTerminalHostRef,
     ctrlPendingRef,
     focusTerminal,
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    setTerminalHostRef,
   }), [
     connState,
     connectedAgentId,
@@ -843,5 +849,6 @@ export function useTerminal(args: {
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    setTerminalHostRef,
   ]);
 }

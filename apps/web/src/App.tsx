@@ -7,6 +7,7 @@ import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sideba
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
 import { DocsPane } from "@/components/app/docs-pane";
+import { JobsPane } from "@/components/app/jobs-pane";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
@@ -110,6 +111,7 @@ export function DashboardLayout(): JSX.Element {
   const docsSection = docsOpen ? pathSegments[1] : undefined;
   const activityOpen = pathSegments[0] === "activity";
   const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
+  const jobsOpen = pathSegments[0] === "jobs";
 
   const closeOverlay = useCallback(() => {
     navigate("/");
@@ -420,6 +422,11 @@ export function DashboardLayout(): JSX.Element {
     setSelectedAgentId(null);
   }, [detachTerminal]);
 
+  const handleAgentsWorkspaceUnmount = useCallback(() => {
+    detachAndClearSelection();
+    setFeedbackDetail(null);
+  }, [detachAndClearSelection, setFeedbackDetail]);
+
   const stopAgent = useCallback(
     async (agent: Agent) => {
       if (connectedAgentId === agent.id) {
@@ -512,12 +519,13 @@ export function DashboardLayout(): JSX.Element {
   const openSettings = useCallback(() => navigate("/settings"), [navigate]);
   const openDocs = useCallback(() => navigate("/docs"), [navigate]);
   const openActivity = useCallback(() => navigate("/activity"), [navigate]);
+  const openJobs = useCallback(() => navigate("/jobs"), [navigate]);
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        {!isMobile ? (
+        {!isMobile && !jobsOpen ? (
           <div className="shrink-0">
             <AgentSidebar
               leftOpen={leftOpen}
@@ -531,6 +539,7 @@ export function DashboardLayout(): JSX.Element {
               lastUsedAgentType={lastUsedAgentType}
               onOpenDocs={openDocs}
               onOpenActivity={openActivity}
+              onOpenJobs={openJobs}
               onOpenSettings={openSettings}
               setOverflowAgentId={setOverflowAgentId}
               setDeleteTarget={setDeleteTarget}
@@ -558,7 +567,9 @@ export function DashboardLayout(): JSX.Element {
           <div
             className={cn(
               "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
-              isMobile
+              jobsOpen
+                ? "grid-rows-[minmax(0,1fr)_auto]"
+                : isMobile
                 ? "grid-rows-[auto_1fr_auto_auto]"
                 : feedbackDetail
                   ? "grid-rows-[auto_1fr_1fr_auto]"
@@ -570,28 +581,49 @@ export function DashboardLayout(): JSX.Element {
               }
             }}
           >
-            <AppHeader
-              leftOpen={leftPanelOpen}
-              mediaOpen={mediaPanelOpen}
-              isMobile={isMobile}
-              showReconnectIndicator={connState === "reconnecting"}
-              hasActiveAgent={hasActiveAgent}
-              unseenMediaCount={unseenMediaCount}
-              setLeftOpen={handleSetLeftPanelOpen}
-              setMediaOpen={handleSetMediaPanelOpen}
-            />
+            {!jobsOpen ? (
+              <AppHeader
+                leftOpen={leftPanelOpen}
+                mediaOpen={mediaPanelOpen}
+                isMobile={isMobile}
+                showReconnectIndicator={connState === "reconnecting"}
+                hasActiveAgent={hasActiveAgent}
+                unseenMediaCount={unseenMediaCount}
+                setLeftOpen={handleSetLeftPanelOpen}
+                setMediaOpen={handleSetMediaPanelOpen}
+              />
+            ) : null}
 
-            <TerminalPane
-              isAttached={isAttached}
-              connState={connState}
-              statusMessage={statusMessage}
-              terminalMode={terminalMode}
-              terminalPlaceholderMessage={terminalPlaceholderMessage}
-              terminalHostRef={terminalHostRef}
-              archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
-            />
+            {jobsOpen ? (
+              <JobsPane
+                open={true}
+                onClose={closeOverlay}
+                agents={agents}
+                onOpenAgent={attachToAgent}
+                enabledAgentTypes={enabledAgentTypes}
+                footer={
+                  <StatusFooter
+                    apiState={apiState}
+                    dbState={dbState}
+                    serviceDotClass={serviceDotClass}
+                  />
+                }
+              />
+            ) : (
+              <AgentsWorkspace onUnmount={handleAgentsWorkspaceUnmount}>
+                <TerminalPane
+                  isAttached={isAttached}
+                  connState={connState}
+                  statusMessage={statusMessage}
+                  terminalMode={terminalMode}
+                  terminalPlaceholderMessage={terminalPlaceholderMessage}
+                  terminalHostRef={terminalHostRef}
+                  archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
+                />
+              </AgentsWorkspace>
+            )}
 
-            {!isMobile ? (
+            {!isMobile && !jobsOpen ? (
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
                 {feedbackDetailRendered ? (
                   "summaryAgentId" in feedbackDetailRendered ? (
@@ -621,16 +653,19 @@ export function DashboardLayout(): JSX.Element {
               </div>
             ) : null}
 
-            {isMobile ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
+            {isMobile && !jobsOpen ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
 
-            <StatusFooter
-              apiState={apiState}
-              dbState={dbState}
-              serviceDotClass={serviceDotClass}
-            />
+            {!jobsOpen ? (
+              <StatusFooter
+                apiState={apiState}
+                dbState={dbState}
+                serviceDotClass={serviceDotClass}
+              />
+            ) : null}
           </div>
         </main>
 
+        {!jobsOpen ? (
         <div className="hidden shrink-0 md:block">
           <MediaSidebar
             mediaOpen={mediaOpen && hasActiveAgent}
@@ -648,9 +683,10 @@ export function DashboardLayout(): JSX.Element {
             openLightbox={openLightbox}
           />
         </div>
+        ) : null}
       </div>
 
-      {isMobile ? (
+      {isMobile && !jobsOpen ? (
         <MobileSlidePanel
           open={mobileLeftOpen}
           side="left"
@@ -670,6 +706,7 @@ export function DashboardLayout(): JSX.Element {
             lastUsedAgentType={lastUsedAgentType}
             onOpenDocs={() => { setMobileLeftOpen(false); openDocs(); }}
             onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
+            onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
             onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
             setOverflowAgentId={setOverflowAgentId}
             setDeleteTarget={setDeleteTarget}
@@ -691,7 +728,7 @@ export function DashboardLayout(): JSX.Element {
         </MobileSlidePanel>
       ) : null}
 
-      {isMobile ? (
+      {isMobile && !jobsOpen ? (
         <MobileSlidePanel
           open={mobileMediaOpen}
           side="right"
@@ -801,4 +838,20 @@ export function DashboardLayout(): JSX.Element {
       </div>
     </div>
   );
+}
+
+function AgentsWorkspace({
+  children,
+  onUnmount,
+}: {
+  children: React.ReactNode;
+  onUnmount: () => void;
+}): JSX.Element {
+  useEffect(() => {
+    return () => {
+      onUnmount();
+    };
+  }, [onUnmount]);
+
+  return <>{children}</>;
 }

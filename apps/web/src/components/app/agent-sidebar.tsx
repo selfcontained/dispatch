@@ -1,8 +1,10 @@
 import {
   Activity,
   BookOpenText,
+  Bot,
   ChevronDown,
   ChevronLeft,
+  ListChecks,
   Settings,
   X
 } from "lucide-react";
@@ -30,6 +32,7 @@ type AgentSidebarSharedProps = {
   lastUsedAgentType: AgentType | null;
   onOpenDocs: () => void;
   onOpenActivity: () => void;
+  onOpenJobs: () => void;
   onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
@@ -71,6 +74,7 @@ export function AgentSidebarContent({
   lastUsedAgentType,
   onOpenDocs,
   onOpenActivity,
+  onOpenJobs,
   onOpenSettings,
   setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
@@ -203,14 +207,28 @@ export function AgentSidebarContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={onOpenDocs}
-                data-testid="docs-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                onClick={() => undefined}
+                aria-label="Agents"
+                data-testid="agents-button"
+                className="rounded-md bg-muted/50 p-2 text-foreground transition-colors hover:bg-muted/70"
               >
-                <BookOpenText className="h-5 w-5" />
+                <Bot className="h-5 w-5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Documentation</TooltipContent>
+            <TooltipContent>Agents</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onOpenJobs}
+                aria-label="Jobs"
+                data-testid="jobs-button"
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <ListChecks className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Jobs</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -223,6 +241,18 @@ export function AgentSidebarContent({
               </button>
             </TooltipTrigger>
             <TooltipContent>Activity</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onOpenDocs}
+                data-testid="docs-button"
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <BookOpenText className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Documentation</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
