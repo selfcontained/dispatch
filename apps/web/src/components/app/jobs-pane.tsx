@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { type AddJobConfig, type AvailableJobsDirectory, type Job, type JobRun, type JobRunStatus, useAvailableJobs, useJobActions, useJobHistory, useJobs } from "@/hooks/use-jobs";
+import { Bar, BarChart, XAxis } from "recharts";
+import { type AddJobConfig, type AvailableJobsDirectory, type Job, type JobRun, type JobRunStatus, useAvailableJobs, useJobActions, useJobHistory, useJobs, useJobStats } from "@/hooks/use-jobs";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
+import { StatCard } from "@/components/app/stat-card";
+import { formatRelativeTime } from "@/lib/format";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
@@ -136,11 +140,13 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
   const [availableJobsForceKey, setAvailableJobsForceKey] = useState(0);
   const [actionErrorByJobId, _setActionErrorByJobId] = useState<Record<string, string>>({});
   const [justAddedJobId, setJustAddedJobId] = useState<string | null>(null);
-  const selectedJob = jobs.find((job) => job.id === routeJobId) ?? null;
+  const showOverview = routeJobId === "overview";
+  const selectedJob = showOverview ? null : (jobs.find((job) => job.id === routeJobId) ?? null);
   const tab: DetailTab = routeSection === "prompt" || routeSection === "history" ? routeSection : "configure";
   const history = useJobHistory(selectedJob);
   const activeRunAgent = useActiveRun(selectedJob, agents);
   const availableJobs = useAvailableJobs(open, manualScanDirectory, availableJobsForceKey);
+  const jobStats = useJobStats(open && !selectedJob);
 
   const selectJob = (job: Job) => {
     setIsAddingJob(false);
@@ -154,7 +160,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
     setJustAddedJobId(null);
   };
 
-  const showDetailPane = !!selectedJob;
+  const showDetailPane = !!selectedJob || showOverview;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background text-foreground" aria-labelledby="jobs-page-title">
@@ -204,6 +210,13 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                   </div>
                 ) : (
                   <div>
+                    <button
+                      className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
+                      onClick={() => navigate("/jobs/overview")}
+                    >
+                      <Activity className="h-3.5 w-3.5" />
+                      <span>Overview</span>
+                    </button>
                     {jobs.map((job) => {
                       const actionError = actionErrorByJobId[job.id];
                           return (
@@ -298,12 +311,16 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                   />
                   </div>
                 ) : (
-                  <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-                    <div>
-                      <AlarmClock className="mx-auto mb-3 h-8 w-8" />
-                      <div className="font-medium text-foreground">Select a job</div>
-                      <div className="mt-1 max-w-sm text-sm">Use jobs for recurring maintenance, scheduled checks, and repeatable agent workflows that should run without manual prompting.</div>
-                    </div>
+                  <div className="flex h-full min-h-0 flex-col">
+                    {showOverview && (
+                      <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                        <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
+                          <ArrowLeft className="h-4 w-4" />
+                        </Button>
+                        <div className="text-sm font-semibold">Overview</div>
+                      </div>
+                    )}
+                    <JobsOverview jobs={jobs} stats={jobStats.data ?? null} statsLoading={jobStats.isLoading} onSelectJob={selectJob} />
                   </div>
                 )}
               </div>
@@ -343,6 +360,234 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
         />
       </AddJobDialog>
     </section>
+  );
+}
+
+function formatTimeUntil(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (Number.isNaN(ms) || ms < 0) return "now";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "< 1m";
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hours < 24) return remMins > 0 ? `in ${hours}h ${remMins}m` : `in ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `in ${days}d`;
+}
+
+function formatTimeUntilDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow = date.toDateString() === tomorrow.toDateString();
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (isToday) return `Today at ${time}`;
+  if (isTomorrow) return `Tomorrow at ${time}`;
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function JobsOverview({ jobs, stats, statsLoading, onSelectJob }: {
+  jobs: Job[];
+  stats: import("@/hooks/use-jobs").JobStats | null;
+  statsLoading: boolean;
+  onSelectJob: (job: Job) => void;
+}) {
+  const upcomingJobs = useMemo(() => {
+    return jobs
+      .filter((j) => j.nextRun)
+      .sort((a, b) => new Date(a.nextRun!).getTime() - new Date(b.nextRun!).getTime())
+      .slice(0, 5);
+  }, [jobs]);
+
+  const recentRuns = stats?.recentRuns ?? [];
+  const metrics = stats?.stats ?? null;
+  const hasAnyData = jobs.length > 0;
+
+  const successRate = metrics && metrics.totalRuns > 0
+    ? Math.round((metrics.successCount / metrics.totalRuns) * 100)
+    : null;
+
+  const dailyChartData = useMemo(() => {
+    if (!metrics?.daily?.length) return [];
+    const byDay = new Map(metrics.daily.map((d) => [d.day, d]));
+    const days: Array<{ day: string; label: string; completed: number; failed: number }> = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const entry = byDay.get(key);
+      days.push({
+        day: key,
+        label: d.toLocaleDateString(undefined, { weekday: "short" }),
+        completed: entry?.completed ?? 0,
+        failed: entry?.failed ?? 0,
+      });
+    }
+    return days;
+  }, [metrics?.daily]);
+
+  if (!hasAnyData) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+        <div>
+          <AlarmClock className="mx-auto mb-3 h-8 w-8" />
+          <div className="font-medium text-foreground">No jobs yet</div>
+          <div className="mt-1 max-w-sm text-sm">Use jobs for recurring maintenance, scheduled checks, and repeatable agent workflows that should run without manual prompting.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="mx-auto max-w-2xl space-y-6 p-6">
+        {/* Loading */}
+        {statsLoading && !metrics && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {/* Stats + Chart row */}
+        {metrics && metrics.totalRuns > 0 && (
+          <div className="grid gap-4 sm:grid-cols-[1fr_1.5fr]">
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard label="Total Runs" value={metrics.totalRuns} sub="Last 7 days" />
+              <StatCard
+                label="Success Rate"
+                value={successRate !== null ? `${successRate}%` : "-"}
+                sub="Last 7 days"
+                variant={successRate !== null && successRate < 80 ? "warning" : undefined}
+              />
+              <StatCard
+                label="Avg Duration"
+                value={metrics.avgDurationMs ? formatDuration(metrics.avgDurationMs) : "-"}
+                sub="Last 7 days"
+              />
+              <StatCard
+                label="Failures"
+                value={metrics.failureCount}
+                sub="Last 7 days"
+                variant={metrics.failureCount > 0 ? "warning" : undefined}
+              />
+            </div>
+            {dailyChartData.length > 0 && (
+              <div className="rounded-md border border-border bg-muted/40 p-3">
+                <DailyRunsChart data={dailyChartData} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Upcoming */}
+        {upcomingJobs.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" />
+              Upcoming
+            </div>
+            <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
+              {upcomingJobs.map((job) => (
+                <button
+                  key={job.id}
+                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                  onClick={() => onSelectJob(job)}
+                >
+                  <span className="font-medium text-foreground">{job.name}</span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{formatTimeUntil(job.nextRun!)}</span>
+                    <span className="hidden text-muted-foreground/60 sm:inline">{formatTimeUntilDate(job.nextRun!)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Activity */}
+        {recentRuns.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <Activity className="h-3.5 w-3.5" />
+              Recent Activity
+            </div>
+            <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
+              {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).map((run) => {
+                const job = jobs.find((j) => j.id === run.jobId)!;
+                return (
+                  <button
+                    key={run.id}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                    onClick={() => onSelectJob(job)}
+                  >
+                    <Badge className={cn("shrink-0 gap-1 text-[11px]", statusClasses(run.status))}>
+                      {statusIcon(run.status)}
+                      {run.status}
+                    </Badge>
+                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{run.jobName}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(run.durationMs)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground/60">{formatRelativeTime(run.startedAt)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Empty metrics state — jobs exist but no runs yet */}
+        {metrics && metrics.totalRuns === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+            <AlarmClock className="mb-3 h-8 w-8" />
+            <div className="font-medium text-foreground">Select a job</div>
+            <div className="mt-1 max-w-sm text-sm">
+              {upcomingJobs.length > 0
+                ? "Your scheduled jobs are set up. Run history and metrics will appear here after the first run."
+                : "Run a job to start tracking activity and metrics here."}
+            </div>
+          </div>
+        )}
+      </div>
+    </ScrollArea>
+  );
+}
+
+const dailyRunsChartConfig = {
+  completed: { label: "Completed", color: "hsl(var(--chart-1))" },
+  failed: { label: "Failed", color: "hsl(var(--status-blocked))" },
+} satisfies ChartConfig;
+
+function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; completed: number; failed: number }> }) {
+  return (
+    <ChartContainer config={dailyRunsChartConfig} className="aspect-[2/1] w-full">
+      <BarChart data={data} barCategoryGap="20%">
+        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={6} tick={{ fontSize: 11 }} />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              indicator="dot"
+              formatter={(value, name, item) => (
+                <>
+                  <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: item.color }} />
+                  <div className="flex flex-1 items-center justify-between gap-4">
+                    <span className="text-muted-foreground">{dailyRunsChartConfig[name as keyof typeof dailyRunsChartConfig]?.label ?? name}</span>
+                    <span className="font-mono font-medium tabular-nums text-foreground">{value as number}</span>
+                  </div>
+                </>
+              )}
+              labelFormatter={(label) => label as string}
+            />
+          }
+        />
+        <ChartLegend content={<ChartLegendContent className="gap-2" />} />
+        <Bar dataKey="completed" stackId="runs" fill="var(--color-completed)" radius={0} />
+        <Bar dataKey="failed" stackId="runs" fill="var(--color-failed)" radius={[2, 2, 0, 0]} />
+      </BarChart>
+    </ChartContainer>
   );
 }
 

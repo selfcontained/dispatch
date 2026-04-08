@@ -337,6 +337,17 @@ export class JobService {
     return { job, runs };
   }
 
+  async getStats(): Promise<{
+    stats: { totalRuns: number; successCount: number; failureCount: number; avgDurationMs: number | null; daily: Array<{ day: string; completed: number; failed: number }> };
+    recentRuns: Array<{ id: string; jobId: string; status: string; startedAt: string; durationMs: number | null; jobName: string }>;
+  }> {
+    const [stats, recentRuns] = await Promise.all([
+      this.store.getRunStats(7),
+      this.store.listRecentRuns(5),
+    ]);
+    return { stats, recentRuns };
+  }
+
   async listAvailableJobs(input: { directory?: string; force?: boolean } = {}): Promise<{ directories: AvailableJobsDirectory[] }> {
     const configuredJobs = await this.store.listJobs();
     const configuredByFilePath = new Map(configuredJobs.map((job) => [job.filePath, job]));
