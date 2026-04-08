@@ -1,5 +1,5 @@
 ## What's Changed
-* Standardize jobs icon to AlarmClock with accent selected state by @selfcontained in https://github.com/selfcontained/dispatch/pull/256
+* Add janitor job, scoped repo tools, and dev session prefix by @selfcontained in https://github.com/selfcontained/dispatch/pull/257
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.0...v0.11.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.1...v0.11.2
