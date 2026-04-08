@@ -879,14 +879,20 @@ const ChangePasswordBodySchema = z.object({
   currentPassword: z.string().min(1, "Current password is required."),
   newPassword: z.string().min(8, "New password must be at least 8 characters."),
 });
+function resolveTilde(raw: string): string {
+  if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
+  if (raw === "~") return os.homedir();
+  return raw;
+}
+const directoryField = z.string().min(1, "Job directory is required.").transform(resolveTilde);
 const RunJobBodySchema = z.object({
   name: z.string().min(1, "Job name is required."),
-  directory: z.string().min(1, "Job directory is required."),
+  directory: directoryField,
   wait: z.boolean().optional(),
 });
 const JobEnableDisableBodySchema = z.object({
   name: z.string().min(1, "Job name is required."),
-  directory: z.string().min(1, "Job directory is required."),
+  directory: directoryField,
 });
 const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   displayName: z.string().optional(),
@@ -902,11 +908,11 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
 });
 const JobHistoryParamsSchema = z.object({
   name: z.string().min(1, "Job name is required."),
-  directory: z.string().min(1, "Job directory is required."),
+  directory: directoryField,
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 const AvailableJobsQuerySchema = z.object({
-  directory: z.string().min(1).optional(),
+  directory: z.string().min(1).transform(resolveTilde).optional(),
   force: z.coerce.boolean().optional(),
 });
 
