@@ -89,6 +89,7 @@ export function loadConfig(): AppConfig {
 
   validateConfig(config);
   assertSafeDatabaseConfig(config);
+  assertSafePortConfig(config);
   return config;
 }
 
@@ -148,5 +149,20 @@ export function assertSafeDatabaseConfig(
       throw error;
     }
     // URL parsing failed — let the database client report the connection error.
+  }
+}
+
+export function assertSafePortConfig(
+  config: Pick<AppConfig, "port">,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
+  if (!isAgentContext) return;
+
+  if (config.port === 6767) {
+    throw new Error(
+      "Refusing to bind to production port 6767 from an agent context. " +
+        "Start local servers with dispatch-dev so DISPATCH_PORT points at an isolated port."
+    );
   }
 }
