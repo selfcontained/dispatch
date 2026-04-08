@@ -6,6 +6,7 @@ export function Checkbox({
   onCheckedChange,
   className,
   title,
+  "aria-label": ariaLabel,
   "data-testid": dataTestId,
   disabled,
 }: {
@@ -13,6 +14,7 @@ export function Checkbox({
   onCheckedChange: (checked: boolean) => void;
   className?: string;
   title?: string;
+  "aria-label"?: string;
   "data-testid"?: string;
   disabled?: boolean;
 }) {
@@ -22,15 +24,16 @@ export function Checkbox({
       role="checkbox"
       tabIndex={0}
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
-        onCheckedChange(!checked);
+        if (!disabled) onCheckedChange(!checked);
       }}
       onKeyDown={(e) => {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          onCheckedChange(!checked);
+          if (!disabled) onCheckedChange(!checked);
         }
       }}
       className={cn(

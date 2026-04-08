@@ -175,6 +175,7 @@ export function NotificationSettings(): JSX.Element {
               <Checkbox
                 checked={notifyEvents.includes(id)}
                 onCheckedChange={() => toggleEvent(id)}
+                aria-label={label}
                 data-testid={`notify-event-${id}`}
               />
               <div className="min-w-0">
