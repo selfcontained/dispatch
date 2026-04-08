@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, Check, CheckCircle2, ChevronDown, Clock, GitBranch, History, ListChecks, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, Check, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, RefreshCw, Search, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -372,8 +372,8 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenJobs} aria-label="Jobs" data-testid="jobs-button" className="rounded-md bg-muted/50 p-2 text-foreground transition-colors hover:bg-muted/70">
-              <ListChecks className="h-5 w-5" />
+            <button onClick={onOpenJobs} aria-label="Jobs" data-testid="jobs-button" className="rounded-md p-2 text-primary transition-colors hover:text-primary/80">
+              <AlarmClock className="h-5 w-5" />
             </button>
           </TooltipTrigger>
           <TooltipContent>Jobs</TooltipContent>

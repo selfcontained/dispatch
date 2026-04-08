@@ -4,7 +4,7 @@ import {
   Bot,
   ChevronDown,
   ChevronLeft,
-  ListChecks,
+  AlarmClock,
   Settings,
   X
 } from "lucide-react";
@@ -210,7 +210,7 @@ export function AgentSidebarContent({
                 onClick={() => undefined}
                 aria-label="Agents"
                 data-testid="agents-button"
-                className="rounded-md bg-muted/50 p-2 text-foreground transition-colors hover:bg-muted/70"
+                className="rounded-md p-2 text-primary transition-colors hover:text-primary/80"
               >
                 <Bot className="h-5 w-5" />
               </button>
@@ -225,7 +225,7 @@ export function AgentSidebarContent({
                 data-testid="jobs-button"
                 className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
               >
-                <ListChecks className="h-5 w-5" />
+                <AlarmClock className="h-5 w-5" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Jobs</TooltipContent>
