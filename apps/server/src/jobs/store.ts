@@ -99,28 +99,35 @@ export class JobStore {
     enabled: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
-    const result = await this.pool.query(
-      `
-      INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, branch_name, enabled)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING ${this.jobColumns()}
-      `,
-      [
-        id,
-        path.resolve(input.directory),
-        input.name,
-        input.schedule,
-        input.timeoutMs,
-        input.needsInputTimeoutMs,
-        input.prompt,
-        input.fullAccess,
-        input.agentType,
-        input.useWorktree,
-        input.branchName,
-        input.enabled,
-      ]
-    );
-    return mapJob(result.rows[0]);
+    try {
+      const result = await this.pool.query(
+        `
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, branch_name, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING ${this.jobColumns()}
+        `,
+        [
+          id,
+          path.resolve(input.directory),
+          input.name,
+          input.schedule,
+          input.timeoutMs,
+          input.needsInputTimeoutMs,
+          input.prompt,
+          input.fullAccess,
+          input.agentType,
+          input.useWorktree,
+          input.branchName,
+          input.enabled,
+        ]
+      );
+      return mapJob(result.rows[0]);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new Error(`A job named "${input.name}" already exists in directory "${input.directory}".`);
+      }
+      throw error;
+    }
   }
 
   async findActiveRun(jobId: string): Promise<JobRunRecord | null> {
@@ -440,7 +447,7 @@ export class JobStore {
 
   async getJobByDirectoryAndName(directory: string, name: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2 LIMIT 1`,
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
       [path.resolve(directory), name]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;

@@ -172,11 +172,6 @@ export class JobService {
 
   async addJob(input: AddJobInput): Promise<JobRecord> {
     const displayName = input.displayName?.trim() || input.name;
-    const existing = await this.store.getJobByDirectoryAndName(input.directory, displayName);
-    if (existing) {
-      throw new Error(`Job "${displayName}" already exists in directory "${input.directory}".`);
-    }
-
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
     if (schedule && !validateCronExpression(schedule)) {
       throw new Error(`Job "${displayName}" has an invalid cron expression: "${schedule}"`);
@@ -221,7 +216,13 @@ export class JobService {
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
     const displayName = normalizeOptionalString(input.displayName);
     const branchName = normalizeNullableString(input.branchName);
-    if (displayName !== undefined) config.name = displayName;
+    if (displayName !== undefined && displayName !== existing.name) {
+      const conflict = await this.store.getJobByDirectoryAndName(input.directory, displayName);
+      if (conflict) {
+        throw new Error(`A job named "${displayName}" already exists in directory "${input.directory}".`);
+      }
+      config.name = displayName;
+    }
     if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
