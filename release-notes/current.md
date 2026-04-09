@@ -1,6 +1,5 @@
 ## What's Changed
-* docs: audit and update all documentation against codebase by @selfcontained in https://github.com/selfcontained/dispatch/pull/274
-* Remove file-based job system, make jobs fully DB-backed by @selfcontained in https://github.com/selfcontained/dispatch/pull/275
+* Harden server reliability: error handlers, migration locking, test coverage by @selfcontained in https://github.com/selfcontained/dispatch/pull/276
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.13...v0.11.14
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.14...v0.11.15
