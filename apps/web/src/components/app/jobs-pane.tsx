@@ -697,11 +697,11 @@ function CreateJobDialog({
                 <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
                   <div className="grid min-w-0 gap-3 md:grid-cols-2">
                     <div className="min-w-0 space-y-1 md:col-span-2">
-                      <label className="text-sm text-muted-foreground" htmlFor="create-job-name">Name</label>
+                      <label className="text-sm text-muted-foreground" htmlFor="create-job-name">Name <span className="text-status-blocked">*</span></label>
                       <Input id="create-job-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Daily cleanup" data-testid="create-job-name" />
                     </div>
                     <div className="min-w-0 space-y-1 md:col-span-2">
-                      <label className="text-sm text-muted-foreground" htmlFor="create-job-directory">Working directory</label>
+                      <label className="text-sm text-muted-foreground" htmlFor="create-job-directory">Working directory <span className="text-status-blocked">*</span></label>
                       <PathInput
                         value={directory}
                         onChange={setDirectory}
@@ -742,7 +742,7 @@ function CreateJobDialog({
 
                 <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-foreground" htmlFor="create-job-prompt">Prompt</label>
+                    <label className="text-sm font-medium text-foreground" htmlFor="create-job-prompt">Prompt <span className="text-status-blocked">*</span></label>
                     <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
                   </div>
                   <textarea
@@ -1215,7 +1215,6 @@ function SettingsTab({
                 useWorktree,
                 branchName: useWorktree ? branchName : null,
                 fullAccess,
-                additionalInstructions: job.additionalInstructions ?? "",
                 enabled,
               }).then(() => {
                 setSaved(true);
@@ -1354,7 +1353,7 @@ function PromptTab({
         <div className="mt-4 flex justify-end">
           <Button
             variant="primary"
-            disabled={isUpdating}
+            disabled={isUpdating || !prompt.trim()}
             onClick={() => {
               setSaveError(null);
               setSaved(false);
