@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "stop": {
+      "command": ["./bin/dispatch-dev", "down"],
+      "description": "Tear down the agent's isolated dev environment on stop."
+    }
+  },
+  "tools": [
+    {
+      "name": "dev_up",
+      "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports).",
+      "command": ["./bin/dispatch-dev", "up"],
+      "params": [
+        { "name": "cwd", "type": "string", "flag": "--cwd", "description": "Working directory override (e.g. a worktree path)." },
+        { "name": "live", "type": "boolean", "flag": "--live", "description": "Enable live agent runtime (tmux) instead of inert mode." }
+      ]
+    },
+    {
+      "name": "dev_restart",
+      "description": "Restart the repo's dev environment, picking up code changes (reuses ports and DB).",
+      "command": ["./bin/dispatch-dev", "restart"],
+      "params": [
+        { "name": "cwd", "type": "string", "flag": "--cwd", "description": "Working directory override (e.g. a worktree path)." },
+        { "name": "live", "type": "boolean", "flag": "--live", "description": "Enable live agent runtime (tmux) instead of inert mode." }
+      ]
+    },
+    {
+      "name": "dev_down",
+      "description": "Stop a dev environment and remove its database container. Without a suffix, stops the current agent's dev environment.",
+      "command": ["./bin/dispatch-dev", "down"],
+      "params": [
+        { "name": "suffix", "type": "string", "flag": "--suffix", "description": "Target a specific dev environment by its suffix (e.g. agt_abc123def456)." }
+      ]
+    },
+    {
+      "name": "dev_status",
+      "description": "Show which dev services are running and their ports.",
+      "command": ["./bin/dispatch-dev", "status"]
+    },
+    {
+      "name": "dev_logs",
+      "description": "Show recent API server logs from the dev environment.",
+      "command": ["./bin/dispatch-dev", "logs"]
+    },
+    {
+      "name": "list_dev_containers",
+      "description": "List all running dispatch-dev Postgres containers. Returns one container name per line.",
+      "command": ["docker", "ps", "--filter", "name=dispatch-postgres-", "--format", "{{.Names}}"],
+      "scope": ["job"]
+    },
+    {
+      "name": "list_dispatch_sessions",
+      "description": "List tmux sessions belonging to this Dispatch server. Returns one session name per line. Uses DISPATCH_SESSION_PREFIX to filter (defaults to 'dispatch').",
+      "command": ["bash", "-c", "PREFIX=${DISPATCH_SESSION_PREFIX:-dispatch}; tmux list-sessions -F '#{session_name}' 2>/dev/null | grep \"^${PREFIX}_agt_\" || true"],
+      "scope": ["job"]
+    },
+    {
+      "name": "list_candidate_databases",
+      "description": "List all dispatch_* databases on local Postgres (port 5432). Returns one database name per line.",
+      "command": ["bash", "-c", "PGPASSWORD=dispatch psql -h 127.0.0.1 -p 5432 -U dispatch -d postgres -t -A -c \"SELECT datname FROM pg_database WHERE datname LIKE 'dispatch_%'\" 2>/dev/null || true"],
+      "scope": ["job"]
+    }
+  ]
+}

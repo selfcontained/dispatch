@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: dispatch-event <working|blocked|waiting_user|done|idle> "<message>" [metadata-json]
+
+Examples:
+  dispatch-event working "Implementing retry logic"
+  dispatch-event blocked "Need API key" '{"ticket":"OPS-123"}'
+USAGE
+}
+
+if [ "${1:-}" = "" ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+
+EVENT_TYPE="${1:-}"
+MESSAGE="${2:-}"
+METADATA_RAW="${3:-}"
+
+case "$EVENT_TYPE" in
+  working|blocked|waiting_user|done|idle) ;;
+  *)
+    echo "Invalid event type: $EVENT_TYPE" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+if [ -z "$MESSAGE" ]; then
+  echo "Message is required." >&2
+  usage
+  exit 1
+fi
+
+AGENT_ID="${DISPATCH_AGENT_ID:-}"
+if [ -z "$AGENT_ID" ]; then
+  echo "DISPATCH_AGENT_ID is not set. Run this command inside a Dispatch agent session." >&2
+  exit 1
+fi
+
+PORT="${DISPATCH_PORT:-6767}"
+API_BASE="${DISPATCH_API_BASE:-${DISPATCH_SCHEME:-http}://127.0.0.1:${PORT}}"
+
+if [ -n "$METADATA_RAW" ]; then
+  node -e 'JSON.parse(process.argv[1])' "$METADATA_RAW" >/dev/null
+fi
+
+PAYLOAD="$(node -e '
+  const [eventType, message, metadataRaw] = process.argv.slice(1);
+  const payload = { type: eventType, message };
+  if (metadataRaw) {
+    payload.metadata = JSON.parse(metadataRaw);
+  }
+  process.stdout.write(JSON.stringify(payload));
+' "$EVENT_TYPE" "$MESSAGE" "$METADATA_RAW")"
+
+curl -fsS -k \
+  -X POST \
+  -H "content-type: application/json" \
+  --data "$PAYLOAD" \
+  "${API_BASE}/api/v1/agents/${AGENT_ID}/latest-event" >/dev/null
+
+echo "Updated ${AGENT_ID}: ${EVENT_TYPE} - ${MESSAGE}"

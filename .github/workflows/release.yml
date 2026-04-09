@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: self-hosted
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          CONTAINER="dispatch-ci-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          # Pick a random port in 10000-20000 range
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          # Wait for Postgres to be ready
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run check
+
+      - name: Lint
+        run: pnpm run lint:web
+
+      - name: Test
+        run: pnpm run test
+        env:
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and tag
+        id: version
+        run: |
+          mkdir -p release-notes
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
+          NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
+          # Bump all workspace packages to keep versions in sync
+          pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
+          if [ -n "$PREV_TAG" ]; then
+            gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -X POST \
+              -f tag_name="$NEW_VERSION" \
+              -f target_commitish="main" \
+              -f previous_tag_name="$PREV_TAG" \
+              --jq '.body' > release-notes/current.md
+          else
+            gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -X POST \
+              -f tag_name="$NEW_VERSION" \
+              -f target_commitish="main" \
+              --jq '.body' > release-notes/current.md
+          fi
+          git add package.json apps/*/package.json packages/*/package.json pnpm-lock.yaml release-notes/current.md
+          git commit -m "Release ${NEW_VERSION}"
+          # Pull in any commits that landed on main during the CI run
+          git pull --rebase origin main
+          git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
+          # Push branch first, then tag separately — if the branch push
+          # fails we don't leave an orphan tag on the remote.
+          git push origin main
+          git push origin "${NEW_VERSION}"
+          echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack release artifact
+        run: bin/pack-release --output dispatch-release.tar.gz
+
+      - name: Create GitHub release
+        run: |
+          gh release create ${{ steps.version.outputs.tag }} \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file release-notes/current.md \
+            dispatch-release.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}

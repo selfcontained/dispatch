@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_PORT="6767"
+SERVICE_LABEL="com.dispatch.server"
+SERVICE_TARGET="gui/$(id -u)"
+PLIST="$HOME/Library/LaunchAgents/${SERVICE_LABEL}.plist"
+LOG_FILE="$HOME/.dispatch/logs/dispatch.log"
+
+usage() {
+  cat <<USAGE
+Usage: bin/dispatch-server <command>
+
+Commands:
+  start     Load and start the launchd service
+  stop      Unload the launchd service
+  restart   Kill and restart the launchd service
+  status    Show launchd service state and health check
+  logs [-f] Show recent log output (use -f to follow)
+  build     Run a fresh production build
+  update    Fresh build + restart + health check
+USAGE
+}
+
+load_nvm() {
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+  else
+    echo "nvm not found at $NVM_DIR/nvm.sh" >&2
+    exit 1
+  fi
+}
+
+resolve_port() {
+  local env_file="$ROOT_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    local env_port
+    env_port=$(grep -E '^DISPATCH_PORT=' "$env_file" | tail -1 | cut -d= -f2)
+    if [[ -n "$env_port" ]]; then
+      echo "$env_port"
+      return
+    fi
+  fi
+  echo "$DEFAULT_PORT"
+}
+
+health_check() {
+  local port
+  port=$(resolve_port)
+  # Try HTTPS first (TLS-enabled), fall back to HTTP
+  curl -fsS -k -m 3 "https://127.0.0.1:${port}/api/v1/health" 2>/dev/null \
+    || curl -fsS -m 3 "http://127.0.0.1:${port}/api/v1/health"
+}
+
+wait_for_health() {
+  local attempts="${1:-10}"
+  local delay="${2:-1}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if health_check >/tmp/dispatch-health.json 2>/dev/null; then
+      return 0
+    fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+is_loaded() {
+  launchctl print "${SERVICE_TARGET}/${SERVICE_LABEL}" &>/dev/null
+}
+
+cmd_start() {
+  if ! [[ -f "$PLIST" ]]; then
+    echo "error: plist not found at $PLIST" >&2
+    exit 1
+  fi
+
+  if is_loaded; then
+    echo "service already loaded, kickstarting..."
+    launchctl kickstart "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  else
+    launchctl bootstrap "$SERVICE_TARGET" "$PLIST"
+    echo "service loaded"
+  fi
+
+  if wait_for_health 15 1; then
+    cmd_status
+  else
+    echo "warning: service started but health check is still down" >&2
+    tail -n 40 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+}
+
+cmd_stop() {
+  if ! is_loaded; then
+    echo "service is not loaded"
+    return
+  fi
+  # bootout fully unloads the service so KeepAlive doesn't restart it
+  launchctl bootout "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  echo "service unloaded"
+}
+
+cmd_restart() {
+  if ! is_loaded; then
+    echo "service is not loaded, starting..."
+    cmd_start
+    return
+  fi
+  launchctl kickstart -k "${SERVICE_TARGET}/${SERVICE_LABEL}"
+  echo "restarting $SERVICE_LABEL"
+  if wait_for_health 15 1; then
+    cmd_status
+  else
+    echo "warning: service restarted but health check is still down" >&2
+    tail -n 40 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+}
+
+cmd_status() {
+  if is_loaded; then
+    echo "launchd: loaded ($SERVICE_LABEL)"
+    launchctl list "$SERVICE_LABEL" 2>/dev/null || true
+  else
+    echo "launchd: not loaded ($SERVICE_LABEL)"
+  fi
+
+  if health_check >/tmp/dispatch-health.json 2>/dev/null; then
+    echo "health: up"
+    cat /tmp/dispatch-health.json
+    echo
+  else
+    echo "health: down"
+  fi
+}
+
+cmd_logs() {
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "log file not found: $LOG_FILE" >&2
+    exit 1
+  fi
+  if [[ "${1:-}" == "-f" || "${1:-}" == "--follow" ]]; then
+    tail -n 200 -f "$LOG_FILE"
+  else
+    tail -n 200 "$LOG_FILE"
+  fi
+}
+
+cmd_build() {
+  load_nvm
+  cd "$ROOT_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+  pnpm run build
+}
+
+cmd_update() {
+  cmd_build
+  cmd_restart
+  if wait_for_health 15 1; then
+    echo "update complete: health check passed"
+    cat /tmp/dispatch-health.json
+    echo
+  else
+    echo "update complete: health check failed" >&2
+    exit 1
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    start) cmd_start ;;
+    stop) cmd_stop ;;
+    restart) cmd_restart ;;
+    status) cmd_status ;;
+    logs) shift; cmd_logs "$@" ;;
+    build) cmd_build ;;
+    update) cmd_update ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "$@"

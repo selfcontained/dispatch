@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVER_DIR="${DISPATCH_SERVER_DIR:-$HOME/.dispatch/server}"
+REPO="${DISPATCH_REPO:-selfcontained/dispatch}"
+
+# shellcheck source=lib/deploy-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-common.sh"
+PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+LOG_DIR="$HOME/.dispatch/logs"
+LOG_FILE="$LOG_DIR/dispatch.log"
+WRAPPER="$SERVER_DIR/bin/dispatch-launchd-wrapper"
+PORT=""
+
+usage() {
+  cat <<USAGE
+Usage: bin/install-launchd [--port <port>]
+
+Installs Dispatch as a launchd service. Clones the repo to $SERVER_DIR,
+does an initial build, and loads the service.
+
+Options:
+  --port <port>   Port to listen on (default: 6767)
+
+Examples:
+  bin/install-launchd
+  bin/install-launchd --port 6767
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) PORT="$2"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+PORT="${PORT:-6767}"
+if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+  echo "error: --port must be numeric" >&2
+  exit 1
+fi
+
+if [[ -f "$PLIST" ]]; then
+  echo "launchd service already installed at $PLIST"
+  echo "run bin/uninstall-launchd first to reinstall"
+  exit 1
+fi
+
+# Clone repo to server directory if not already present
+if [[ ! -d "$SERVER_DIR/.git" ]]; then
+  REMOTE_URL=$(git -C "$ROOT_DIR" remote get-url origin)
+  echo "==> cloning $REMOTE_URL to $SERVER_DIR"
+  git clone "$REMOTE_URL" "$SERVER_DIR"
+else
+  echo "==> server directory already exists at $SERVER_DIR"
+fi
+
+# Set up .env for the server directory
+SERVER_ENV="$SERVER_DIR/.env"
+if [[ ! -f "$SERVER_ENV" ]]; then
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    echo "==> copying .env from main repo"
+    cp "$ROOT_DIR/.env" "$SERVER_ENV"
+  elif [[ -f "$ROOT_DIR/.env.example" ]]; then
+    echo "==> copying .env.example as starting point — edit $SERVER_ENV before using"
+    cp "$ROOT_DIR/.env.example" "$SERVER_ENV"
+  else
+    echo "==> creating minimal .env"
+    touch "$SERVER_ENV"
+  fi
+fi
+
+# Always write DISPATCH_PORT to server .env (required by the server)
+if grep -q '^DISPATCH_PORT=' "$SERVER_ENV"; then
+  sed -i '' "s/^DISPATCH_PORT=.*/DISPATCH_PORT=$PORT/" "$SERVER_ENV"
+else
+  echo "DISPATCH_PORT=$PORT" >> "$SERVER_ENV"
+fi
+echo "==> set DISPATCH_PORT=$PORT in $SERVER_ENV"
+
+# Check out the latest release tag so the install runs a known-good version
+# and the server can detect future updates via release.json.
+INSTALL_TAG=$(git -C "$SERVER_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)
+if [[ -z "$INSTALL_TAG" ]]; then
+  INSTALL_TAG=$(git -C "$SERVER_DIR" tag --sort=-version:refname | grep '^v' | head -1 || true)
+  if [[ -n "$INSTALL_TAG" ]]; then
+    echo "==> checking out latest release tag ($INSTALL_TAG)"
+    git -C "$SERVER_DIR" checkout "$INSTALL_TAG"
+  fi
+fi
+
+# Initial build — prefer pre-built release artifact if available.
+# If no tag exists (fresh clone without releases), just install and build
+# from whatever commit is checked out.
+if [[ -n "$INSTALL_TAG" ]] && deploy_from_artifact "$INSTALL_TAG"; then
+  echo "==> deployed from pre-built artifact"
+elif [[ -n "$INSTALL_TAG" ]]; then
+  build_from_source "$INSTALL_TAG"
+else
+  echo "==> no release tag found, building from HEAD"
+  load_nvm
+  cd "$SERVER_DIR"
+  nvm use >/dev/null
+  pnpm install --frozen-lockfile
+  pnpm run build
+fi
+
+# Seed release.json so the server knows what version it's running.
+# Without this, a fresh install has no baseline for update detection.
+if [[ -n "$INSTALL_TAG" ]]; then
+  echo "==> seeding release record ($INSTALL_TAG)"
+  RELEASE_FILE="$HOME/.dispatch/release.json"
+  mkdir -p "$(dirname "$RELEASE_FILE")"
+  printf '{\n  "tag": "%s",\n  "deployedAt": "%s"\n}\n' \
+    "$INSTALL_TAG" \
+    "$(date -u '+%Y-%m-%dT%H:%M:%S.000Z')" \
+    > "$RELEASE_FILE.tmp" && mv "$RELEASE_FILE.tmp" "$RELEASE_FILE"
+fi
+
+mkdir -p "$LOG_DIR"
+
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dispatch.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${WRAPPER}</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>${LOG_FILE}</string>
+
+    <key>StandardErrorPath</key>
+    <string>${LOG_FILE}</string>
+</dict>
+</plist>
+PLIST
+
+launchctl load "$PLIST"
+
+echo ""
+echo "installed and started Dispatch as a launchd service"
+echo "server directory: $SERVER_DIR"
+echo "port:             $PORT"
+echo "logs:             tail -f $LOG_FILE"
+echo ""
+echo "useful commands:"
+echo "  deploy:     bin/dispatch-deploy <tag>"
+echo "  status:     launchctl list com.dispatch.server"
+echo "  stop:       launchctl unload $PLIST"
+echo "  start:      launchctl load $PLIST"
+echo "  uninstall:  bin/uninstall-launchd"

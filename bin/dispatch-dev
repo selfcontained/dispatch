@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# dispatch-dev — standalone dev-stack helper.
+#
+# Starts an isolated Postgres DB, API server, and Vite frontend on
+# auto-selected free ports. State is persisted to /tmp so that down/status/
+# logs/url can find the running stack later.
+#
+# No tmux or agent-session dependency — just background processes + PID files.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Preflight — fail fast if required tools are missing.
+if ! command -v node &>/dev/null; then
+  echo "Error: node is not available. Install Node.js first." >&2
+  exit 1
+fi
+
+usage() {
+  cat <<'USAGE'
+Usage: dispatch-dev <command> [options]
+
+Start an isolated dev environment with its own DB, API server, and
+Vite frontend — all on auto-selected free ports.
+
+Commands:
+  up        Start DB + API server + Vite frontend
+  down      Stop all dev services and remove the DB container
+  restart   Tear down and re-create the environment
+  status    Show which services are running
+  logs      Show recent output (default: api; use --vite or --db)
+  url       Print the dev server URL
+
+Options:
+  --cwd <path>      Working directory (default: current directory)
+  --no-db           Skip database (use existing DATABASE_URL)
+  --suffix <name>   Explicit stack suffix (default: agent ID or generated)
+  --live            Enable live agent runtime (tmux); default is inert
+  -f, --follow      Follow log output (used with logs command)
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Grab a free port from the OS. Small TOCTOU window between closing the probe
+# socket and the actual service binding, but acceptable for dev tooling.
+find_free_port() {
+  node -e '
+    const net = require("net");
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      console.log(srv.address().port);
+      srv.close();
+    });
+  '
+}
+
+
+resolve_suffix() {
+  if [ -n "$OPT_SUFFIX" ]; then
+    echo "$OPT_SUFFIX"
+  elif [ -n "${DISPATCH_AGENT_ID:-}" ]; then
+    echo "$DISPATCH_AGENT_ID"
+  else
+    echo "dev-$$-$(date +%s)"
+  fi
+}
+
+state_file() {
+  echo "/tmp/dispatch-dev-${SUFFIX}.env"
+}
+
+log_dir() {
+  echo "/tmp/dispatch-dev-${SUFFIX}"
+}
+
+save_state() {
+  cat > "$(state_file)" <<EOF
+DEV_SUFFIX=${SUFFIX}
+DEV_CWD=${DEV_CWD:-}
+DEV_DB_PORT=${DEV_DB_PORT:-}
+DEV_API_PORT=${DEV_API_PORT:-}
+DEV_API_PID=${DEV_API_PID:-}
+DEV_VITE_PORT=${DEV_VITE_PORT:-}
+DEV_VITE_PID=${DEV_VITE_PID:-}
+DEV_CONTAINER_SUFFIX=${DEV_CONTAINER_SUFFIX:-}
+DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
+DEV_NO_DB=${DEV_NO_DB:-0}
+DEV_LIVE=${OPT_LIVE:-0}
+EOF
+}
+
+load_state() {
+  local file
+  file="$(state_file)"
+  if [ -f "$file" ]; then
+    # shellcheck disable=SC1090
+    source "$file"
+    return 0
+  fi
+  return 1
+}
+
+pid_alive() {
+  [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
+}
+
+# Recursively kill a process and all its descendants (depth-first).
+# This ensures child processes spawned by npm/tsx are cleaned up even
+# when signals don't propagate through the wrapper chain.
+kill_tree() {
+  local pid="${1:-}"
+  local sig="${2:-TERM}"
+  [ -z "$pid" ] && return 0
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null) || true
+  for child in $children; do
+    kill_tree "$child" "$sig"
+  done
+  kill -"$sig" "$pid" 2>/dev/null || true
+}
+
+# Tree-kill a service PID, wait for exit, then force-kill if needed.
+stop_service() {
+  local pid="${1:-}"
+  local name="${2:-service}"
+  if ! pid_alive "$pid"; then
+    return 0
+  fi
+  kill_tree "$pid"
+  local i=0
+  while [ $i -lt 10 ] && pid_alive "$pid"; do
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if pid_alive "$pid"; then
+    kill_tree "$pid" 9
+  fi
+  echo "Stopped ${name} (PID ${pid})"
+}
+
+# Detect docker compose command
+detect_compose() {
+  if docker compose version &>/dev/null; then
+    echo "docker compose"
+  elif command -v docker-compose &>/dev/null; then
+    echo "docker-compose"
+  else
+    echo ""
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_up() {
+  local cwd="${OPT_CWD:-$(pwd)}"
+
+  # Check for existing live stack
+  if [ -f "$(state_file)" ]; then
+    load_state
+    if pid_alive "${DEV_API_PID:-}"; then
+      echo "Stack '${SUFFIX}' is already running (API PID ${DEV_API_PID}, port ${DEV_API_PORT})."
+      echo "Run 'dispatch-dev down' first, or use a different --suffix."
+      exit 1
+    fi
+    # Stale state — clean it up
+    echo "Cleaning stale state for '${SUFFIX}'..."
+    cmd_down 2>/dev/null || true
+  fi
+
+  mkdir -p "$(log_dir)"
+  DEV_CWD="$cwd"
+
+  # --- Database ---
+  DEV_NO_DB="$OPT_NO_DB"
+  if [ "$OPT_NO_DB" != "1" ]; then
+    local compose
+    compose="$(detect_compose)"
+    if [ -z "$compose" ]; then
+      echo "Error: docker compose is not available. Is Docker Desktop running?" >&2
+      exit 1
+    fi
+
+    DEV_CONTAINER_SUFFIX="$SUFFIX"
+    DEV_COMPOSE_PROJECT="dispatch-dev-${SUFFIX}"
+
+    local db_attempt=1
+    local db_max_attempts=5
+    local compose_output
+    compose_output="$(log_dir)/db-up.log"
+    while [ $db_attempt -le $db_max_attempts ]; do
+      DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
+
+      echo "Starting database on port ${DEV_DB_PORT}..."
+
+      if DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
+        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" up -d --wait >"$compose_output" 2>&1; then
+        cat "$compose_output"
+        echo "Database ready on port ${DEV_DB_PORT}"
+        break
+      fi
+
+      cat "$compose_output"
+      if [ -n "${RESTART_DB_PORT:-}" ] || ! grep -q "address already in use" "$compose_output" || [ $db_attempt -eq $db_max_attempts ]; then
+        exit 1
+      fi
+
+      echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v >/dev/null 2>&1 || true
+      db_attempt=$((db_attempt + 1))
+    done
+  fi
+
+  # --- API Server ---
+  DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
+
+  # Build environment
+  (
+
+    cd "$cwd"
+
+    # Source .env if present
+    if [ -f ".env" ]; then
+      set -a
+      # shellcheck disable=SC1091
+      source ".env"
+      set +a
+    fi
+
+    # Unset TLS so dev servers run plain HTTP
+    unset TLS_CERT TLS_KEY 2>/dev/null || true
+
+    # Override port, session prefix, and agent runtime — always explicit so .env doesn't leak
+    export DISPATCH_PORT="$DEV_API_PORT"
+    export DISPATCH_SESSION_PREFIX="dispatch_dev"
+    if [ "$OPT_LIVE" = "1" ]; then
+      export DISPATCH_AGENT_RUNTIME="tmux"
+    else
+      export DISPATCH_AGENT_RUNTIME="inert"
+    fi
+    if [ "$OPT_NO_DB" != "1" ]; then
+      export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+    fi
+
+    pnpm run dev >> "$(log_dir)/api.log" 2>&1 &
+    echo $! > "$(log_dir)/api.pid"
+  )
+
+  DEV_API_PID="$(cat "$(log_dir)/api.pid")"
+  echo "API server starting on port ${DEV_API_PORT} (PID ${DEV_API_PID})"
+
+  # Brief liveness check — wait up to 10s for the port to open
+  local attempts=0
+  while [ $attempts -lt 20 ]; do
+    if ! pid_alive "$DEV_API_PID"; then
+      echo "Error: API server exited immediately. Last log lines:" >&2
+      tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+      exit 1
+    fi
+    if node -e "const s=require('net').createConnection({host:'127.0.0.1',port:${DEV_API_PORT}},()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))" 2>/dev/null; then
+      break
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.5
+  done
+
+  # --- Vite Frontend ---
+  DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
+
+  # Clear stale Vite dep optimizer cache to prevent white-page on fresh worktrees
+  rm -rf "${cwd}/apps/web/node_modules/.vite" 2>/dev/null || true
+
+  (
+    cd "${cwd}/apps/web"
+    # Tell Vite's proxy where the API server is
+    DISPATCH_PORT="$DEV_API_PORT" npx vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    echo $! > "$(log_dir)/vite.pid"
+  )
+
+  DEV_VITE_PID="$(cat "$(log_dir)/vite.pid")"
+  echo "Vite dev server starting on port ${DEV_VITE_PORT} (PID ${DEV_VITE_PID})"
+
+  # Brief check that Vite didn't crash immediately
+  sleep 1
+  if ! pid_alive "$DEV_VITE_PID"; then
+    echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
+  fi
+
+  save_state
+
+  local display_host="${DISPATCH_HOST:-127.0.0.1}"
+
+  echo ""
+  echo "Dev environment ready (suffix: ${SUFFIX}):"
+  if [ "$OPT_NO_DB" != "1" ]; then
+    echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+  fi
+  echo "  api: http://${display_host}:${DEV_API_PORT}"
+  echo "  web: http://${display_host}:${DEV_VITE_PORT}"
+  echo ""
+  echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
+}
+
+cmd_down() {
+  if ! load_state; then
+    echo "No state file found for suffix '${SUFFIX}'. Nothing to tear down."
+    return 0
+  fi
+
+  stop_service "${DEV_API_PID:-}" "API server"
+  stop_service "${DEV_VITE_PID:-}" "Vite server"
+
+  # Stop the DB container
+  if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
+    local compose
+    compose="$(detect_compose)"
+    if [ -n "$compose" ]; then
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down -v 2>/dev/null || true
+      echo "Removed database container"
+    fi
+  fi
+
+  # Clean up state and logs
+  rm -f "$(state_file)"
+  rm -rf "$(log_dir)"
+
+  echo "Dev environment torn down (suffix: ${SUFFIX})."
+}
+
+cmd_status() {
+  if ! load_state; then
+    echo "No dev environment found for suffix '${SUFFIX}'."
+    return 0
+  fi
+
+  local display_host="${DISPATCH_HOST:-127.0.0.1}"
+
+  # DB
+  if [ "${DEV_NO_DB:-0}" != "1" ] && [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
+    if docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .; then
+      echo "db:   running (port ${DEV_DB_PORT:-?})"
+    else
+      echo "db:   stopped"
+    fi
+  else
+    echo "db:   not managed"
+  fi
+
+  # API
+  if pid_alive "${DEV_API_PID:-}"; then
+    echo "api:  running — http://${display_host}:${DEV_API_PORT}"
+  else
+    echo "api:  stopped"
+  fi
+
+  # Vite
+  if pid_alive "${DEV_VITE_PID:-}"; then
+    echo "vite: running — http://${display_host}:${DEV_VITE_PORT}"
+  else
+    if [ -n "${DEV_VITE_PID:-}" ]; then
+      echo "vite: stopped"
+    else
+      echo "vite: not started"
+    fi
+  fi
+}
+
+cmd_url() {
+  if ! load_state; then
+    echo "No dev environment found for suffix '${SUFFIX}'." >&2
+    exit 1
+  fi
+  if [ -z "${DEV_API_PORT:-}" ]; then
+    echo "Dev server is not running." >&2
+    exit 1
+  fi
+  echo "http://${DISPATCH_HOST:-127.0.0.1}:${DEV_API_PORT}"
+}
+
+cmd_logs() {
+  local logdir
+  logdir="$(log_dir)"
+
+  if [ "$OPT_LOG_DB" = "1" ]; then
+    if ! load_state; then
+      echo "No dev environment found." >&2
+      exit 1
+    fi
+    if [ -n "${DEV_COMPOSE_PROJECT:-}" ]; then
+      local compose
+      compose="$(detect_compose)"
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" logs --tail 100 2>&1
+    else
+      echo "No managed database found." >&2
+      exit 1
+    fi
+    return
+  fi
+
+  local logfile
+  if [ "$OPT_LOG_VITE" = "1" ]; then
+    logfile="${logdir}/vite.log"
+  else
+    logfile="${logdir}/api.log"
+  fi
+
+  if [ ! -f "$logfile" ]; then
+    echo "No log file found at ${logfile}" >&2
+    exit 1
+  fi
+
+  if [ "$OPT_FOLLOW" = "1" ]; then
+    tail -n 200 -f "$logfile"
+  else
+    tail -n 200 "$logfile"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Parse args
+# ---------------------------------------------------------------------------
+
+OPT_CWD=""
+OPT_NO_DB="0"
+OPT_LIVE="0"
+OPT_SUFFIX=""
+OPT_LOG_DB="0"
+OPT_LOG_VITE="0"
+OPT_FOLLOW="0"
+CMD=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    up|down|restart|status|logs|url)
+      CMD="$1"; shift ;;
+    start) CMD="up"; shift ;;
+    stop)  CMD="down"; shift ;;
+    --cwd)
+      OPT_CWD="${2:-}"; shift 2 ;;
+    --no-db)
+      OPT_NO_DB="1"; shift ;;
+    --live)
+      OPT_LIVE="1"; shift ;;
+    --suffix)
+      OPT_SUFFIX="${2:-}"; shift 2 ;;
+    --db)
+      OPT_LOG_DB="1"; shift ;;
+    --vite)
+      OPT_LOG_VITE="1"; shift ;;
+    -f|--follow)
+      OPT_FOLLOW="1"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage; exit 1 ;;
+  esac
+done
+
+if [ -z "$CMD" ]; then
+  usage
+  exit 1
+fi
+
+SUFFIX="$(resolve_suffix)"
+
+case "$CMD" in
+  up)       cmd_up ;;
+  down)     cmd_down ;;
+  restart)
+    # Restore flags and ports from previous state if not explicitly set
+    if load_state 2>/dev/null; then
+      [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
+      [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
+      [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
+      # Preserve ports so restart reuses them
+      RESTART_DB_PORT="${DEV_DB_PORT:-}"
+      RESTART_API_PORT="${DEV_API_PORT:-}"
+      RESTART_VITE_PORT="${DEV_VITE_PORT:-}"
+    fi
+    cmd_down 2>/dev/null || true
+    cmd_up
+    ;;
+  status)   cmd_status ;;
+  logs)     cmd_logs ;;
+  url)      cmd_url ;;
+  *)        usage; exit 1 ;;
+esac

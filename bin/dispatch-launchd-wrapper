@@ -1,0 +1,15 @@
+#!/bin/zsh
+#
+# Wrapper script for launchd. Sources the user's shell config to ensure
+# the full environment (NVM, Homebrew, PATH, API keys, etc.) is available
+# to Dispatch and any agents it spawns.
+#
+# launchd runs with a minimal environment by default - this fixes that.
+
+[[ -f ~/.zprofile ]] && source ~/.zprofile
+[[ -f ~/.zshrc ]] && source ~/.zshrc
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+cd "$ROOT_DIR"
+exec node "$ROOT_DIR/apps/server/dist/server.js"

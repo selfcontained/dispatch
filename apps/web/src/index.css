@@ -1,0 +1,655 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 55 8% 6%;
+  --foreground: 60 30% 96%;
+  --card: 50 8% 9%;
+  --card-foreground: 60 30% 96%;
+  --popover: 50 8% 9%;
+  --popover-foreground: 60 30% 96%;
+  --primary: 158 82% 28%;
+  --primary-foreground: 160 10% 95%;
+  --muted: 42 8% 13%;
+  --muted-foreground: 36 10% 66%;
+  --accent: 42 8% 13%;
+  --accent-foreground: 60 30% 96%;
+  --destructive: 337 94% 57%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 40 10% 18%;
+  --input: 40 10% 18%;
+  --ring: 192 85% 64%;
+
+  /* Semantic status colors */
+  --status-working: 158 64% 52%;
+  --status-blocked: 0 84% 60%;
+  --status-waiting: 45 96% 64%;
+  --status-done: 198 93% 60%;
+  --status-idle: 240 4% 46%;
+
+  /* Chart colors */
+  --chart-1: 158 64% 52%;   /* teal — input tokens */
+  --chart-2: 45 96% 64%;    /* amber — output tokens */
+  --chart-3: 200 80% 55%;   /* sky — cache read */
+  --chart-4: 280 60% 60%;   /* purple — cache write */
+  --chart-5: 158 64% 42%;   /* deep teal — model bars */
+  --chart-6: 45 96% 54%;    /* deep amber — project bars */
+
+  /* Surface & terminal */
+  --surface: 50 15% 5%;
+  --terminal-bg: 0 0% 8%;
+}
+
+[data-theme="cool-navy"] {
+  --background: 222 18% 7%;
+  --foreground: 224 13% 95%;
+  --card: 222 16% 9%;
+  --card-foreground: 224 13% 95%;
+  --popover: 222 16% 9%;
+  --popover-foreground: 224 13% 95%;
+  --primary: 207 100% 67%;
+  --primary-foreground: 222 40% 8%;
+  --muted: 220 10% 14%;
+  --muted-foreground: 220 8% 67%;
+  --accent: 220 10% 14%;
+  --accent-foreground: 224 13% 95%;
+  --destructive: 330 100% 68%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 11% 21%;
+  --input: 220 11% 21%;
+  --ring: 207 100% 67%;
+
+  --status-working: 150 57% 59%;
+  --status-blocked: 330 100% 68%;
+  --status-waiting: 55 87% 63%;
+  --status-done: 207 100% 67%;
+  --status-idle: 220 8% 50%;
+
+  --chart-1: 207 100% 67%;
+  --chart-2: 55 87% 63%;
+  --chart-3: 170 60% 50%;
+  --chart-4: 280 70% 65%;
+  --chart-5: 207 80% 55%;
+  --chart-6: 150 57% 49%;
+
+  --surface: 225 16% 7%;
+  --terminal-bg: 225 16% 7%;
+}
+
+[data-theme="oled-black"] {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 94%;
+  --card: 0 0% 4%;
+  --card-foreground: 0 0% 94%;
+  --popover: 0 0% 4%;
+  --popover-foreground: 0 0% 94%;
+  --primary: 160 84% 39%;
+  --primary-foreground: 0 0% 0%;
+  --muted: 0 0% 8%;
+  --muted-foreground: 0 0% 55%;
+  --accent: 0 0% 8%;
+  --accent-foreground: 0 0% 94%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 14%;
+  --input: 0 0% 14%;
+  --ring: 160 84% 39%;
+
+  --status-working: 160 72% 52%;
+  --status-blocked: 0 84% 60%;
+  --status-waiting: 45 93% 58%;
+  --status-done: 198 93% 60%;
+  --status-idle: 0 0% 35%;
+
+  --chart-1: 160 72% 52%;
+  --chart-2: 45 93% 58%;
+  --chart-3: 198 93% 60%;
+  --chart-4: 280 60% 58%;
+  --chart-5: 160 60% 42%;
+  --chart-6: 45 80% 48%;
+
+  --surface: 0 0% 2%;
+  --terminal-bg: 0 0% 0%;
+}
+
+[data-theme="solarized-dark"] {
+  --background: 192 100% 11%;
+  --foreground: 186 8% 62%;
+  --card: 192 81% 14%;
+  --card-foreground: 186 8% 62%;
+  --popover: 192 81% 14%;
+  --popover-foreground: 186 8% 62%;
+  --primary: 205 82% 45%;
+  --primary-foreground: 44 87% 94%;
+  --muted: 192 81% 14%;
+  --muted-foreground: 194 14% 40%;
+  --accent: 192 81% 14%;
+  --accent-foreground: 186 8% 62%;
+  --destructive: 1 71% 52%;
+  --destructive-foreground: 44 87% 94%;
+  --border: 192 40% 23%;
+  --input: 192 40% 23%;
+  --ring: 205 82% 45%;
+
+  --status-working: 68 100% 30%;
+  --status-blocked: 1 71% 52%;
+  --status-waiting: 45 100% 35%;
+  --status-done: 205 82% 45%;
+  --status-idle: 194 14% 40%;
+
+  --chart-1: 205 82% 45%;
+  --chart-2: 45 100% 35%;
+  --chart-3: 68 100% 30%;
+  --chart-4: 330 60% 45%;
+  --chart-5: 205 70% 40%;
+  --chart-6: 68 80% 25%;
+
+  --surface: 192 100% 8%;
+  --terminal-bg: 192 100% 11%;
+}
+
+[data-theme="light"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 98%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 153 78% 27%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 40 10% 92%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 40 10% 92%;
+  --accent-foreground: 0 0% 9%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 85%;
+  --input: 0 0% 85%;
+  --ring: 153 78% 27%;
+
+  --status-working: 142 71% 35%;
+  --status-blocked: 0 72% 51%;
+  --status-waiting: 46 97% 42%;
+  --status-done: 217 91% 50%;
+  --status-idle: 0 0% 60%;
+
+  --chart-1: 217 91% 50%;
+  --chart-2: 46 97% 42%;
+  --chart-3: 142 71% 35%;
+  --chart-4: 280 60% 50%;
+  --chart-5: 217 80% 45%;
+  --chart-6: 142 60% 30%;
+
+  --surface: 40 20% 96%;
+  --terminal-bg: 40 10% 96%;
+}
+
+[data-theme="vaporwave"] {
+  --background: 262 52% 6%;
+  --foreground: 270 50% 90%;
+  --card: 262 48% 8%;
+  --card-foreground: 270 50% 90%;
+  --popover: 262 48% 8%;
+  --popover-foreground: 270 50% 90%;
+  --primary: 325 100% 72%;
+  --primary-foreground: 262 60% 6%;
+  --muted: 262 30% 12%;
+  --muted-foreground: 270 20% 58%;
+  --accent: 262 30% 12%;
+  --accent-foreground: 270 50% 90%;
+  --destructive: 325 100% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 262 30% 18%;
+  --input: 262 30% 18%;
+  --ring: 191 99% 50%;
+
+  --status-working: 160 100% 50%;
+  --status-blocked: 325 100% 62%;
+  --status-waiting: 57 100% 79%;
+  --status-done: 191 99% 50%;
+  --status-idle: 262 20% 45%;
+
+  --chart-1: 191 99% 50%;
+  --chart-2: 57 100% 79%;
+  --chart-3: 325 100% 62%;
+  --chart-4: 262 70% 65%;
+  --chart-5: 191 80% 40%;
+  --chart-6: 160 100% 40%;
+
+  --surface: 262 52% 4%;
+  --terminal-bg: 262 52% 6%;
+}
+
+[data-theme="midnight"] {
+  --background: 0 0% 0%;
+  --foreground: 224 13% 95%;
+  --card: 220 18% 4%;
+  --card-foreground: 224 13% 95%;
+  --popover: 220 18% 4%;
+  --popover-foreground: 224 13% 95%;
+  --primary: 207 100% 67%;
+  --primary-foreground: 0 0% 0%;
+  --muted: 220 10% 8%;
+  --muted-foreground: 220 8% 60%;
+  --accent: 220 10% 8%;
+  --accent-foreground: 224 13% 95%;
+  --destructive: 330 100% 68%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 11% 14%;
+  --input: 220 11% 14%;
+  --ring: 207 100% 67%;
+
+  --status-working: 150 57% 59%;
+  --status-blocked: 330 100% 68%;
+  --status-waiting: 55 87% 63%;
+  --status-done: 207 100% 67%;
+  --status-idle: 220 8% 40%;
+
+  --chart-1: 207 100% 67%;
+  --chart-2: 55 87% 63%;
+  --chart-3: 170 60% 50%;
+  --chart-4: 280 70% 65%;
+  --chart-5: 207 80% 55%;
+  --chart-6: 150 57% 49%;
+
+  --surface: 0 0% 2%;
+  --terminal-bg: 0 0% 0%;
+}
+
+[data-theme="matrix"] {
+  --background: 150 20% 1.5%;
+  --foreground: 136 100% 92%;
+  --card: 145 22% 4%;
+  --card-foreground: 136 100% 92%;
+  --popover: 145 22% 4%;
+  --popover-foreground: 136 100% 92%;
+  --primary: 136 79% 36%;
+  --primary-foreground: 150 20% 2%;
+  --muted: 142 18% 8%;
+  --muted-foreground: 133 37% 72%;
+  --accent: 142 18% 8%;
+  --accent-foreground: 136 100% 92%;
+  --destructive: 0 49% 44%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 137 24% 16%;
+  --input: 137 24% 16%;
+  --ring: 136 100% 71%;
+
+  --status-working: 136 100% 71%;
+  --status-blocked: 0 49% 44%;
+  --status-waiting: 46 52% 54%;
+  --status-done: 153 76% 64%;
+  --status-idle: 132 12% 40%;
+
+  --chart-1: 136 100% 71%;
+  --chart-2: 46 52% 54%;
+  --chart-3: 153 76% 64%;
+  --chart-4: 100 50% 45%;
+  --chart-5: 136 80% 50%;
+  --chart-6: 46 40% 44%;
+
+  --surface: 145 24% 2%;
+  --terminal-bg: 150 20% 1.5%;
+}
+
+* {
+  @apply border-border;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+html[data-theme="matrix"] body {
+  background-image:
+    radial-gradient(circle at top, hsl(var(--primary) / 0.12), transparent 34%),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--surface)));
+}
+
+html[data-theme="matrix"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(to bottom, hsl(var(--primary) / 0.045), transparent 22%, transparent 78%, hsl(var(--primary) / 0.03)),
+    linear-gradient(to right, hsl(var(--primary) / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, hsl(var(--primary) / 0.035) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    32px 32px,
+    32px 32px;
+  opacity: 0.5;
+}
+
+html[data-theme="matrix"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% -10%, hsl(var(--status-working) / 0.08), transparent 40%),
+    radial-gradient(circle at 50% 120%, hsl(var(--status-working) / 0.06), transparent 34%);
+}
+
+#root {
+  @apply h-dvh;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* iPad PWA: prevent viewport jump when typing space in terminal.
+   The class is added by JS in main.tsx when navigator.standalone is true
+   on an iPad-class device. */
+html.ipad-pwa,
+html.ipad-pwa body {
+  position: fixed;
+  width: 100%;
+  overflow: clip;
+}
+
+html.ipad-pwa #root {
+  touch-action: none;
+}
+
+html.ipad-pwa [style*="overflow"]:not([style*="hidden"]),
+html.ipad-pwa .overflow-y-auto,
+html.ipad-pwa .overflow-auto,
+html.ipad-pwa .overflow-y-scroll,
+html.ipad-pwa .overflow-scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.terminal-font {
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen {
+  background-color: hsl(var(--terminal-bg)) !important;
+}
+
+html[data-theme="matrix"] .xterm {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--primary) / 0.12),
+    0 0 28px hsl(var(--primary) / 0.08);
+}
+
+html[data-theme="matrix"] aside,
+html[data-theme="matrix"] [role="dialog"],
+html[data-theme="matrix"] [data-radix-popper-content-wrapper] > * {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--primary) / 0.05),
+    0 0 24px hsl(var(--primary) / 0.06);
+  backdrop-filter: blur(10px);
+}
+
+html[data-theme="matrix"] button,
+html[data-theme="matrix"] [role="button"] {
+  text-shadow: 0 0 10px hsl(var(--primary) / 0.12);
+}
+
+/* Mobile: enable native long-press text selection via the xterm
+   accessibility tree, which contains invisible positioned text over
+   the canvas.  pointer-events:auto lets long-press reach that text;
+   user-select is already "text" in xterm's own CSS.  The accessibility
+   layer sits above the canvas so it receives the touch, while our
+   custom touchstart/touchmove handlers still drive scrolling. */
+@media (pointer: coarse) {
+  .xterm .xterm-accessibility {
+    pointer-events: auto !important;
+  }
+}
+
+@keyframes media-in-slow {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-media-in-slow {
+  animation: media-in-slow 1600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.media-thumb-unseen {
+  border-color: hsl(var(--status-working) / 0.45);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--status-working) / 0.28),
+    0 0 14px hsl(var(--status-working) / 0.2);
+  transition:
+    border-color 1600ms ease-out,
+    box-shadow 1600ms ease-out;
+}
+
+.media-thumb-seen {
+  border-color: hsl(var(--border));
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--status-working) / 0),
+    0 0 0 hsl(var(--status-working) / 0);
+  transition:
+    border-color 1600ms ease-out,
+    box-shadow 1600ms ease-out;
+}
+
+@keyframes reconnect-scan {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+.dispatch-reconnect-scan {
+  animation: reconnect-scan 1350ms ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-reconnect-scan {
+    animation: none;
+    transform: translateX(140%);
+  }
+}
+
+/* ── Syntax highlighting (highlight.js) ─────────────────────────────
+   Uses Dispatch theme variables so colors adapt to every theme. */
+.hljs {
+  background: hsl(var(--surface));
+  color: hsl(var(--foreground));
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-deletion {
+  color: hsl(var(--primary));
+}
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp,
+.hljs-addition {
+  color: hsl(var(--status-working));
+}
+.hljs-number,
+.hljs-literal {
+  color: hsl(var(--status-done));
+}
+.hljs-comment,
+.hljs-quote {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+.hljs-type,
+.hljs-built_in {
+  color: hsl(var(--status-waiting));
+}
+.hljs-title,
+.hljs-title\.class_,
+.hljs-title\.function_ {
+  color: hsl(var(--ring));
+}
+.hljs-attr,
+.hljs-attribute {
+  color: hsl(var(--primary));
+  opacity: 0.85;
+}
+.hljs-variable,
+.hljs-template-variable {
+  color: hsl(var(--foreground));
+}
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: hsl(var(--destructive));
+}
+.hljs-symbol,
+.hljs-bullet {
+  color: hsl(var(--status-done));
+}
+.hljs-section {
+  color: hsl(var(--ring));
+  font-weight: bold;
+}
+.hljs-name,
+.hljs-tag {
+  color: hsl(var(--primary));
+}
+.hljs-params {
+  color: hsl(var(--foreground));
+  opacity: 0.8;
+}
+.hljs-punctuation {
+  color: hsl(var(--muted-foreground));
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Midnight: blue primary, pink destructive — lean into blues and pinks */
+[data-theme="midnight"] .hljs-keyword,
+[data-theme="midnight"] .hljs-selector-tag,
+[data-theme="midnight"] .hljs-deletion {
+  color: hsl(var(--primary));             /* blue */
+}
+[data-theme="midnight"] .hljs-string,
+[data-theme="midnight"] .hljs-doctag,
+[data-theme="midnight"] .hljs-regexp,
+[data-theme="midnight"] .hljs-addition {
+  color: hsl(var(--destructive));         /* pink */
+}
+[data-theme="midnight"] .hljs-title,
+[data-theme="midnight"] .hljs-title\.class_,
+[data-theme="midnight"] .hljs-title\.function_ {
+  color: hsl(var(--status-waiting));      /* yellow */
+}
+[data-theme="midnight"] .hljs-attr,
+[data-theme="midnight"] .hljs-attribute {
+  color: hsl(var(--primary));
+  opacity: 0.75;
+}
+[data-theme="midnight"] .hljs-name,
+[data-theme="midnight"] .hljs-tag {
+  color: hsl(var(--destructive));         /* pink for tags */
+}
+[data-theme="midnight"] .hljs-meta,
+[data-theme="midnight"] .hljs-meta .hljs-keyword {
+  color: hsl(var(--status-working));      /* green for meta only */
+}
+
+/* OLED Black: green primary is too monochrome — use blue/yellow/red accents */
+[data-theme="oled-black"] .hljs-keyword,
+[data-theme="oled-black"] .hljs-selector-tag,
+[data-theme="oled-black"] .hljs-deletion {
+  color: hsl(var(--status-done));         /* blue */
+}
+[data-theme="oled-black"] .hljs-string,
+[data-theme="oled-black"] .hljs-doctag,
+[data-theme="oled-black"] .hljs-regexp,
+[data-theme="oled-black"] .hljs-addition {
+  color: hsl(var(--destructive));         /* red */
+}
+[data-theme="oled-black"] .hljs-title,
+[data-theme="oled-black"] .hljs-title\.class_,
+[data-theme="oled-black"] .hljs-title\.function_ {
+  color: hsl(var(--status-waiting));      /* yellow */
+}
+[data-theme="oled-black"] .hljs-type,
+[data-theme="oled-black"] .hljs-built_in {
+  color: hsl(var(--primary));             /* green — just for types */
+}
+[data-theme="oled-black"] .hljs-attr,
+[data-theme="oled-black"] .hljs-attribute {
+  color: hsl(var(--status-done));         /* blue */
+  opacity: 0.8;
+}
+[data-theme="oled-black"] .hljs-name,
+[data-theme="oled-black"] .hljs-tag {
+  color: hsl(var(--status-done));         /* blue */
+}
+[data-theme="oled-black"] .hljs-meta,
+[data-theme="oled-black"] .hljs-meta .hljs-keyword {
+  color: hsl(var(--status-waiting));      /* yellow for meta */
+}
+
+/* Persona reviewing animation — subtle pulse on the status icon */
+@keyframes persona-reviewing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-persona-reviewing {
+  animation: persona-reviewing-pulse 2s ease-in-out infinite;
+}
+
+/* Persona reviewing row — subtle left-border shimmer */
+@keyframes persona-reviewing-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.persona-reviewing-row {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--status-working) / 0.04) 40%,
+    hsl(var(--status-working) / 0.08) 50%,
+    hsl(var(--status-working) / 0.04) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: persona-reviewing-shimmer 3s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+/* Pause GPU-composited animations when the page is hidden to reduce energy */
+html[data-hidden] .dispatch-reconnect-scan {
+  animation-play-state: paused;
+  will-change: auto;
+}
+html[data-hidden] .animate-spin {
+  animation-play-state: paused;
+}
+html[data-hidden] .animate-persona-reviewing {
+  animation-play-state: paused;
+}
+html[data-hidden] .persona-reviewing-row {
+  animation-play-state: paused;
+}

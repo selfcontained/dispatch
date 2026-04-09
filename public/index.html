@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dispatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/app.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css"
+    />
+  </head>
+  <body>
+    <main class="layout">
+      <aside class="sidebar panel">
+        <h1>Dispatch</h1>
+        <p class="muted">Codex agent control plane</p>
+        <div class="row">
+          <button data-new-agent-btn type="button">New agent</button>
+          <button data-refresh-btn type="button">Refresh</button>
+        </div>
+
+        <section>
+          <h2>Agents</h2>
+          <div class="agents" data-agent-list></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <section class="terminal panel">
+          <div class="terminal-header">
+            <div data-selected>Selected: none</div>
+            <div class="row">
+              <button data-attach-btn type="button">Attach terminal</button>
+              <button data-detach-btn type="button">Detach</button>
+              <span class="conn-badge" data-conn-badge>disconnected</span>
+            </div>
+          </div>
+          <div class="terminal-output" data-terminal-output></div>
+        </section>
+
+        <section class="media panel">
+          <div class="terminal-header">
+            <div>Media Stream</div>
+            <button data-media-refresh-btn type="button">Refresh media</button>
+          </div>
+          <div class="media-hint">
+            Use the <code>dispatch_share</code> MCP tool to publish media. Files auto-render here.
+          </div>
+          <div class="media-grid" data-media-grid></div>
+        </section>
+      </section>
+    </main>
+    <footer class="status" data-health>Starting...</footer>
+    <div class="modal-backdrop" data-create-modal hidden>
+      <div class="modal-card">
+        <h2>Create Agent</h2>
+        <p class="muted">Name and working directory for a new Codex session.</p>
+        <form class="stack" data-create-form>
+          <label>
+            Name
+            <input data-create-name type="text" placeholder="agent name (optional)" />
+          </label>
+          <label>
+            Working directory
+            <input data-create-cwd type="text" placeholder="/absolute/path" required />
+          </label>
+          <div class="row">
+            <button type="submit">Create + open</button>
+            <button data-create-cancel type="button">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="lightbox" data-lightbox hidden>
+      <button class="lightbox-close" data-lightbox-close type="button">Close</button>
+      <img class="lightbox-image" data-lightbox-image alt="Expanded media view" />
+      <div class="lightbox-caption" data-lightbox-caption></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

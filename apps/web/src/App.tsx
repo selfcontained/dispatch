@@ -1,0 +1,857 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAtom } from "jotai";
+import "@xterm/xterm/css/xterm.css";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom } from "@/lib/store";
+import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
+import { AppHeader } from "@/components/app/app-header";
+import { ActivityPane } from "@/components/app/activity-pane";
+import { DocsPane } from "@/components/app/docs-pane";
+import { JobsPane } from "@/components/app/jobs-pane";
+import { SettingsPane } from "@/components/app/settings-pane";
+import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
+import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
+import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
+import { MediaLightbox } from "@/components/app/media-lightbox";
+import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
+import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
+import { StatusFooter } from "@/components/app/status-footer";
+import { TerminalPane } from "@/components/app/terminal-pane";
+import { type FeedbackDetailState, FeedbackDetailPanel, ReviewSummaryPanel } from "@/components/app/feedback-panel";
+import {
+  type Agent,
+  type AgentVisualState,
+  type ServiceState,
+} from "@/components/app/types";
+import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
+import { cn } from "@/lib/utils";
+import { initEnergyMetrics } from "@/lib/energy-metrics";
+import { api } from "@/lib/api";
+import { useAuthContext } from "@/contexts/auth-context";
+import { useHealth } from "@/hooks/use-health";
+import { useLayout } from "@/hooks/use-layout";
+import { useAgents } from "@/hooks/use-agents";
+import { useSSE } from "@/hooks/use-sse";
+import { useMedia } from "@/hooks/use-media";
+import { useTerminal } from "@/hooks/use-terminal";
+import { useIconColor } from "@/hooks/use-icon-color";
+import { useInstanceName } from "@/hooks/use-instance-name";
+import { useTheme } from "@/hooks/use-theme";
+import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
+
+const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
+const CWD_HISTORY_KEY = "dispatch:cwdHistory";
+const CWD_HISTORY_MAX = 20;
+
+/** Return the project root for an agent, preferring gitContext.repoRoot over cwd (which may be a worktree path). */
+function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
+  return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
+}
+
+function readLastUsedCwd(): string {
+  if (typeof window === "undefined") return "";
+  const stored = window.localStorage.getItem(LAST_USED_CWD_KEY)?.trim();
+  return stored && stored.length > 0 ? stored : "~/";
+}
+
+function readLastUsedAgentType(): AgentType | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(LAST_USED_TYPE_KEY)?.trim();
+  return stored && isAgentType(stored) ? stored : null;
+}
+
+function readCwdHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CWD_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string" && v.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToCwdHistory(cwd: string): string[] {
+  const trimmed = cwd.trim();
+  if (!trimmed) return readCwdHistory();
+  const existing = readCwdHistory().filter((entry) => entry !== trimmed);
+  const updated = [trimmed, ...existing].slice(0, CWD_HISTORY_MAX);
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(updated));
+  return updated;
+}
+
+function removeCwdFromHistory(cwd: string): string[] {
+  const current = readCwdHistory().filter((entry) => entry !== cwd);
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(current));
+  return current;
+}
+
+function isFullAccessEnabled(agent: Pick<Agent, "fullAccess" | "agentArgs">): boolean {
+  return (
+    agent.fullAccess ||
+    agent.agentArgs.includes(CODEX_FULL_ACCESS_ARG) ||
+    agent.agentArgs.includes(CLAUDE_FULL_ACCESS_ARG)
+  );
+}
+
+export function DashboardLayout(): JSX.Element {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // ── Route matching ───────────────────────────────────────────────────
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const settingsOpen = pathSegments[0] === "settings";
+  const settingsSection = settingsOpen ? pathSegments[1] : undefined;
+  const docsOpen = pathSegments[0] === "docs";
+  const docsSection = docsOpen ? pathSegments[1] : undefined;
+  const activityOpen = pathSegments[0] === "activity";
+  const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
+  const jobsOpen = pathSegments[0] === "jobs";
+
+  const closeOverlay = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
+
+  // ── Theme & Branding ──────────────────────────────────────────────────
+  const { theme, setTheme } = useTheme();
+  const { iconColor, setIconColor, isLoading: isIconColorSaving, error: iconColorError, clearError: clearIconColorError } = useIconColor();
+  const { instanceName } = useInstanceName();
+
+  // ── Page title ───────────────────────────────────────────────────────
+  useEffect(() => {
+    document.title = instanceName ? `${instanceName} — Dispatch` : "Dispatch";
+  }, [instanceName]);
+
+  // ── Auth (from context — AuthLayout guarantees authenticated) ─────────
+  const { handleLogout } = useAuthContext();
+
+  // ── Layout ────────────────────────────────────────────────────────────
+  const {
+    isMobile,
+    leftOpen,
+    mediaOpen,
+    leftPanelOpen,
+    mediaPanelOpen,
+    mobileLeftOpen,
+    mobileMediaOpen,
+    setLeftOpen,
+    setMediaOpen,
+    setMobileLeftOpen,
+    setMobileMediaOpen,
+    handleSetLeftPanelOpen,
+    handleSetMediaPanelOpen,
+  } = useLayout();
+
+  // ── Health ────────────────────────────────────────────────────────────
+  const { apiState, dbState } = useHealth(true);
+
+  // ── Media ─────────────────────────────────────────────────────────────
+  const selectedAgentIdRef = useRef<string | null>(null);
+
+  // ── Create dialog state ───────────────────────────────────────────────
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
+  const [createCwdInitialized, setCreateCwdInitialized] = useState(() => readLastUsedCwd().trim().length > 0);
+  const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([...AGENT_TYPES]);
+  const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
+  const [createType, setCreateType] = useState<AgentType>("codex");
+  const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
+  const [createUseWorktree, setCreateUseWorktree] = useState(true);
+  const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
+  const [createBaseBranch, setCreateBaseBranch] = useState("main");
+  const [creating, setCreating] = useState(false);
+  const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
+
+  // ── Delete dialog state ───────────────────────────────────────────────
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [stopTarget, setStopTarget] = useState<Agent | null>(null);
+
+  // ── Misc UI state ────────────────────────────────────────────────────
+  const [feedbackDetail, setFeedbackDetail] = useAtom(feedbackDetailAtom);
+  // Keep last feedback detail alive during close transition so content fades out.
+  const feedbackDetailStaleRef = useRef<NonNullable<FeedbackDetailState> | null>(null);
+  if (feedbackDetail) feedbackDetailStaleRef.current = feedbackDetail;
+  const feedbackDetailRendered = feedbackDetail ?? feedbackDetailStaleRef.current;
+  const [expandedAgentId, setExpandedAgentId] = useAtom(expandedAgentIdAtom);
+
+  // ── Agent selection ────────────────────────────────────────────────────
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // ── Agents ────────────────────────────────────────────────────────────
+  const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<string | null>(null);
+  const [sharedConnState, setSharedConnState] = useState<"disconnected" | "reconnecting" | "connected">("disconnected");
+
+  const {
+    agents,
+    agentsLoaded,
+    selectedAgent,
+    connectedAgent,
+    overflowAgentId,
+    setOverflowAgentId,
+    streamingAgentIds,
+    setStreamingAgentIds,
+    agentVisualState,
+    resortAgents,
+    validatedSelectedAgentId,
+  } = useAgents(sharedConnectedAgentId, sharedConnState, true, selectedAgentId);
+
+  selectedAgentIdRef.current = validatedSelectedAgentId;
+
+  const focusedAgentId = sharedConnState === "connected" || sharedConnState === "reconnecting"
+    ? (sharedConnectedAgentId ?? validatedSelectedAgentId)
+    : null;
+  const focusedAgent = focusedAgentId
+    ? agents.find((agent) => agent.id === focusedAgentId) ?? null
+    : null;
+
+  const {
+    mediaFiles,
+    animatingMediaKeys,
+    unseenMediaCount,
+    lightboxIndex,
+    lightboxItem,
+    setLightboxIndex,
+    openLightbox,
+    mediaViewportRef,
+    refreshMedia,
+    markSeenInCache,
+  } = useMedia(focusedAgentId, mediaPanelOpen);
+
+  const focusedAgentHasStream = focusedAgentId ? streamingAgentIds.has(focusedAgentId) : false;
+  const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
+
+  const ensureAuxExpanded = useCallback((agentId: string) => {
+    setExpandedAgentId(agentId);
+  }, [setExpandedAgentId]);
+
+  // ── Terminal ──────────────────────────────────────────────────────────
+  const {
+    connState,
+    connectedAgentId,
+    terminalMode,
+    terminalPlaceholderMessage,
+    statusMessage,
+    terminalHostRef,
+    ctrlPendingRef,
+    focusTerminal,
+    ensureTerminalConnected,
+    detachTerminal,
+    sendTerminalInput,
+  } = useTerminal({
+    authState: "authenticated",
+    agents,
+    agentsLoaded,
+    selectedAgentId: validatedSelectedAgentId,
+    theme,
+    isMobile,
+    leftOpen,
+    mediaOpen,
+    feedbackOpen: !!feedbackDetail,
+    setSelectedAgentId,
+    refreshMedia,
+  });
+
+  // Sync terminal's connectedAgentId/connState into shared state for useAgents.
+  useEffect(() => {
+    setSharedConnectedAgentId(connectedAgentId);
+  }, [connectedAgentId]);
+
+  useEffect(() => {
+    setSharedConnState(connState);
+  }, [connState]);
+
+  // Re-sort agents when connected agent changes.
+  useEffect(() => {
+    resortAgents();
+  }, [connectedAgentId, resortAgents]);
+
+  const connectedAgentIdRef = useRef<string | null>(null);
+  connectedAgentIdRef.current = connectedAgentId;
+
+  // ── Focus tracking (notification suppression) ─────────────────────────
+  useAgentFocus(focusedAgentId, "authenticated");
+
+  // ── SSE ───────────────────────────────────────────────────────────────
+  useSSE("authenticated", connectedAgentIdRef, selectedAgentIdRef, setStreamingAgentIds, markSeenInCache);
+
+  // Return focus to the terminal when either sidebar closes.
+  const prevLeftOpenRef = useRef(leftPanelOpen);
+  const prevMediaOpenRef = useRef(mediaPanelOpen);
+  useEffect(() => {
+    const leftClosed = prevLeftOpenRef.current && !leftPanelOpen;
+    const mediaClosed = prevMediaOpenRef.current && !mediaPanelOpen;
+    prevLeftOpenRef.current = leftPanelOpen;
+    prevMediaOpenRef.current = mediaPanelOpen;
+    if (leftClosed || mediaClosed) {
+      const timer = window.setTimeout(focusTerminal, 50);
+      return () => window.clearTimeout(timer);
+    }
+  }, [leftPanelOpen, mediaPanelOpen, focusTerminal]);
+
+  // ── Energy metrics ────────────────────────────────────────────────────
+  useEffect(() => {
+    return initEnergyMetrics();
+  }, []);
+
+  // ── Overflow menu close on outside click ──────────────────────────────
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest("[data-radix-popper-content-wrapper]") && !target.closest("[data-agent-control='true']")) {
+        setOverflowAgentId(null);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [setOverflowAgentId]);
+
+  // ── Persist last-used CWD ─────────────────────────────────────────────
+  useEffect(() => {
+    const lastUsedCwd = agentProjectRoot(connectedAgent) || agentProjectRoot(selectedAgent);
+    if (lastUsedCwd) {
+      window.localStorage.setItem(LAST_USED_CWD_KEY, lastUsedCwd);
+    }
+  }, [connectedAgent, selectedAgent]);
+
+  // ── Fetch system defaults for create dialog CWD ───────────────────────
+  useEffect(() => {
+    if (createCwdInitialized) return;
+    let cancelled = false;
+    void api<{ homeDir: string }>("/api/v1/system/defaults")
+      .then((payload) => {
+        if (cancelled) return;
+        setCreateCwd(payload.homeDir);
+        setCreateCwdInitialized(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCreateCwdInitialized(true);
+      });
+    return () => { cancelled = true; };
+  }, [createCwdInitialized]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void api<{ enabledAgentTypes: AgentType[] }>("/api/v1/app/settings/agent-types")
+      .then((payload) => {
+        if (cancelled) return;
+        setEnabledAgentTypes(sanitizeEnabledAgentTypes(payload.enabledAgentTypes));
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (enabledAgentTypes.includes(createType)) {
+      return;
+    }
+    setCreateType(enabledAgentTypes[0] ?? "codex");
+  }, [createType, enabledAgentTypes]);
+
+  // ── Derived values ────────────────────────────────────────────────────
+  const isAttached = connState === "connected" && Boolean(connectedAgentId);
+  const hasActiveAgent = Boolean(validatedSelectedAgentId);
+  // ── Agent action callbacks ────────────────────────────────────────────
+  const resolveCreateDefaultCwd = useCallback((): string => {
+    const activeCwd = agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
+    if (activeCwd) return activeCwd;
+    const latestAgentCwd = agentProjectRoot(agents[0]);
+    if (latestAgentCwd) return latestAgentCwd;
+    return readLastUsedCwd();
+  }, [agents, connectedAgent, selectedAgent]);
+
+  const openCreateDialog = useCallback((typeOverride?: AgentType) => {
+    setCreateCwd(resolveCreateDefaultCwd());
+    if (typeOverride && enabledAgentTypes.includes(typeOverride)) {
+      setCreateType(typeOverride);
+    } else {
+      setCreateType((current) => (enabledAgentTypes.includes(current) ? current : enabledAgentTypes[0] ?? "codex"));
+    }
+    setCreateOpen(true);
+  }, [enabledAgentTypes, resolveCreateDefaultCwd]);
+
+  const toggleAgentDetails = useCallback(
+    (agentId: string) => {
+      setExpandedAgentId((current) => (current === agentId ? null : agentId));
+    },
+    [setExpandedAgentId]
+  );
+
+  const attachToAgent = useCallback(
+    async (agent: Agent) => {
+      setSelectedAgentId(agent.id);
+      // Child persona agents are rendered inside their parent's expanded card,
+      // so expand the parent instead of the child to keep it visible.
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
+      refreshMedia(agent.id);
+      await ensureTerminalConnected(true, true, agent.id);
+    },
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+  );
+
+  const startAgent = useCallback(
+    async (agent: Agent) => {
+      setSelectedAgentId(agent.id);
+      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
+      await api(`/api/v1/agents/${agent.id}/start`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      refreshMedia(agent.id);
+      await ensureTerminalConnected(true, true, agent.id);
+    },
+    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+  );
+
+  const detachAndClearSelection = useCallback(() => {
+    detachTerminal();
+    setSelectedAgentId(null);
+  }, [detachTerminal]);
+
+  const handleAgentsWorkspaceUnmount = useCallback(() => {
+    detachAndClearSelection();
+    setFeedbackDetail(null);
+  }, [detachAndClearSelection, setFeedbackDetail]);
+
+  const stopAgent = useCallback(
+    async (agent: Agent) => {
+      if (connectedAgentId === agent.id) {
+        detachAndClearSelection();
+      }
+      await api(`/api/v1/agents/${agent.id}/stop`, {
+        method: "POST",
+        body: JSON.stringify({ force: false }),
+      });
+    },
+    [connectedAgentId, detachAndClearSelection]
+  );
+
+  const deleteAgent = useCallback(
+    async (agent: Agent, cleanupWorktree?: string) => {
+      if (connectedAgentId === agent.id) {
+        detachTerminal();
+      }
+      setExpandedAgentId((current) => current === agent.id ? null : current);
+      setFeedbackDetail((prev) => prev?.parentAgentId === agent.id ? null : prev);
+      const params = new URLSearchParams();
+      if (cleanupWorktree) {
+        params.set("cleanupWorktree", cleanupWorktree);
+      }
+      const qs = params.toString();
+      // Backend handles stopping + cleanup asynchronously; returns 202 immediately
+      await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, { method: "DELETE" });
+    },
+    [connectedAgentId, detachTerminal, setExpandedAgentId, setFeedbackDetail]
+  );
+
+  const handleRemoveCwdHistory = useCallback((cwd: string) => {
+    setCwdHistory(removeCwdFromHistory(cwd));
+  }, []);
+
+  const handleCreateAgent = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (!createCwd.trim()) return;
+
+      setCreating(true);
+
+      try {
+        const payload = await api<{ agent: Agent }>("/api/v1/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            name: createName.trim(),
+            cwd: createCwd.trim(),
+            type: createType,
+            fullAccess: createFullAccess,
+            useWorktree: createUseWorktree,
+            worktreeBranch: createWorktreeBranch.trim() || undefined,
+            baseBranch: createBaseBranch !== "main" ? createBaseBranch : undefined,
+          }),
+        });
+
+        setCreateOpen(false);
+        setCreateName("");
+        setCreateUseWorktree(true);
+        setCreateWorktreeBranch("");
+        setCreateBaseBranch("main");
+        window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
+        window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
+        setLastUsedAgentType(createType);
+        setCwdHistory(addToCwdHistory(createCwd.trim()));
+        setSelectedAgentId(payload.agent.id);
+        ensureAuxExpanded(payload.agent.id);
+        refreshMedia(payload.agent.id);
+        // Small delay to let tmux session start before connecting
+        setTimeout(() => void ensureTerminalConnected(true, true, payload.agent.id), 300);
+      } finally {
+        setCreating(false);
+      }
+    },
+    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+  );
+
+  const borderForAgentState = (state: AgentVisualState): string => {
+    if (state === "active") return "border-r-status-done";
+    return "border-r-transparent";
+  };
+
+  const serviceDotClass = (state: ServiceState): string => {
+    if (state === "ok") return "bg-status-working";
+    if (state === "down") return "bg-status-blocked";
+    return "bg-status-waiting";
+  };
+
+  // ── Navigation callbacks for overlay panes ────────────────────────────
+  const openSettings = useCallback(() => navigate("/settings"), [navigate]);
+  const openDocs = useCallback(() => navigate("/docs"), [navigate]);
+  const openActivity = useCallback(() => navigate("/activity"), [navigate]);
+  const openJobs = useCallback(() => navigate("/jobs"), [navigate]);
+
+  // ── Render ────────────────────────────────────────────────────────────
+  return (
+    <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
+      <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+        {!isMobile && !jobsOpen ? (
+          <div className="shrink-0">
+            <AgentSidebar
+              leftOpen={leftOpen}
+              agents={agents}
+              selectedAgentId={validatedSelectedAgentId}
+              expandedAgentId={expandedAgentId}
+              overflowAgentId={overflowAgentId}
+              setLeftOpen={setLeftOpen}
+              onOpenCreateDialog={openCreateDialog}
+              enabledAgentTypes={enabledAgentTypes}
+              lastUsedAgentType={lastUsedAgentType}
+              onOpenDocs={openDocs}
+              onOpenActivity={openActivity}
+              onOpenJobs={openJobs}
+              onOpenSettings={openSettings}
+              setOverflowAgentId={setOverflowAgentId}
+              setDeleteTarget={setDeleteTarget}
+              setDeleteConfirmOpen={setDeleteConfirmOpen}
+              setStopTarget={setStopTarget}
+              setStopConfirmOpen={setStopConfirmOpen}
+              agentVisualState={agentVisualState}
+              borderForAgentState={borderForAgentState}
+              toggleAgentDetails={toggleAgentDetails}
+              isFullAccessEnabled={isFullAccessEnabled}
+              detachTerminal={detachAndClearSelection}
+              attachToAgent={attachToAgent}
+              startAgent={startAgent}
+              sendTerminalInput={sendTerminalInput}
+              connectedAgentId={connectedAgentId}
+              onOpenFeedbackDetail={setFeedbackDetail}
+              feedbackDetailState={feedbackDetail}
+            />
+          </div>
+        ) : null}
+
+        <main
+          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
+        >
+          <div
+            className={cn(
+              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              jobsOpen
+                ? "grid-rows-[minmax(0,1fr)_auto]"
+                : isMobile
+                ? "grid-rows-[auto_1fr_auto_auto]"
+                : feedbackDetail
+                  ? "grid-rows-[auto_1fr_1fr_auto]"
+                  : "grid-rows-[auto_1fr_0fr_auto]"
+            )}
+            onTransitionEnd={(e) => {
+              if (e.propertyName === "grid-template-rows" && !feedbackDetail) {
+                feedbackDetailStaleRef.current = null;
+              }
+            }}
+          >
+            {!jobsOpen ? (
+              <AppHeader
+                leftOpen={leftPanelOpen}
+                mediaOpen={mediaPanelOpen}
+                isMobile={isMobile}
+                showReconnectIndicator={connState === "reconnecting"}
+                hasActiveAgent={hasActiveAgent}
+                unseenMediaCount={unseenMediaCount}
+                setLeftOpen={handleSetLeftPanelOpen}
+                setMediaOpen={handleSetMediaPanelOpen}
+              />
+            ) : null}
+
+            {jobsOpen ? (
+              <JobsPane
+                open={true}
+                onClose={closeOverlay}
+                agents={agents}
+                onOpenAgent={attachToAgent}
+                enabledAgentTypes={enabledAgentTypes}
+                footer={
+                  <StatusFooter
+                    apiState={apiState}
+                    dbState={dbState}
+                    serviceDotClass={serviceDotClass}
+                  />
+                }
+              />
+            ) : (
+              <AgentsWorkspace onUnmount={handleAgentsWorkspaceUnmount}>
+                <TerminalPane
+                  isAttached={isAttached}
+                  connState={connState}
+                  statusMessage={statusMessage}
+                  terminalMode={terminalMode}
+                  terminalPlaceholderMessage={terminalPlaceholderMessage}
+                  terminalHostRef={terminalHostRef}
+                  archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
+                />
+              </AgentsWorkspace>
+            )}
+
+            {!isMobile && !jobsOpen ? (
+              <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
+                {feedbackDetailRendered ? (
+                  "summaryAgentId" in feedbackDetailRendered ? (
+                    (() => {
+                      const summaryAgent = agents.find((a) => a.id === feedbackDetailRendered.summaryAgentId);
+                      return summaryAgent ? (
+                        <ReviewSummaryPanel
+                          key={`summary-${feedbackDetailRendered.summaryAgentId}`}
+                          parentAgentId={feedbackDetailRendered.parentAgentId}
+                          agent={summaryAgent}
+                          onClose={() => setFeedbackDetail(null)}
+                        />
+                      ) : null;
+                    })()
+                  ) : (
+                    <FeedbackDetailPanel
+                      key={feedbackDetailRendered.parentAgentId}
+                      parentAgentId={feedbackDetailRendered.parentAgentId}
+                      itemId={feedbackDetailRendered.itemId}
+                      isConnected={connectedAgentId === feedbackDetailRendered.parentAgentId}
+                      sendTerminalInput={sendTerminalInput}
+                      onClose={() => setFeedbackDetail(null)}
+                      onNavigate={(itemId) => setFeedbackDetail((prev) => prev ? { ...prev, itemId } : null)}
+                    />
+                  )
+                ) : null}
+              </div>
+            ) : null}
+
+            {isMobile && !jobsOpen ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
+
+            {!jobsOpen ? (
+              <StatusFooter
+                apiState={apiState}
+                dbState={dbState}
+                serviceDotClass={serviceDotClass}
+              />
+            ) : null}
+          </div>
+        </main>
+
+        {!jobsOpen ? (
+        <div className="hidden shrink-0 md:block">
+          <MediaSidebar
+            mediaOpen={mediaOpen && hasActiveAgent}
+            mediaFiles={mediaFiles}
+            selectedAgentId={focusedAgentId}
+            selectedAgentName={focusedAgent?.name ?? null}
+            selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
+            selectedAgentPins={focusedAgent?.pins ?? []}
+            animatingMediaKeys={animatingMediaKeys}
+            unseenMediaCount={unseenMediaCount}
+            mediaViewportRef={mediaViewportRef}
+            setMediaOpen={setMediaOpen}
+            hasStream={focusedAgentHasStream}
+            streamUrl={focusedAgentStreamUrl}
+            openLightbox={openLightbox}
+          />
+        </div>
+        ) : null}
+      </div>
+
+      {isMobile && !jobsOpen ? (
+        <MobileSlidePanel
+          open={mobileLeftOpen}
+          side="left"
+          label="Agent sidebar"
+          onOpenChange={(open) => {
+            if (open) setMobileMediaOpen(false);
+            setMobileLeftOpen(open);
+          }}
+        >
+          <AgentSidebarContent
+            agents={agents}
+            selectedAgentId={validatedSelectedAgentId}
+            expandedAgentId={expandedAgentId}
+            overflowAgentId={overflowAgentId}
+            onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
+            enabledAgentTypes={enabledAgentTypes}
+            lastUsedAgentType={lastUsedAgentType}
+            onOpenDocs={() => { setMobileLeftOpen(false); openDocs(); }}
+            onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
+            onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
+            onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
+            setOverflowAgentId={setOverflowAgentId}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setStopConfirmOpen(open); }}
+            agentVisualState={agentVisualState}
+            borderForAgentState={borderForAgentState}
+            toggleAgentDetails={toggleAgentDetails}
+            isFullAccessEnabled={isFullAccessEnabled}
+            detachTerminal={detachAndClearSelection}
+            attachToAgent={attachToAgent}
+            startAgent={startAgent}
+            sendTerminalInput={sendTerminalInput}
+            connectedAgentId={connectedAgentId}
+            closeOnSessionAction={true}
+            onRequestClose={() => setMobileLeftOpen(false)}
+          />
+        </MobileSlidePanel>
+      ) : null}
+
+      {isMobile && !jobsOpen ? (
+        <MobileSlidePanel
+          open={mobileMediaOpen}
+          side="right"
+          label="Media sidebar"
+          onOpenChange={(open) => {
+            if (open) setMobileLeftOpen(false);
+            setMobileMediaOpen(open);
+          }}
+        >
+            <MediaSidebarContent
+              mediaFiles={mediaFiles}
+              selectedAgentId={focusedAgentId}
+              selectedAgentName={focusedAgent?.name ?? null}
+              selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
+              selectedAgentPins={focusedAgent?.pins ?? []}
+              animatingMediaKeys={animatingMediaKeys}
+              unseenMediaCount={unseenMediaCount}
+              mediaViewportRef={mediaViewportRef}
+              hasStream={focusedAgentHasStream}
+              streamUrl={focusedAgentStreamUrl}
+              openLightbox={openLightbox}
+              onRequestClose={() => setMobileMediaOpen(false)}
+            />
+        </MobileSlidePanel>
+      ) : null}
+
+      <CreateAgentDialog
+        open={createOpen}
+        createName={createName}
+        createType={createType}
+        createCwd={createCwd}
+        createFullAccess={createFullAccess}
+        createUseWorktree={createUseWorktree}
+        createWorktreeBranch={createWorktreeBranch}
+        createBaseBranch={createBaseBranch}
+        creating={creating}
+        cwdHistory={cwdHistory}
+        enabledAgentTypes={enabledAgentTypes}
+        setOpen={setCreateOpen}
+        setCreateName={setCreateName}
+        setCreateType={setCreateType}
+        setCreateCwd={setCreateCwd}
+        setCreateFullAccess={setCreateFullAccess}
+        setCreateUseWorktree={setCreateUseWorktree}
+        setCreateWorktreeBranch={setCreateWorktreeBranch}
+        setCreateBaseBranch={setCreateBaseBranch}
+        onSubmit={handleCreateAgent}
+        onRemoveCwdHistory={handleRemoveCwdHistory}
+      />
+
+      <DeleteAgentDialog
+        open={deleteConfirmOpen}
+        deleteTarget={deleteTarget}
+        setOpen={setDeleteConfirmOpen}
+        setDeleteTarget={setDeleteTarget}
+        onDelete={deleteAgent}
+      />
+
+      <StopAgentDialog
+        open={stopConfirmOpen}
+        stopTarget={stopTarget}
+        setOpen={setStopConfirmOpen}
+        setStopTarget={setStopTarget}
+        onStop={stopAgent}
+      />
+
+      <DocsPane
+        open={docsOpen}
+        onClose={closeOverlay}
+        initialSection={docsSection}
+        onSectionChange={(section) => navigate(section ? `/docs/${section}` : "/docs", { replace: true })}
+      />
+      {activityOpen ? (
+        <ActivityPane
+          open={true}
+          onClose={closeOverlay}
+          initialTab={activityTab}
+          onTabChange={(tab) => navigate(`/activity/${tab}`, { replace: true })}
+        />
+      ) : null}
+      <SettingsPane
+        open={settingsOpen}
+        onClose={closeOverlay}
+        onLogout={handleLogout}
+        theme={theme}
+        setTheme={setTheme}
+        iconColor={iconColor}
+        setIconColor={setIconColor}
+        isIconColorSaving={isIconColorSaving}
+        iconColorError={iconColorError}
+        clearIconColorError={clearIconColorError}
+        enabledAgentTypes={enabledAgentTypes}
+        onEnabledAgentTypesChange={setEnabledAgentTypes}
+        initialSection={settingsSection}
+        onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
+      />
+
+      <MediaLightbox
+        item={lightboxItem}
+        currentIndex={lightboxIndex}
+        totalItems={mediaFiles.length}
+        setLightboxIndex={setLightboxIndex}
+      />
+
+      <div className="sr-only" aria-live="polite">
+        {statusMessage}
+      </div>
+    </div>
+  );
+}
+
+function AgentsWorkspace({
+  children,
+  onUnmount,
+}: {
+  children: React.ReactNode;
+  onUnmount: () => void;
+}): JSX.Element {
+  useEffect(() => {
+    return () => {
+      onUnmount();
+    };
+  }, [onUnmount]);
+
+  return <>{children}</>;
+}

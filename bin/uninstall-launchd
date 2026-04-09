@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLIST="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+
+if [[ ! -f "$PLIST" ]]; then
+  echo "launchd service is not installed"
+  exit 0
+fi
+
+launchctl unload "$PLIST" 2>/dev/null || true
+rm "$PLIST"
+
+echo "uninstalled Dispatch launchd service"

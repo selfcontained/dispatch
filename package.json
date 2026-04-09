@@ -1,0 +1,49 @@
+{
+  "name": "dispatch",
+  "version": "0.11.6",
+  "private": true,
+  "description": "Local-first control plane for remote Codex CLI agents with simulator media",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @dispatch/server dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @dispatch/web build",
+    "check:web": "pnpm --filter @dispatch/web check",
+    "lint:web": "pnpm --filter @dispatch/web lint",
+    "finalize:web": "pnpm run check:web && pnpm run build:web",
+    "start": "pnpm --filter @dispatch/server start",
+    "release": "bin/dispatch-server update",
+    "db:migrate": "pnpm --filter @dispatch/server db:migrate",
+    "check": "pnpm --filter @dispatch/shared build && pnpm --filter @dispatch/server check && pnpm run check:web",
+    "test": "pnpm --filter @dispatch/server test",
+    "test:watch": "pnpm --filter @dispatch/server test:watch",
+    "test:e2e": "bash scripts/e2e-isolated.sh",
+    "prepare": "husky"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "node-pty",
+      "sharp"
+    ]
+  },
+  "lint-staged": {
+    "apps/web/src/**/*.{ts,tsx}": [
+      "eslint --config apps/web/eslint.config.js"
+    ],
+    "**/*.{ts,tsx}": [
+      "bash -c 'pnpm run check'"
+    ]
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "playwright": "^1.54.2",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3"
+  }
+}
