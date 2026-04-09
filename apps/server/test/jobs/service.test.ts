@@ -32,6 +32,33 @@ const mockConfig = {
   port: 6767,
 } as import("../../src/config.js").AppConfig;
 
+function makeJob(store: JobStore, overrides: { name: string; directory: string; prompt?: string | null; schedule?: string | null }) {
+  return store.createJob({
+    name: overrides.name,
+    directory: overrides.directory,
+    prompt: overrides.prompt !== undefined ? overrides.prompt : "Test prompt",
+    schedule: overrides.schedule ?? null,
+    timeoutMs: 30_000,
+    needsInputTimeoutMs: 30_000,
+    fullAccess: false,
+    agentType: "claude",
+    useWorktree: false,
+    branchName: null,
+    enabled: false,
+  });
+}
+
+function makeRunConfig(name: string) {
+  return {
+    directory: "/tmp/test",
+    name,
+    schedule: null,
+    timeoutMs: 30_000,
+    needsInputTimeoutMs: 30_000,
+    notify: { onComplete: [], onError: [], onNeedsInput: [] },
+  };
+}
+
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
@@ -64,19 +91,8 @@ describe("JobService", () => {
         events.push(`third:${run.status}`);
       });
 
-      // Insert a job and run, then complete it to trigger callbacks
       const store = new JobStore(pool);
-      const job = await store.upsertJobFromDefinition({
-        name: "cb-test",
-        schedule: null,
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "Test prompt",
-        directory: "/tmp/test-cb",
-        filePath: "/tmp/test-cb/.dispatch/jobs/cb-test.md",
-      });
+      const job = await makeJob(store, { name: "cb-test", directory: "/tmp/test-cb" });
 
       // Create a real agent record to satisfy FK constraint
       const agentId = `agt_cb_${Date.now()}`;
@@ -86,16 +102,7 @@ describe("JobService", () => {
         [agentId]
       );
 
-      const run = await store.createRun(job.id, {
-        directory: "/tmp/test-cb",
-        filePath: "/tmp/test-cb/.dispatch/jobs/cb-test.md",
-        name: "cb-test",
-        schedule: null,
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        triggerSource: "manual",
-      });
+      const run = await store.createRun(job.id, makeRunConfig("cb-test"));
       await store.attachAgent(run.id, agentId);
 
       // completeRunForAgent triggers emitRunStateChange
@@ -121,16 +128,10 @@ describe("JobService", () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       const store = new JobStore(pool);
 
-      const job = await store.upsertJobFromDefinition({
+      const job = await makeJob(store, {
         name: "sched-test",
-        schedule: "0 */6 * * *",
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "Scheduled job",
         directory: "/tmp/test-sched",
-        filePath: "/tmp/test-sched/.dispatch/jobs/sched-test.md",
+        schedule: "0 */6 * * *",
       });
       await store.updateJobConfig(job.id, { enabled: true });
 
@@ -142,7 +143,6 @@ describe("JobService", () => {
     });
 
     it("startSchedulers is safe to call with no jobs", async () => {
-      // Use a fresh service that won't see jobs from other tests
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       await service.startSchedulers();
       service.stopAllSchedulers();
@@ -152,10 +152,7 @@ describe("JobService", () => {
   describe("reconcileActiveRuns", () => {
     it("starts monitors for active runs without crashing", async () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
-
-      // Should handle empty list gracefully
       await service.reconcileActiveRuns();
-
       service.stopAllSchedulers();
     });
   });
@@ -165,16 +162,10 @@ describe("JobService", () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       const store = new JobStore(pool);
 
-      const job = await store.upsertJobFromDefinition({
+      const job = await makeJob(store, {
         name: "next-run-test",
-        schedule: "0 12 * * *",
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "Test",
         directory: "/tmp/test-nextrun",
-        filePath: "/tmp/test-nextrun/.dispatch/jobs/next-run-test.md",
+        schedule: "0 12 * * *",
       });
       await store.updateJobConfig(job.id, { enabled: true });
 
@@ -182,7 +173,6 @@ describe("JobService", () => {
       const found = jobs.find((j) => j.name === "next-run-test");
       expect(found).toBeDefined();
       expect(found!.nextRun).toBeTruthy();
-      // Verify it's a valid ISO date
       expect(new Date(found!.nextRun!).getTime()).toBeGreaterThan(Date.now());
 
       service.stopAllSchedulers();
@@ -192,16 +182,10 @@ describe("JobService", () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       const store = new JobStore(pool);
 
-      const job = await store.upsertJobFromDefinition({
+      const job = await makeJob(store, {
         name: "disabled-test",
-        schedule: "0 12 * * *",
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "Test",
         directory: "/tmp/test-disabled",
-        filePath: "/tmp/test-disabled/.dispatch/jobs/disabled-test.md",
+        schedule: "0 12 * * *",
       });
       await store.updateJobConfig(job.id, { enabled: false });
 
@@ -219,16 +203,10 @@ describe("JobService", () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       const store = new JobStore(pool);
 
-      await store.upsertJobFromDefinition({
+      const job = await makeJob(store, {
         name: "no-prompt",
-        schedule: null,
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "",
         directory: "/tmp/test-noprompt",
-        filePath: "/tmp/test-noprompt/.dispatch/jobs/no-prompt.md",
+        prompt: null,
       });
 
       await expect(
@@ -238,33 +216,17 @@ describe("JobService", () => {
       service.stopAllSchedulers();
     });
 
+
     it("removeJob throws when job has active run", async () => {
       const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
       const store = new JobStore(pool);
 
-      const job = await store.upsertJobFromDefinition({
+      const job = await makeJob(store, {
         name: "active-run-test",
-        schedule: null,
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        fullAccess: false,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        body: "Some prompt",
         directory: "/tmp/test-activerun",
-        filePath: "/tmp/test-activerun/.dispatch/jobs/active-run-test.md",
       });
 
-      // Create a run that stays in started status
-      await store.createRun(job.id, {
-        directory: "/tmp/test-activerun",
-        filePath: "/tmp/test-activerun/.dispatch/jobs/active-run-test.md",
-        name: "active-run-test",
-        schedule: null,
-        timeoutMs: 30_000,
-        needsInputTimeoutMs: 30_000,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        triggerSource: "manual",
-      });
+      await store.createRun(job.id, makeRunConfig("active-run-test"));
 
       await expect(
         service.removeJob({ name: "active-run-test", directory: "/tmp/test-activerun" })
