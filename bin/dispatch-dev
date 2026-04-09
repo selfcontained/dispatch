@@ -254,8 +254,9 @@ cmd_up() {
   DEV_API_PID="$(cat "$(log_dir)/api.pid")"
   echo "API server starting on port ${DEV_API_PORT} (PID ${DEV_API_PID})"
 
-  # Brief liveness check — wait up to 10s for the port to open
+  # Liveness check — wait up to 10s for the port, then verify /health
   local attempts=0
+  local port_open=0
   while [ $attempts -lt 20 ]; do
     if ! pid_alive "$DEV_API_PID"; then
       echo "Error: API server exited immediately. Last log lines:" >&2
@@ -263,11 +264,29 @@ cmd_up() {
       exit 1
     fi
     if node -e "const s=require('net').createConnection({host:'127.0.0.1',port:${DEV_API_PORT}},()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))" 2>/dev/null; then
+      port_open=1
       break
     fi
     attempts=$((attempts + 1))
     sleep 0.5
   done
+
+  # Verify the API is actually healthy, not just listening
+  if [ "$port_open" = "1" ]; then
+    local health_attempts=0
+    while [ $health_attempts -lt 10 ]; do
+      if curl -fsS -m 2 "http://127.0.0.1:${DEV_API_PORT}/api/v1/health" >/dev/null 2>&1; then
+        break
+      fi
+      if ! pid_alive "$DEV_API_PID"; then
+        echo "Error: API server crashed during startup. Last log lines:" >&2
+        tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+        exit 1
+      fi
+      health_attempts=$((health_attempts + 1))
+      sleep 1
+    done
+  fi
 
   # --- Vite Frontend ---
   DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
