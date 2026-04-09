@@ -38,13 +38,19 @@ describe("port safety config", () => {
     ).toThrow("Refusing to bind to production port 6767");
   });
 
+  it("refuses production port 6767 from a dev server context", () => {
+    expect(() =>
+      assertSafePortConfig({ port: 6767 }, { DISPATCH_SESSION_PREFIX: "dispatch_dev" })
+    ).toThrow("Refusing to bind to production port 6767");
+  });
+
   it("allows non-production ports from an agent context", () => {
     expect(() =>
       assertSafePortConfig({ port: 9123 }, { DISPATCH_AGENT_ID: "agt_test" })
     ).not.toThrow();
   });
 
-  it("allows production port outside agent context", () => {
+  it("allows production port outside agent/dev context", () => {
     expect(() =>
       assertSafePortConfig({ port: 6767 }, {})
     ).not.toThrow();

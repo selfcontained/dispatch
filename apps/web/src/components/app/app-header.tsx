@@ -1,6 +1,7 @@
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { BookOpenText, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,7 @@ type AppHeaderProps = {
   unseenMediaCount: number;
   setLeftOpen: (open: boolean) => void;
   setMediaOpen: (open: boolean) => void;
+  onOpenDocs: () => void;
 };
 
 export function AppHeader({
@@ -24,6 +26,7 @@ export function AppHeader({
   unseenMediaCount,
   setLeftOpen,
   setMediaOpen,
+  onOpenDocs,
 }: AppHeaderProps): JSX.Element {
   const { iconColor } = useIconColor();
   const showLeftToggle = isMobile ? !leftOpen : !leftOpen;
@@ -58,6 +61,22 @@ export function AppHeader({
       </div>
 
       <div className="ml-3 flex shrink-0 items-center gap-1">
+        <TooltipProvider delayDuration={120}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={onOpenDocs}
+                data-testid="docs-button"
+                title="Documentation"
+              >
+                <BookOpenText className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Documentation</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {showMediaToggle ? (
           <Button
             size="icon"
