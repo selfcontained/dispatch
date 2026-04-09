@@ -59,7 +59,6 @@ export type JobRun = {
   report: JobReport | null;
   config: {
     directory: string;
-    filePath: string;
     name: string;
     schedule: string | null;
     timeoutMs: number;

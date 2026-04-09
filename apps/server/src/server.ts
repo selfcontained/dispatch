@@ -907,7 +907,7 @@ const CreateJobBodySchema = z.object({
   enabled: z.boolean().optional(),
 });
 const UpdateJobBodySchema = JobIdSchema.extend({
-  name: z.string().optional(),
+  name: z.string().min(1).optional(),
   prompt: z.string().nullable().optional(),
   schedule: z.string().nullable().optional(),
   timeoutMs: z.number().int().positive().optional(),

@@ -62,7 +62,6 @@ export type JobWithLatestRun = JobRecord & {
 
 export type JobRunConfig = {
   directory: string;
-  filePath: string;
   name: string;
   schedule: string | null;
   timeoutMs: number;

@@ -31,7 +31,7 @@ describe("JobStore", () => {
     });
     const run = await store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
+
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,
@@ -40,7 +40,7 @@ describe("JobStore", () => {
     });
     await expect(store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
+
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,
@@ -85,7 +85,7 @@ describe("JobStore", () => {
 
     const rerun = await store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
+
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,

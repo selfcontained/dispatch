@@ -7,7 +7,7 @@ import { Cron } from "croner";
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { JobStore, type CreateJobInput, type JobAgentType, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
+import { JobStore, type CreateJobInput, type JobConfigUpdate, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
 import { getNextRun, validateCronExpression, validateCronInterval } from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
@@ -18,22 +18,7 @@ type RunJobInput = {
   triggerSource?: "manual" | "scheduled";
 };
 
-export type AddJobInput = CreateJobInput;
-
-export type UpdateJobInput = {
-  id: string;
-  name?: string;
-  prompt?: string | null;
-  schedule?: string | null;
-  timeoutMs?: number;
-  needsInputTimeoutMs?: number;
-  agentType?: JobAgentType;
-  useWorktree?: boolean;
-  branchName?: string | null;
-  fullAccess?: boolean;
-  additionalInstructions?: string | null;
-  enabled?: boolean;
-};
+export type UpdateJobInput = { id: string } & JobConfigUpdate;
 
 export type RunJobResult = {
   jobId: string;
@@ -174,7 +159,7 @@ export class JobService {
     return await this.store.logForAgent(agentId, input);
   }
 
-  async createJob(input: AddJobInput): Promise<JobRecord> {
+  async createJob(input: CreateJobInput): Promise<JobRecord> {
     if (!input.name?.trim()) {
       throw new Error("Job name is required.");
     }
@@ -194,8 +179,19 @@ export class JobService {
     }
 
     const job = await this.store.createJob({
-      ...input,
+      name: input.name,
+      directory: input.directory,
+      prompt: input.prompt,
       schedule,
+      timeoutMs: input.timeoutMs,
+      needsInputTimeoutMs: input.needsInputTimeoutMs,
+      notify: input.notify,
+      fullAccess: input.fullAccess,
+      agentType: input.agentType,
+      useWorktree: input.useWorktree,
+      branchName: input.branchName,
+      additionalInstructions: input.additionalInstructions,
+      enabled: input.enabled,
     });
     if (job.enabled && job.schedule) {
       this.scheduleJob(job);
@@ -521,7 +517,6 @@ function buildAgentArgs(agentType: JobRecord["agentType"], prompt: string, fullA
 function buildRunConfig(job: JobRecord, triggerSource: "manual" | "scheduled"): JobRunConfig {
   return {
     directory: job.directory,
-    filePath: job.filePath ?? "",
     name: job.name,
     schedule: job.schedule,
     timeoutMs: job.timeoutMs ?? DEFAULT_TIMEOUT_MS,

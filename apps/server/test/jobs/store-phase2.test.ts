@@ -29,7 +29,6 @@ const createInput = {
 
 const runConfig = {
   directory: createInput.directory,
-  filePath: "",
   name: createInput.name,
   schedule: createInput.schedule,
   timeoutMs: createInput.timeoutMs!,
