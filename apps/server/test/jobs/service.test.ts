@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "../db/setup.js";
@@ -39,6 +39,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await teardownTestDb();
+});
+
+beforeEach(async () => {
+  await pool.query("DELETE FROM job_runs");
+  await pool.query("DELETE FROM jobs");
+  await pool.query("DELETE FROM agents WHERE id LIKE 'agt_cb_%'");
+  vi.mocked(mockLog.warn).mockClear();
 });
 
 describe("JobService", () => {

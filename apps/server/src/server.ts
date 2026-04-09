@@ -96,7 +96,9 @@ jobService.onRunStateChange((run) => {
   // Auto-archive job agents when the run reaches a terminal state.
   // needs_input is excluded — user may need to interact with the agent.
   if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
-    void autoArchiveJobAgent(run.agentId);
+    void autoArchiveJobAgent(run.agentId).catch((err) => {
+      app.log.warn({ err, agentId: run.agentId }, "Auto-archive of job agent failed");
+    });
   }
 });
 // Suppress agent-level Slack notifications for job agents (job notifier handles those).
