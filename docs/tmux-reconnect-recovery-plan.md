@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Terminal reconnect recovery improvements have been implemented — see the current codebase for authoritative behavior.
+
 # Tmux Reconnect Recovery Plan
 
 ## Problem Summary

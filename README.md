@@ -23,12 +23,24 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 - Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode) remotely.
 - Persist each agent in `tmux` so browser disconnects do not kill work.
-- Give each agent an isolated iOS Simulator device assignment.
+- Git worktree isolation for parallel agent work on separate branches.
+- MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
+- Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery (`.dispatch/jobs/`).
+- Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`).
+- GitHub integration — PR creation and CI status checks via MCP tools.
+- Slack notifications with focus-aware suppression.
+- Activity analytics — heatmaps, daily status charts, working time by project.
+- Token usage tracking by day, project, and model.
+- Agent history with soft-delete preservation, filtering, and per-agent detail views.
+- Release management — cut releases, deploy tags, and self-update from the UI.
+- Theming with multiple color themes and per-theme terminal palettes.
 - Browser UI with:
   - interactive terminal access (xterm.js over WebSocket)
   - agent lifecycle controls (create, start, stop, delete)
-  - media pane for screenshots/video
+  - media pane for screenshots, video, and live Playwright browser streaming
   - real-time agent status events via SSE
+  - agent pins for surfacing key info (URLs, ports, PRs, files) in the sidebar
+  - iOS Simulator device assignment per agent
 
 ## Prerequisites
 
@@ -129,33 +141,67 @@ curl -s -X POST $(bin/dispatch-dev url)/api/v1/agents \
 
 For setting up Dispatch as a persistent service on a dedicated machine, see [docs/12-new-machine-setup.md](docs/12-new-machine-setup.md). That guide covers macOS with launchd. For Linux, the Quick Install prompt above provides systemd instructions that an agent can follow.
 
-## Media Sharing
+## MCP Tools
 
-Agents share screenshots and media with the Dispatch UI via the `dispatch_share` MCP tool, which is automatically available to every agent through the Dispatch MCP server:
+Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. These tools are available automatically — no configuration needed:
 
-- `dispatch_share` with `filePath` and `description` — publish a Playwright screenshot
-- `dispatch_share` with `source: "simulator"` and `description` — capture and publish an iOS Simulator screenshot
+| Tool | Description |
+|------|-------------|
+| `dispatch_event` | Report agent status (working, blocked, waiting_user, done, idle) |
+| `dispatch_pin` | Surface key info in the sidebar (URLs, ports, PRs, files) |
+| `dispatch_share` | Upload screenshots and media to the agent's media pane |
+| `dispatch_feedback` | Submit structured review findings (severity, file refs, suggestions) |
+| `dispatch_get_feedback` | Retrieve feedback findings for review |
+| `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored |
+| `dispatch_launch_persona` | Launch a persona child agent for automated review |
+| `create_pr` | Create a GitHub pull request |
+| `get_pr_status` | Check PR CI status and reviews |
 
-These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically). The browser Media panel auto-refreshes to show new images.
+Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`.
+
+Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo.` prefix.
+
+These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically).
 
 ## Operations
 
 - Release flow (build + restart + health check): `bin/dispatch-server update`
 - Deploy a tag to production: `bin/dispatch-deploy --latest` or `bin/dispatch-deploy v0.2.30`
 - Cut a new release: `bin/dispatch-release patch|minor|major`
-- Interactive debug mode: `bin/dispatch-server start|stop|status|logs|attach`
+- Service management: `bin/dispatch-server start|stop|restart|status|logs|build`
 
 ## Docs
 
-- [Product Requirements](docs/01-product-requirements.md)
-- [System Architecture](docs/02-system-architecture.md)
-- [API Specification](docs/03-api-spec.md)
-- [Agent Lifecycle Model](docs/04-agent-lifecycle.md)
-- [Simulator Isolation Strategy](docs/05-simulator-strategy.md)
-- [Security Model](docs/06-security.md)
-- [Implementation Plan](docs/07-implementation-plan.md)
-- [New Machine Setup](docs/12-new-machine-setup.md)
-- [Operations Runbook](docs/10-operations-runbook.md)
+### Current
+
+- [API Specification](docs/03-api-spec.md) — complete API endpoint reference
+- [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
+- [Current State Handoff](docs/08-current-state-handoff.md) — comprehensive project overview for new contributors
+- [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
+- [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
+- [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
+- [Agent-Scoped MCP and Dev Stack](docs/13-agent-scoped-mcp-and-dev-stack-plan.md) — MCP architecture, repo tools, lifecycle hooks
+- [Theming](docs/14-theming.md) — how to add and customize color themes
+- [Personas and Feedback](docs/15-personas-and-feedback.md) — automated code review via persona agents
+- [Notifications](docs/16-notifications.md) — Slack webhook integration
+- [Jobs Feature Spec](docs/jobs-feature-spec.md) — scheduled agent tasks with structured reporting
+
+### Historical Planning Docs
+
+These documents were planning artifacts for features that have since been implemented. They may provide useful architectural context but the codebase is the authoritative source for current behavior.
+
+- [Product Requirements](docs/01-product-requirements.md) — original MVP requirements
+- [System Architecture](docs/02-system-architecture.md) — original architecture design
+- [Simulator Isolation Strategy](docs/05-simulator-strategy.md) — simulator reservation design
+- [Security Model](docs/06-security.md) — original security model
+- [Implementation Plan](docs/07-implementation-plan.md) — original phased implementation plan
+- [Agent Attention Phase 2](docs/09-agent-attention-phase-2.md) — attention indicator planning
+- [Activity Metrics Roadmap](docs/activity-metrics-roadmap.md) — analytics feature roadmap
+- [Auth Test Plan](docs/auth-test-plan.md) — authentication testing checklist
+- [DB-Backed Media Store Plan](docs/db-backed-media-store-plan.md) — media store migration plan
+- [Playwright Streaming Plan](docs/playwright-streaming-plan.md) — live browser streaming design
+- [Stream Capture Plan](docs/stream-capture-plan.md) — stream end-frame capture design
+- [Tmux Reconnect Recovery Plan](docs/tmux-reconnect-recovery-plan.md) — terminal reconnect optimization
 
 ## Issue Tracking
 

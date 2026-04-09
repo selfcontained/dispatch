@@ -26,6 +26,7 @@ dispatch/                        # pnpm monorepo
 │   │       ├── server.ts        # All route registrations (71+ endpoints)
 │   │       ├── agents/          # Agent manager, lifecycle, token harvesting
 │   │       ├── db/              # PostgreSQL migrations and queries
+│   │       ├── jobs/            # Job scheduler, runner, reporting
 │   │       ├── notifications/   # Slack notifier
 │   │       ├── personas/        # Persona loader
 │   │       ├── streaming/       # CDP-based screen streaming
@@ -41,7 +42,7 @@ dispatch/                        # pnpm monorepo
 │           ├── github/          # PR operations
 │           ├── mcp/             # MCP server, repo tools, built-in tools
 │           └── lib/             # run-command utility
-├── e2e/                         # Playwright E2E tests (15 spec files)
+├── e2e/                         # Playwright E2E tests (16 spec files)
 ├── bin/                         # CLI tools
 └── docs/                        # Documentation
 ```
@@ -68,6 +69,8 @@ dispatch/                        # pnpm monorepo
 | `media_seen` | Tracks which media items have been viewed |
 | `sessions` | Authentication sessions with expiration |
 | `settings` | Key-value store for app settings |
+| `jobs` | Job definitions with schedule, config, directory, and enabled state |
+| `job_runs` | Job execution history with status, reports, and agent references |
 
 Migrations run automatically on API server start.
 
@@ -100,12 +103,12 @@ Three agent CLIs are supported, each configurable via Settings:
 
 | `create_pr` | Open GitHub pull request |
 | `get_pr_status` | Check PR CI status and reviews |
-
-
 | `dispatch_event` | Report agent status |
+| `dispatch_pin` | Surface key info in the sidebar (URLs, ports, PRs, files) |
 | `dispatch_share` | Upload media to session |
 | `dispatch_feedback` | Submit structured finding |
 | `dispatch_get_feedback` | Retrieve feedback findings |
+| `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored |
 | `dispatch_launch_persona` | Launch persona child agent |
 
 ### Repo Tools
@@ -141,6 +144,14 @@ The `stop` hook in `.dispatch/tools.json` runs when an agent is stopped (e.g., t
 - Live Playwright browser streaming via CDP/MJPEG
 - Media sidebar with lightbox and seen/unseen tracking
 
+### Jobs
+- Scheduled, repo-scoped agent tasks defined in `.dispatch/jobs/*.md`
+- Cron-based scheduling with manual trigger support
+- Structured reporting via `job_complete` / `job_failed` / `job_needs_input` / `job_log` MCP tools
+- Run history with per-task status and error details
+- Interactive recovery when agent needs human input
+- See `jobs-feature-spec.md`
+
 ### History
 - Soft-deleted agents preserved for history
 - Paginated agent history with project/type filtering
@@ -154,11 +165,12 @@ The `stop` hook in `.dispatch/tools.json` runs when an agent is stopped (e.g., t
 | `dispatch-server` | Launch the production server |
 | `dispatch-deploy` | Deployment automation |
 | `dispatch-release` | Release management |
-| `dispatch-share` | CLI for sharing media to agent sessions |
-| `dispatch-event` | CLI for reporting agent status events |
+| `dispatch-share` | CLI for sharing media to agent sessions (legacy — agents should use MCP tools) |
+| `dispatch-event` | CLI for reporting agent status events (legacy — agents should use MCP tools) |
 | `dispatch-stream` | CLI for managing screen streams |
 | `dispatch-launchd-wrapper` | macOS launchd service wrapper |
 | `install-launchd` / `uninstall-launchd` | Register/unregister as macOS service |
+| `pack-release` | Build release tarballs for deployments without rebuilding |
 | `preflight` | Pre-launch validation |
 
 ## API Surface

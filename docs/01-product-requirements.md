@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. The MVP has been implemented and the product has evolved significantly beyond these original requirements — see the current codebase and [08-current-state-handoff.md](08-current-state-handoff.md) for authoritative behavior.
+
 # Product Requirements (MVP)
 
 ## Problem

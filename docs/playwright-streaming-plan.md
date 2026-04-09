@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Playwright browser streaming has been implemented — see the current codebase for authoritative behavior.
+
 # Playwright Browser Streaming — Implementation Plan
 
 ## Overview

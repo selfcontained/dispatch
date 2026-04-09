@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Agent attention is now driven by the `dispatch_event` MCP tool with status events (working, blocked, waiting_user, done, idle) — see the current codebase for authoritative behavior.
+
 # Agent Attention Phase 2 Plan
 
 This doc describes how to expand Dispatch agent attention from the current narrow error-state signal into a backend-backed attention model that can represent detached activity and richer Dispatch-owned events without changing the UI contract.

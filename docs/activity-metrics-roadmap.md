@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. The core activity metrics and token tracking described in the "Shipped" section have been implemented. The follow-on items may or may not still be relevant — check the current codebase for authoritative behavior.
+
 # Activity Metrics Roadmap
 
 High-level plan for expanding Dispatch's activity tracking and usage metrics.

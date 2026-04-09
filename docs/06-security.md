@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact from the original MVP design. Authentication has been implemented with password-based login, cookie sessions, and Bearer token auth — see the current codebase for authoritative behavior.
+
 # Security Model (MVP)
 
 ## Threat Model

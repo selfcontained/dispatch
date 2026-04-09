@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. The DB-backed media store has been implemented — see the current codebase for authoritative behavior.
+
 # DB-Backed Media Store — Implementation Plan
 
 ## Overview
