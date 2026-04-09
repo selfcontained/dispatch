@@ -28,7 +28,6 @@ export type Job = {
   id: string;
   directory: string;
   name: string;
-  filePath: string | null;
   schedule: string | null;
   timeoutMs: number | null;
   needsInputTimeoutMs: number | null;

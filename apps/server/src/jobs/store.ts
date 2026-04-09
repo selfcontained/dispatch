@@ -18,7 +18,6 @@ export type JobRecord = {
   id: string;
   directory: string;
   name: string;
-  filePath: string | null;
   schedule: string | null;
   timeoutMs: number | null;
   needsInputTimeoutMs: number | null;
@@ -310,7 +309,6 @@ export class JobStore {
     const result = await this.pool.query(`
       SELECT
         j.id, j.directory, j.name,
-        j.file_path AS "filePath",
         j.schedule,
         j.timeout_ms AS "timeoutMs",
         j.needs_input_timeout_ms AS "needsInputTimeoutMs",
@@ -558,7 +556,6 @@ export class JobStore {
       id,
       directory,
       name,
-      file_path AS "filePath",
       schedule,
       timeout_ms AS "timeoutMs",
       needs_input_timeout_ms AS "needsInputTimeoutMs",
