@@ -17,31 +17,34 @@ afterAll(async () => {
   await teardownTestDb();
 });
 
-const definition = {
-  name: "cleanup",
+const jobDefaults = {
   schedule: "0 * * * *",
   timeoutMs: 60_000,
   needsInputTimeoutMs: 86_400_000,
   fullAccess: false,
-  notify: { onComplete: ["slack"], onError: ["slack"], onNeedsInput: [] },
-  body: "Clean things up",
-  directory: "/tmp/test-repo",
-  filePath: "/tmp/test-repo/.dispatch/jobs/cleanup.md",
+  agentType: "claude" as const,
+  useWorktree: false,
+  branchName: null,
+  enabled: false,
 };
 
 const runConfig = {
-  directory: definition.directory,
-  filePath: definition.filePath,
-  name: definition.name,
-  schedule: definition.schedule,
-  timeoutMs: definition.timeoutMs,
-  needsInputTimeoutMs: definition.needsInputTimeoutMs,
-  notify: definition.notify,
+  directory: "/tmp/test-repo",
+  name: "cleanup",
+  schedule: "0 * * * *",
+  timeoutMs: 60_000,
+  needsInputTimeoutMs: 86_400_000,
+  notify: { onComplete: ["slack"], onError: ["slack"], onNeedsInput: [] },
 };
 
 describe("JobStore Phase 2 — list, history, enable/disable", () => {
   it("listJobs returns jobs with latest run info", async () => {
-    const job = await store.upsertJobFromDefinition(definition);
+    const job = await store.createJob({
+      ...jobDefaults,
+      name: "cleanup",
+      directory: "/tmp/test-repo",
+      prompt: "Clean things up",
+    });
     const jobs = await store.listJobs();
     expect(jobs.length).toBeGreaterThanOrEqual(1);
 
@@ -53,7 +56,12 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
   });
 
   it("listJobs shows latest run after a run completes", async () => {
-    const job = await store.upsertJobFromDefinition(definition);
+    const job = await store.createJob({
+      ...jobDefaults,
+      name: "cleanup-run-test",
+      directory: "/tmp/test-repo",
+      prompt: "Clean things up",
+    });
     const run = await store.createRun(job.id, runConfig);
 
     await pool.query(
@@ -74,10 +82,11 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
   });
 
   it("listRunsForJob returns runs in descending order", async () => {
-    const job = await store.upsertJobFromDefinition({
-      ...definition,
+    const job = await store.createJob({
+      ...jobDefaults,
       name: "history-test",
-      filePath: "/tmp/test-repo/.dispatch/jobs/history-test.md",
+      directory: "/tmp/test-repo",
+      prompt: "History test prompt",
     });
 
     // Create first run and complete it
@@ -103,10 +112,11 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
   });
 
   it("setEnabled toggles enabled flag", async () => {
-    const job = await store.upsertJobFromDefinition({
-      ...definition,
+    const job = await store.createJob({
+      ...jobDefaults,
       name: "toggle-test",
-      filePath: "/tmp/test-repo/.dispatch/jobs/toggle-test.md",
+      directory: "/tmp/test-repo",
+      prompt: "Toggle test",
     });
     expect(job.enabled).toBe(false);
 
@@ -117,71 +127,69 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     expect(disabled.enabled).toBe(false);
   });
 
-  it("getJobByDirectoryAndFilePath finds job", async () => {
-    await store.upsertJobFromDefinition(definition);
-    const found = await store.getJobByDirectoryAndFilePath("/tmp/test-repo", "/tmp/test-repo/.dispatch/jobs/cleanup.md");
+  it("getJobByDirectoryAndName finds job", async () => {
+    await store.createJob({
+      ...jobDefaults,
+      name: "find-by-name",
+      directory: "/tmp/test-repo",
+      prompt: "Find me",
+    });
+    const found = await store.getJobByDirectoryAndName("/tmp/test-repo", "find-by-name");
     expect(found).toBeDefined();
-    expect(found!.name).toBe("cleanup");
+    expect(found!.name).toBe("find-by-name");
   });
 
-  it("getJobByDirectoryAndFilePath returns null for unknown", async () => {
-    const found = await store.getJobByDirectoryAndFilePath("/nonexistent", "/nonexistent/.dispatch/jobs/nope.md");
+  it("getJobByDirectoryAndName returns null for unknown", async () => {
+    const found = await store.getJobByDirectoryAndName("/nonexistent", "nope");
     expect(found).toBeNull();
   });
 
-  it("upsert stores full config on first insert", async () => {
-    const job = await store.upsertJobFromDefinition({
-      ...definition,
+  it("createJob stores full config", async () => {
+    const job = await store.createJob({
+      ...jobDefaults,
       name: "config-test",
-      filePath: "/tmp/test-repo/.dispatch/jobs/config-test.md",
+      directory: "/tmp/test-repo",
+      prompt: "Original prompt",
       schedule: "30 2 * * 1-5",
       timeoutMs: 120_000,
       needsInputTimeoutMs: 7_200_000,
-      notify: { onComplete: ["slack"], onError: ["slack"], onNeedsInput: ["slack"] },
-      body: "Original prompt",
     });
     expect(job.schedule).toBe("30 2 * * 1-5");
     expect(job.timeoutMs).toBe(120_000);
     expect(job.needsInputTimeoutMs).toBe(7_200_000);
-    expect(job.notify).toEqual({ onComplete: ["slack"], onError: ["slack"], onNeedsInput: ["slack"] });
     expect(job.prompt).toBe("Original prompt");
   });
 
-  it("upsert only updates prompt and name on conflict, preserves config", async () => {
-    // First insert seeds all config
-    await store.upsertJobFromDefinition({
-      ...definition,
-      name: "upsert-test",
-      filePath: "/tmp/test-repo/.dispatch/jobs/upsert-test.md",
+  it("updateJobConfig updates prompt and name", async () => {
+    const job = await store.createJob({
+      ...jobDefaults,
+      name: "update-test",
+      directory: "/tmp/test-repo",
+      prompt: "First prompt",
       schedule: "0 3 * * *",
       timeoutMs: 300_000,
-      body: "First prompt",
     });
 
-    // Second upsert changes prompt and name, but config should be preserved
-    const updated = await store.upsertJobFromDefinition({
-      ...definition,
-      name: "Upsert Test Renamed",
-      filePath: "/tmp/test-repo/.dispatch/jobs/upsert-test.md",
-      schedule: "*/5 * * * *",  // different schedule — should NOT overwrite
-      timeoutMs: 60_000,        // different timeout — should NOT overwrite
-      body: "Updated prompt",
+    const updated = await store.updateJobConfig(job.id, {
+      name: "Update Test Renamed",
+      prompt: "Updated prompt",
     });
 
-    expect(updated.name).toBe("Upsert Test Renamed"); // name updated
-    expect(updated.prompt).toBe("Updated prompt");     // prompt updated
-    expect(updated.schedule).toBe("0 3 * * *");        // preserved from first insert
-    expect(updated.timeoutMs).toBe(300_000);            // preserved from first insert
+    expect(updated.name).toBe("Update Test Renamed");
+    expect(updated.prompt).toBe("Updated prompt");
+    expect(updated.schedule).toBe("0 3 * * *");     // preserved
+    expect(updated.timeoutMs).toBe(300_000);          // preserved
   });
 
   it("listRunsForJob respects limit", async () => {
-    const job = await store.upsertJobFromDefinition({
-      ...definition,
+    const job = await store.createJob({
+      ...jobDefaults,
       name: "limit-test",
-      filePath: "/tmp/test-repo/.dispatch/jobs/limit-test.md",
+      directory: "/tmp/test-repo",
+      prompt: "Limit test",
     });
 
-    const run = await store.createRun(job.id, { ...runConfig, name: "limit-test" });
+    await store.createRun(job.id, { ...runConfig, name: "limit-test" });
     const runs = await store.listRunsForJob(job.id, 1);
     expect(runs.length).toBe(1);
   });

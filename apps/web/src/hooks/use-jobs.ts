@@ -28,7 +28,6 @@ export type Job = {
   id: string;
   directory: string;
   name: string;
-  filePath: string | null;
   schedule: string | null;
   timeoutMs: number | null;
   needsInputTimeoutMs: number | null;
@@ -39,7 +38,6 @@ export type Job = {
   useWorktree: boolean;
   branchName: string | null;
   fullAccess: boolean;
-  additionalInstructions: string | null;
   createdAt: string;
   updatedAt: string;
   lastRunId: string | null;
@@ -59,7 +57,6 @@ export type JobRun = {
   report: JobReport | null;
   config: {
     directory: string;
-    filePath: string;
     name: string;
     schedule: string | null;
     timeoutMs: number;
@@ -75,26 +72,11 @@ export type JobRun = {
   createdAt: string;
 };
 
-export type AvailableJob = {
-  name: string;
-  fileStem: string;
-  directory: string;
-  filePath: string;
-  schedule: string | null;
-  timeoutMs: number;
-  needsInputTimeoutMs: number;
-  fullAccess: boolean;
-  notify: JobNotifyConfig;
-  prompt: string;
-  promptPreview: string;
-  alreadyConfigured: boolean;
-  jobId: string | null;
-};
-
 export type AddJobConfig = {
   name: string;
   directory: string;
   displayName?: string;
+  prompt?: string | null;
   schedule?: string | null;
   timeoutMs?: number;
   needsInputTimeoutMs?: number;
@@ -102,28 +84,10 @@ export type AddJobConfig = {
   useWorktree?: boolean;
   branchName?: string | null;
   fullAccess?: boolean;
-  additionalInstructions?: string | null;
   enabled?: boolean;
 };
 
-export type AvailableJobsDirectory = {
-  directory: string;
-  source: "agent" | "manual";
-  jobs: AvailableJob[];
-  error: string | null;
-};
-
 type JobIdentity = Pick<Job, "name" | "directory">;
-
-function fileStemFromPath(filePath: string | null | undefined): string | null {
-  if (!filePath) return null;
-  const fileName = filePath.split("/").pop();
-  return fileName?.endsWith(".md") ? fileName.slice(0, -3) : fileName ?? null;
-}
-
-function jobIdentity(job: JobIdentity & { filePath?: string | null }) {
-  return { name: fileStemFromPath(job.filePath) ?? job.name, directory: job.directory };
-}
 
 export function useJobs(enabled = true) {
   return useQuery<Job[]>({
@@ -140,7 +104,7 @@ export function useJobHistory(job: Job | null) {
     queryKey: ["jobs", job?.directory, job?.name, "history"],
     queryFn: () => {
       if (!job) throw new Error("Job is required.");
-      const params = new URLSearchParams({ ...jobIdentity(job), limit: "50" });
+      const params = new URLSearchParams({ name: job.name, directory: job.directory, limit: "50" });
       return api(`/api/v1/jobs/history?${params.toString()}`);
     },
     enabled: !!job,
@@ -170,22 +134,6 @@ export function useJobStats(enabled = true) {
   });
 }
 
-export function useAvailableJobs(enabled: boolean, directory?: string | null, forceKey = 0) {
-  return useQuery<{ directories: AvailableJobsDirectory[] }>({
-    queryKey: ["jobs", "available", directory?.trim() ?? "", forceKey],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (directory?.trim()) params.set("directory", directory.trim());
-      if (forceKey > 0) params.set("force", "true");
-      const query = params.toString();
-      return api(`/api/v1/jobs/available${query ? `?${query}` : ""}`);
-    },
-    enabled,
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-  });
-}
-
 export function useJobActions() {
   const queryClient = useQueryClient();
   const invalidateJobs = async () => {
@@ -196,7 +144,7 @@ export function useJobActions() {
     mutationFn: (job: JobIdentity) =>
       api("/api/v1/jobs/run", {
         method: "POST",
-        body: JSON.stringify({ ...jobIdentity(job), wait: false }),
+        body: JSON.stringify({ name: job.name, directory: job.directory, wait: false }),
       }),
     onSuccess: invalidateJobs,
   });
@@ -205,25 +153,16 @@ export function useJobActions() {
     mutationFn: (job: AddJobConfig) =>
       api<Job>("/api/v1/jobs", {
         method: "POST",
-        body: JSON.stringify({
-          ...job,
-          ...jobIdentity(job),
-        }),
+        body: JSON.stringify(job),
       }),
-    onSuccess: async () => {
-      await invalidateJobs();
-      await queryClient.invalidateQueries({ queryKey: ["jobs", "available"] });
-    },
+    onSuccess: invalidateJobs,
   });
 
   const updateJob = useMutation({
     mutationFn: (job: AddJobConfig) =>
       api<Job>("/api/v1/jobs", {
         method: "PATCH",
-        body: JSON.stringify({
-          ...job,
-          ...jobIdentity(job),
-        }),
+        body: JSON.stringify(job),
       }),
     onSuccess: invalidateJobs,
   });
@@ -232,19 +171,16 @@ export function useJobActions() {
     mutationFn: (job: JobIdentity) =>
       api<Job>("/api/v1/jobs", {
         method: "DELETE",
-        body: JSON.stringify(jobIdentity(job)),
+        body: JSON.stringify({ name: job.name, directory: job.directory }),
       }),
-    onSuccess: async () => {
-      await invalidateJobs();
-      await queryClient.invalidateQueries({ queryKey: ["jobs", "available"] });
-    },
+    onSuccess: invalidateJobs,
   });
 
   const setEnabled = useMutation({
     mutationFn: ({ job, enabled }: { job: JobIdentity; enabled: boolean }) =>
       api(`/api/v1/jobs/${enabled ? "enable" : "disable"}`, {
         method: "POST",
-        body: JSON.stringify(jobIdentity(job)),
+        body: JSON.stringify({ name: job.name, directory: job.directory }),
       }),
     onSuccess: invalidateJobs,
   });

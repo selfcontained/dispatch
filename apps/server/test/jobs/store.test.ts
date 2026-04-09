@@ -18,22 +18,23 @@ afterAll(async () => {
 });
 
 describe("JobStore", () => {
-  it("upserts jobs, tracks runs, and requires terminal structured reports", async () => {
+  it("creates jobs, tracks runs, and requires terminal structured reports", async () => {
     expect(getTestDatabaseUrl()).toContain("dispatch_test_");
-    const job = await store.upsertJobFromDefinition({
+    const job = await store.createJob({
       name: "janitor",
+      directory: "/tmp/repo",
+      prompt: "Do work",
       schedule: null,
       timeoutMs: 1_000,
       needsInputTimeoutMs: 1_000,
       fullAccess: false,
-      notify: { onComplete: [], onError: [], onNeedsInput: [] },
-      body: "Do work",
-      directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md"
+      agentType: "claude",
+      useWorktree: false,
+      branchName: null,
+      enabled: false,
     });
     const run = await store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,
@@ -42,7 +43,6 @@ describe("JobStore", () => {
     });
     await expect(store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,
@@ -87,7 +87,6 @@ describe("JobStore", () => {
 
     const rerun = await store.createRun(job.id, {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/janitor.md",
       name: "janitor",
       schedule: null,
       timeoutMs: 1_000,
