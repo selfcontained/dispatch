@@ -15,7 +15,8 @@
     "dev": {
       "dependsOn": ["^build"],
       "persistent": true,
-      "cache": false
+      "cache": false,
+      "passThroughEnv": ["DISPATCH_PORT"]
     },
     "check": {
       "dependsOn": ["^build"]

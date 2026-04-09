@@ -62,14 +62,7 @@ function resolveAgentRuntime(): "tmux" | "inert" {
 }
 
 function resolvePort(): string {
-  const port = process.env.DISPATCH_PORT ?? process.env.PORT;
-  if (!port) {
-    throw new Error(
-      "DISPATCH_PORT is not set. " +
-        "Use dispatch-dev for local development, or set DISPATCH_PORT explicitly."
-    );
-  }
-  return port;
+  return process.env.DISPATCH_PORT ?? process.env.PORT ?? "3000";
 }
 
 function parsePort(value: string): number {
