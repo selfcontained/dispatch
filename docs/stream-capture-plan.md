@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Stream capture on end has been implemented — see the current codebase for authoritative behavior.
+
 # Stream Capture on End — Implementation Plan
 
 ## Overview

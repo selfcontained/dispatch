@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Agent-scoped MCP, repo tools, lifecycle hooks, and `dispatch-dev` have all been implemented — see the current codebase for authoritative behavior. The repo tools and hooks documentation below remains a useful reference for the `.dispatch/tools.json` format.
+
 # Agent-Scoped MCP And Dev Stack Plan
 
 ## Goal

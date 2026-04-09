@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. Simulator isolation has been implemented — see the current codebase for authoritative behavior.
+
 # Simulator Isolation Strategy
 
 ## Objectives

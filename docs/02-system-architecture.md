@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact from the original MVP design. The system has evolved significantly — see [08-current-state-handoff.md](08-current-state-handoff.md) for the current architecture and [03-api-spec.md](03-api-spec.md) for the current API surface.
+
 # System Architecture
 
 ## Components

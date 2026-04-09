@@ -26,8 +26,8 @@ Use this checklist for backend changes when running a single always-on tmux back
 ## Runtime and Ops
 
 1. Confirm boot path works in production mode:
-   - `npm run build`
-   - `node dist/server.js`
+   - `pnpm run build`
+   - `node apps/server/dist/server.js`
 2. Confirm tmux restart path works:
    - `bin/dispatch-server update`
 3. Confirm health endpoint remains stable:

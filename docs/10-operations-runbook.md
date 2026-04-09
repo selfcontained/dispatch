@@ -108,9 +108,9 @@ The failure log includes: timestamp, failed step, rollback status, last 50 lines
 ## CI Pipeline
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
-- Type-check (`npm run check`)
-- Lint (`npm run lint:web`)
-- Build (`npm run build`)
+- Type-check (`pnpm run check`)
+- Lint (`pnpm run lint:web`)
+- Build (`pnpm run build`)
 
 PRs must pass CI before merge.
 

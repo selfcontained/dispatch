@@ -278,6 +278,21 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 | GET | `/release/stream` | SSE stream for release operation progress |
 | GET | `/app/version` | Current app version info |
 
+## Jobs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/jobs` | List all configured jobs |
+| GET | `/jobs/available` | Discover available job definitions from known directories |
+| POST | `/jobs` | Create/register a job configuration |
+| PATCH | `/jobs` | Update a job configuration |
+| DELETE | `/jobs` | Delete a job configuration |
+| POST | `/jobs/enable` | Enable a job (registers cron schedule) |
+| POST | `/jobs/disable` | Disable a job (removes cron schedule) |
+| POST | `/jobs/run` | Manually trigger a job run |
+| GET | `/jobs/stats` | Get job run statistics |
+| GET | `/jobs/history` | Get job run history (filterable by `jobId`, `status`, `limit`, `offset`) |
+
 ## MCP (Model Context Protocol)
 
 These endpoints use the `/api/mcp` base path (not `/api/v1`).
@@ -286,6 +301,7 @@ These endpoints use the `/api/mcp` base path (not `/api/v1`).
 |--------|------|-------------|
 | POST | `/api/mcp` | Handle global MCP requests |
 | POST | `/api/mcp/:agentId` | Handle agent-scoped MCP requests with repo context |
+| POST | `/api/mcp/jobs/:runId/:agentId` | Handle job-scoped MCP requests (adds job lifecycle tools) |
 
 Agent-scoped MCP loads repo tools from `.dispatch/tools.json` in the agent's working directory.
 

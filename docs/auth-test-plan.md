@@ -1,3 +1,5 @@
+> **Note:** This document is a historical test plan. Authentication has been implemented with password-based login, cookie sessions, and Bearer token auth — see the current codebase and E2E tests for authoritative behavior.
+
 # Authentication Test Plan
 
 Covers the password gate, cookie sessions, Bearer token auth, and frontend auth flows.

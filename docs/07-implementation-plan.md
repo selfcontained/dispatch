@@ -1,3 +1,5 @@
+> **Note:** This document is a historical planning artifact. All phases described here have been implemented and the product has grown well beyond the original plan — see [08-current-state-handoff.md](08-current-state-handoff.md) for the current state.
+
 # Implementation Plan
 
 ## Phase 0: Bootstrap

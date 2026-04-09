@@ -9,6 +9,13 @@ dispatch/
 ├── apps/
 │   ├── server/                # Fastify API server (@dispatch/server)
 │   │   ├── src/               # backend source
+│   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
+│   │   │   ├── db/            # PostgreSQL migrations and queries
+│   │   │   ├── jobs/          # job scheduler, runner, reporting
+│   │   │   ├── notifications/ # Slack notifier
+│   │   │   ├── personas/      # persona loader
+│   │   │   ├── streaming/     # CDP-based screen streaming
+│   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   └── web/                   # Vite React frontend (@dispatch/web)
 │       └── src/
@@ -20,8 +27,12 @@ dispatch/
 │           ├── mcp/           # MCP server + repo tools
 │           └── lib/           # run-command utility
 ├── e2e/                       # Playwright E2E tests
-├── bin/                       # dispatch-dev, dispatch-server
-├── scripts/                   # e2e-isolated.sh
+├── bin/                       # dispatch-dev, dispatch-server, dispatch-deploy, etc.
+├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
+├── .dispatch/                 # repo-level Dispatch config
+│   ├── jobs/                  # job definitions (*.md)
+│   ├── personas/              # persona definitions (*.md)
+│   └── tools.json             # repo-specific MCP tools + lifecycle hooks
 └── docs/
 ```
 - Use `pnpm` (not npm) for all package management.
