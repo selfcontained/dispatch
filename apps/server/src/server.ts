@@ -3223,6 +3223,8 @@ process.on("unhandledRejection", (reason) => {
 });
 
 process.on("uncaughtException", async (err) => {
+  // Hard timeout: if shutdown hangs (corrupted state), force-exit after 5s
+  setTimeout(() => process.exit(1), 5_000).unref();
   app.log.error({ err }, "Uncaught exception — shutting down");
   await shutdown(1);
 });

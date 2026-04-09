@@ -466,42 +466,49 @@ export class JobStore {
   }
 
   async updateJobConfig(jobId: string, input: JobConfigUpdate): Promise<JobRecord> {
-    const result = await this.pool.query(
-      `
-      UPDATE jobs
-      SET name = COALESCE($2, name),
-          prompt = CASE WHEN $3 THEN $4 ELSE prompt END,
-          schedule = CASE WHEN $5 THEN $6 ELSE schedule END,
-          timeout_ms = COALESCE($7, timeout_ms),
-          needs_input_timeout_ms = COALESCE($8, needs_input_timeout_ms),
-          agent_type = COALESCE($9, agent_type),
-          use_worktree = COALESCE($10, use_worktree),
-          branch_name = CASE WHEN $11 THEN $12 ELSE branch_name END,
-          full_access = COALESCE($13, full_access),
-          enabled = COALESCE($14, enabled),
-          updated_at = NOW()
-      WHERE id = $1
-      RETURNING ${this.jobColumns()}
-      `,
-      [
-        jobId,
-        input.name,
-        Object.prototype.hasOwnProperty.call(input, "prompt"),
-        input.prompt ?? null,
-        Object.prototype.hasOwnProperty.call(input, "schedule"),
-        input.schedule ?? null,
-        input.timeoutMs,
-        input.needsInputTimeoutMs,
-        input.agentType,
-        input.useWorktree,
-        Object.prototype.hasOwnProperty.call(input, "branchName"),
-        input.branchName ?? null,
-        input.fullAccess,
-        input.enabled,
-      ]
-    );
-    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
-    return mapJob(result.rows[0]);
+    try {
+      const result = await this.pool.query(
+        `
+        UPDATE jobs
+        SET name = COALESCE($2, name),
+            prompt = CASE WHEN $3 THEN $4 ELSE prompt END,
+            schedule = CASE WHEN $5 THEN $6 ELSE schedule END,
+            timeout_ms = COALESCE($7, timeout_ms),
+            needs_input_timeout_ms = COALESCE($8, needs_input_timeout_ms),
+            agent_type = COALESCE($9, agent_type),
+            use_worktree = COALESCE($10, use_worktree),
+            branch_name = CASE WHEN $11 THEN $12 ELSE branch_name END,
+            full_access = COALESCE($13, full_access),
+            enabled = COALESCE($14, enabled),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING ${this.jobColumns()}
+        `,
+        [
+          jobId,
+          input.name,
+          Object.prototype.hasOwnProperty.call(input, "prompt"),
+          input.prompt ?? null,
+          Object.prototype.hasOwnProperty.call(input, "schedule"),
+          input.schedule ?? null,
+          input.timeoutMs,
+          input.needsInputTimeoutMs,
+          input.agentType,
+          input.useWorktree,
+          Object.prototype.hasOwnProperty.call(input, "branchName"),
+          input.branchName ?? null,
+          input.fullAccess,
+          input.enabled,
+        ]
+      );
+      if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+      return mapJob(result.rows[0]);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new Error(`A job named "${input.name}" already exists in this directory.`);
+      }
+      throw error;
+    }
   }
 
   async deleteJob(jobId: string): Promise<JobRecord> {
