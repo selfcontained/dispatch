@@ -1257,7 +1257,6 @@ async function registerRoutes() {
       agent,
       repoRoot,
       worktreeRoot,
-      enableBuiltinTools: false,
       toolScope: "job",
       jobTools: {
         complete: mcpJobComplete,

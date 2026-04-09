@@ -84,6 +84,51 @@ export type JobTools = {
   }>>;
 };
 
+// ── Tool sets per agent type ──────────────────────────────────────────
+// Each list defines which MCP tools are exposed to that agent type.
+// To add a tool to an agent type, just add its name here.
+const AGENT_TOOLS = new Set([
+  "create_pr",
+  "get_pr_status",
+  "dispatch_event",
+  "dispatch_pin",
+  "dispatch_share",
+  "dispatch_feedback",
+  "dispatch_launch_persona",
+  "dispatch_get_feedback",
+  "dispatch_resolve_feedback",
+]);
+
+const JOB_TOOLS = new Set([
+  "create_pr",
+  "get_pr_status",
+  "dispatch_event",
+  "dispatch_pin",
+  "dispatch_share",
+  "job_complete",
+  "job_failed",
+  "job_needs_input",
+  "job_log",
+  "list_agents",
+  "list_recent_persona_reviews",
+  "list_recent_feedback",
+]);
+
+const PERSONA_TOOLS = new Set([
+  "review_status",
+  "dispatch_pin",
+  "dispatch_share",
+  "dispatch_feedback",
+  "get_parent_context",
+]);
+
+type AgentType = "agent" | "job" | "persona";
+const TOOL_SETS: Record<AgentType, Set<string>> = {
+  agent: AGENT_TOOLS,
+  job: JOB_TOOLS,
+  persona: PERSONA_TOOLS,
+};
+
 export type PinInput = {
   label: string;
   value?: string;
@@ -153,7 +198,6 @@ export type McpRequestContext = {
     input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
   ) => Promise<void>;
   jobTools?: JobTools;
-  enableBuiltinTools?: boolean;
   toolScope?: "agent" | "reviewer" | "job";
 };
 
@@ -182,16 +226,14 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     version: "0.0.0"
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
-  const isPersona = !!context.agent?.persona;
+  const agentType: AgentType = context.agent?.persona ? "persona" : context.jobTools ? "job" : "agent";
+  const allowed = TOOL_SETS[agentType];
 
-  // ── Persona agents get a focused tool set ──────────────────────────
-  if (isPersona) {
+  // ── review_status (persona) ───────────────────────────────────────
+  if (allowed.has("review_status") && context.updateReviewStatus && context.completeReview) {
     const agentId = context.agent!.id;
-
-    // review_status — updates the persona_reviews record
-    if (context.updateReviewStatus && context.completeReview) {
-      const updateReviewStatus = context.updateReviewStatus;
-      const completeReview = context.completeReview;
+    const updateReviewStatus = context.updateReviewStatus;
+    const completeReview = context.completeReview;
 
       server.registerTool(
         "review_status",
@@ -250,62 +292,50 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       );
     }
 
-    // dispatch_pin
-    registerPinTool(server, context);
+  // ── get_parent_context (persona) ────────────────────────────────────
+  if (allowed.has("get_parent_context") && context.agent?.parentAgentId && context.getParentContext) {
+    const parentAgentId = context.agent.parentAgentId;
+    const getParentContext = context.getParentContext;
 
-    // dispatch_share
-    registerShareTool(server, context);
-
-    // dispatch_feedback
-    registerFeedbackTool(server, context);
-
-    // get_parent_context — persona-only tool to see parent's pins and media
-    if (context.agent!.parentAgentId && context.getParentContext) {
-      const parentAgentId = context.agent!.parentAgentId;
-      const getParentContext = context.getParentContext;
-
-      server.registerTool(
-        "get_parent_context",
-        {
-          description:
-            "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, " +
-            "key files, screenshots, and other context the parent agent has surfaced.",
-          inputSchema: {}
-        },
-        async () => {
-          try {
-            const result = await getParentContext(parentAgentId);
-            const parts: string[] = [];
-            if (result.pins.length > 0) {
-              parts.push("Pins:");
-              for (const pin of result.pins) {
-                parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
-              }
-            } else {
-              parts.push("No pins set by parent agent.");
+    server.registerTool(
+      "get_parent_context",
+      {
+        description:
+          "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, " +
+          "key files, screenshots, and other context the parent agent has surfaced.",
+        inputSchema: {}
+      },
+      async () => {
+        try {
+          const result = await getParentContext(parentAgentId);
+          const parts: string[] = [];
+          if (result.pins.length > 0) {
+            parts.push("Pins:");
+            for (const pin of result.pins) {
+              parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
             }
-            if (result.media.length > 0) {
-              parts.push("\nShared media:");
-              for (const m of result.media) {
-                parts.push(`  ${m.fileName}: ${m.description ?? "(no description)"}`);
-              }
-            }
-            return {
-              content: [{ type: "text", text: parts.join("\n") }],
-              structuredContent: result
-            };
-          } catch (error) {
-            return toToolError(error);
+          } else {
+            parts.push("No pins set by parent agent.");
           }
+          if (result.media.length > 0) {
+            parts.push("\nShared media:");
+            for (const m of result.media) {
+              parts.push(`  ${m.fileName}: ${m.description ?? "(no description)"}`);
+            }
+          }
+          return {
+            content: [{ type: "text", text: parts.join("\n") }],
+            structuredContent: result
+          };
+        } catch (error) {
+          return toToolError(error);
         }
-      );
-    }
-
-    return server;
+      }
+    );
   }
 
-  // ── Standard agent tools ───────────────────────────────────────────
-  if (context.enableBuiltinTools !== false) {
+  // ── create_pr ─────────────────────────────────────────────────────
+  if (allowed.has("create_pr")) {
     server.registerTool(
       "create_pr",
       {
@@ -334,7 +364,10 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         }
       }
     );
+  }
 
+  // ── get_pr_status ─────────────────────────────────────────────────
+  if (allowed.has("get_pr_status")) {
     server.registerTool(
       "get_pr_status",
       {
@@ -361,8 +394,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
+  // ── dispatch_event ────────────────────────────────────────────────
   // TODO: Remove bin/dispatch-event and bin/dispatch-share once all agents use these MCP tools.
-  if (context.agent && context.upsertEvent) {
+  if (allowed.has("dispatch_event") && context.agent && context.upsertEvent) {
     const agentId = context.agent.id;
     const upsertEvent = context.upsertEvent;
 
@@ -397,11 +431,12 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  registerPinTool(server, context);
-  registerShareTool(server, context);
-  registerFeedbackTool(server, context);
+  if (allowed.has("dispatch_pin")) registerPinTool(server, context);
+  if (allowed.has("dispatch_share")) registerShareTool(server, context);
+  if (allowed.has("dispatch_feedback")) registerFeedbackTool(server, context);
 
-  if (context.agent && context.launchPersona) {
+  // ── dispatch_launch_persona ───────────────────────────────────────
+  if (allowed.has("dispatch_launch_persona") && context.agent && context.launchPersona) {
     const agentId = context.agent.id;
     const launchPersona = context.launchPersona;
 
@@ -436,7 +471,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  if (context.agent && context.getFeedback) {
+  // ── dispatch_get_feedback ───────────────────────────────────────────
+  if (allowed.has("dispatch_get_feedback") && context.agent && context.getFeedback) {
     const agentId = context.agent.id;
     const getFeedback = context.getFeedback;
 
@@ -477,7 +513,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  if (context.agent && context.resolveFeedback) {
+  // ── dispatch_resolve_feedback ───────────────────────────────────────
+  if (allowed.has("dispatch_resolve_feedback") && context.agent && context.resolveFeedback) {
     const agentId = context.agent.id;
     const resolveFeedback = context.resolveFeedback;
 
@@ -510,7 +547,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     );
   }
 
-  if (context.agent && context.jobTools) {
+  // ── Job tools ──────────────────────────────────────────────────────
+  if (allowed.has("job_complete") && context.agent && context.jobTools) {
     const agentId = context.agent.id;
     const jobTools = context.jobTools;
     const reportSchema = z.object({
