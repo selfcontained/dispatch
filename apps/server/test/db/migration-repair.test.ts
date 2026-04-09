@@ -46,46 +46,35 @@ describe("migration drift repair", () => {
     expect(appliedNames).toContain("0006_jobs-schedule-repair");
   });
 
-  it("allows 0005 to be safely re-run during manual recovery", async () => {
-    await pool.query(
-      `DELETE FROM pgmigrations
-       WHERE name IN ('0005_jobs-file-path-unique', '0006_jobs-schedule-repair')
-          OR name > '0006'`
-    );
+  it("full migration run drops file_path and creates (directory, name) unique index", async () => {
+    // Reset and run all migrations from scratch
+    await pool.query(`DELETE FROM pgmigrations`);
+    await pool.query(`DROP TABLE IF EXISTS job_runs`);
+    await pool.query(`DROP TABLE IF EXISTS jobs`);
 
     await expect(runMigrations(getTestDatabaseUrl())).resolves.not.toThrow();
 
-    const constraints = await pool.query(
+    // file_path column should be gone
+    const cols = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'jobs' AND column_name = 'file_path'`
+    );
+    expect(cols.rowCount).toBe(0);
+
+    // (directory, name) unique index should exist
+    const indexes = await pool.query(
+      `SELECT indexname FROM pg_indexes
+       WHERE tablename = 'jobs' AND indexname = 'jobs_directory_name_key'`
+    );
+    expect(indexes.rowCount).toBe(1);
+
+    // old (directory, file_path) constraint should be gone
+    const oldConstraints = await pool.query(
       `SELECT conname FROM pg_constraint
        WHERE conrelid = 'jobs'::regclass
          AND contype = 'u'
          AND conname = 'jobs_directory_file_path_key'`
     );
-    expect(constraints.rowCount).toBe(1);
-  });
-
-  it("treats an equivalent standalone unique index as satisfying 0005", async () => {
-    await pool.query(`DELETE FROM pgmigrations`);
-    await pool.query(`DROP TABLE IF EXISTS job_runs`);
-    await pool.query(`DROP TABLE IF EXISTS jobs`);
-
-    await runMigrations({
-      databaseUrl: getTestDatabaseUrl(),
-      count: 4,
-    });
-    await pool.query(`DROP INDEX IF EXISTS jobs_directory_file_path_key`);
-    await pool.query(
-      `CREATE UNIQUE INDEX jobs_directory_file_path_key ON jobs (directory, file_path)`
-    );
-
-    await expect(runMigrations(getTestDatabaseUrl())).resolves.not.toThrow();
-
-    const indexes = await pool.query(
-      `SELECT indexname
-       FROM pg_indexes
-       WHERE tablename = 'jobs'
-         AND indexname = 'jobs_directory_file_path_key'`
-    );
-    expect(indexes.rowCount).toBe(1);
+    expect(oldConstraints.rowCount).toBe(0);
   });
 });
