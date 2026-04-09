@@ -2,6 +2,7 @@
   "name": "@dispatch/server",
   "version": "0.11.11",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
