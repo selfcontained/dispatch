@@ -31,7 +31,6 @@ function makeRun(overrides: Partial<JobRunRecord> = {}): JobRunRecord {
     report: { status: "completed", summary: "All done", tasks: [] },
     config: {
       directory: "/tmp/repo",
-      filePath: "/tmp/repo/.dispatch/jobs/test.md",
       name: "test-job",
       schedule: "0 * * * *",
       timeoutMs: 60_000,

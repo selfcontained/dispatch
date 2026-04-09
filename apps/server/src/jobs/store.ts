@@ -3,8 +3,13 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
-import type { JobDefinition, JobNotifyConfig } from "./parser.js";
 import { appendJobLog, validateJobReport, validateTerminalJobReport, type JobReport } from "./report.js";
+
+export type JobNotifyConfig = {
+  onComplete: string[];
+  onError: string[];
+  onNeedsInput: string[];
+};
 
 export type JobRunStatus = "started" | "running" | "completed" | "failed" | "needs_input" | "timed_out" | "crashed";
 export type JobAgentType = "claude" | "codex" | "opencode";
@@ -24,7 +29,6 @@ export type JobRecord = {
   useWorktree: boolean;
   branchName: string | null;
   fullAccess: boolean;
-  additionalInstructions: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,17 +61,17 @@ export type JobWithLatestRun = JobRecord & {
 
 export type JobRunConfig = {
   directory: string;
-  filePath: string;
   name: string;
   schedule: string | null;
   timeoutMs: number;
   needsInputTimeoutMs: number;
-  notify: JobDefinition["notify"];
+  notify: JobNotifyConfig;
   triggerSource?: "manual" | "scheduled";
 };
 
 export type JobConfigUpdate = {
   name?: string;
+  prompt?: string | null;
   schedule?: string | null;
   timeoutMs?: number;
   needsInputTimeoutMs?: number;
@@ -75,46 +79,45 @@ export type JobConfigUpdate = {
   useWorktree?: boolean;
   branchName?: string | null;
   fullAccess?: boolean;
-  additionalInstructions?: string | null;
   enabled?: boolean;
 };
 
 export class JobStore {
   constructor(private readonly pool: Pool) {}
 
-  /**
-   * Insert a new job from a file definition (seeds all fields), or update
-   * an existing job's prompt and name only. Config fields like schedule,
-   * timeouts, notify, and full_access are set on first insert but preserved
-   * on subsequent upserts so user overrides (via enable/UI) aren't clobbered.
-   *
-   * Unique identity is (directory, file_path). Name is a display label
-   * from frontmatter that can change without creating a new job.
-   */
-  async upsertJobFromDefinition(definition: JobDefinition): Promise<JobRecord> {
+  async createJob(input: {
+    name: string;
+    directory: string;
+    prompt: string | null;
+    schedule: string | null;
+    timeoutMs: number;
+    needsInputTimeoutMs: number;
+    agentType: JobAgentType;
+    useWorktree: boolean;
+    branchName: string | null;
+    fullAccess: boolean;
+    enabled: boolean;
+  }): Promise<JobRecord> {
     const id = randomUUID();
     const result = await this.pool.query(
       `
-      INSERT INTO jobs (id, directory, name, file_path, schedule, timeout_ms, needs_input_timeout_ms, notify, prompt, full_access)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-      ON CONFLICT (directory, file_path)
-      DO UPDATE SET
-        name = EXCLUDED.name,
-        prompt = EXCLUDED.prompt,
-        updated_at = NOW()
+      INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, branch_name, enabled)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING ${this.jobColumns()}
       `,
       [
         id,
-        path.resolve(definition.directory),
-        definition.name,
-        definition.filePath,
-        definition.schedule,
-        definition.timeoutMs,
-        definition.needsInputTimeoutMs,
-        JSON.stringify(definition.notify),
-        definition.body,
-        definition.fullAccess,
+        path.resolve(input.directory),
+        input.name,
+        input.schedule,
+        input.timeoutMs,
+        input.needsInputTimeoutMs,
+        input.prompt,
+        input.fullAccess,
+        input.agentType,
+        input.useWorktree,
+        input.branchName,
+        input.enabled,
       ]
     );
     return mapJob(result.rows[0]);
@@ -310,7 +313,6 @@ export class JobStore {
         j.use_worktree AS "useWorktree",
         j.branch_name AS "branchName",
         j.full_access AS "fullAccess",
-        j.additional_instructions AS "additionalInstructions",
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -436,10 +438,10 @@ export class JobStore {
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
 
-  async getJobByDirectoryAndFilePath(directory: string, filePath: string): Promise<JobRecord | null> {
+  async getJobByDirectoryAndName(directory: string, name: string): Promise<JobRecord | null> {
     const result = await this.pool.query(
-      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND file_path = $2`,
-      [path.resolve(directory), filePath]
+      `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2 LIMIT 1`,
+      [path.resolve(directory), name]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
@@ -463,14 +465,14 @@ export class JobStore {
       `
       UPDATE jobs
       SET name = COALESCE($2, name),
-          schedule = CASE WHEN $3 THEN $4 ELSE schedule END,
-          timeout_ms = COALESCE($5, timeout_ms),
-          needs_input_timeout_ms = COALESCE($6, needs_input_timeout_ms),
-          agent_type = COALESCE($7, agent_type),
-          use_worktree = COALESCE($8, use_worktree),
-          branch_name = CASE WHEN $9 THEN $10 ELSE branch_name END,
-          full_access = COALESCE($11, full_access),
-          additional_instructions = CASE WHEN $12 THEN $13 ELSE additional_instructions END,
+          prompt = CASE WHEN $3 THEN $4 ELSE prompt END,
+          schedule = CASE WHEN $5 THEN $6 ELSE schedule END,
+          timeout_ms = COALESCE($7, timeout_ms),
+          needs_input_timeout_ms = COALESCE($8, needs_input_timeout_ms),
+          agent_type = COALESCE($9, agent_type),
+          use_worktree = COALESCE($10, use_worktree),
+          branch_name = CASE WHEN $11 THEN $12 ELSE branch_name END,
+          full_access = COALESCE($13, full_access),
           enabled = COALESCE($14, enabled),
           updated_at = NOW()
       WHERE id = $1
@@ -479,6 +481,8 @@ export class JobStore {
       [
         jobId,
         input.name,
+        Object.prototype.hasOwnProperty.call(input, "prompt"),
+        input.prompt ?? null,
         Object.prototype.hasOwnProperty.call(input, "schedule"),
         input.schedule ?? null,
         input.timeoutMs,
@@ -488,8 +492,6 @@ export class JobStore {
         Object.prototype.hasOwnProperty.call(input, "branchName"),
         input.branchName ?? null,
         input.fullAccess,
-        Object.prototype.hasOwnProperty.call(input, "additionalInstructions"),
-        input.additionalInstructions ?? null,
         input.enabled,
       ]
     );
@@ -563,7 +565,6 @@ export class JobStore {
       use_worktree AS "useWorktree",
       branch_name AS "branchName",
       full_access AS "fullAccess",
-      additional_instructions AS "additionalInstructions",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;
