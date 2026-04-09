@@ -71,6 +71,8 @@ dispatch/                        # pnpm monorepo
 | `settings` | Key-value store for app settings |
 | `jobs` | Job definitions with schedule, config, directory, and enabled state |
 | `job_runs` | Job execution history with status, reports, and agent references |
+| `simulator_reservations` | iOS Simulator device allocation tracking |
+| `persona_reviews` | Review status and verdicts from persona agents |
 
 Migrations run automatically on API server start.
 
@@ -113,7 +115,7 @@ Three agent CLIs are supported, each configurable via Settings:
 
 ### Repo Tools
 
-Custom tools defined in `.dispatch/tools.json` at the repo root. Exposed to agents with `repo.` prefix. See `13-agent-scoped-mcp-and-dev-stack-plan.md` for details.
+Custom tools defined in `.dispatch/tools.json` at the repo root. Exposed to agents with a `repo_` prefix.
 
 ### Lifecycle Hooks
 

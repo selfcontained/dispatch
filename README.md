@@ -157,9 +157,11 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `create_pr` | Create a GitHub pull request |
 | `get_pr_status` | Check PR CI status and reviews |
 
-Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`.
+Persona agents additionally get: `review_status`, `get_parent_context`.
 
-Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo.` prefix.
+Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`.
+
+Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo_` prefix.
 
 These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically).
 
@@ -172,36 +174,16 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Docs
 
-### Current
-
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
 - [Current State Handoff](docs/08-current-state-handoff.md) — comprehensive project overview for new contributors
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
 - [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
-- [Agent-Scoped MCP and Dev Stack](docs/13-agent-scoped-mcp-and-dev-stack-plan.md) — MCP architecture, repo tools, lifecycle hooks
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Personas and Feedback](docs/15-personas-and-feedback.md) — automated code review via persona agents
 - [Notifications](docs/16-notifications.md) — Slack webhook integration
-- [Jobs Feature Spec](docs/jobs-feature-spec.md) — scheduled agent tasks with structured reporting
-
-### Historical Planning Docs
-
-These documents were planning artifacts for features that have since been implemented. They may provide useful architectural context but the codebase is the authoritative source for current behavior.
-
-- [Product Requirements](docs/01-product-requirements.md) — original MVP requirements
-- [System Architecture](docs/02-system-architecture.md) — original architecture design
-- [Simulator Isolation Strategy](docs/05-simulator-strategy.md) — simulator reservation design
-- [Security Model](docs/06-security.md) — original security model
-- [Implementation Plan](docs/07-implementation-plan.md) — original phased implementation plan
-- [Agent Attention Phase 2](docs/09-agent-attention-phase-2.md) — attention indicator planning
-- [Activity Metrics Roadmap](docs/activity-metrics-roadmap.md) — analytics feature roadmap
-- [Auth Test Plan](docs/auth-test-plan.md) — authentication testing checklist
-- [DB-Backed Media Store Plan](docs/db-backed-media-store-plan.md) — media store migration plan
-- [Playwright Streaming Plan](docs/playwright-streaming-plan.md) — live browser streaming design
-- [Stream Capture Plan](docs/stream-capture-plan.md) — stream end-frame capture design
-- [Tmux Reconnect Recovery Plan](docs/tmux-reconnect-recovery-plan.md) — terminal reconnect optimization
+- [Jobs](docs/jobs-feature-spec.md) — scheduled agent tasks with structured reporting
 
 ## Issue Tracking
 

@@ -283,8 +283,7 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/jobs` | List all configured jobs |
-| GET | `/jobs/available` | Discover available job definitions from known directories |
-| POST | `/jobs` | Create/register a job configuration |
+| POST | `/jobs` | Create a job |
 | PATCH | `/jobs` | Update a job configuration |
 | DELETE | `/jobs` | Delete a job configuration |
 | POST | `/jobs/enable` | Enable a job (registers cron schedule) |
