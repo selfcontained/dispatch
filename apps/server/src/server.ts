@@ -90,22 +90,30 @@ const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
 const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
 jobService.onRunStateChange((run) => {
-  void jobNotifier.onJobRunStateChange(run);
+  void jobNotifier.onJobRunStateChange(run).catch((err) => {
+    app.log.warn({ err, runId: run.id }, "Job run state notification failed");
+  });
   // Auto-archive job agents when the run reaches a terminal state.
   // needs_input is excluded — user may need to interact with the agent.
   if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
-    void autoArchiveJobAgent(run.agentId);
+    void autoArchiveJobAgent(run.agentId).catch((err) => {
+      app.log.warn({ err, agentId: run.agentId }, "Auto-archive of job agent failed");
+    });
   }
 });
 // Suppress agent-level Slack notifications for job agents (job notifier handles those).
 // Job agents are named "job-*" — skip the DB lookup for regular agents.
 agentManager.onLatestEvent((agent) => {
   if (!agent.name?.startsWith("job-")) {
-    void slackNotifier.onAgentEvent(agent);
+    void slackNotifier.onAgentEvent(agent).catch((err) => {
+      app.log.warn({ err, agentId: agent.id }, "Slack agent notification failed");
+    });
     return;
   }
   void jobService.getLatestRunForAgent(agent.id).then((run) => {
-    if (!run) void slackNotifier.onAgentEvent(agent);
+    if (!run) return slackNotifier.onAgentEvent(agent);
+  }).catch((err) => {
+    app.log.warn({ err, agentId: agent.id }, "Job agent notification lookup failed");
   });
 });
 const activeArchives = new Set<Promise<void>>();
@@ -3185,7 +3193,11 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
 
 async function start() {
   await waitForDatabase();
-  await runMigrations();
+  if (process.env.SKIP_MIGRATIONS === "1") {
+    app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
+  } else {
+    await runMigrations();
+  }
   config.authToken = await getOrCreateAuthToken(pool);
   await agentManager.reconcileAgents();
   await jobService.reconcileActiveRuns();
@@ -3204,6 +3216,18 @@ async function start() {
   });
   app.log.info(`Dispatch listening on ${protocol}://${config.host}:${config.port}`);
 }
+
+// Global error handlers — prevent silent crashes from background tasks
+process.on("unhandledRejection", (reason) => {
+  app.log.error({ err: reason }, "Unhandled promise rejection");
+});
+
+process.on("uncaughtException", async (err) => {
+  // Hard timeout: if shutdown hangs (corrupted state), force-exit after 5s
+  setTimeout(() => process.exit(1), 5_000).unref();
+  app.log.error({ err }, "Uncaught exception — shutting down");
+  await shutdown(1);
+});
 
 start().catch(async (error) => {
   app.log.error(error);
@@ -3329,7 +3353,9 @@ function queueGitContextRefresh(agentIds: string[]): void {
     pendingGitRefreshAgentIds.add(agentId);
     gitRefreshCounters.enqueued += 1;
   }
-  void drainGitContextRefreshQueue();
+  void drainGitContextRefreshQueue().catch((err) => {
+    app.log.warn({ err }, "Git context refresh queue drain failed");
+  });
 }
 
 function startGitContextRefreshLoop(): void {
@@ -3337,7 +3363,9 @@ function startGitContextRefreshLoop(): void {
     return;
   }
   gitContextRefreshTimer = setInterval(() => {
-    void refreshAllAgentGitContexts();
+    void refreshAllAgentGitContexts().catch((err) => {
+      app.log.warn({ err }, "Git context refresh cycle failed");
+    });
   }, GIT_CONTEXT_REFRESH_INTERVAL_MS);
 }
 
@@ -3354,7 +3382,9 @@ function startAgentStatusReconcileLoop(): void {
     return;
   }
   agentStatusReconcileTimer = setInterval(() => {
-    void runAgentStatusReconciliation();
+    void runAgentStatusReconciliation().catch((err) => {
+      app.log.warn({ err }, "Agent status reconciliation failed");
+    });
   }, AGENT_STATUS_RECONCILE_INTERVAL_MS);
 }
 
@@ -3470,7 +3500,9 @@ async function drainGitContextRefreshQueue(): Promise<void> {
       })
       .finally(() => {
         activeGitRefreshAgentIds.delete(nextAgentId);
-        void drainGitContextRefreshQueue();
+        void drainGitContextRefreshQueue().catch((err) => {
+          app.log.warn({ err }, "Git context refresh queue drain failed");
+        });
       });
   }
 }

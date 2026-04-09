@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import pg from "pg";
 import { runner } from "node-pg-migrate";
 
 import { loadConfig } from "../config.js";
@@ -10,6 +11,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = __dirname.includes("/dist/")
   ? path.resolve(__dirname, "..", "..", "src", "db", "migrations")
   : path.join(__dirname, "migrations");
+
+// Arbitrary fixed key for pg_advisory_lock to prevent concurrent migrations.
+const MIGRATION_LOCK_ID = 8675309;
 
 export interface MigrationOptions {
   databaseUrl?: string;
@@ -26,16 +30,26 @@ export async function runMigrations(
 
   const url = opts.databaseUrl ?? loadConfig().databaseUrl;
 
-  await runner({
-    databaseUrl: url,
-    dir: migrationsDir,
-    direction: "up",
-    migrationsTable: "pgmigrations",
-    count: opts.count,
-    log: (msg) => console.log(`[migrate] ${msg}`),
-  });
+  // Acquire an advisory lock so concurrent server starts don't race migrations
+  const lockClient = new pg.Client({ connectionString: url });
+  await lockClient.connect();
+  try {
+    await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
 
-  console.log("Migrations completed.");
+    await runner({
+      databaseUrl: url,
+      dir: migrationsDir,
+      direction: "up",
+      migrationsTable: "pgmigrations",
+      count: opts.count,
+      log: (msg) => console.log(`[migrate] ${msg}`),
+    });
+
+    console.log("Migrations completed.");
+  } finally {
+    await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]).catch(() => null);
+    await lockClient.end().catch(() => null);
+  }
 }
 
 export { migrationsDir };

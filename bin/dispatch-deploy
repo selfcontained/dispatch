@@ -48,15 +48,32 @@ resolve_port() {
 }
 
 reload_service() {
-  # Ask launchd to kill and restart the server. Using launchctl kill
-  # instead of launchctl unload/load avoids tearing down the service
-  # definition, so KeepAlive automatically restarts the process.
-  # SIGKILL is used because the node server may catch SIGTERM and hang.
-  # This is safe for dispatch-deploy even when it's a child of the
-  # server (e.g. triggered via the release UI) — launchctl kill doesn't
-  # affect the caller's process group.
+  # Ask launchd to restart the server. Using launchctl kill instead of
+  # launchctl unload/load avoids tearing down the service definition, so
+  # KeepAlive automatically restarts the process.
+  # Try SIGTERM first for graceful shutdown (drains archives, closes DB),
+  # then fall back to SIGKILL if the process doesn't exit in time.
+  local svc="gui/$(id -u)/com.dispatch.server"
+  local old_pid
+  old_pid=$(launchctl print "$svc" 2>/dev/null | grep -oE 'pid = [0-9]+' | grep -oE '[0-9]+' || echo "")
   echo "DISPATCH_RESTARTING"
-  launchctl kill SIGKILL "gui/$(id -u)/com.dispatch.server"
+  launchctl kill SIGTERM "$svc"
+
+  # Wait up to 8 seconds for launchd to restart the process with a new PID
+  local waited=0
+  while [ $waited -lt 8 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    local new_pid
+    new_pid=$(launchctl print "$svc" 2>/dev/null | grep -oE 'pid = [0-9]+' | grep -oE '[0-9]+' || echo "")
+    if [ -n "$new_pid" ] && [ "$new_pid" != "$old_pid" ]; then
+      return
+    fi
+  done
+
+  # Graceful shutdown didn't complete — force kill
+  echo "Graceful shutdown timed out, sending SIGKILL"
+  launchctl kill SIGKILL "$svc"
   sleep 3
 }
 
