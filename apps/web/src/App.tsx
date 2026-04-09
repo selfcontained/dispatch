@@ -537,7 +537,6 @@ export function DashboardLayout(): JSX.Element {
               onOpenCreateDialog={openCreateDialog}
               enabledAgentTypes={enabledAgentTypes}
               lastUsedAgentType={lastUsedAgentType}
-              onOpenDocs={openDocs}
               onOpenActivity={openActivity}
               onOpenJobs={openJobs}
               onOpenSettings={openSettings}
@@ -591,6 +590,7 @@ export function DashboardLayout(): JSX.Element {
                 unseenMediaCount={unseenMediaCount}
                 setLeftOpen={handleSetLeftPanelOpen}
                 setMediaOpen={handleSetMediaPanelOpen}
+                onOpenDocs={openDocs}
               />
             ) : null}
 
@@ -704,7 +704,6 @@ export function DashboardLayout(): JSX.Element {
             onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
             enabledAgentTypes={enabledAgentTypes}
             lastUsedAgentType={lastUsedAgentType}
-            onOpenDocs={() => { setMobileLeftOpen(false); openDocs(); }}
             onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
             onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
             onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}

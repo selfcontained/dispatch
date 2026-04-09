@@ -177,6 +177,18 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                     ) : null}
                   </div>
                 </div>
+                <div className="ml-auto">
+                  <TooltipProvider delayDuration={120}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="icon" variant="ghost" onClick={() => navigate("/docs")} data-testid="docs-button" title="Documentation">
+                          <BookOpenText className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Documentation</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
               </div>
 
               <div className="mt-2 flex h-14 items-center border-b border-border px-3">
@@ -258,7 +270,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
               </div>
               <JobsNav
                 onOpenAgents={() => navigate("/")}
-                onOpenDocs={() => navigate("/docs")}
                 onOpenActivity={() => navigate("/activity")}
                 onOpenJobs={() => navigate("/jobs")}
                 onOpenSettings={() => navigate("/settings")}
@@ -605,13 +616,11 @@ function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; co
 
 function JobsNav({
   onOpenAgents,
-  onOpenDocs,
   onOpenActivity,
   onOpenJobs,
   onOpenSettings,
 }: {
   onOpenAgents: () => void;
-  onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenJobs: () => void;
   onOpenSettings: () => void;
@@ -642,14 +651,6 @@ function JobsNav({
             </button>
           </TooltipTrigger>
           <TooltipContent>Activity</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onClick={onOpenDocs} data-testid="docs-button" className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
-              <BookOpenText className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Documentation</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

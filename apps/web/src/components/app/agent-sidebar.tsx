@@ -1,6 +1,5 @@
 import {
   Activity,
-  BookOpenText,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -30,7 +29,6 @@ type AgentSidebarSharedProps = {
   onOpenCreateDialog: (type?: AgentType) => void;
   enabledAgentTypes: AgentType[];
   lastUsedAgentType: AgentType | null;
-  onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenJobs: () => void;
   onOpenSettings: () => void;
@@ -72,7 +70,6 @@ export function AgentSidebarContent({
   onOpenCreateDialog,
   enabledAgentTypes,
   lastUsedAgentType,
-  onOpenDocs,
   onOpenActivity,
   onOpenJobs,
   onOpenSettings,
@@ -241,18 +238,6 @@ export function AgentSidebarContent({
               </button>
             </TooltipTrigger>
             <TooltipContent>Activity</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onOpenDocs}
-                data-testid="docs-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-              >
-                <BookOpenText className="h-5 w-5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Documentation</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

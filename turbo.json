@@ -1,5 +1,12 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "DISPATCH_HOST",
+    "DISPATCH_AGENT_RUNTIME",
+    "DISPATCH_SESSION_PREFIX",
+    "DISPATCH_AGENT_ID",
+    "DATABASE_URL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

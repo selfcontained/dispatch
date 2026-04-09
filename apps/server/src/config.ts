@@ -61,6 +61,17 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   }
 }
 
+function resolvePort(): string {
+  const port = process.env.DISPATCH_PORT ?? process.env.PORT;
+  if (!port) {
+    throw new Error(
+      "DISPATCH_PORT is not set. " +
+        "Use dispatch-dev for local development, or set DISPATCH_PORT explicitly."
+    );
+  }
+  return port;
+}
+
 function parsePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -72,7 +83,7 @@ function parsePort(value: string): number {
 export function loadConfig(): AppConfig {
   const config: AppConfig = {
     host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
-    port: parsePort(process.env.DISPATCH_PORT ?? process.env.PORT ?? "6767"),
+    port: parsePort(resolvePort()),
     databaseUrl:
       process.env.DATABASE_URL ?? "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
@@ -165,12 +176,14 @@ export function assertSafePortConfig(
   env: NodeJS.ProcessEnv = process.env
 ): void {
   const isAgentContext = Boolean(env.DISPATCH_AGENT_ID);
-  if (!isAgentContext) return;
+  const isDevServer = env.DISPATCH_SESSION_PREFIX === "dispatch_dev";
 
-  if (config.port === 6767) {
+  if ((isAgentContext || isDevServer) && config.port === 6767) {
     throw new Error(
-      "Refusing to bind to production port 6767 from an agent context. " +
-        "Start local servers with dispatch-dev so DISPATCH_PORT points at an isolated port."
+      "Refusing to bind to production port 6767 from a dev/agent context. " +
+        "Start local servers with dispatch-dev so DISPATCH_PORT points at an isolated port. " +
+        "If DISPATCH_PORT=6767 is set in .env, remove it — production port config belongs " +
+        "only in the launchd/systemd service environment."
     );
   }
 }
