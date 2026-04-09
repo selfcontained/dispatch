@@ -1,0 +1,3 @@
+-- This migration was applied in error and dropped the file_path column.
+-- Kept as a stub so node-pg-migrate ordering is satisfied.
+-- Migration 0009 re-adds the column.
