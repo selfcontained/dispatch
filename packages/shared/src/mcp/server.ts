@@ -102,9 +102,6 @@ const AGENT_TOOLS = new Set([
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
-  "dispatch_event",
-  "dispatch_pin",
-  "dispatch_share",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -235,62 +232,62 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     const updateReviewStatus = context.updateReviewStatus;
     const completeReview = context.completeReview;
 
-      server.registerTool(
-        "review_status",
-        {
-          description:
-            "Report review progress. Call with status 'reviewing' while actively reviewing code or testing. " +
-            "Call with status 'complete' when the review is finished — include a verdict and summary.",
-          inputSchema: {
-            status: z.enum(["reviewing", "complete"]).describe("Current review status."),
-            message: z.string().describe("Short description of current activity or final summary."),
-            verdict: z
-              .enum(["approve", "request_changes"])
-              .optional()
-              .describe("Review verdict. Required when status is 'complete'."),
-            summary: z
-              .string()
-              .optional()
-              .describe("Summary of the review findings. Required when status is 'complete'."),
-            filesReviewed: z
-              .array(z.string())
-              .optional()
-              .describe("List of file paths that were reviewed.")
-          }
-        },
-        async (args) => {
-          try {
-            if (args.status === "complete") {
-              if (!args.verdict) {
-                return toToolError(new Error("verdict is required when status is 'complete'."));
-              }
-              if (!args.summary) {
-                return toToolError(new Error("summary is required when status is 'complete'."));
-              }
-              await completeReview(agentId, {
-                verdict: args.verdict,
-                summary: args.summary,
-                filesReviewed: args.filesReviewed,
-                message: args.message
-              });
-              return {
-                content: [{ type: "text", text: `Review complete: ${args.verdict}. ${args.summary}` }]
-              };
+    server.registerTool(
+      "review_status",
+      {
+        description:
+          "Report review progress. Call with status 'reviewing' while actively reviewing code or testing. " +
+          "Call with status 'complete' when the review is finished — include a verdict and summary.",
+        inputSchema: {
+          status: z.enum(["reviewing", "complete"]).describe("Current review status."),
+          message: z.string().describe("Short description of current activity or final summary."),
+          verdict: z
+            .enum(["approve", "request_changes"])
+            .optional()
+            .describe("Review verdict. Required when status is 'complete'."),
+          summary: z
+            .string()
+            .optional()
+            .describe("Summary of the review findings. Required when status is 'complete'."),
+          filesReviewed: z
+            .array(z.string())
+            .optional()
+            .describe("List of file paths that were reviewed.")
+        }
+      },
+      async (args) => {
+        try {
+          if (args.status === "complete") {
+            if (!args.verdict) {
+              return toToolError(new Error("verdict is required when status is 'complete'."));
             }
-
-            await updateReviewStatus(agentId, {
-              status: "reviewing",
+            if (!args.summary) {
+              return toToolError(new Error("summary is required when status is 'complete'."));
+            }
+            await completeReview(agentId, {
+              verdict: args.verdict,
+              summary: args.summary,
+              filesReviewed: args.filesReviewed,
               message: args.message
             });
             return {
-              content: [{ type: "text", text: `Reviewing: ${args.message}` }]
+              content: [{ type: "text", text: `Review complete: ${args.verdict}. ${args.summary}` }]
             };
-          } catch (error) {
-            return toToolError(error);
           }
+
+          await updateReviewStatus(agentId, {
+            status: "reviewing",
+            message: args.message
+          });
+          return {
+            content: [{ type: "text", text: `Reviewing: ${args.message}` }]
+          };
+        } catch (error) {
+          return toToolError(error);
         }
-      );
-    }
+      }
+    );
+  }
 
   // ── get_parent_context (persona) ────────────────────────────────────
   if (allowed.has("get_parent_context") && context.agent?.parentAgentId && context.getParentContext) {
