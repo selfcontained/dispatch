@@ -19,6 +19,8 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > 7. Verify: `curl http://127.0.0.1:6767/api/v1/health`
 > 8. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
+<img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
+
 ## Features
 
 - Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode) remotely.
