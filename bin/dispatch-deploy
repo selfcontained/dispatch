@@ -248,7 +248,7 @@ Please diagnose why the deploy/rollback failed:
 2. Check if the server process is running
 3. Check launchd service status
 4. Inspect the build output and configuration
-5. Report findings via dispatch-event
+5. Report findings via the dispatch_event MCP tool
 
 If you can fix the issue, do so and redeploy with: bin/dispatch-deploy $tag"
 
@@ -262,7 +262,7 @@ If you can fix the issue, do so and redeploy with: bin/dispatch-deploy $tag"
      DISPATCH_PORT='${port}' \
      DISPATCH_SCHEME='$(resolve_scheme)' \
      PATH='${path_prefix}':\"\$PATH\" \
-     claude --append-system-prompt 'You are a Dispatch deploy diagnosis agent. Call dispatch-event at start (working), when blocked (blocked), and before final response (done/idle).' \
+     claude --append-system-prompt 'You are a Dispatch deploy diagnosis agent. Call the dispatch_event MCP tool at start (working), when blocked (blocked), and before final response (done/idle).' \
      -p '${prompt//\'/\'\\\'\'}'" \
     2>/dev/null || {
       echo "warning: could not spawn diagnosis agent (tmux unavailable?)" >&2
