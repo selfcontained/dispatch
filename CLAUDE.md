@@ -30,7 +30,8 @@ dispatch/
 ├── bin/                       # dispatch-dev, dispatch-server, dispatch-deploy, etc.
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
-│   ├── jobs/                  # job definitions (*.md)
+│   ├── config.json            # repo-level settings (e.g. Linear integration)
+│   ├── jobs/                  # job prompt templates (*.md)
 │   ├── personas/              # persona definitions (*.md)
 │   └── tools.json             # repo-specific MCP tools + lifecycle hooks
 └── docs/
@@ -117,7 +118,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - Migrations run automatically on API server start.
 
 ## Agent Pins
-- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`. List-like types support comma/newline-delimited multi-value.
+- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
 
 ## Personas
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.

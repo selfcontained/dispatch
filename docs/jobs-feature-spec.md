@@ -10,68 +10,24 @@ Jobs solve the problem of recurring maintenance and operational tasks that today
 
 ## Concepts
 
-### Job Definition (repo-side)
+### Job Definition
 
-A job is defined as a markdown file in `.dispatch/jobs/`:
+Jobs are fully DB-backed and managed through the Dispatch UI or API. Each job has:
 
-```
-.dispatch/
-  jobs/
-    janitor.md
-    security-scan.md
-```
-
-Each file contains frontmatter with configuration and a body with the task prompt:
-
-```markdown
----
-name: janitor
-schedule: "0 9 * * 1"          # cron expression (every Monday 9am)
-timeout: 30m                    # max run time before auto-timeout
-needs_input_timeout: 24h        # how long to wait for human before timing out
-notify:
-  on_complete: []               # no notification on routine success
-  on_error: ['slack']           # notify on failure
-  on_needs_input: ['slack']     # notify when human help needed
----
-
-## Janitor
-
-Clean up orphaned resources left behind by agents that weren't shut down properly.
-
-### Tasks
-
-1. **dev-cleanup**: Find rogue dispatch-dev server instances...
-2. **tmux-cleanup**: Find abandoned dispatch tmux sessions...
-3. **db-cleanup**: Find orphaned test databases on local Postgres...
-
-### Instructions
-
-- Start by checking for running Docker containers. If none, skip dev-cleanup.
-- For each task, use the provided repo tools for the mechanical steps.
-- If you encounter an ambiguous situation, report it as a recoverable error and move on.
-- Only use needs_input for decisions that could cause data loss if you guess wrong.
-```
-
-### Job Configuration (server-side)
-
-Server-side settings are configured in the Dispatch UI, not in the repo file. These are instance-specific:
-
-- **Enabled/disabled** toggle
+- **Name**: identifier for the job
+- **Directory**: the working directory the job agent runs in
+- **Prompt**: the task instructions for the agent (markdown)
+- **Schedule**: cron expression (e.g., `0 9 * * 1` for every Monday at 9am)
+- **Timeout**: max run time before auto-timeout (default: 30 minutes)
+- **Needs-input timeout**: how long to wait for human input before timing out (default: 24 hours)
 - **Agent type**: claude, codex, or opencode
 - **Use worktree**: whether to create a git worktree for the job run
 - **Branch name**: if using a worktree, the branch to use
 - **Permission scope**: full access or restricted
-- **Additional instructions**: server-specific context appended to the job prompt (e.g., "the prod DB is on port 5433 on this machine")
+- **Notify**: per-event notification config (on_complete, on_error, on_needs_input)
+- **Enabled/disabled** toggle
 
-### Directory Discovery
-
-Jobs are discovered from directories that Dispatch knows about:
-
-1. **Auto-discovered**: Dispatch already remembers which working directories have been used to launch agents. These are scanned for `.dispatch/jobs/*.md` files.
-2. **Manually added**: Users can add additional directories via the Jobs UI for repos that haven't had agents launched in them yet.
-
-A job's identity is `(directory, job name)` — the same `janitor.md` in two different repos produces two independent jobs with separate schedules, settings, and history.
+A job's identity is `(directory, name)` — the same job name in two different directories produces two independent jobs with separate schedules, settings, and history.
 
 ## Execution Model
 
@@ -154,17 +110,15 @@ The job runner (not the agent) enforces these constraints:
 
 ### Cron-based
 
-Scheduling is built on system cron. Dispatch manages cron entries on behalf of the user — no custom scheduler daemon.
+Scheduling uses the `croner` library in-process. Dispatch manages cron schedules internally — no system crontab manipulation.
 
-- Enabling a job in the UI registers a cron entry that calls `dispatch jobs run <name> --dir <directory>`
-- Disabling a job removes the cron entry
-- Users never hand-edit crontabs for jobs; Dispatch owns the entries it creates
+- Enabling a job with a schedule starts an in-process cron timer
+- Disabling a job stops its timer
+- Schedules are standard 5-field cron expressions
 
 ### Manual Trigger
 
-Jobs can also be triggered manually via:
-- "Run now" button in the Jobs UI
-- CLI: `dispatch jobs run <name> --dir <directory>`
+Jobs can be triggered manually via the "Run now" button in the Jobs UI or the `POST /api/v1/jobs/run` API endpoint.
 
 ### What Happens on Trigger
 
@@ -210,28 +164,18 @@ The main view lists all discovered jobs across all directories:
 | Next run | Calculated from cron expression |
 | Actions | "Run now" button |
 
-#### Directories
-
-Manage which directories are scanned for `.dispatch/jobs/`:
-- Auto-discovered directories (from recent agent working directories) shown with an auto-detected badge
-- "Add directory" button for manual additions
-- Remove button for manually-added directories
-
 #### Job Detail
 
 Clicking a job row opens a detail view with tabs:
 
-**Settings tab** — Server-side configuration:
-- Agent type selector (claude/codex/opencode)
+**Configure tab** — Job configuration:
+- Job name, directory, agent type (claude/codex/opencode)
+- Schedule (cron expression), timeout, needs-input timeout
 - Worktree toggle + branch name field
 - Permission scope toggle (full access)
-- Additional instructions text area
+- Notification preferences (on_complete, on_error, on_needs_input)
 
-**Config tab** (read-only) — Parsed view of the `.dispatch/jobs/*.md` frontmatter:
-- Schedule (cron expression + human-readable)
-- Timeout values
-- Notification preferences
-- Useful for verifying the repo config without opening the file
+**Prompt tab** — The job prompt (markdown instructions for the agent).
 
 **History tab** — List of past runs:
 - Timestamp, duration, status badge
@@ -255,12 +199,11 @@ A new "Jobs" entry in the Docs sidebar explaining the feature, configuration for
 
 ### Setup Flow
 
-1. Developer adds `.dispatch/jobs/janitor.md` to the repo
-2. Dispatch discovers it (from the auto-discovered directories or manually added one)
-3. Job appears in the Jobs dialog as disabled
-4. User clicks into the job, configures server-side settings (agent type, permissions, etc.)
-5. User toggles the job to enabled
-6. Dispatch registers the cron entry — job will run on schedule
+1. User opens the Jobs pane and clicks "Add Job"
+2. Fills in name, directory, agent type, prompt, schedule, and other settings
+3. Job is created in the database (disabled by default)
+4. User toggles the job to enabled
+5. Dispatch starts the in-process cron timer — job will run on schedule
 
 ### Routine Run
 
@@ -319,6 +262,16 @@ These replace the freeform `dispatch_event` for job execution. Regular `dispatch
 
 Jobs that need to query the Dispatch API (e.g., checking which agents are running) need access to the auth token. This should be provided as an environment variable to the job agent, or exposed via a repo tool that handles authentication internally.
 
-### File Change Detection
+### API
 
-When a job's `.md` file is updated in the repo (e.g., schedule change via a PR merge), the change takes effect on the next run. The Jobs dialog "Config" tab reflects the current file state. If a job file is deleted, the job should show as "config missing" in the UI rather than silently disappearing.
+Jobs are managed via the REST API:
+
+- `GET /api/v1/jobs` — list all jobs (with latest run info)
+- `POST /api/v1/jobs` — create a new job
+- `PATCH /api/v1/jobs` — update job configuration
+- `DELETE /api/v1/jobs` — delete a job
+- `POST /api/v1/jobs/enable` — enable a job
+- `POST /api/v1/jobs/disable` — disable a job
+- `POST /api/v1/jobs/run` — trigger a job run
+- `GET /api/v1/jobs/stats` — job execution statistics
+- `GET /api/v1/jobs/history` — job run history
