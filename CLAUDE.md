@@ -14,7 +14,6 @@ dispatch/
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
 │   │   │   ├── notifications/ # Slack notifier
 │   │   │   ├── personas/      # persona loader
-│   │   │   ├── streaming/     # CDP-based screen streaming
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   └── web/                   # Vite React frontend (@dispatch/web)
