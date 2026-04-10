@@ -94,7 +94,6 @@ export function useJobs(enabled = true) {
     queryKey: ["jobs"],
     queryFn: () => api<Job[]>("/api/v1/jobs"),
     enabled,
-    refetchInterval: enabled ? 10_000 : false,
     refetchOnWindowFocus: false,
   });
 }
@@ -108,7 +107,6 @@ export function useJobHistory(job: Job | null) {
       return api(`/api/v1/jobs/history?${params.toString()}`);
     },
     enabled: !!job,
-    refetchInterval: job ? 10_000 : false,
     refetchOnWindowFocus: false,
   });
 }
@@ -129,7 +127,6 @@ export function useJobStats(enabled = true) {
     queryKey: ["jobs", "stats"],
     queryFn: () => api<JobStats>("/api/v1/jobs/stats"),
     enabled,
-    refetchInterval: enabled ? 15_000 : false,
     refetchOnWindowFocus: false,
   });
 }

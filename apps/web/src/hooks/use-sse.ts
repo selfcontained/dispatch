@@ -13,7 +13,8 @@ type UiEvent =
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string }
-  | { type: "feedback.updated"; agentId: string };
+  | { type: "feedback.updated"; agentId: string }
+  | { type: "job.changed" };
 
 export function useSSE(
   authState: AuthState,
@@ -39,6 +40,10 @@ export function useSSE(
           setStreamingAgentIds(
             new Set(payload.agents.filter((a) => a.hasStream).map((a) => a.id))
           );
+          // A snapshot means a fresh SSE connection (initial or reconnect).
+          // Invalidate job queries so they refetch — the snapshot only
+          // carries agents, so jobs could be stale after a reconnect.
+          void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           return;
         }
 
@@ -96,6 +101,12 @@ export function useSSE(
 
         if (payload.type === "feedback.created" || payload.type === "feedback.updated") {
           void queryClient.invalidateQueries({ queryKey: ["feedback"] });
+          return;
+        }
+
+        if (payload.type === "job.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          return;
         }
       } catch {}
     };

@@ -96,6 +96,7 @@ export class JobService {
 
     // Everything below reads from the DB record only
     let run = await this.store.createRun(job.id, buildRunConfig(job, input.triggerSource ?? "manual"));
+    this.emitRunStateChange(run);
     const prompt = buildJobPrompt(job, run.id);
 
     try {
@@ -110,6 +111,7 @@ export class JobService {
         jobRunId: run.id
       });
       run = await this.store.attachAgent(run.id, agent.id);
+      this.emitRunStateChange(run);
       this.startMonitor(run.id);
       if (input.wait !== false) {
         run = await this.waitForTerminal(run.id);
