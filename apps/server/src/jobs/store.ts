@@ -544,7 +544,6 @@ export class JobStore {
       UPDATE job_runs
       SET status = $2,
           report = $3::jsonb,
-          pending_question = NULL,
           status_updated_at = NOW(),
           completed_at = NOW(),
           duration_ms = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::integer)
