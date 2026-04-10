@@ -392,7 +392,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── dispatch_event ────────────────────────────────────────────────
-  // TODO: Remove bin/dispatch-event and bin/dispatch-share once all agents use these MCP tools.
+  // dispatch_event and dispatch_share are implemented as native MCP tools below.
   if (allowed.has("dispatch_event") && context.agent && context.upsertEvent) {
     const agentId = context.agent.id;
     const upsertEvent = context.upsertEvent;

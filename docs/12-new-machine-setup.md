@@ -306,8 +306,6 @@ npm rebuild node-pty                  # Rebuild native module
 ### Agent can't use dispatch_event/dispatch_share MCP tools
 These tools are served via the Dispatch MCP server at `/api/mcp/:agentId`. They are available automatically to agents launched by Dispatch — no PATH or bin directory needed. If the tools are missing, verify that the Dispatch server is running and the agent's MCP config points to the correct URL.
 
-> **Legacy**: The old `dispatch-share` and `dispatch-event` shell scripts in `bin/` still exist for backward compatibility but agents should use the MCP tools instead.
-
 ---
 
 ## Design Decisions

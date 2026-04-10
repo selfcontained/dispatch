@@ -167,8 +167,6 @@ The `stop` hook in `.dispatch/tools.json` runs when an agent is stopped (e.g., t
 | `dispatch-server` | Launch the production server |
 | `dispatch-deploy` | Deployment automation |
 | `dispatch-release` | Release management |
-| `dispatch-share` | CLI for sharing media to agent sessions (legacy — agents should use MCP tools) |
-| `dispatch-event` | CLI for reporting agent status events (legacy — agents should use MCP tools) |
 | `dispatch-stream` | CLI for managing screen streams |
 | `dispatch-launchd-wrapper` | macOS launchd service wrapper |
 | `install-launchd` / `uninstall-launchd` | Register/unregister as macOS service |
