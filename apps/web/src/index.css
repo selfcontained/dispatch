@@ -293,6 +293,42 @@
   --terminal-bg: 150 20% 1.5%;
 }
 
+[data-theme="mytra"] {
+  --background: 0 0% 1%;
+  --foreground: 219 16% 89%;
+  --card: 225 10% 9%;
+  --card-foreground: 219 16% 89%;
+  --popover: 225 10% 9%;
+  --popover-foreground: 219 16% 89%;
+  --primary: 244 100% 69%;
+  --primary-foreground: 0 0% 6%;
+  --muted: 222 9% 14%;
+  --muted-foreground: 220 11% 62%;
+  --accent: 222 9% 14%;
+  --accent-foreground: 219 16% 89%;
+  --destructive: 354 52% 61%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 225 10% 21%;
+  --input: 225 10% 21%;
+  --ring: 244 100% 69%;
+
+  --status-working: 186 58% 58%;
+  --status-blocked: 354 52% 61%;
+  --status-waiting: 233 28% 73%;
+  --status-done: 229 57% 71%;
+  --status-idle: 222 8% 44%;
+
+  --chart-1: 244 100% 69%;
+  --chart-2: 229 57% 71%;
+  --chart-3: 186 58% 58%;
+  --chart-4: 267 72% 72%;
+  --chart-5: 244 70% 58%;
+  --chart-6: 222 18% 55%;
+
+  --surface: 220 12% 4%;
+  --terminal-bg: 0 0% 1%;
+}
+
 * {
   @apply border-border;
 }
@@ -307,6 +343,39 @@ body {
 body {
   @apply bg-background text-foreground antialiased;
   font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+html[data-theme="mytra"] body {
+  background-image:
+    radial-gradient(circle at top center, hsl(var(--primary) / 0.18), transparent 22%),
+    radial-gradient(circle at 50% 18%, hsl(var(--status-done) / 0.08), transparent 28%),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--surface)));
+}
+
+html[data-theme="mytra"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, hsl(var(--foreground) / 0.018), transparent 18%, transparent 84%, hsl(var(--foreground) / 0.02)),
+    radial-gradient(circle at 22% 24%, hsl(var(--primary) / 0.055), transparent 20%),
+    radial-gradient(circle at 78% 72%, hsl(var(--status-done) / 0.045), transparent 24%),
+    linear-gradient(118deg, transparent 0 64%, hsl(var(--primary) / 0.03) 72%, transparent 78%);
+  opacity: 0.32;
+}
+
+html[data-theme="mytra"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 50% -8%, hsl(var(--primary) / 0.22), transparent 24%),
+    radial-gradient(circle at 50% 108%, hsl(var(--status-done) / 0.12), transparent 30%);
+  opacity: 0.9;
 }
 
 html[data-theme="matrix"] body {

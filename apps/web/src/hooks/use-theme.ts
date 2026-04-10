@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "cool-navy" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight";
+export type ThemeId = "default" | "cool-navy" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight" | "mytra";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -166,6 +166,33 @@ const MATRIX: TerminalPalette = {
   brightWhite: "#effff2",
 };
 
+/** Mytra — matte black, machined steel, and indigo-violet light */
+const MYTRA: TerminalPalette = {
+  minimumContrastRatio: 4.5,
+  foreground: "#d9dde4",
+  background: "#020202",
+  cursor: "#6c63ff",
+  cursorAccent: "#020202",
+  selectionBackground: "#1e2232",
+  selectionInactiveBackground: "#151821",
+  black: "#020202",
+  red: "#c96b72",
+  green: "#7ca2a0",
+  yellow: "#b6bec9",
+  blue: "#6c63ff",
+  magenta: "#8b73ff",
+  cyan: "#9ea6ff",
+  white: "#d9dde4",
+  brightBlack: "#4f5662",
+  brightRed: "#e08b92",
+  brightGreen: "#95bcba",
+  brightYellow: "#c8d0da",
+  brightBlue: "#948cff",
+  brightMagenta: "#ac97ff",
+  brightCyan: "#c1c7ff",
+  brightWhite: "#f3f6fb",
+};
+
 export const THEMES: ThemeDefinition[] = [
   {
     id: "cool-navy",
@@ -187,6 +214,13 @@ export const THEMES: ThemeDefinition[] = [
     description: "Phosphor green on near-black terminal glass",
     swatches: ["#020403", "#0a0f0b", "#1fa34a", "#6bff8f"],
     terminal: MATRIX,
+  },
+  {
+    id: "mytra",
+    label: "Mytra",
+    description: "Matte black with machined steel and indigo-violet light",
+    swatches: ["#020202", "#20242c", "#5c6778", "#6c63ff"],
+    terminal: MYTRA,
   },
   {
     id: "midnight",
