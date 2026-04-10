@@ -1265,6 +1265,7 @@ async function registerRoutes() {
       agent,
       repoRoot,
       worktreeRoot,
+      sendNotify: mcpSendNotify,
       toolScope: "job",
       jobTools: {
         complete: mcpJobComplete,
@@ -1312,6 +1313,7 @@ async function registerRoutes() {
       },
       repoRoot,
       worktreeRoot,
+      sendNotify: mcpSendNotify,
       upsertEvent: mcpUpsertEvent,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
@@ -3956,6 +3958,15 @@ async function mcpUpsertEvent(
     metadata: event.metadata
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpSendNotify(
+  agentId: string,
+  input: { message: string; title?: string; level?: "info" | "success" | "warning" | "error"; respectFocus?: boolean }
+): Promise<{ sent: boolean; reason?: string }> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+  return slackNotifier.sendNotification(agent, input);
 }
 
 async function mcpSubmitFeedback(

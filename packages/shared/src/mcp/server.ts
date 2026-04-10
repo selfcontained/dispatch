@@ -91,6 +91,7 @@ const AGENT_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
   "dispatch_event",
+  "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
@@ -102,6 +103,7 @@ const AGENT_TOOLS = new Set([
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
+  "dispatch_notify",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -146,10 +148,26 @@ export type ParentContextResult = {
   media: Array<{ fileName: string; description: string | null; source: string; createdAt: string }>;
 };
 
+export type NotifyInput = {
+  message: string;
+  title?: string;
+  level?: "info" | "success" | "warning" | "error";
+  respectFocus?: boolean;
+};
+
+export type NotifyResult = {
+  sent: boolean;
+  reason?: string;
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
+  sendNotify?: (
+    agentId: string,
+    input: NotifyInput
+  ) => Promise<NotifyResult>;
   upsertEvent?: (
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
@@ -420,6 +438,48 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           });
           return {
             content: [{ type: "text", text: `Updated ${agentId}: ${args.type} - ${args.message}` }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_notify ───────────────────────────────────────────────
+  if (allowed.has("dispatch_notify") && context.agent && context.sendNotify) {
+    const agentId = context.agent.id;
+    const sendNotify = context.sendNotify;
+
+    server.registerTool(
+      "dispatch_notify",
+      {
+        description:
+          "Send a Slack notification. Use this to proactively share summaries, results, or important updates " +
+          "with the user via Slack. The message supports Slack mrkdwn formatting. " +
+          "Requires a Slack webhook to be configured in Dispatch settings. " +
+          "Rate limited to 5 messages per minute.",
+        inputSchema: {
+          message: z.string().describe("The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc)."),
+          title: z.string().optional().describe("Optional title displayed above the message. Defaults to 'Notification from <agent>'."),
+          level: z.enum(["info", "success", "warning", "error"]).default("info")
+            .describe("Notification level — controls the color and emoji. info (blue), success (green), warning (amber), error (red)."),
+          respectFocus: z.boolean().default(false)
+            .describe("When true, the notification is suppressed if the user is actively viewing this agent in Dispatch. Default false — notifications are always sent."),
+        }
+      },
+      async (args) => {
+        try {
+          const result = await sendNotify(agentId, {
+            message: args.message,
+            title: args.title,
+            level: args.level as NotifyInput["level"],
+            respectFocus: args.respectFocus,
+          });
+          return {
+            content: [{ type: "text", text: result.sent
+              ? "Notification sent to Slack."
+              : `Notification not sent: ${result.reason}` }]
           };
         } catch (error) {
           return toToolError(error);
