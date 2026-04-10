@@ -98,13 +98,17 @@ export function CreateAgentDialog({
     try {
       const result = await api<{ branches: string[] }>(`/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`);
       setRemoteBranches(result.branches);
+      // If the pre-selected branch doesn't exist in the fetched list, fall back to "main"
+      if (createBaseBranch !== "main" && !result.branches.includes(createBaseBranch)) {
+        setCreateBaseBranch("main");
+      }
     } catch {
       setRemoteBranches([]);
     } finally {
       setBranchesLoading(false);
       setBranchesFetchedForCwd(cwd);
     }
-  }, [createCwd]);
+  }, [createCwd, createBaseBranch, setCreateBaseBranch]);
 
   const openBranchDropdown = useCallback(() => {
     setBranchDropdownOpen(true);

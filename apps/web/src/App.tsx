@@ -496,7 +496,9 @@ export function DashboardLayout(): JSX.Element {
         setCreateWorktreeBranch("");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
-        window.localStorage.setItem(LAST_USED_BASE_BRANCH_KEY, createBaseBranch);
+        if (createUseWorktree) {
+          window.localStorage.setItem(LAST_USED_BASE_BRANCH_KEY, createBaseBranch);
+        }
         setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
