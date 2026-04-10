@@ -150,29 +150,29 @@
 }
 
 [data-theme="light"] {
-  --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
-  --card: 0 0% 98%;
-  --card-foreground: 0 0% 9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 9%;
+  --background: 213 22% 92%;
+  --foreground: 213 13% 14%;
+  --card: 210 23% 95%;
+  --card-foreground: 213 13% 14%;
+  --popover: 210 29% 97%;
+  --popover-foreground: 213 13% 14%;
   --primary: 153 78% 27%;
   --primary-foreground: 0 0% 100%;
-  --muted: 40 10% 92%;
-  --muted-foreground: 0 0% 40%;
-  --accent: 40 10% 92%;
-  --accent-foreground: 0 0% 9%;
+  --muted: 212 21% 88%;
+  --muted-foreground: 211 11% 39%;
+  --accent: 212 21% 88%;
+  --accent-foreground: 213 13% 14%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 85%;
-  --input: 0 0% 85%;
+  --border: 208 20% 85%;
+  --input: 208 20% 85%;
   --ring: 153 78% 27%;
 
   --status-working: 142 71% 35%;
   --status-blocked: 0 72% 51%;
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
-  --status-idle: 0 0% 60%;
+  --status-idle: 220 8% 52%;
 
   --chart-1: 217 91% 50%;
   --chart-2: 46 97% 42%;
@@ -181,8 +181,8 @@
   --chart-5: 217 80% 45%;
   --chart-6: 142 60% 30%;
 
-  --surface: 40 20% 96%;
-  --terminal-bg: 40 10% 96%;
+  --surface: 207 22% 90%;
+  --terminal-bg: 210 23% 95%;
 }
 
 [data-theme="vaporwave"] {
