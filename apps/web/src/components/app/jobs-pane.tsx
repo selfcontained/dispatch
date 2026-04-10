@@ -51,6 +51,22 @@ function statusIcon(status: JobRunStatus | null): JSX.Element | null {
   return null;
 }
 
+function statusDotColor(status: JobRunStatus | null): string {
+  if (status === "completed") return "bg-status-done";
+  if (status === "failed" || status === "timed_out" || status === "crashed") return "bg-status-blocked";
+  if (status === "needs_input") return "bg-status-waiting";
+  if (status === "started" || status === "running") return "bg-status-working";
+  return "bg-muted-foreground";
+}
+
+function statusTextColor(status: JobRunStatus | null): string {
+  if (status === "completed") return "text-status-done";
+  if (status === "failed" || status === "timed_out" || status === "crashed") return "text-status-blocked";
+  if (status === "needs_input") return "text-status-waiting";
+  if (status === "started" || status === "running") return "text-status-working";
+  return "text-muted-foreground";
+}
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Not scheduled";
   const date = new Date(iso);
@@ -278,7 +294,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                     historyLoading={history.isLoading}
                     selectedRunId={routeRunId ?? null}
                     onSelectRun={(runId) => {
-                      navigate(`/jobs/${selectedJob.id}/history/${runId}`);
+                      navigate(runId ? `/jobs/${selectedJob.id}/history/${runId}` : `/jobs/${selectedJob.id}/history`);
                     }}
                     activeRunAgent={activeRunAgent}
                     onOpenAgent={onOpenAgent}
@@ -1344,70 +1360,87 @@ function PromptTab({
 }
 
 function HistoryTab({ runs, loading, selectedRunId, onSelectRun }: { runs: JobRun[]; loading: boolean; selectedRunId: string | null; onSelectRun: (runId: string) => void }) {
-  const selectedRun = (selectedRunId ? runs.find((run) => run.id === selectedRunId) : null) ?? runs[0] ?? null;
+  const selectedRun = selectedRunId ? runs.find((run) => run.id === selectedRunId) ?? null : null;
   return (
-    <div className="mt-4 grid h-full min-h-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-      <div className="space-y-2 overflow-y-auto pr-1">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading history...</div>
-        ) : runs.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">No runs yet.</div>
-        ) : runs.map((run) => (
-          <button
-            key={run.id}
-            type="button"
-            className={cn("w-full rounded-md border border-border bg-background/50 p-3 text-left hover:bg-muted/40", selectedRun?.id === run.id && "border-primary/60 bg-muted/60")}
-            onClick={() => onSelectRun(run.id)}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs">{run.id.slice(0, 8)}</span>
-              <Badge className={statusClasses(run.status)}>{run.status}</Badge>
-            </div>
-            <div className="mt-2 text-xs text-muted-foreground">{formatDate(run.startedAt)}</div>
-            <div className="text-xs text-muted-foreground">Started by: {triggerSourceLabel(run)}</div>
-            <div className="text-xs text-muted-foreground">Duration: {formatDuration(run.durationMs)}</div>
-          </button>
-        ))}
-      </div>
-      <ScrollArea className="min-h-0 h-full pr-1">
-        <RunReport run={selectedRun} />
-      </ScrollArea>
-    </div>
+    <ScrollArea className="mt-4 min-h-0 h-full pr-1">
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading history...</div>
+      ) : runs.length === 0 ? (
+        <div className="text-sm text-muted-foreground">No runs yet.</div>
+      ) : (
+        <div className="flex flex-col">
+          {runs.map((run) => {
+            const isSelected = selectedRun?.id === run.id;
+            const isActive = run.status === "started" || run.status === "running" || run.status === "needs_input";
+            return (
+              <div key={run.id}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-xs transition-colors hover:text-foreground",
+                    isSelected ? "text-foreground" : "text-muted-foreground",
+                  )}
+                  onClick={() => onSelectRun(isSelected ? "" : run.id)}
+                >
+                  <span className={cn("h-2 w-2 shrink-0 rounded-full", statusDotColor(run.status), isActive && "animate-pulse")} />
+                  <span className={cn("shrink-0 font-medium", statusTextColor(run.status))}>{run.status}</span>
+                  <span className="min-w-0 truncate font-mono tabular-nums">{formatDate(run.startedAt)}</span>
+                  <span className="font-mono tabular-nums opacity-50">{formatDuration(run.durationMs)}</span>
+                  <span className="opacity-40">{triggerSourceLabel(run)}</span>
+                </button>
+                {isSelected && <RunReport run={run} />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </ScrollArea>
   );
 }
 
 function RunReport({ run }: { run: JobRun | null }) {
-  if (!run) return <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">Select a run to inspect its structured report.</div>;
-  if (!run.report) {
-    return <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">This run has no structured report yet.</div>;
+  if (!run) {
+    return <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-xs text-muted-foreground">Select a run.</div>;
   }
   return (
-    <div className="rounded-md border border-border bg-background/50 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge className={statusClasses(run.status)}>{run.status}</Badge>
-        <Badge>{triggerSourceLabel(run)}</Badge>
-        <span className="text-sm font-medium">{run.report.summary}</span>
-      </div>
-      <div className="mt-4 space-y-3">
-        {run.report.tasks.map((task, index) => (
-          <div key={`${task.name}-${index}`} className="rounded-md border border-border p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-medium">{task.name}</div>
-              <Badge variant={task.status === "error" ? "error" : "default"}>{task.status}</Badge>
-            </div>
-            {task.summary ? <div className="mt-1 text-sm text-muted-foreground">{task.summary}</div> : null}
-            {task.errors?.map((error, errorIndex) => (
-              <div key={errorIndex} className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
-                {error.message}
-                {error.action ? <div className="mt-1 text-xs text-muted-foreground">{error.action}</div> : null}
-              </div>
-            ))}
-            {task.logs?.slice(-5).map((log, logIndex) => (
-              <div key={logIndex} className="mt-2 font-mono text-xs text-muted-foreground">[{log.level}] {log.message}</div>
-            ))}
+    <div className="mb-2 ml-[3px] border-l-2 border-border pl-4">
+      {run.report?.summary && (
+        <div className="pb-1 text-xs text-muted-foreground">{run.report.summary}</div>
+      )}
+      {run.report?.tasks.map((task, index) => (
+        <div key={`${task.name}-${index}`} className="py-0.5">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              task.status === "success" ? "bg-status-done" : task.status === "error" ? "bg-status-blocked" : "bg-muted-foreground",
+            )} />
+            <span className="font-medium">{task.name}</span>
+            {task.status === "error" && <span className="uppercase text-status-blocked">{task.status}</span>}
           </div>
-        ))}
-      </div>
+          {task.summary ? <div className="pl-3.5 text-xs text-muted-foreground/70">{task.summary}</div> : null}
+          {task.errors?.map((error, errorIndex) => (
+            <div key={errorIndex} className="pl-3.5 text-xs text-status-blocked">
+              {error.message}
+              {error.action ? <span className="ml-2 text-muted-foreground">{error.action}</span> : null}
+            </div>
+          ))}
+          {task.logs?.slice(-5).map((log, logIndex) => (
+            <div key={logIndex} className="pl-3.5 font-mono text-[11px] text-muted-foreground/50">[{log.level}] {log.message}</div>
+          ))}
+        </div>
+      ))}
+      {run.pendingQuestion && (
+        <div className="flex items-start gap-1.5 py-1 text-xs">
+          <MessageSquareText className="mt-0.5 h-3 w-3 shrink-0 text-status-waiting" />
+          <span className="text-status-waiting">{run.pendingQuestion}</span>
+        </div>
+      )}
+      {run.completedAt && (
+        <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">Completed {formatDate(run.completedAt)}</div>
+      )}
+      {!run.report && !run.pendingQuestion && (
+        <div className="text-xs text-muted-foreground">No report yet.</div>
+      )}
     </div>
   );
 }
