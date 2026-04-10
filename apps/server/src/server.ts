@@ -59,7 +59,7 @@ import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
-import { SlackNotifier } from "./notifications/slack.js";
+import { SlackNotifier, isValidSlackWebhookUrl } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
@@ -1771,6 +1771,9 @@ async function registerRoutes() {
       if (typeof body.webhookUrl !== "string") {
         return reply.code(400).send({ error: "webhookUrl must be a string." });
       }
+      if (body.webhookUrl && !isValidSlackWebhookUrl(body.webhookUrl)) {
+        return reply.code(400).send({ error: "webhookUrl must start with https://hooks.slack.com/" });
+      }
       await slackNotifier.setWebhookUrl(body.webhookUrl);
     }
 
@@ -1789,6 +1792,9 @@ async function registerRoutes() {
     const url = typeof body?.webhookUrl === "string" ? body.webhookUrl : await slackNotifier.getWebhookUrl();
     if (!url) {
       return reply.code(400).send({ error: "No webhook URL provided or configured." });
+    }
+    if (!isValidSlackWebhookUrl(url)) {
+      return reply.code(400).send({ error: "webhookUrl must start with https://hooks.slack.com/" });
     }
     return slackNotifier.sendTestMessage(url);
   });

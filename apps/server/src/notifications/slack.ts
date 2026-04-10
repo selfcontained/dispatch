@@ -17,6 +17,7 @@ const EVENT_CONFIG: Record<NotifyEventType, { emoji: string; verb: string; color
   blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
 };
 
+const SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/";
 const SETTING_WEBHOOK_URL = "slack_webhook_url";
 const SETTING_NOTIFY_EVENTS = "slack_notify_events";
 
@@ -28,6 +29,19 @@ type CachedSettings = {
   notifyEvents: NotifyEventType[];
   expiresAt: number;
 };
+
+/**
+ * Validate that a webhook URL points to Slack's official endpoint.
+ * Prevents SSRF by rejecting internal/arbitrary URLs.
+ */
+export function isValidSlackWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.href.startsWith(SLACK_WEBHOOK_PREFIX);
+  } catch {
+    return false;
+  }
+}
 
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
@@ -51,6 +65,9 @@ export class SlackNotifier {
     if (!url) {
       await deleteSetting(this.pool, SETTING_WEBHOOK_URL);
     } else {
+      if (!isValidSlackWebhookUrl(url)) {
+        throw new Error("Invalid webhook URL: must start with https://hooks.slack.com/");
+      }
       await setSetting(this.pool, SETTING_WEBHOOK_URL, url);
     }
     this.invalidateCache();
@@ -116,6 +133,9 @@ export class SlackNotifier {
   }
 
   async sendTestMessage(webhookUrl: string): Promise<{ ok: boolean; error?: string }> {
+    if (!isValidSlackWebhookUrl(webhookUrl)) {
+      return { ok: false, error: "Invalid webhook URL: must start with https://hooks.slack.com/" };
+    }
     try {
       const res = await this.postToSlack(webhookUrl, {
         username: "Dispatch",
