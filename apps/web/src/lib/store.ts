@@ -36,3 +36,8 @@ export const expandedAgentIdAtom = atomWithLocalStorage<string | null>("dispatch
 export const fullAccessByCwdAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage(`dispatch:fullAccess:${cwd}`, false),
 );
+
+/** Per-directory last-used base branch, backed by localStorage (sync read). */
+export const baseBranchByCwdAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage(`dispatch:baseBranch:${cwd}`, "main"),
+);

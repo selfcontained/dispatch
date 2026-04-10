@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
-import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom } from "@/lib/store";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -44,7 +44,6 @@ const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
 const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
-const LAST_USED_BASE_BRANCH_KEY = "dispatch:lastUsedBaseBranch";
 const CWD_HISTORY_KEY = "dispatch:cwdHistory";
 const CWD_HISTORY_MAX = 20;
 
@@ -63,12 +62,6 @@ function readLastUsedAgentType(): AgentType | null {
   if (typeof window === "undefined") return null;
   const stored = window.localStorage.getItem(LAST_USED_TYPE_KEY)?.trim();
   return stored && isAgentType(stored) ? stored : null;
-}
-
-function readLastUsedBaseBranch(): string {
-  if (typeof window === "undefined") return "main";
-  const stored = window.localStorage.getItem(LAST_USED_BASE_BRANCH_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : "main";
 }
 
 function readCwdHistory(): string[] {
@@ -169,9 +162,9 @@ export function DashboardLayout(): JSX.Element {
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
+  const [createBaseBranch, setCreateBaseBranch] = useAtom(baseBranchByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
-  const [createBaseBranch, setCreateBaseBranch] = useState(() => readLastUsedBaseBranch());
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
@@ -496,9 +489,6 @@ export function DashboardLayout(): JSX.Element {
         setCreateWorktreeBranch("");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
-        if (createUseWorktree) {
-          window.localStorage.setItem(LAST_USED_BASE_BRANCH_KEY, createBaseBranch);
-        }
         setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
         setSelectedAgentId(payload.agent.id);
