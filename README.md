@@ -12,7 +12,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > 2. Install system dependencies: **Node.js 22+**, **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3`/`xclip`/`xvfb` on Linux).
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
 > 4. `pnpm install && pnpm run build`
-> 5. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The other defaults are usually fine.
+> 5. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The default host binds to localhost; set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections.
 > 6. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
 >    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/server.js` with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
