@@ -311,7 +311,7 @@ export class JobService {
   }> {
     const [stats, recentRuns] = await Promise.all([
       this.store.getRunStats(7),
-      this.store.listRecentRuns(5),
+      this.store.listRecentRuns(30),
     ]);
     return { stats, recentRuns };
   }

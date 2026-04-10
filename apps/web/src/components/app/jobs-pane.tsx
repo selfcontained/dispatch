@@ -44,6 +44,14 @@ function statusClasses(status: JobRunStatus | null): string {
   return "border-border bg-muted/35 text-muted-foreground";
 }
 
+function statusTextColor(status: JobRunStatus | null): string {
+  if (status === "completed") return "text-status-done";
+  if (status === "failed" || status === "timed_out" || status === "crashed") return "text-status-blocked";
+  if (status === "needs_input") return "text-status-waiting";
+  if (status === "started" || status === "running") return "text-status-working";
+  return "text-muted-foreground";
+}
+
 function statusIcon(status: JobRunStatus | null): JSX.Element | null {
   if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5" />;
   if (status === "failed" || status === "timed_out" || status === "crashed") return <XCircle className="h-3.5 w-3.5" />;
@@ -438,7 +446,7 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto max-w-2xl space-y-6 p-6">
+      <div className="mx-auto max-w-5xl space-y-6 px-3 pt-4 pb-12 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
         {/* Loading */}
         {statsLoading && !metrics && (
           <div className="flex items-center justify-center py-12">
@@ -448,8 +456,8 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
 
         {/* Stats + Chart row */}
         {metrics && metrics.totalRuns > 0 && (
-          <div className="grid gap-4 sm:grid-cols-[1fr_1.5fr]">
-            <div className="grid grid-cols-2 gap-3">
+          <>
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               <StatCard label="Total Runs" value={metrics.totalRuns} sub="Last 7 days" />
               <StatCard
                 label="Success Rate"
@@ -469,12 +477,20 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
                 variant={metrics.failureCount > 0 ? "warning" : undefined}
               />
             </div>
-            {dailyChartData.length > 0 && (
-              <div className="rounded-md border border-border bg-muted/40 p-3">
-                <DailyRunsChart data={dailyChartData} />
-              </div>
-            )}
-          </div>
+            {/* Charts 3-up row */}
+            <div className="flex flex-col gap-4 sm:flex-row [&>*]:sm:flex-1 [&>*]:sm:min-w-0">
+              {dailyChartData.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Daily Runs</h3>
+                  <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3">
+                    <DailyRunsChart data={dailyChartData} />
+                  </div>
+                </div>
+              )}
+              <JobAvgDuration runs={recentRuns} />
+              <RunHistoryGrid runs={recentRuns} />
+            </div>
+          </>
         )}
 
         {/* Upcoming */}
@@ -510,18 +526,15 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
               Recent Activity
             </div>
             <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
-              {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).map((run) => {
+              {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).slice(0, 8).map((run) => {
                 return (
                   <button
                     key={run.id}
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
                     onClick={() => onSelectRun(run.jobId, run.id)}
                   >
-                    <Badge className={cn("shrink-0 gap-1 text-[11px]", statusClasses(run.status))}>
-                      {statusIcon(run.status)}
-                      {run.status}
-                    </Badge>
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground">{run.jobName}</span>
+                    <span className={cn("shrink-0 text-xs capitalize", statusTextColor(run.status))}>{run.status}</span>
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(run.durationMs)}</span>
                     <span className="shrink-0 text-xs text-muted-foreground/60">{formatRelativeTime(run.startedAt)}</span>
                   </button>
@@ -555,7 +568,7 @@ const dailyRunsChartConfig = {
 
 function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; completed: number; failed: number }> }) {
   return (
-    <ChartContainer config={dailyRunsChartConfig} className="aspect-[2/1] w-full">
+    <ChartContainer config={dailyRunsChartConfig} className="h-full w-full">
       <BarChart data={data} barCategoryGap="20%">
         <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={6} tick={{ fontSize: 11 }} />
         <ChartTooltip
@@ -580,6 +593,118 @@ function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; co
         <Bar dataKey="failed" stackId="runs" fill="var(--color-failed)" radius={[2, 2, 0, 0]} />
       </BarChart>
     </ChartContainer>
+  );
+}
+
+// ─── Avg Duration Per Job ─────────────────────────────────────────────
+
+function JobAvgDuration({ runs }: {
+  runs: Array<{ jobName: string; durationMs: number | null }>;
+}) {
+  const perJob = useMemo(() => {
+    const map = new Map<string, number[]>();
+    for (const run of runs) {
+      if (run.durationMs == null) continue;
+      if (!map.has(run.jobName)) map.set(run.jobName, []);
+      map.get(run.jobName)!.push(run.durationMs);
+    }
+    const result = [...map.entries()].map(([name, durations]) => ({
+      name,
+      avg: Math.round(durations.reduce((a, b) => a + b, 0) / durations.length),
+      runs: durations.length,
+    }));
+    const maxAvg = Math.max(...result.map((j) => j.avg), 1);
+    return { jobs: result, maxAvg };
+  }, [runs]);
+
+  if (perJob.jobs.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg Duration</h3>
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-center">
+        <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
+        {perJob.jobs.map((job) => (
+          <div key={job.name}>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="truncate text-xs text-muted-foreground">{job.name}</span>
+              <span className="text-xs font-medium tabular-nums text-foreground">{formatDuration(job.avg)}</span>
+            </div>
+            <div className="flex h-2 overflow-hidden rounded-sm bg-muted/60">
+              <div className="bg-chart-1/70 transition-all rounded-sm" style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Run History Grid ────────────────────────────────────────────────
+
+const MAX_RUN_CELLS = 16;
+
+function RunHistoryGrid({ runs }: {
+  runs: Array<{ jobId: string; jobName: string; status: JobRunStatus; startedAt: string }>;
+}) {
+  const perJob = useMemo(() => {
+    const grouped = new Map<string, Array<{ status: JobRunStatus; startedAt: string }>>();
+    for (const run of runs) {
+      if (!grouped.has(run.jobName)) grouped.set(run.jobName, []);
+      grouped.get(run.jobName)!.push({ status: run.status, startedAt: run.startedAt });
+    }
+    // Each job's runs are newest-first from the API; take last N then reverse to oldest→newest
+    const result: Array<{ name: string; runs: Array<{ status: JobRunStatus; startedAt: string }> }> = [];
+    for (const [name, jobRuns] of grouped) {
+      result.push({ name, runs: jobRuns.slice(0, MAX_RUN_CELLS).reverse() });
+    }
+    return result;
+  }, [runs]);
+
+  if (perJob.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Run History</h3>
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-between">
+        <TooltipProvider delayDuration={80}>
+          <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
+            {perJob.map(({ name, runs: jobRuns }) => (
+              <div key={name}>
+                <div className="mb-1 truncate text-[10px] text-muted-foreground">{name}</div>
+                <div className="grid gap-[1px]" style={{ gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)` }}>
+                  {Array.from({ length: MAX_RUN_CELLS }, (_, i) => {
+                    const run = i < jobRuns.length ? jobRuns[i] : null;
+                    if (!run) return <div key={i} className="h-4 sm:h-3 bg-muted/30" />;
+                    return (
+                      <Tooltip key={i}>
+                        <TooltipTrigger asChild>
+                          <div className={cn(
+                            "h-4 sm:h-3",
+                            run.status === "completed" && "bg-status-done/70",
+                            (run.status === "failed" || run.status === "timed_out" || run.status === "crashed") && "bg-status-blocked/70",
+                            (run.status === "running" || run.status === "started") && "bg-status-working/70",
+                            run.status === "needs_input" && "bg-status-waiting/70",
+                          )} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs">
+                          {run.status} — {formatRelativeTime(run.startedAt)}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </TooltipProvider>
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 bg-status-done/70" />Completed</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 bg-status-blocked/70" />Failed</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
