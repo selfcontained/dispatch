@@ -147,7 +147,7 @@ The `stop` hook in `.dispatch/tools.json` runs when an agent is stopped (e.g., t
 - Media sidebar with lightbox and seen/unseen tracking
 
 ### Jobs
-- Scheduled, repo-scoped agent tasks defined in `.dispatch/jobs/*.md`
+- Scheduled, repo-scoped agent tasks managed via the database and API
 - Cron-based scheduling with manual trigger support
 - Structured reporting via `job_complete` / `job_failed` / `job_needs_input` / `job_log` MCP tools
 - Run history with per-task status and error details

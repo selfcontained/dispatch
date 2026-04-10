@@ -62,7 +62,7 @@ GitHub Actions run: $run_url}
 Please diagnose the failure. If it's fixable, describe the fix. If a rollback
 is needed, you can run: bin/dispatch-deploy --latest
 
-Report your findings via dispatch-event."
+Report your findings via the dispatch_event MCP tool."
 
   local port="6767"
   local env_file="$ROOT_DIR/.env"
