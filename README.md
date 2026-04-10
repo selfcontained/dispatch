@@ -176,14 +176,12 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
-- [Current State Handoff](docs/08-current-state-handoff.md) — comprehensive project overview for new contributors
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
 - [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Personas and Feedback](docs/15-personas-and-feedback.md) — automated code review via persona agents
 - [Notifications](docs/16-notifications.md) — Slack webhook integration
-- [Jobs](docs/jobs-feature-spec.md) — scheduled agent tasks with structured reporting
 
 ## Issue Tracking
 

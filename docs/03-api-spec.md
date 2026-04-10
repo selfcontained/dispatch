@@ -259,6 +259,7 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 |--------|------|-------------|
 | GET | `/health` | Database connectivity check |
 | GET | `/app/version` | Current app version |
+| GET | `/app/branding` | App branding info (icon color) |
 | GET | `/system/defaults` | System defaults (home directory) |
 | GET | `/system/path-info` | Path validation (exists, isDirectory, isGitRepo) |
 | GET | `/system/path-completions` | Directory path autocomplete |
@@ -276,7 +277,6 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 | POST | `/release` | Trigger new release (`versionType`: major/minor/patch) |
 | POST | `/release/update` | Update to a specific release tag |
 | GET | `/release/stream` | SSE stream for release operation progress |
-| GET | `/app/version` | Current app version info |
 
 ## Jobs
 
