@@ -98,9 +98,9 @@ export function CreateAgentDialog({
     try {
       const result = await api<{ branches: string[] }>(`/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`);
       setRemoteBranches(result.branches);
-      // If the pre-selected branch doesn't exist in the fetched list, fall back to "main"
-      if (createBaseBranch !== "main" && !result.branches.includes(createBaseBranch)) {
-        setCreateBaseBranch("main");
+      // If the pre-selected branch doesn't exist in the fetched list, fall back to the first available branch
+      if (!result.branches.includes(createBaseBranch)) {
+        setCreateBaseBranch(result.branches[0] ?? "main");
       }
     } catch {
       setRemoteBranches([]);
