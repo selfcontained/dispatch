@@ -90,6 +90,7 @@ const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
 const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
 jobService.onRunStateChange((run) => {
+  uiEventBroker.publish({ type: "job.changed" });
   void jobNotifier.onJobRunStateChange(run).catch((err) => {
     app.log.warn({ err, runId: run.id }, "Job run state notification failed");
   });
@@ -161,7 +162,8 @@ type UiEvent =
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
-  | { type: "feedback.updated"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord };
+  | { type: "feedback.updated"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
+  | { type: "job.changed" };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -1136,7 +1138,9 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.addJob(parsed.data);
+      const result = await jobService.addJob(parsed.data);
+      uiEventBroker.publish({ type: "job.changed" });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1149,7 +1153,9 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.updateJob(parsed.data);
+      const result = await jobService.updateJob(parsed.data);
+      uiEventBroker.publish({ type: "job.changed" });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1162,7 +1168,9 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.removeJob(parsed.data);
+      const result = await jobService.removeJob(parsed.data);
+      uiEventBroker.publish({ type: "job.changed" });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1175,7 +1183,9 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.enableJob(parsed.data);
+      const result = await jobService.enableJob(parsed.data);
+      uiEventBroker.publish({ type: "job.changed" });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
@@ -1188,7 +1198,9 @@ async function registerRoutes() {
       return reply.code(400).send({ error: parsed.error.issues[0].message });
     }
     try {
-      return await jobService.disableJob(parsed.data);
+      const result = await jobService.disableJob(parsed.data);
+      uiEventBroker.publish({ type: "job.changed" });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
