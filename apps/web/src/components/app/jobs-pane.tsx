@@ -67,14 +67,6 @@ function statusDotColor(status: JobRunStatus | null): string {
   return "bg-muted-foreground";
 }
 
-function statusTextColor(status: JobRunStatus | null): string {
-  if (status === "completed") return "text-status-done";
-  if (status === "failed" || status === "timed_out" || status === "crashed") return "text-status-blocked";
-  if (status === "needs_input") return "text-status-waiting";
-  if (status === "started" || status === "running") return "text-status-working";
-  return "text-muted-foreground";
-}
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Not scheduled";
   const date = new Date(iso);
