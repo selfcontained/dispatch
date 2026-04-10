@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { SlackNotifier } from "../src/notifications/slack.js";
+import { SlackNotifier, isValidSlackWebhookUrl } from "../src/notifications/slack.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 
 // Stub the DB settings module so SlackNotifier never hits a real DB.
@@ -62,6 +62,47 @@ const mockLog = {
   silent: vi.fn(),
   level: "debug",
 } as unknown as import("fastify").FastifyBaseLogger;
+
+describe("isValidSlackWebhookUrl", () => {
+  it("accepts valid Slack webhook URLs", () => {
+    expect(isValidSlackWebhookUrl("https://hooks.slack.com/services/T00/B00/xxx")).toBe(true);
+    expect(isValidSlackWebhookUrl("https://hooks.slack.com/workflows/T00/B00/xxx")).toBe(true);
+  });
+
+  it("rejects non-Slack URLs", () => {
+    expect(isValidSlackWebhookUrl("https://evil.com/hooks.slack.com/")).toBe(false);
+    expect(isValidSlackWebhookUrl("http://hooks.slack.com/services/T00/B00/xxx")).toBe(false);
+    expect(isValidSlackWebhookUrl("https://hooks.slack.com.evil.com/foo")).toBe(false);
+    expect(isValidSlackWebhookUrl("https://169.254.169.254/latest/meta-data")).toBe(false);
+    expect(isValidSlackWebhookUrl("file:///etc/passwd")).toBe(false);
+    expect(isValidSlackWebhookUrl("http://localhost:8080")).toBe(false);
+    expect(isValidSlackWebhookUrl("not-a-url")).toBe(false);
+    expect(isValidSlackWebhookUrl("")).toBe(false);
+  });
+});
+
+describe("SlackNotifier webhook URL validation", () => {
+  it("rejects invalid URLs in setWebhookUrl", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await expect(notifier.setWebhookUrl("http://169.254.169.254/")).rejects.toThrow(
+      "Invalid webhook URL: must start with https://hooks.slack.com/"
+    );
+  });
+
+  it("allows clearing the webhook URL with empty string", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await expect(notifier.setWebhookUrl("")).resolves.toBeUndefined();
+  });
+
+  it("rejects invalid URLs in sendTestMessage", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const result = await notifier.sendTestMessage("http://internal-service:8080/");
+    expect(result).toEqual({
+      ok: false,
+      error: "Invalid webhook URL: must start with https://hooks.slack.com/",
+    });
+  });
+});
 
 describe("SlackNotifier focus suppression", () => {
   beforeEach(() => {
