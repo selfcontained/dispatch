@@ -116,10 +116,10 @@ cd dispatch
 cp .env.example .env
 ```
 
-Edit `.env` — the only value you must change is `AUTH_TOKEN`:
+Edit `.env` — the only value you must change is `AUTH_TOKEN` for a local-only setup:
 
 ```
-DISPATCH_HOST=0.0.0.0
+DISPATCH_HOST=127.0.0.1
 DISPATCH_PORT=6767
 DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:5432/dispatch
 AUTH_TOKEN=<generate-a-real-token>
@@ -127,6 +127,9 @@ MEDIA_ROOT=~/.dispatch/media
 ```
 
 Generate a token with `openssl rand -hex 32`.
+
+If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` explicitly in
+`~/.dispatch/server/.env` after installation.
 
 ### 5. Build & verify locally
 

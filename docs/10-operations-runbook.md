@@ -149,6 +149,7 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|
+| `DISPATCH_HOST` | `127.0.0.1` | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
 | `DISPATCH_PORT` | `6767` | HTTP port the server listens on |
 | `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
 | `MEDIA_ROOT` | `/tmp/dispatch-media` | File upload storage path |
