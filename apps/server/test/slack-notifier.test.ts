@@ -265,4 +265,37 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     const contextText = body.attachments[0].blocks[1].elements[0].text;
     expect(contextText).toContain("feat/notify");
   });
+
+  it("sanitizes Slack mrkdwn injection in message and title", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await notifier.sendNotification(makeAgent(), {
+      message: "Check this <!channel> and <!here> ping",
+      title: "Alert <!everyone>",
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const messageText = body.attachments[0].blocks[0].text.text;
+    expect(messageText).not.toContain("<!channel>");
+    expect(messageText).not.toContain("<!here>");
+    expect(messageText).not.toContain("<!everyone>");
+    expect(messageText).toContain("&lt;!channel&gt;");
+    expect(messageText).toContain("&lt;!everyone&gt;");
+  });
+
+  it("cleans up expired rate limit entries from the map", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const agent = makeAgent();
+    const map = (notifier as unknown as { notifyTimestamps: Map<string, number[]> }).notifyTimestamps;
+
+    // Seed with expired timestamps (>60s ago)
+    map.set(agent.id, [Date.now() - 120_000]);
+    expect(map.has(agent.id)).toBe(true);
+
+    // Trigger isRateLimited via sendNotification — expired entries get pruned,
+    // and if empty the map entry is deleted entirely
+    notifier.setFocusCheck(() => true);
+    await notifier.sendNotification(agent, { message: "trigger cleanup", respectFocus: true });
+
+    expect(map.has(agent.id)).toBe(false);
+  });
 });

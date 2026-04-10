@@ -460,8 +460,8 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           "Requires a Slack webhook to be configured in Dispatch settings. " +
           "Rate limited to 5 messages per minute.",
         inputSchema: {
-          message: z.string().describe("The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc)."),
-          title: z.string().optional().describe("Optional title displayed above the message. Defaults to 'Notification from <agent>'."),
+          message: z.string().max(3000).describe("The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc). Max 3000 characters."),
+          title: z.string().max(150).optional().describe("Optional title displayed above the message. Defaults to 'Notification from <agent>'. Max 150 characters."),
           level: z.enum(["info", "success", "warning", "error"]).default("info")
             .describe("Notification level — controls the color and emoji. info (blue), success (green), warning (amber), error (red)."),
           respectFocus: z.boolean().default(false)

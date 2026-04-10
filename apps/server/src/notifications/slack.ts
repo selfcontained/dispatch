@@ -69,6 +69,14 @@ export function isValidSlackWebhookUrl(url: string): boolean {
   }
 }
 
+/**
+ * Escape Slack special mention syntax (<!channel>, <!here>, <!everyone>)
+ * in agent-provided content to prevent mrkdwn injection.
+ */
+function sanitizeSlackMrkdwn(text: string): string {
+  return text.replace(/<!([^>]*)>/g, "&lt;!$1&gt;");
+}
+
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
@@ -214,15 +222,20 @@ export class SlackNotifier {
       const cfg = LEVEL_CONFIG[level];
       const agentName = agent.name || agent.id.slice(0, 8);
 
+      // Sanitize agent-provided content to prevent Slack mrkdwn injection
+      // (<!channel>, <!here>, <!everyone> mentions, and <url|label> link spoofing)
+      const safeMessage = sanitizeSlackMrkdwn(input.message);
+      const safeTitle = input.title ? sanitizeSlackMrkdwn(input.title) : undefined;
+
       const blocks: SlackBlock[] = [];
 
       // Title + message
-      const titleLine = input.title
-        ? `*${cfg.emoji} ${input.title}*`
+      const titleLine = safeTitle
+        ? `*${cfg.emoji} ${safeTitle}*`
         : `*${cfg.emoji} Notification from "${agentName}"*`;
       blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: `${titleLine}\n${input.message}` },
+        text: { type: "mrkdwn", text: `${titleLine}\n${safeMessage}` },
       });
 
       // Context line
@@ -235,9 +248,9 @@ export class SlackNotifier {
         elements: [{ type: "mrkdwn", text: contextParts.join("  \u00b7  ") }],
       });
 
-      const fallback = input.title
-        ? `${input.title}: ${input.message}`
-        : `Notification from "${agentName}": ${input.message}`;
+      const fallback = safeTitle
+        ? `${safeTitle}: ${safeMessage}`
+        : `Notification from "${agentName}": ${safeMessage}`;
 
       const res = await this.postToSlack(settings.webhookUrl, {
         username: "Dispatch",
@@ -262,7 +275,11 @@ export class SlackNotifier {
     const now = Date.now();
     const timestamps = this.notifyTimestamps.get(agentId) ?? [];
     const recent = timestamps.filter((t) => now - t < NOTIFY_RATE_WINDOW_MS);
-    this.notifyTimestamps.set(agentId, recent);
+    if (recent.length === 0) {
+      this.notifyTimestamps.delete(agentId);
+    } else {
+      this.notifyTimestamps.set(agentId, recent);
+    }
     return recent.length >= NOTIFY_RATE_LIMIT;
   }
 
