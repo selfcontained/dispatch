@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
-import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom } from "@/lib/store";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -162,9 +162,9 @@ export function DashboardLayout(): JSX.Element {
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
+  const [createBaseBranch, setCreateBaseBranch] = useAtom(baseBranchByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
-  const [createBaseBranch, setCreateBaseBranch] = useState("main");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
@@ -487,7 +487,6 @@ export function DashboardLayout(): JSX.Element {
         setCreateName("");
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
-        setCreateBaseBranch("main");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         setLastUsedAgentType(createType);
