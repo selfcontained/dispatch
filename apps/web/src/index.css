@@ -39,6 +39,10 @@
   /* Surface & terminal */
   --surface: 50 15% 5%;
   --terminal-bg: 0 0% 8%;
+  --log-stream-bg: 48 10% 10%;
+  --log-stream-foreground: 145 44% 78%;
+  --log-stream-muted-foreground: 42 10% 64%;
+  --log-stream-border: 40 10% 20%;
 }
 
 [data-theme="cool-navy"] {
@@ -75,6 +79,10 @@
 
   --surface: 225 16% 7%;
   --terminal-bg: 225 16% 7%;
+  --log-stream-bg: 222 16% 10%;
+  --log-stream-foreground: 164 52% 76%;
+  --log-stream-muted-foreground: 220 8% 67%;
+  --log-stream-border: 220 11% 23%;
 }
 
 [data-theme="oled-black"] {
@@ -111,6 +119,10 @@
 
   --surface: 0 0% 2%;
   --terminal-bg: 0 0% 0%;
+  --log-stream-bg: 0 0% 5%;
+  --log-stream-foreground: 153 55% 74%;
+  --log-stream-muted-foreground: 0 0% 58%;
+  --log-stream-border: 0 0% 14%;
 }
 
 [data-theme="solarized-dark"] {
@@ -147,6 +159,10 @@
 
   --surface: 192 100% 8%;
   --terminal-bg: 192 100% 11%;
+  --log-stream-bg: 192 62% 13%;
+  --log-stream-foreground: 182 21% 71%;
+  --log-stream-muted-foreground: 194 14% 48%;
+  --log-stream-border: 192 40% 24%;
 }
 
 [data-theme="light"] {
@@ -183,6 +199,10 @@
 
   --surface: 207 22% 90%;
   --terminal-bg: 210 23% 95%;
+  --log-stream-bg: 210 29% 97%;
+  --log-stream-foreground: 153 63% 26%;
+  --log-stream-muted-foreground: 211 11% 39%;
+  --log-stream-border: 208 20% 82%;
 }
 
 [data-theme="vaporwave"] {
@@ -219,6 +239,10 @@
 
   --surface: 262 52% 4%;
   --terminal-bg: 262 52% 6%;
+  --log-stream-bg: 262 38% 10%;
+  --log-stream-foreground: 181 78% 78%;
+  --log-stream-muted-foreground: 270 20% 58%;
+  --log-stream-border: 262 30% 18%;
 }
 
 [data-theme="midnight"] {
@@ -255,6 +279,10 @@
 
   --surface: 0 0% 2%;
   --terminal-bg: 0 0% 0%;
+  --log-stream-bg: 220 12% 6%;
+  --log-stream-foreground: 194 90% 74%;
+  --log-stream-muted-foreground: 220 8% 60%;
+  --log-stream-border: 220 11% 16%;
 }
 
 [data-theme="matrix"] {
@@ -291,6 +319,10 @@
 
   --surface: 145 24% 2%;
   --terminal-bg: 150 20% 1.5%;
+  --log-stream-bg: 145 32% 4%;
+  --log-stream-foreground: 139 94% 82%;
+  --log-stream-muted-foreground: 138 25% 58%;
+  --log-stream-border: 145 25% 14%;
 }
 
 [data-theme="mytra"] {
@@ -327,6 +359,10 @@
 
   --surface: 220 12% 4%;
   --terminal-bg: 0 0% 1%;
+  --log-stream-bg: 228 18% 9%;
+  --log-stream-foreground: 226 28% 84%;
+  --log-stream-muted-foreground: 220 12% 60%;
+  --log-stream-border: 228 14% 18%;
 }
 
 * {
