@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react";
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
+import { LogStream } from "@/components/ui/log-stream";
 import { cn } from "@/lib/utils";
 
 const PHASE_LABELS: Record<ReleasePhase, string> = {
@@ -69,22 +70,19 @@ type OperationLogProps = {
 export function OperationLog({ logRef, job, isRestarting, postRestartPolling }: OperationLogProps): JSX.Element {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
-      <div
-        ref={logRef}
-        className="min-h-0 flex-1 overflow-y-auto bg-black/60 p-4 font-mono text-[12px] leading-relaxed text-green-300"
-      >
+      <LogStream viewportRef={logRef}>
         {job.log
           .filter((line) => line.trim() !== "DISPATCH_RESTARTING")
           .map((line, i) => (
             <div key={i}>{line || "\u00A0"}</div>
           ))}
         {(isRestarting || postRestartPolling) && !job.log.length && (
-          <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="flex items-center gap-2 text-[hsl(var(--log-stream-muted-foreground))]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Waiting for Dispatch to restart...
           </div>
         )}
-      </div>
+      </LogStream>
     </div>
   );
 }

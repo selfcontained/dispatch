@@ -60,6 +60,7 @@ hljs.registerLanguage("objectivec", objectivec);
 hljs.registerLanguage("nim", nim);
 
 import { Button } from "@/components/ui/button";
+import { LogStream } from "@/components/ui/log-stream";
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
@@ -169,11 +170,15 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   }
 
   if (content === null) {
-    return <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="grid h-full place-items-center text-sm text-[hsl(var(--log-stream-muted-foreground))]">
+        Loading...
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <LogStream className="min-h-full overflow-auto p-0">
       {highlightedHtml ? (
         <pre className={cn("p-4 text-sm leading-relaxed", shouldWrapText && textWrapClassName)}>
           <code
@@ -182,11 +187,11 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
           />
         </pre>
       ) : (
-        <pre className={cn("p-4 text-sm leading-relaxed text-foreground", shouldWrapText && textWrapClassName)}>
+        <pre className={cn("p-4 text-sm leading-relaxed", shouldWrapText && textWrapClassName)}>
           <code className={cn(shouldWrapText && textWrapClassName)}>{content}</code>
         </pre>
       )}
-    </div>
+    </LogStream>
   );
 }
 
@@ -371,7 +376,12 @@ export function MediaLightbox({
           </Button>
         </div>
       </div>
-      <div className="mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border bg-black touch-pinch-zoom">
+      <div
+        className={cn(
+          "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border touch-pinch-zoom",
+          isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
+        )}
+      >
         {isText ? (
           <TextViewer src={item.src} fileName={item.file.name} />
         ) : isVideo ? (
