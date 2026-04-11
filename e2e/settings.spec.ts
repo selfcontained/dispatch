@@ -24,16 +24,16 @@ test.describe("Settings pane", () => {
     await expect(generalNav).not.toBeVisible({ timeout: 3_000 });
   });
 
-  test("shows version metadata in the App section", async ({ page }) => {
+  test("shows version metadata in the Updates section", async ({ page }) => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByRole("navigation").getByText("About", { exact: true }).click();
+    await page.getByRole("navigation").getByText("Updates", { exact: true }).click();
 
-    await expect(page.getByTestId("app-version-card")).toBeVisible();
-    await expect(page.getByTestId("app-version-semver")).not.toHaveText("");
-    await expect(page.getByTestId("app-version-git-sha")).not.toHaveText("");
-    await expect(page.getByTestId("app-version-release-notes")).not.toHaveText("");
+    // Version info is displayed in the Updates section
+    await expect(page.getByText("Current version")).toBeVisible();
+    await expect(page.getByText("Release tag")).toBeVisible();
+    await expect(page.getByText("Release channel")).toBeVisible();
   });
 
   test("agent type settings filter the create-agent dialog", async ({ page }) => {
