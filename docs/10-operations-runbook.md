@@ -81,6 +81,12 @@ The **release workflow** (GitHub Actions):
 ```bash
 # Deploy a specific tag (also used for rollback)
 bin/dispatch-deploy v1.2.3
+
+# Deploy the latest stable release
+bin/dispatch-deploy --latest
+
+# Deploy the latest release from the "latest" channel (includes pre-releases)
+bin/dispatch-deploy --latest --channel latest
 ```
 
 `bin/dispatch-deploy` operates on `~/.dispatch/server/` and:
@@ -154,6 +160,8 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
 | `AUTH_TOKEN` | — | API authentication token for MCP endpoints (generate with `openssl rand -hex 32`) |
 | `MEDIA_ROOT` | `~/.dispatch/media` | File upload storage path |
+| `TLS_CERT` | — | Path to TLS certificate file (enables HTTPS when both cert and key are set) |
+| `TLS_KEY` | — | Path to TLS private key file |
 
 Changes to `.env` require a service restart to take effect.
 
