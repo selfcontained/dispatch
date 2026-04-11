@@ -607,6 +607,16 @@ async function checkIsAdmin(): Promise<boolean> {
   return cachedIsAdmin;
 }
 
+function parseGhJson<T>(stdout: string): T {
+  const trimmed = stdout.trim();
+  if (!trimmed) throw new Error("GitHub CLI returned empty output");
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error("Failed to parse GitHub CLI output");
+  }
+}
+
 function compareSemver(a: string, b: string): number {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
   const pa = parse(a);
@@ -1378,9 +1388,37 @@ async function registerRoutes() {
       // Check admin permissions (cached for process lifetime)
       const isAdmin = await checkIsAdmin();
 
-      // Find latest tag from origin
-      const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
-      const latestTag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
+      // Read the configured release channel
+      const channelRaw = await getSetting(pool, "release_channel");
+      const channel = channelRaw === "latest" ? "latest" : "stable";
+
+      // Fetch recent releases in a single gh call. We request a small batch
+      // with isPrerelease so we can derive both the channel-filtered tag and
+      // the absolute latest tag without a second subprocess spawn.
+      let latestTag: string | null = null;
+      let absoluteLatestTag: string | null = null;
+      try {
+        const repo = await getGitHubRepo();
+        const ghResult = await runCommand("gh", [
+          "release", "list",
+          "--repo", repo,
+          "--limit", "10",
+          "--json", "tagName,isPrerelease"
+        ]);
+        const allReleases = parseGhJson<Array<{ tagName: string; isPrerelease: boolean }>>(ghResult.stdout);
+        absoluteLatestTag = allReleases[0]?.tagName ?? null;
+        if (channel === "stable") {
+          latestTag = allReleases.find((r) => !r.isPrerelease)?.tagName ?? null;
+        } else {
+          latestTag = allReleases[0]?.tagName ?? null;
+        }
+      } catch {
+        // Fallback to git tags (sees all releases regardless of channel)
+        const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
+        const fallbackTag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
+        latestTag = fallbackTag;
+        absoluteLatestTag = fallbackTag;
+      }
 
       const updateAvailable = !!(currentTag && latestTag && compareSemver(latestTag, currentTag) > 0);
 
@@ -1390,15 +1428,14 @@ async function registerRoutes() {
         latestRelease = await fetchLatestReleaseMetadata(latestTag);
       }
 
-      // Admin-only: unreleased commits on main
+      // Admin-only: unreleased commits on main.
+      // Compare the absolute latest tag (across all channels) to main so
+      // admins see the real unreleased count regardless of channel.
       let unreleasedCount = 0;
       let commits: Array<{ sha: string; subject: string }> = [];
       let refMissing = false;
 
-      // Compare latest release tag to main to find truly unreleased commits.
-      // Using latestTag (not currentTag) ensures that instances running an
-      // older version don't show already-released commits as "unreleased".
-      const compareTag = latestTag ?? currentTag;
+      const compareTag = absoluteLatestTag ?? currentTag;
       if (isAdmin && compareTag) {
         const refCheck = await runCommand(
           "git", ["-C", serverDir, "rev-parse", "--verify", compareTag],
@@ -1437,6 +1474,7 @@ async function registerRoutes() {
 
       return {
         currentTag,
+        channel,
         isAdmin,
         latestTag,
         updateAvailable,
@@ -1444,6 +1482,92 @@ async function registerRoutes() {
         unreleasedCount,
         commits,
         refMissing
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  // --- Release channel ---
+
+  const RELEASE_CHANNEL_KEY = "release_channel";
+  const VALID_CHANNELS = ["stable", "latest"] as const;
+  type ReleaseChannel = (typeof VALID_CHANNELS)[number];
+
+  app.get("/api/v1/release/channel", async () => {
+    const raw = await getSetting(pool, RELEASE_CHANNEL_KEY);
+    const channel: ReleaseChannel = raw === "latest" ? "latest" : "stable";
+    return { channel };
+  });
+
+  app.post("/api/v1/release/channel", async (request, reply) => {
+    const body = request.body as { channel?: unknown } | undefined;
+    if (!body?.channel || !VALID_CHANNELS.includes(body.channel as ReleaseChannel)) {
+      return reply.code(400).send({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+    }
+    await setSetting(pool, RELEASE_CHANNEL_KEY, body.channel as string);
+    return { channel: body.channel };
+  });
+
+  // --- Release admin check ---
+
+  app.get("/api/v1/release/admin-check", async () => {
+    const isAdmin = await checkIsAdmin();
+    return { isAdmin };
+  });
+
+  // --- Promote release (remove pre-release flag) ---
+
+  app.post("/api/v1/release/promote", async (request, reply) => {
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) {
+      return reply.code(403).send({ error: "Admin access required" });
+    }
+
+    const body = request.body as { tag?: unknown } | undefined;
+    if (!body?.tag || typeof body.tag !== "string" || !/^v\d+\.\d+\.\d+$/.test(body.tag)) {
+      return reply.code(400).send({ error: "tag is required and must be a semver tag (e.g. v0.11.18)" });
+    }
+
+    try {
+      const repo = await getGitHubRepo();
+      await runCommand("gh", [
+        "release", "edit", body.tag,
+        "--repo", repo,
+        "--prerelease=false"
+      ]);
+      return { ok: true, tag: body.tag };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return reply.code(500).send({ error: message });
+    }
+  });
+
+  // --- Recent releases list ---
+
+  app.get("/api/v1/releases", async (_, reply) => {
+    try {
+      const repo = await getGitHubRepo();
+      const result = await runCommand("gh", [
+        "release", "list",
+        "--repo", repo,
+        "--limit", "10",
+        "--json", "tagName,publishedAt,isPrerelease,url"
+      ]);
+      const releases = parseGhJson<Array<{
+        tagName: string;
+        publishedAt: string;
+        isPrerelease: boolean;
+        url: string;
+      }>>(result.stdout);
+      return {
+        releases: releases.map((r) => ({
+          tag: r.tagName,
+          publishedAt: r.publishedAt,
+          isPrerelease: r.isPrerelease,
+          url: r.url
+        }))
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -1493,8 +1617,8 @@ async function registerRoutes() {
   app.post("/api/v1/release/update", async (request, reply) => {
     const body = request.body as { tag?: unknown } | undefined;
 
-    if (!body?.tag || typeof body.tag !== "string" || !body.tag.startsWith("v")) {
-      return reply.code(400).send({ error: "tag is required and must be a version tag (e.g. v0.2.31)" });
+    if (!body?.tag || typeof body.tag !== "string" || !/^v\d+\.\d+\.\d+$/.test(body.tag)) {
+      return reply.code(400).send({ error: "tag is required and must be a semver tag (e.g. v0.2.31)" });
     }
 
     const tag = body.tag as string;

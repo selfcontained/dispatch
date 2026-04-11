@@ -16,17 +16,21 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/deploy-common.sh"
 usage() {
   cat <<USAGE
 Usage: bin/dispatch-deploy <tag>
-       bin/dispatch-deploy --latest
+       bin/dispatch-deploy --latest [--channel <stable|latest>]
 
 Checks out a verified release tag in the server directory, builds, reloads
 the launchd service, and verifies Dispatch comes back up healthy.
 
 On failure, attempts automatic rollback to the previously deployed tag.
 
+Options:
+  --channel <stable|latest>  Release channel filter for --latest (default: stable)
+
 Examples:
-  bin/dispatch-deploy v0.2.0    # deploy a specific tag
-  bin/dispatch-deploy --latest  # deploy the latest tag
-  bin/dispatch-deploy v0.1.0    # rollback to a previous tag
+  bin/dispatch-deploy v0.2.0                    # deploy a specific tag
+  bin/dispatch-deploy --latest                  # deploy latest stable tag
+  bin/dispatch-deploy --latest --channel latest # deploy latest tag (including pre-releases)
+  bin/dispatch-deploy v0.1.0                    # rollback to a previous tag
 USAGE
 }
 
@@ -120,14 +124,30 @@ current_tag() {
 
 resolve_tag() {
   local tag="$1"
+  local channel="${2:-stable}"
   if [[ "$tag" == "--latest" ]]; then
     git -C "$SERVER_DIR" fetch --tags --quiet
-    tag=$(git -C "$SERVER_DIR" tag --sort=-version:refname | grep '^v' | head -1)
+    local gh_available=false
+    # Try channel-aware resolution via gh CLI
+    if command -v gh &>/dev/null; then
+      gh_available=true
+      local gh_args=("release" "list" "--repo" "$REPO" "--limit" "1" "--json" "tagName" "--jq" ".[0].tagName")
+      if [[ "$channel" == "stable" ]]; then
+        gh_args+=("--exclude-pre-releases")
+      fi
+      tag=$(gh "${gh_args[@]}" 2>/dev/null || echo "")
+    fi
+    # Only fall back to git tags if gh CLI is unavailable (not installed
+    # or not authenticated). If gh ran successfully but returned no results,
+    # that means no release matches the channel — don't bypass the filter.
+    if [[ -z "$tag" && "$gh_available" == "false" ]]; then
+      tag=$(git -C "$SERVER_DIR" tag --sort=-version:refname | grep '^v' | head -1)
+    fi
     if [[ -z "$tag" ]]; then
-      echo "error: no release tags found" >&2
+      echo "error: no release tags found for channel '$channel'" >&2
       exit 1
     fi
-    echo "resolved latest tag: $tag" >&2
+    echo "resolved latest tag: $tag (channel: $channel)" >&2
   fi
   echo "$tag"
 }
@@ -274,7 +294,17 @@ If you can fix the issue, do so and redeploy with: bin/dispatch-deploy $tag"
 }
 
 main() {
-  local tag="${1:-}"
+  local tag=""
+  local channel="stable"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --channel) channel="$2"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      *) tag="$1"; shift ;;
+    esac
+  done
+
   if [[ -z "$tag" ]]; then
     usage
     exit 1
@@ -295,7 +325,7 @@ main() {
   echo "==> fetching tags"
   git -C "$SERVER_DIR" fetch --tags --quiet
 
-  tag=$(resolve_tag "$tag")
+  tag=$(resolve_tag "$tag" "$channel")
 
   if ! git -C "$SERVER_DIR" rev-parse "$tag" >/dev/null 2>&1; then
     echo "error: tag '$tag' not found" >&2

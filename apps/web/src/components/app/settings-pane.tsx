@@ -1,36 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowDownToLine, ArrowLeft, Bell, ChevronDown, ChevronRight, ExternalLink, Info, RefreshCw, Settings, Trash2, Users, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Bell, ChevronRight, Package, Settings, Users, X } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
-import { ReleaseManager } from "@/components/app/release-manager";
+import { ReleasesAdmin } from "@/components/app/release-admin";
+import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
+import { useReleaseStream } from "@/hooks/use-release-stream";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "general" | "agents" | "notifications" | "updates" | "about";
+type SettingsSection = "general" | "agents" | "notifications" | "updates" | "releases";
 
-const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
+const BASE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "general", label: "General", icon: Settings },
   { id: "agents", label: "Agents", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
-  { id: "about", label: "About", icon: Info },
 ];
 
-type AppVersionInfo = {
-  releaseTag: string | null;
-  version: string | null;
-  gitSha: string | null;
-  releaseNotes: string | null;
-  releaseUrl: string | null;
-};
+const RELEASES_SECTION = { id: "releases" as SettingsSection, label: "Releases", icon: Package };
 
 function InstanceNameSettings(): JSX.Element {
   const { instanceName, setInstanceName, isSaving, saveError, didSave, clearSaveState } = useInstanceName();
@@ -117,154 +111,7 @@ function InstanceNameSettings(): JSX.Element {
   );
 }
 
-function AppSettings(): JSX.Element {
-  const [reloading, setReloading] = useState(false);
-  const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
-  const [versionError, setVersionError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void api<AppVersionInfo>("/api/v1/app/version")
-      .then((payload) => {
-        if (cancelled) return;
-        setVersionInfo(payload);
-        setVersionError(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setVersionError(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleReload = useCallback(() => {
-    setReloading(true);
-    window.location.reload();
-  }, []);
-
-  const handleClearCacheAndReload = useCallback(async () => {
-    setReloading(true);
-    try {
-      // Unregister all service workers and clear their caches
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((r) => r.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-      window.location.reload();
-    } catch {
-      // If anything fails, just reload anyway
-      window.location.reload();
-    }
-  }, []);
-
-  return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
-      <div data-testid="app-version-card">
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Current version
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Version information for the running app process.
-        </p>
-        <div className="grid gap-2 rounded border border-border p-3 text-sm">
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">Release tag</span>
-            <span className="font-mono" data-testid="app-version-release-tag">
-              {versionInfo?.releaseTag ?? "unreleased"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">Package version</span>
-            <span className="font-mono" data-testid="app-version-semver">
-              {versionInfo?.version ?? "unknown"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">Git SHA</span>
-            <span className="font-mono" data-testid="app-version-git-sha">
-              {versionInfo?.gitSha ?? "unavailable"}
-            </span>
-          </div>
-        </div>
-        <div className="mt-4 rounded border border-border p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Release notes
-            </div>
-            {versionInfo?.releaseUrl ? (
-              <a
-                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"
-                href={versionInfo.releaseUrl}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <ExternalLink className="h-3 w-3" />
-                View on GitHub
-              </a>
-            ) : null}
-          </div>
-          <div
-            className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground"
-            data-testid="app-version-release-notes"
-          >
-            {versionInfo?.releaseNotes ?? "No release notes are stored for this build yet."}
-          </div>
-        </div>
-        {versionError ? (
-          <p className="mt-2 text-xs text-red-300">
-            Unable to load version metadata.
-          </p>
-        ) : null}
-      </div>
-
-      <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Reload
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Reload the app to pick up the latest version. Use the dropdown to clear cached data first if the app feels stuck.
-        </p>
-        <div className="inline-flex items-stretch">
-          <button
-            onClick={handleReload}
-            disabled={reloading}
-            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
-            {reloading ? "Reloading…" : "Reload"}
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                disabled={reloading}
-                className="inline-flex items-center rounded-r border border-border px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => void handleClearCacheAndReload()}
-                className="flex items-center whitespace-nowrap text-muted-foreground"
-              >
-                <Trash2 className="mr-2 h-3.5 w-3.5" />
-                Clear cache & reload
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </div>
-  );
-}
+// AppSettings (About) has been merged into UpdatesSection in release-manager.tsx
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -463,8 +310,10 @@ function AppearanceSettings({
   );
 }
 
+const ALL_VALID_SECTIONS: SettingsSection[] = ["general", "agents", "notifications", "updates", "releases"];
+
 function isValidSection(value: string | undefined): value is SettingsSection {
-  return value !== undefined && SECTIONS.some((s) => s.id === value);
+  return value !== undefined && ALL_VALID_SECTIONS.includes(value as SettingsSection);
 }
 
 type SettingsPaneProps = {
@@ -502,13 +351,33 @@ export function SettingsPane({
 }: SettingsPaneProps): JSX.Element {
   const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
   const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const releaseStream = useReleaseStream();
+
+  // Check admin status on mount
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void api<{ isAdmin: boolean }>("/api/v1/release/admin-check")
+      .then((data) => { if (!cancelled) setIsAdmin(data.isAdmin); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION] : BASE_SECTIONS;
 
   // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
   useEffect(() => {
     if (open && isValidSection(initialSection)) {
-      setActiveSectionState(initialSection);
+      // Don't navigate to releases if not admin
+      if (initialSection === "releases" && !isAdmin) {
+        setActiveSectionState("general");
+      } else {
+        setActiveSectionState(initialSection);
+      }
     }
-  }, [open, initialSection]);
+  }, [open, initialSection, isAdmin]);
 
   const setActiveSection = useCallback((section: SettingsSection | null) => {
     setActiveSectionState(section);
@@ -544,7 +413,7 @@ export function SettingsPane({
             )}
             <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               {activeSection !== null ? (
-                <span className="md:hidden">{SECTIONS.find((s) => s.id === activeSection)?.label ?? "Settings"}</span>
+                <span className="md:hidden">{sections.find((s) => s.id === activeSection)?.label ?? "Settings"}</span>
               ) : null}
               <span className={activeSection !== null ? "hidden md:inline" : ""}>Settings</span>
             </span>
@@ -558,7 +427,7 @@ export function SettingsPane({
           <div className="flex min-h-0 flex-1">
             {/* Desktop nav — always visible */}
             <nav className="hidden md:flex w-40 shrink-0 flex-col border-r border-border py-2">
-              {SECTIONS.map(({ id, label, icon: Icon }) => (
+              {sections.map(({ id, label, icon: Icon }) => (
                 <div
                   key={id}
                   onClick={() => setActiveSection(id)}
@@ -578,7 +447,7 @@ export function SettingsPane({
             {/* Mobile nav — section list, shown when no section selected */}
             {activeSection === null && (
               <nav className="flex flex-1 flex-col md:hidden">
-                {SECTIONS.map(({ id, label, icon: Icon }) => (
+                {sections.map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
                     onClick={() => setActiveSection(id)}
@@ -619,8 +488,8 @@ export function SettingsPane({
                 </div>
               )}
               {activeSection === "notifications" && <NotificationSettings />}
-              {activeSection === "updates" && <ReleaseManager />}
-              {activeSection === "about" && <AppSettings />}
+              {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
+              {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
             </div>
           </div>
         </DialogPrimitive.Content>

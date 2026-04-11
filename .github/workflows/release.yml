@@ -123,6 +123,7 @@ jobs:
           gh release create ${{ steps.version.outputs.tag }} \
             --title "${{ steps.version.outputs.tag }}" \
             --notes-file release-notes/current.md \
+            --prerelease \
             dispatch-release.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
