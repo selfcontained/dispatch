@@ -1277,6 +1277,9 @@ async function registerRoutes() {
         },
         listRecentPersonaReviews: (sinceDays: number) => agentManager.listRecentPersonaReviews(sinceDays),
         listRecentFeedback: (sinceDays: number) => agentManager.listRecentFeedback(sinceDays),
+        getActivitySummary: (params) => agentManager.getActivitySummary(params),
+        getAgentHistory: (params) => agentManager.getAgentHistory(params),
+        getFeedbackSummary: (params) => agentManager.getFeedbackSummary(params),
       },
     });
   });
@@ -1323,6 +1326,9 @@ async function registerRoutes() {
       getParentContext: mcpGetParentContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
+      getActivitySummary: (params) => agentManager.getActivitySummary(params) as Promise<Record<string, unknown>>,
+      getAgentHistory: (params) => agentManager.getAgentHistory(params) as Promise<Record<string, unknown>>,
+      getFeedbackSummary: (params) => agentManager.getFeedbackSummary(params) as Promise<Record<string, unknown>>,
     });
   });
 
