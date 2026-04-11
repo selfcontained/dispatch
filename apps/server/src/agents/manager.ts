@@ -7,6 +7,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
+import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
@@ -1706,6 +1707,9 @@ export class AgentManager {
     const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
     const dispatchMcpUrl = this.dispatchMcpUrl(agentId, jobRunId);
+    const dispatchMcpToken = jobRunId
+      ? createJobMcpToken(this.config.authToken, jobRunId, agentId)
+      : createAgentMcpToken(this.config.authToken, agentId);
     const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
     const { passthroughArgs, appendedSystemPrompt } = this.normalizeAgentArgsForType(type, args);
 
@@ -1716,7 +1720,7 @@ export class AgentManager {
             type: "http",
             url: dispatchMcpUrl,
             headers: {
-              Authorization: `Bearer ${this.config.authToken}`
+              Authorization: `Bearer ${dispatchMcpToken}`
             }
           }
         }
@@ -1758,7 +1762,7 @@ export class AgentManager {
       "-c",
       this.shellEscape(`mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`)
     ].join(" ");
-    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(this.config.authToken)}`;
+    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(dispatchMcpToken)}`;
     // Codex resume: `codex resume <sessionId>` with MCP flags
     if (resume && cliSessionId) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
@@ -2705,7 +2709,7 @@ export class AgentManager {
 
   private shouldSuggestSessionRename(
     agentName: string | null | undefined,
-    _agentId: string,
+    agentId: string,
     opts: { persona?: string | null; jobRunId?: string }
   ): boolean {
     if (opts.persona || opts.jobRunId) {
@@ -2713,7 +2717,7 @@ export class AgentManager {
     }
 
     const trimmed = agentName?.trim();
-    return !!trimmed && /^agent-[a-z0-9]{6}$/i.test(trimmed);
+    return trimmed === `agent-${agentId.slice(-6)}`;
   }
 
   private defaultMediaDir(agentId: string): string {
@@ -2953,10 +2957,13 @@ export class AgentManager {
     // Opencode: write opencode.json with the Dispatch MCP server config.
     if (agentType === "opencode") {
       const dispatchMcpUrl = this.dispatchMcpUrl(agentId, params.jobRunId);
+      const dispatchMcpToken = params.jobRunId
+        ? createJobMcpToken(authToken, params.jobRunId, agentId)
+        : createAgentMcpToken(authToken, agentId);
       const mcpEntry = JSON.stringify({
         type: "remote",
         url: dispatchMcpUrl,
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${dispatchMcpToken}` },
       });
       lines.push(
         `# --- Configure opencode MCP ---`,

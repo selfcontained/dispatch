@@ -22,6 +22,7 @@ vi.mock("@dispatch/shared/lib/run-command.js", () => ({
 
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } = await import("../../src/agents/manager.js");
+const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
 let pool: Pool;
@@ -184,6 +185,13 @@ describe("AgentManager", () => {
       expect(setupScript).not.toContain("dispatch_rename_session");
     });
 
+    it("should skip rename guidance for custom names that resemble the default pattern", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", name: "agent-foobar", useWorktree: false });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("dispatch_rename_session");
+    });
+
     it("should skip rename guidance for persona agents", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -258,7 +266,7 @@ describe("AgentManager", () => {
         expect(config.mcp.dispatch).toEqual({
           type: "remote",
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
-          headers: { Authorization: "Bearer test-token" },
+          headers: { Authorization: `Bearer ${createAgentMcpToken("test-token", agent.id)}` },
         });
       } finally {
         await rm(tempDir, { recursive: true, force: true });

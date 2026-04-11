@@ -282,6 +282,39 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     expect(messageText).toContain("&lt;!everyone&gt;");
   });
 
+  it("sanitizes renamed agent names in dispatch_notify payloads", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await notifier.sendNotification(makeAgent({ name: "<!channel>" }), {
+      message: "safe body",
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const sectionText = body.attachments[0].blocks[0].text.text;
+    const contextText = body.attachments[0].blocks[1].elements[0].text;
+    const fallback = body.attachments[0].fallback;
+
+    expect(sectionText).not.toContain("<!channel>");
+    expect(contextText).not.toContain("<!channel>");
+    expect(fallback).not.toContain("<!channel>");
+    expect(sectionText).toContain("&lt;!channel&gt;");
+    expect(contextText).toContain("&lt;!channel&gt;");
+    expect(fallback).toContain("&lt;!channel&gt;");
+  });
+
+  it("sanitizes renamed agent names in event notifications", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await notifier.onAgentEvent(makeAgent({ name: "<!here>" }));
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const sectionText = body.attachments[0].blocks[0].text.text;
+    const fallback = body.attachments[0].fallback;
+
+    expect(sectionText).not.toContain("<!here>");
+    expect(fallback).not.toContain("<!here>");
+    expect(sectionText).toContain("&lt;!here&gt;");
+    expect(fallback).toContain("&lt;!here&gt;");
+  });
+
   it("cleans up expired rate limit entries from the map", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     const agent = makeAgent();
