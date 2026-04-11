@@ -14,6 +14,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  shouldAcceptApiBearerToken,
   createAgentMcpToken,
   validateAgentMcpToken,
   createJobMcpToken,
@@ -158,5 +159,20 @@ describe("auth token and cookie secret", () => {
     expect(validateJobMcpToken(secret, token, "run_123", "agt_123456abcdef")).toBe(true);
     expect(validateJobMcpToken(secret, token, "run_other", "agt_123456abcdef")).toBe(false);
     expect(validateJobMcpToken(secret, token, "run_123", "agt_otheragent")).toBe(false);
+  });
+
+  it("lets scoped MCP bearer tokens through the global auth gate only for MCP routes", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+    const agentToken = createAgentMcpToken(secret, "agt_123456abcdef");
+
+    expect(shouldAcceptApiBearerToken("/api/mcp/agt_123456abcdef", agentToken, secret)).toBe(true);
+    expect(shouldAcceptApiBearerToken("/api/mcp/jobs/run_123/agt_123456abcdef", agentToken, secret)).toBe(true);
+    expect(shouldAcceptApiBearerToken("/api/v1/agents", agentToken, secret)).toBe(false);
+  });
+
+  it("still accepts the raw server auth token on non-MCP routes", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+
+    expect(shouldAcceptApiBearerToken("/api/v1/agents", secret, secret)).toBe(true);
   });
 });

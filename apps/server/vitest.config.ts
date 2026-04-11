@@ -1,6 +1,12 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@dispatch/shared": path.resolve(__dirname, "../../packages/shared/dist"),
+    },
+  },
   test: {
     globals: true,
     testTimeout: 30_000,

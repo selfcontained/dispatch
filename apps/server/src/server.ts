@@ -51,6 +51,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  shouldAcceptApiBearerToken,
   validateAgentMcpToken,
   validateJobMcpToken
 } from "./auth.js";
@@ -1004,7 +1005,7 @@ async function registerRoutes() {
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      if (token === config.authToken) {
+      if (shouldAcceptApiBearerToken(url, token, config.authToken)) {
         return;
       }
     }
