@@ -1565,20 +1565,19 @@ async function registerRoutes() {
         "release", "list",
         "--repo", repo,
         "--limit", "10",
-        "--json", "tagName,publishedAt,isPrerelease,url"
+        "--json", "tagName,publishedAt,isPrerelease"
       ]);
       const releases = parseGhJson<Array<{
         tagName: string;
         publishedAt: string;
         isPrerelease: boolean;
-        url: string;
       }>>(result.stdout);
       return {
         releases: releases.map((r) => ({
           tag: r.tagName,
           publishedAt: r.publishedAt,
           isPrerelease: r.isPrerelease,
-          url: r.url
+          url: `https://github.com/${repo}/releases/tag/${r.tagName}`
         }))
       };
     } catch (err) {
