@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
+import type { NotifyInput, NotifyResult } from "@dispatch/shared/mcp/server.js";
 import type { AgentRecord } from "../agents/manager.js";
 import { getSetting, setSetting, deleteSetting } from "../db/settings.js";
 
@@ -17,27 +18,14 @@ const EVENT_CONFIG: Record<NotifyEventType, { emoji: string; verb: string; color
   blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
 };
 
-const NOTIFY_LEVELS = ["info", "success", "warning", "error"] as const;
-export type NotifyLevel = (typeof NOTIFY_LEVELS)[number];
-
-const LEVEL_CONFIG: Record<NotifyLevel, { emoji: string; color: string }> = {
+const LEVEL_CONFIG: Record<string, { emoji: string; color: string }> = {
   info: { emoji: "\u2139\ufe0f", color: "#3b82f6" },
   success: { emoji: "\u2705", color: "#22c55e" },
   warning: { emoji: "\u26a0\ufe0f", color: "#f59e0b" },
   error: { emoji: "\ud83d\udead", color: "#ef4444" },
 };
 
-export type NotifyInput = {
-  message: string;
-  title?: string;
-  level?: NotifyLevel;
-  respectFocus?: boolean;
-};
-
-export type NotifyResult = {
-  sent: boolean;
-  reason?: string;
-};
+export type { NotifyInput, NotifyResult };
 
 const SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/";
 const SETTING_WEBHOOK_URL = "slack_webhook_url";
@@ -252,6 +240,10 @@ export class SlackNotifier {
         ? `${safeTitle}: ${safeMessage}`
         : `Notification from "${agentName}": ${safeMessage}`;
 
+      // Record timestamp optimistically — over-counting is safer than under-counting
+      // for a rate limiter protecting a webhook.
+      this.recordNotifyTimestamp(agent.id);
+
       const res = await this.postToSlack(settings.webhookUrl, {
         username: "Dispatch",
         attachments: [{ color: cfg.color, fallback, blocks }],
@@ -263,7 +255,6 @@ export class SlackNotifier {
         return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
       }
 
-      this.recordNotifyTimestamp(agent.id);
       return { sent: true };
     } catch (err) {
       this.log.warn({ err, agentId: agent.id }, "Failed to send agent-initiated notification");

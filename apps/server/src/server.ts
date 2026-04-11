@@ -59,7 +59,7 @@ import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
-import { SlackNotifier, isValidSlackWebhookUrl } from "./notifications/slack.js";
+import { SlackNotifier, isValidSlackWebhookUrl, type NotifyInput, type NotifyResult } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
@@ -3962,8 +3962,8 @@ async function mcpUpsertEvent(
 
 async function mcpSendNotify(
   agentId: string,
-  input: { message: string; title?: string; level?: "info" | "success" | "warning" | "error"; respectFocus?: boolean }
-): Promise<{ sent: boolean; reason?: string }> {
+  input: NotifyInput
+): Promise<NotifyResult> {
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
   return slackNotifier.sendNotification(agent, input);
