@@ -22,6 +22,7 @@ vi.mock("@dispatch/shared/lib/run-command.js", () => ({
 
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } = await import("../../src/agents/manager.js");
+const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
 let pool: Pool;
@@ -174,6 +175,34 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("mcp_servers.dispatch.bearer_token_env_var=");
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
       expect(setupScript).toContain("do not start repo work or infer a task from branch/worktree context alone");
+      expect(setupScript).toContain("dispatch_rename_session");
+    });
+
+    it("should skip rename guidance when the user provided a custom name", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", name: "bug bash", useWorktree: false });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("dispatch_rename_session");
+    });
+
+    it("should skip rename guidance for custom names that resemble the default pattern", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", name: "agent-foobar", useWorktree: false });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("dispatch_rename_session");
+    });
+
+    it("should skip rename guidance for persona agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        name: "security-review-123456",
+        persona: "security-review",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("dispatch_rename_session");
     });
 
     it("should translate appended system prompts into a single Codex startup prompt", async () => {
@@ -237,7 +266,7 @@ describe("AgentManager", () => {
         expect(config.mcp.dispatch).toEqual({
           type: "remote",
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
-          headers: { Authorization: "Bearer test-token" },
+          headers: { Authorization: `Bearer ${createAgentMcpToken("test-token", agent.id)}` },
         });
       } finally {
         await rm(tempDir, { recursive: true, force: true });
@@ -308,6 +337,20 @@ describe("AgentManager", () => {
       expect(fetched).not.toBeNull();
       expect(fetched!.id).toBe(created.id);
       expect(fetched!.name).toBe("fetch-me");
+    });
+
+    it("should rename an agent", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+
+      const renamed = await manager.renameAgent(agent.id, "Investigate flaky e2e");
+
+      expect(renamed.name).toBe("Investigate flaky e2e");
+    });
+
+    it("should reject empty agent names when renaming", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+
+      await expect(manager.renameAgent(agent.id, "   ")).rejects.toThrow("Agent name must not be empty.");
     });
   });
 

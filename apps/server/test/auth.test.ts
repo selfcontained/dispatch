@@ -14,6 +14,10 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  createAgentMcpToken,
+  validateAgentMcpToken,
+  createJobMcpToken,
+  validateJobMcpToken,
 } from "../src/auth.js";
 
 let pool: Pool;
@@ -137,5 +141,22 @@ describe("auth token and cookie secret", () => {
     const token = await getOrCreateAuthToken(pool);
     const secret = await getOrCreateCookieSecret(pool);
     expect(token).not.toBe(secret);
+  });
+
+  it("creates agent-scoped MCP tokens that only validate for that agent", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+    const token = createAgentMcpToken(secret, "agt_123456abcdef");
+
+    expect(validateAgentMcpToken(secret, token, "agt_123456abcdef")).toBe(true);
+    expect(validateAgentMcpToken(secret, token, "agt_otheragent")).toBe(false);
+  });
+
+  it("creates job-scoped MCP tokens that bind both run and agent", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+    const token = createJobMcpToken(secret, "run_123", "agt_123456abcdef");
+
+    expect(validateJobMcpToken(secret, token, "run_123", "agt_123456abcdef")).toBe(true);
+    expect(validateJobMcpToken(secret, token, "run_other", "agt_123456abcdef")).toBe(false);
+    expect(validateJobMcpToken(secret, token, "run_123", "agt_otheragent")).toBe(false);
   });
 });

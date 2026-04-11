@@ -208,7 +208,7 @@ export class SlackNotifier {
     try {
       const level = input.level ?? "info";
       const cfg = LEVEL_CONFIG[level];
-      const agentName = agent.name || agent.id.slice(0, 8);
+      const agentName = sanitizeSlackMrkdwn(agent.name || agent.id.slice(0, 8));
 
       // Sanitize agent-provided content to prevent broadcast mentions
       // (<!channel>, <!here>, <!everyone>). Regular mrkdwn links are allowed.
@@ -311,7 +311,7 @@ export class SlackNotifier {
     event: { type: string; message: string },
     cfg: { emoji: string; verb: string; color: string }
   ): Promise<void> {
-    const agentName = agent.name || agent.id.slice(0, 8);
+    const agentName = sanitizeSlackMrkdwn(agent.name || agent.id.slice(0, 8));
     const branch = agent.gitContext?.branch;
     const elapsed = this.formatElapsed(agent.createdAt);
     const agentType = agent.type ? agent.type.charAt(0).toUpperCase() + agent.type.slice(1) : "Agent";

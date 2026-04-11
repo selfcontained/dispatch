@@ -50,7 +50,9 @@ import {
   changePassword,
   cleanExpiredSessions,
   getOrCreateAuthToken,
-  getOrCreateCookieSecret
+  getOrCreateCookieSecret,
+  validateAgentMcpToken,
+  validateJobMcpToken
 } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
@@ -1253,6 +1255,10 @@ async function registerRoutes() {
     const params = request.params as { runId?: string; agentId?: string };
     const runId = params.runId ?? "";
     const agentId = params.agentId ?? "";
+    const bearerToken = getBearerToken(request);
+    if (bearerToken && !validateJobMcpToken(config.authToken, bearerToken, runId, agentId)) {
+      return reply.code(403).send({ error: "Invalid MCP token for the requested job agent route." });
+    }
     const agent = await agentManager.getAgent(agentId);
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
@@ -1299,6 +1305,10 @@ async function registerRoutes() {
   app.post("/api/mcp/:agentId", async (request, reply) => {
     const params = request.params as { agentId?: string };
     const agentId = params.agentId ?? "";
+    const bearerToken = getBearerToken(request);
+    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+    }
     const agent = await agentManager.getAgent(agentId);
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
@@ -1329,6 +1339,7 @@ async function registerRoutes() {
       worktreeRoot,
       sendNotify: mcpSendNotify,
       upsertEvent: mcpUpsertEvent,
+      renameSession: mcpRenameSession,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
       launchPersona: mcpLaunchPersona,
@@ -4201,6 +4212,23 @@ async function mcpGetParentContext(
       createdAt: m.createdAt
     }))
   };
+}
+
+async function mcpRenameSession(
+  agentId: string,
+  name: string
+): Promise<{ id: string; name: string }> {
+  const agent = await agentManager.renameAgent(agentId, name);
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+  return { id: agent.id, name: agent.name };
+}
+
+function getBearerToken(request: { headers: Record<string, unknown> }): string | null {
+  const authHeader = request.headers.authorization;
+  if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  return authHeader.slice(7);
 }
 
 async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {

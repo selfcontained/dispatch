@@ -7,6 +7,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
+import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
 import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
@@ -319,6 +320,20 @@ export class AgentManager {
     return (result.rows[0] as AgentRecord | undefined) ?? null;
   }
 
+  async renameAgent(id: string, name: string): Promise<AgentRecord> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new AgentError("Agent name must not be empty.", 400);
+    }
+
+    await this.getRequiredAgent(id);
+    await this.pool.query(
+      `UPDATE agents SET name = $2, updated_at = NOW() WHERE id = $1`,
+      [id, trimmed]
+    );
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
   /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
     await harvestTokenUsage(this.pool, {
@@ -415,7 +430,17 @@ export class AgentManager {
         await this.ensureNoExistingSession(tmuxSession);
 
         // Build the agent command that the setup script will exec into
-        const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, tmuxSession, fullAccess, cliSessionId ?? undefined, false, input.jobRunId);
+        const agentCommand = this.buildAgentCommand(
+          type,
+          agentArgs,
+          mediaDir,
+          tmuxSession,
+          fullAccess,
+          cliSessionId ?? undefined,
+          false,
+          input.jobRunId,
+          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId })
+        );
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
         // Generate a setup script that handles worktree creation, env copy,
@@ -553,6 +578,8 @@ export class AgentManager {
         tmuxSession,
         agent.cwd,
         agent.mediaDir ?? this.defaultMediaDir(id),
+        agent.name,
+        agent.persona,
         agent.type,
         agent.agentArgs ?? [],
         agent.fullAccess ?? false,
@@ -1476,6 +1503,8 @@ export class AgentManager {
     sessionName: string,
     cwd: string,
     mediaDir: string,
+    agentName: string,
+    persona: string | null,
     type: AgentType,
     agentArgs: string[],
     fullAccess: boolean,
@@ -1488,7 +1517,17 @@ export class AgentManager {
     }
 
     await mkdir(mediaDir, { recursive: true });
-    const agentCommand = this.buildAgentCommand(type, agentArgs, mediaDir, sessionName, fullAccess, cliSessionId, resume);
+    const agentCommand = this.buildAgentCommand(
+      type,
+      agentArgs,
+      mediaDir,
+      sessionName,
+      fullAccess,
+      cliSessionId,
+      resume,
+      undefined,
+      this.shouldSuggestSessionRename(agentName, agentId, { persona })
+    );
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
     const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
@@ -1589,7 +1628,8 @@ export class AgentManager {
     fullAccess: boolean,
     cliSessionId?: string,
     resume?: boolean,
-    jobRunId?: string
+    jobRunId?: string,
+    suggestSessionRename?: boolean
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -1599,6 +1639,9 @@ export class AgentManager {
       : `[dispatch:${agentId}] ` +
         "Dispatch startup rules: " +
         "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
+        (suggestSessionRename
+          ? "If your session still has the default generated name, update it to a short goal or topic using dispatch_rename_session. "
+          : "") +
         "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
         "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
         "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
@@ -1664,6 +1707,9 @@ export class AgentManager {
     const envPrefix = envPrefixParts.join(" ");
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
     const dispatchMcpUrl = this.dispatchMcpUrl(agentId, jobRunId);
+    const dispatchMcpToken = jobRunId
+      ? createJobMcpToken(this.config.authToken, jobRunId, agentId)
+      : createAgentMcpToken(this.config.authToken, agentId);
     const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
     const { passthroughArgs, appendedSystemPrompt } = this.normalizeAgentArgsForType(type, args);
 
@@ -1674,7 +1720,7 @@ export class AgentManager {
             type: "http",
             url: dispatchMcpUrl,
             headers: {
-              Authorization: `Bearer ${this.config.authToken}`
+              Authorization: `Bearer ${dispatchMcpToken}`
             }
           }
         }
@@ -1716,7 +1762,7 @@ export class AgentManager {
       "-c",
       this.shellEscape(`mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`)
     ].join(" ");
-    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(this.config.authToken)}`;
+    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(dispatchMcpToken)}`;
     // Codex resume: `codex resume <sessionId>` with MCP flags
     if (resume && cliSessionId) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
@@ -2661,6 +2707,19 @@ export class AgentManager {
     return `${prefix}_${agentId}_${slug}`;
   }
 
+  private shouldSuggestSessionRename(
+    agentName: string | null | undefined,
+    agentId: string,
+    opts: { persona?: string | null; jobRunId?: string }
+  ): boolean {
+    if (opts.persona || opts.jobRunId) {
+      return false;
+    }
+
+    const trimmed = agentName?.trim();
+    return trimmed === `agent-${agentId.slice(-6)}`;
+  }
+
   private defaultMediaDir(agentId: string): string {
     return path.join(this.config.mediaRoot, agentId);
   }
@@ -2898,10 +2957,13 @@ export class AgentManager {
     // Opencode: write opencode.json with the Dispatch MCP server config.
     if (agentType === "opencode") {
       const dispatchMcpUrl = this.dispatchMcpUrl(agentId, params.jobRunId);
+      const dispatchMcpToken = params.jobRunId
+        ? createJobMcpToken(authToken, params.jobRunId, agentId)
+        : createAgentMcpToken(authToken, agentId);
       const mcpEntry = JSON.stringify({
         type: "remote",
         url: dispatchMcpUrl,
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${dispatchMcpToken}` },
       });
       lines.push(
         `# --- Configure opencode MCP ---`,

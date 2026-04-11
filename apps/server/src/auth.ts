@@ -13,6 +13,20 @@ function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function createMcpScopeToken(secret: string, scope: string): string {
+  const payload = Buffer.from(scope, "utf-8").toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(scope).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function validateMcpScopeToken(secret: string, token: string, expectedScope: string): boolean {
+  const expected = createMcpScopeToken(secret, expectedScope);
+  const actualBuffer = Buffer.from(token, "utf-8");
+  const expectedBuffer = Buffer.from(expected, "utf-8");
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
 export async function isPasswordSet(pool: Pool): Promise<boolean> {
   return (await getSetting(pool, "password_hash")) !== null;
 }
@@ -89,6 +103,22 @@ export async function getOrCreateAuthToken(pool: Pool): Promise<string> {
   const token = crypto.randomBytes(32).toString("hex");
   await setSetting(pool, "auth_token", token);
   return token;
+}
+
+export function createAgentMcpToken(secret: string, agentId: string): string {
+  return createMcpScopeToken(secret, `agent:${agentId}`);
+}
+
+export function validateAgentMcpToken(secret: string, token: string, agentId: string): boolean {
+  return validateMcpScopeToken(secret, token, `agent:${agentId}`);
+}
+
+export function createJobMcpToken(secret: string, runId: string, agentId: string): string {
+  return createMcpScopeToken(secret, `job:${runId}:${agentId}`);
+}
+
+export function validateJobMcpToken(secret: string, token: string, runId: string, agentId: string): boolean {
+  return validateMcpScopeToken(secret, token, `job:${runId}:${agentId}`);
 }
 
 /**

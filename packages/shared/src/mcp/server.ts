@@ -101,6 +101,7 @@ const AGENT_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
   "dispatch_event",
+  "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",
@@ -188,6 +189,10 @@ export type McpRequestContext = {
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
   ) => Promise<void>;
+  renameSession?: (
+    agentId: string,
+    name: string
+  ) => Promise<{ id: string; name: string }>;
   shareMedia?: (
     agentId: string,
     opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
@@ -467,6 +472,34 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           });
           return {
             content: [{ type: "text", text: `Updated ${agentId}: ${args.type} - ${args.message}` }]
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_rename_session ───────────────────────────────────────
+  if (allowed.has("dispatch_rename_session") && context.agent && context.renameSession) {
+    const agentId = context.agent.id;
+    const renameSession = context.renameSession;
+
+    server.registerTool(
+      "dispatch_rename_session",
+      {
+        description:
+          "Update the current session's display name. Use this to rename a default-generated session to a short goal or topic, or when the user explicitly asks for a rename.",
+        inputSchema: {
+          name: z.string().min(1).max(120).describe("New session display name.")
+        }
+      },
+      async (args) => {
+        try {
+          const result = await renameSession(agentId, args.name);
+          return {
+            content: [{ type: "text", text: `Renamed session to \"${result.name}\".` }],
+            structuredContent: result
           };
         } catch (error) {
           return toToolError(error);
