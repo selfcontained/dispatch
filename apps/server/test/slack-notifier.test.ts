@@ -170,3 +170,132 @@ describe("SlackNotifier focus suppression", () => {
     expect(mockLog.debug).not.toHaveBeenCalled();
   });
 });
+
+describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
+  beforeEach(() => {
+    fetchSpy.mockClear();
+  });
+
+  it("sends a notification with default level", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const result = await notifier.sendNotification(makeAgent(), { message: "Hello from agent" });
+
+    expect(result).toEqual({ sent: true });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.username).toBe("Dispatch");
+    expect(body.attachments[0].color).toBe("#3b82f6"); // info blue
+    expect(body.attachments[0].blocks[0].text.text).toContain("Hello from agent");
+  });
+
+  it("uses custom title and level", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "All tests passed",
+      title: "CI Report",
+      level: "success",
+    });
+
+    expect(result).toEqual({ sent: true });
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.attachments[0].color).toBe("#22c55e"); // success green
+    expect(body.attachments[0].blocks[0].text.text).toContain("CI Report");
+  });
+
+  it("bypasses focus filtering by default", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    notifier.setFocusCheck(() => true); // agent is focused
+
+    const result = await notifier.sendNotification(makeAgent(), { message: "Important update" });
+
+    expect(result).toEqual({ sent: true });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("respects focus when respectFocus is true", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    notifier.setFocusCheck(() => true);
+
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Skippable update",
+      respectFocus: true,
+    });
+
+    expect(result).toEqual({ sent: false, reason: "Notification suppressed — user is focused on this agent." });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns gracefully when no webhook is configured", async () => {
+    const { getSetting } = await import("../src/db/settings.js");
+    vi.mocked(getSetting).mockResolvedValueOnce(null); // webhook URL
+    vi.mocked(getSetting).mockResolvedValueOnce(null); // notify events
+
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const result = await notifier.sendNotification(makeAgent(), { message: "test" });
+
+    expect(result).toEqual({ sent: false, reason: "No Slack webhook configured." });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rate limits after 5 notifications in a minute", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const agent = makeAgent();
+
+    // Send 5 — should all succeed
+    for (let i = 0; i < 5; i++) {
+      const result = await notifier.sendNotification(agent, { message: `msg ${i}` });
+      expect(result.sent).toBe(true);
+    }
+
+    // 6th should be rate limited
+    const result = await notifier.sendNotification(agent, { message: "one too many" });
+    expect(result).toEqual({ sent: false, reason: "Rate limited — max 5 notifications per minute per agent." });
+    expect(fetchSpy).toHaveBeenCalledTimes(5);
+  });
+
+  it("includes branch in context when available", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const agent = makeAgent({
+      gitContext: { branch: "feat/notify", defaultBranch: "main" },
+    });
+
+    await notifier.sendNotification(agent, { message: "branch test" });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const contextText = body.attachments[0].blocks[1].elements[0].text;
+    expect(contextText).toContain("feat/notify");
+  });
+
+  it("sanitizes Slack mrkdwn injection in message and title", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    await notifier.sendNotification(makeAgent(), {
+      message: "Check this <!channel> and <!here> ping",
+      title: "Alert <!everyone>",
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const messageText = body.attachments[0].blocks[0].text.text;
+    expect(messageText).not.toContain("<!channel>");
+    expect(messageText).not.toContain("<!here>");
+    expect(messageText).not.toContain("<!everyone>");
+    expect(messageText).toContain("&lt;!channel&gt;");
+    expect(messageText).toContain("&lt;!everyone&gt;");
+  });
+
+  it("cleans up expired rate limit entries from the map", async () => {
+    const notifier = new SlackNotifier(null as never, mockLog);
+    const agent = makeAgent();
+    const map = (notifier as unknown as { notifyTimestamps: Map<string, number[]> }).notifyTimestamps;
+
+    // Seed with expired timestamps (>60s ago)
+    map.set(agent.id, [Date.now() - 120_000]);
+    expect(map.has(agent.id)).toBe(true);
+
+    // Trigger isRateLimited via sendNotification — expired entries get pruned,
+    // and if empty the map entry is deleted entirely
+    notifier.setFocusCheck(() => true);
+    await notifier.sendNotification(agent, { message: "trigger cleanup", respectFocus: true });
+
+    expect(map.has(agent.id)).toBe(false);
+  });
+});

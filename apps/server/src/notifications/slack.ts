@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
+import type { NotifyInput, NotifyResult } from "@dispatch/shared/mcp/server.js";
 import type { AgentRecord } from "../agents/manager.js";
 import { getSetting, setSetting, deleteSetting } from "../db/settings.js";
 
@@ -17,12 +18,25 @@ const EVENT_CONFIG: Record<NotifyEventType, { emoji: string; verb: string; color
   blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
 };
 
+const LEVEL_CONFIG: Record<NonNullable<NotifyInput["level"]>, { emoji: string; color: string }> = {
+  info: { emoji: "\u2139\ufe0f", color: "#3b82f6" },
+  success: { emoji: "\u2705", color: "#22c55e" },
+  warning: { emoji: "\u26a0\ufe0f", color: "#f59e0b" },
+  error: { emoji: "\ud83d\udead", color: "#ef4444" },
+};
+
+export type { NotifyInput, NotifyResult };
+
 const SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/";
 const SETTING_WEBHOOK_URL = "slack_webhook_url";
 const SETTING_NOTIFY_EVENTS = "slack_notify_events";
 
 /** Short-lived cache to avoid DB reads on every agent event. */
 const CACHE_TTL_MS = 10_000;
+
+/** Rate limit for agent-initiated notifications: max per window. */
+const NOTIFY_RATE_LIMIT = 5;
+const NOTIFY_RATE_WINDOW_MS = 60_000;
 
 type CachedSettings = {
   webhookUrl: string | null;
@@ -43,9 +57,19 @@ export function isValidSlackWebhookUrl(url: string): boolean {
   }
 }
 
+/**
+ * Escape Slack broadcast mention syntax (<!channel>, <!here>, <!everyone>)
+ * in agent-provided content. Regular mrkdwn formatting and links are preserved.
+ */
+function sanitizeSlackMrkdwn(text: string): string {
+  return text.replace(/<!([^>]*)>/g, "&lt;!$1&gt;");
+}
+
 export class SlackNotifier {
   private cachedSettings: CachedSettings | null = null;
   private isFocused: ((agentId: string) => boolean) | null = null;
+  /** Per-agent rate limit tracking for dispatch_notify calls. */
+  private notifyTimestamps: Map<string, number[]> = new Map();
 
   constructor(
     private pool: Pool,
@@ -159,6 +183,101 @@ export class SlackNotifier {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Unknown error" };
     }
+  }
+
+  /**
+   * Agent-initiated notification via the dispatch_notify MCP tool.
+   * Bypasses focus filtering by default (agents explicitly chose to notify).
+   */
+  async sendNotification(agent: AgentRecord, input: NotifyInput): Promise<NotifyResult> {
+    // Rate limit check
+    if (this.isRateLimited(agent.id)) {
+      return { sent: false, reason: "Rate limited — max 5 notifications per minute per agent." };
+    }
+
+    // Respect focus if explicitly requested
+    if (input.respectFocus && this.isFocused?.(agent.id)) {
+      return { sent: false, reason: "Notification suppressed — user is focused on this agent." };
+    }
+
+    const settings = await this.getCachedSettings();
+    if (!settings.webhookUrl) {
+      return { sent: false, reason: "No Slack webhook configured." };
+    }
+
+    try {
+      const level = input.level ?? "info";
+      const cfg = LEVEL_CONFIG[level];
+      const agentName = agent.name || agent.id.slice(0, 8);
+
+      // Sanitize agent-provided content to prevent broadcast mentions
+      // (<!channel>, <!here>, <!everyone>). Regular mrkdwn links are allowed.
+      const safeMessage = sanitizeSlackMrkdwn(input.message);
+      const safeTitle = input.title ? sanitizeSlackMrkdwn(input.title) : undefined;
+
+      const blocks: SlackBlock[] = [];
+
+      // Title + message
+      const titleLine = safeTitle
+        ? `*${cfg.emoji} ${safeTitle}*`
+        : `*${cfg.emoji} Notification from "${agentName}"*`;
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `${titleLine}\n${safeMessage}` },
+      });
+
+      // Context line
+      const branch = agent.gitContext?.branch;
+      const contextParts: string[] = [];
+      contextParts.push(`Agent: ${agentName}`);
+      if (branch) contextParts.push(`Branch: \`${branch}\``);
+      blocks.push({
+        type: "context",
+        elements: [{ type: "mrkdwn", text: contextParts.join("  \u00b7  ") }],
+      });
+
+      const fallback = safeTitle
+        ? `${safeTitle}: ${safeMessage}`
+        : `Notification from "${agentName}": ${safeMessage}`;
+
+      // Record timestamp optimistically — over-counting is safer than under-counting
+      // for a rate limiter protecting a webhook.
+      this.recordNotifyTimestamp(agent.id);
+
+      const res = await this.postToSlack(settings.webhookUrl, {
+        username: "Dispatch",
+        attachments: [{ color: cfg.color, fallback, blocks }],
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        this.log.warn({ status: res.status, body }, "Slack webhook returned error for dispatch_notify");
+        return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
+      }
+
+      return { sent: true };
+    } catch (err) {
+      this.log.warn({ err, agentId: agent.id }, "Failed to send agent-initiated notification");
+      return { sent: false, reason: err instanceof Error ? err.message : "Unknown error" };
+    }
+  }
+
+  private isRateLimited(agentId: string): boolean {
+    const now = Date.now();
+    const timestamps = this.notifyTimestamps.get(agentId) ?? [];
+    const recent = timestamps.filter((t) => now - t < NOTIFY_RATE_WINDOW_MS);
+    if (recent.length === 0) {
+      this.notifyTimestamps.delete(agentId);
+    } else {
+      this.notifyTimestamps.set(agentId, recent);
+    }
+    return recent.length >= NOTIFY_RATE_LIMIT;
+  }
+
+  private recordNotifyTimestamp(agentId: string): void {
+    const timestamps = this.notifyTimestamps.get(agentId) ?? [];
+    timestamps.push(Date.now());
+    this.notifyTimestamps.set(agentId, timestamps);
   }
 
   private async getCachedSettings(): Promise<{ webhookUrl: string | null; notifyEvents: NotifyEventType[] }> {

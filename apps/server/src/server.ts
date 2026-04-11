@@ -59,7 +59,7 @@ import { runCommand } from "@dispatch/shared/lib/run-command.js";
 import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
-import { SlackNotifier, isValidSlackWebhookUrl } from "./notifications/slack.js";
+import { SlackNotifier, isValidSlackWebhookUrl, type NotifyInput, type NotifyResult } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
@@ -1265,6 +1265,7 @@ async function registerRoutes() {
       agent,
       repoRoot,
       worktreeRoot,
+      sendNotify: mcpSendNotify,
       toolScope: "job",
       jobTools: {
         complete: mcpJobComplete,
@@ -1315,6 +1316,7 @@ async function registerRoutes() {
       },
       repoRoot,
       worktreeRoot,
+      sendNotify: mcpSendNotify,
       upsertEvent: mcpUpsertEvent,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
@@ -3962,6 +3964,15 @@ async function mcpUpsertEvent(
     metadata: event.metadata
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+}
+
+async function mcpSendNotify(
+  agentId: string,
+  input: NotifyInput
+): Promise<NotifyResult> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+  return slackNotifier.sendNotification(agent, input);
 }
 
 async function mcpSubmitFeedback(
