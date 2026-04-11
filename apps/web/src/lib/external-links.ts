@@ -11,7 +11,11 @@ export function isStandaloneApp(): boolean {
     (navigator as StandaloneNavigator).standalone === true;
 }
 
-export function getExternalBrowserHref(href: string): string {
+export function isStandaloneIOSApp(): boolean {
+  return isIOSDevice() && isStandaloneApp();
+}
+
+export function getSafariExternalHref(href: string): string {
   let resolved: URL;
   try {
     resolved = new URL(href, window.location.href);
@@ -23,13 +27,5 @@ export function getExternalBrowserHref(href: string): string {
     return resolved.toString();
   }
 
-  if (isIOSDevice() && isStandaloneApp()) {
-    return `x-safari-${resolved.toString()}`;
-  }
-
-  return resolved.toString();
-}
-
-export function opensInExternalBrowser(href: string): boolean {
-  return getExternalBrowserHref(href).startsWith("x-safari-");
+  return `x-safari-${resolved.toString()}`;
 }

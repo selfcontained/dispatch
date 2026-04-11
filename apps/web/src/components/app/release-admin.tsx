@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { OperationTakeover } from "@/components/app/release-manager";
-import { ExternalLink as ExternalAnchor } from "@/components/ui/external-link";
 import type { ReleaseInfo, ReleaseVersionType, UseReleaseStreamResult } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
@@ -317,12 +316,14 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                   {!r.isPrerelease && (
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />
                   )}
-                  <ExternalAnchor
+                  <a
                     href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                  </ExternalAnchor>
+                  </a>
                 </div>
               </div>
             ))}

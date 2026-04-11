@@ -2,9 +2,9 @@ import { Check, Copy, ExternalLink, FileText, GitPullRequest, Pin } from "lucide
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
-import { ExternalLink as ExternalAnchor } from "@/components/ui/external-link";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
+import { getSafariExternalHref, isStandaloneIOSApp } from "@/lib/external-links";
 import { splitPinValues } from "@/lib/pins";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -132,19 +132,23 @@ function PinValueRow({
   const filenameValue = type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, filenameValue?.display ?? value);
   const tooltipValue = filenameValue?.tooltip ?? tooltip;
+  const showSafariButton = Boolean(href) && isStandaloneIOSApp();
+  const safariHref = href ? getSafariExternalHref(href) : null;
 
   return (
     <div className="flex items-center gap-1.5">
       {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
       {icon === "file" && <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
       {href ? (
-        <ExternalAnchor
+        <a
           href={href}
+          target="_blank"
+          rel="noopener noreferrer"
           className="min-w-0 truncate text-xs text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded"
           title={tooltip}
         >
           {display}
-        </ExternalAnchor>
+        </a>
       ) : badge ? (
         type === "filename" ? (
           <FrontTruncatedValue
@@ -175,14 +179,15 @@ function PinValueRow({
           )}
         </ScrollArea>
       )}
-      {href && (
-        <ExternalAnchor
-          href={href}
+      {showSafariButton && safariHref && (
+        <a
+          href={safariHref}
           className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          title="Open in browser"
+          title="Open in Safari"
+          aria-label="Open in Safari"
         >
           <ExternalLink className="h-3 w-3" />
-        </ExternalAnchor>
+        </a>
       )}
     </div>
   );

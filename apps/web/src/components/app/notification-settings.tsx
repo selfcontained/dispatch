@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink } from "@/components/ui/external-link";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -133,12 +132,14 @@ export function NotificationSettings(): JSX.Element {
         <p className="mb-3 text-sm text-muted-foreground">
           Receive notifications in Slack when agents finish, need input, or get blocked.
           Create an{" "}
-          <ExternalLink
+          <a
             href="https://api.slack.com/messaging/webhooks"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-blue-400 hover:underline"
           >
             Incoming Webhook
-          </ExternalLink>{" "}
+          </a>{" "}
           in your Slack workspace and paste the URL below.
         </p>
         <div className="max-w-lg space-y-3">

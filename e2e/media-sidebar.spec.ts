@@ -169,7 +169,7 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
   });
 
-  test("rewrites pin links to leave the shell in standalone iOS mode", async ({ page, request }) => {
+  test("shows a separate Safari handoff button for pins in standalone iOS mode", async ({ page, request }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window.navigator, "standalone", {
         configurable: true,
@@ -210,9 +210,12 @@ test.describe("Media sidebar", () => {
     await mediaSidebar.getByRole("button", { name: "Pins" }).evaluate((el) => (el as HTMLButtonElement).click());
 
     await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "https://example.com/docs" }))
-      .toHaveAttribute("href", "x-safari-https://example.com/docs");
+      .toHaveAttribute("href", "https://example.com/docs");
     await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "selfcontained/dispatch#123" }))
+      .toHaveAttribute("href", "https://github.com/selfcontained/dispatch/pull/123");
+    await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "Open in Safari" }))
+      .toHaveAttribute("href", "x-safari-https://example.com/docs");
+    await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "Open in Safari" }))
       .toHaveAttribute("href", "x-safari-https://github.com/selfcontained/dispatch/pull/123");
-    await expect(mediaSidebar.getByTitle("Open in browser").first()).not.toHaveAttribute("target", "_blank");
   });
 });

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Loader2, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
-import { ExternalLink as ExternalAnchor } from "@/components/ui/external-link";
 import { type ReleaseChannel, type ReleaseInfo, type ReleaseJob, type UseReleaseStreamResult } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -205,14 +204,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             {notesExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             Release notes
             {versionInfo.releaseUrl ? (
-              <ExternalAnchor
+              <a
                 className="ml-2 inline-flex items-center gap-1 text-xs normal-case tracking-normal text-blue-400 hover:underline"
                 href={versionInfo.releaseUrl}
+                rel="noopener noreferrer"
+                target="_blank"
                 onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
                 GitHub
-              </ExternalAnchor>
+              </a>
             ) : null}
           </button>
           {notesExpanded && (
@@ -294,13 +295,15 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                 </div>
 
                 {info.latestRelease?.url && (
-                  <ExternalAnchor
+                  <a
                     href={info.latestRelease.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" />
                     View release on GitHub
-                  </ExternalAnchor>
+                  </a>
                 )}
 
                 {updateError && (
@@ -411,13 +414,15 @@ export function OperationTakeover({
         />
 
         {job.runUrl && (
-          <ExternalAnchor
+          <a
             href={job.runUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
           >
             <ExternalLink className="h-3 w-3" />
             View GitHub Actions run
-          </ExternalAnchor>
+          </a>
         )}
 
         {isDone && (
