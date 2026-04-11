@@ -143,7 +143,8 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const isDone = updateJob?.phase === "done" || (!postRestartPolling && updateJob?.phase === "restarting" && status?.tag === updateJob?.tag);
   const isFailed = updateJob?.phase === "failed";
   const isRestarting = updateJob?.phase === "restarting" || (updateJob !== null && postRestartPolling);
-  const showTakeover = updateJob !== null;
+  // Only show takeover for active jobs, not stale done jobs from server memory
+  const showTakeover = updateJob !== null && !isDone;
 
   if (showTakeover) {
     return (

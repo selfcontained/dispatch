@@ -154,7 +154,9 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
   const createJob = job?.jobType === "create" ? job : null;
   const isDone = createJob?.phase === "done";
   const isFailed = createJob?.phase === "failed";
-  const showTakeover = createJob !== null;
+  // Only show takeover for active or just-failed jobs, not stale done jobs
+  // that persist in server memory from a previous release.
+  const showTakeover = createJob !== null && !isDone;
 
   if (showTakeover) {
     return (
