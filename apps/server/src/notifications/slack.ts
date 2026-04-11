@@ -18,7 +18,7 @@ const EVENT_CONFIG: Record<NotifyEventType, { emoji: string; verb: string; color
   blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
 };
 
-const LEVEL_CONFIG: Record<string, { emoji: string; color: string }> = {
+const LEVEL_CONFIG: Record<NonNullable<NotifyInput["level"]>, { emoji: string; color: string }> = {
   info: { emoji: "\u2139\ufe0f", color: "#3b82f6" },
   success: { emoji: "\u2705", color: "#22c55e" },
   warning: { emoji: "\u26a0\ufe0f", color: "#f59e0b" },
@@ -58,8 +58,8 @@ export function isValidSlackWebhookUrl(url: string): boolean {
 }
 
 /**
- * Escape Slack special mention syntax (<!channel>, <!here>, <!everyone>)
- * in agent-provided content to prevent mrkdwn injection.
+ * Escape Slack broadcast mention syntax (<!channel>, <!here>, <!everyone>)
+ * in agent-provided content. Regular mrkdwn formatting and links are preserved.
  */
 function sanitizeSlackMrkdwn(text: string): string {
   return text.replace(/<!([^>]*)>/g, "&lt;!$1&gt;");
@@ -210,8 +210,8 @@ export class SlackNotifier {
       const cfg = LEVEL_CONFIG[level];
       const agentName = agent.name || agent.id.slice(0, 8);
 
-      // Sanitize agent-provided content to prevent Slack mrkdwn injection
-      // (<!channel>, <!here>, <!everyone> mentions, and <url|label> link spoofing)
+      // Sanitize agent-provided content to prevent broadcast mentions
+      // (<!channel>, <!here>, <!everyone>). Regular mrkdwn links are allowed.
       const safeMessage = sanitizeSlackMrkdwn(input.message);
       const safeTitle = input.title ? sanitizeSlackMrkdwn(input.title) : undefined;
 
