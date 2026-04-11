@@ -105,6 +105,19 @@ export async function getOrCreateAuthToken(pool: Pool): Promise<string> {
   return token;
 }
 
+export function isMcpRoute(url: string): boolean {
+  return url === "/api/mcp" || url.startsWith("/api/mcp/");
+}
+
+export function shouldAcceptApiBearerToken(url: string, token: string, serverAuthToken: string): boolean {
+  if (token === serverAuthToken) {
+    return true;
+  }
+
+  // MCP routes perform their own scoped token validation in the route handlers.
+  return isMcpRoute(url);
+}
+
 export function createAgentMcpToken(secret: string, agentId: string): string {
   return createMcpScopeToken(secret, `agent:${agentId}`);
 }

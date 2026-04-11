@@ -51,6 +51,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  shouldAcceptApiBearerToken,
   validateAgentMcpToken,
   validateJobMcpToken
 } from "./auth.js";
@@ -1000,19 +1001,11 @@ async function registerRoutes() {
     // If no password is set, all routes are open (first-run mode).
     if (!(await isPasswordSetCached())) return;
 
-    const isMcpRoute = url === "/api/mcp" || url.startsWith("/api/mcp/");
-
     // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
     const authHeader = request.headers.authorization;
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      if (token === config.authToken) {
-        return;
-      }
-      // MCP routes validate scoped agent/job tokens in the route handlers.
-      // Let those requests through to the route-specific validator instead of
-      // rejecting them here because they don't match the raw server token.
-      if (isMcpRoute) {
+      if (shouldAcceptApiBearerToken(url, token, config.authToken)) {
         return;
       }
     }
