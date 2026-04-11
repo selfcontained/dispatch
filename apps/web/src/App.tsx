@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
+import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
-import { AppHeader } from "@/components/app/app-header";
 import { ActivityPane } from "@/components/app/activity-pane";
 import { DocsPane } from "@/components/app/docs-pane";
 import { JobsPane } from "@/components/app/jobs-pane";
@@ -15,7 +15,6 @@ import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
-import { StatusFooter } from "@/components/app/status-footer";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import { type FeedbackDetailState, FeedbackDetailPanel, ReviewSummaryPanel } from "@/components/app/feedback-panel";
 import {
@@ -39,6 +38,7 @@ import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
+import { Button } from "@/components/ui/button";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -567,12 +567,12 @@ export function DashboardLayout(): JSX.Element {
             className={cn(
               "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
               jobsOpen
-                ? "grid-rows-[minmax(0,1fr)_auto]"
+                ? "grid-rows-[minmax(0,1fr)]"
                 : isMobile
-                ? "grid-rows-[auto_1fr_auto_auto]"
+                ? "grid-rows-[minmax(0,1fr)_auto]"
                 : feedbackDetail
-                  ? "grid-rows-[auto_1fr_1fr_auto]"
-                  : "grid-rows-[auto_1fr_0fr_auto]"
+                  ? "grid-rows-[minmax(0,1fr)_minmax(0,1fr)]"
+                  : "grid-rows-[minmax(0,1fr)_0fr]"
             )}
             onTransitionEnd={(e) => {
               if (e.propertyName === "grid-template-rows" && !feedbackDetail) {
@@ -580,19 +580,6 @@ export function DashboardLayout(): JSX.Element {
               }
             }}
           >
-            {!jobsOpen ? (
-              <AppHeader
-                leftOpen={leftPanelOpen}
-                mediaOpen={mediaPanelOpen}
-                isMobile={isMobile}
-                showReconnectIndicator={connState === "reconnecting"}
-                hasActiveAgent={hasActiveAgent}
-                unseenMediaCount={unseenMediaCount}
-                setLeftOpen={handleSetLeftPanelOpen}
-                setMediaOpen={handleSetMediaPanelOpen}
-              />
-            ) : null}
-
             {jobsOpen ? (
               <JobsPane
                 open={true}
@@ -600,26 +587,68 @@ export function DashboardLayout(): JSX.Element {
                 agents={agents}
                 onOpenAgent={attachToAgent}
                 enabledAgentTypes={enabledAgentTypes}
-                footer={
-                  <StatusFooter
-                    apiState={apiState}
-                    dbState={dbState}
-                    serviceDotClass={serviceDotClass}
-                  />
-                }
               />
             ) : (
-              <AgentsWorkspace onUnmount={handleAgentsWorkspaceUnmount}>
-                <TerminalPane
-                  isAttached={isAttached}
-                  connState={connState}
-                  statusMessage={statusMessage}
-                  terminalMode={terminalMode}
-                  terminalPlaceholderMessage={terminalPlaceholderMessage}
-                  terminalHostRef={terminalHostRef}
-                  archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
-                />
-              </AgentsWorkspace>
+              <div className="relative min-h-0 min-w-0 pb-14 pt-14">
+                {!leftPanelOpen ? (
+                  <div className="pointer-events-none absolute left-3 top-3 z-10">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="pointer-events-auto"
+                      onClick={() => handleSetLeftPanelOpen(true)}
+                      title="Open agent sidebar"
+                    >
+                      <PanelRightOpen className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : null}
+                {focusedAgent?.name ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
+                    <div
+                      data-testid="current-session-name"
+                      className="max-w-full truncate text-center text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground"
+                    >
+                      {focusedAgent.name}
+                    </div>
+                  </div>
+                ) : null}
+                {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
+                  <div className="pointer-events-none absolute right-3 top-3 z-10">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="pointer-events-auto relative"
+                      onClick={() => handleSetMediaPanelOpen(true)}
+                      title="Open media sidebar"
+                      data-testid="toggle-media-sidebar"
+                    >
+                      <PanelLeftOpen className="h-4 w-4" />
+                      {unseenMediaCount > 0 ? (
+                        <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                          {unseenMediaCount}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </div>
+                ) : null}
+                {connState === "reconnecting" ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden">
+                    <div className="dispatch-reconnect-scan h-full w-1/3 bg-gradient-to-r from-transparent via-status-waiting to-transparent" />
+                  </div>
+                ) : null}
+                <AgentsWorkspace onUnmount={handleAgentsWorkspaceUnmount}>
+                  <TerminalPane
+                    isAttached={isAttached}
+                    connState={connState}
+                    statusMessage={statusMessage}
+                    terminalMode={terminalMode}
+                    terminalPlaceholderMessage={terminalPlaceholderMessage}
+                    terminalHostRef={terminalHostRef}
+                    archivePhase={selectedAgent?.status === "archiving" ? selectedAgent.archivePhase : null}
+                  />
+                </AgentsWorkspace>
+              </div>
             )}
 
             {!isMobile && !jobsOpen ? (
@@ -653,14 +682,6 @@ export function DashboardLayout(): JSX.Element {
             ) : null}
 
             {isMobile && !jobsOpen ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
-
-            {!jobsOpen ? (
-              <StatusFooter
-                apiState={apiState}
-                dbState={dbState}
-                serviceDotClass={serviceDotClass}
-              />
-            ) : null}
           </div>
         </main>
 
@@ -821,6 +842,9 @@ export function DashboardLayout(): JSX.Element {
         clearIconColorError={clearIconColorError}
         enabledAgentTypes={enabledAgentTypes}
         onEnabledAgentTypesChange={setEnabledAgentTypes}
+        apiState={apiState}
+        dbState={dbState}
+        serviceDotClass={serviceDotClass}
         initialSection={settingsSection}
         onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
       />

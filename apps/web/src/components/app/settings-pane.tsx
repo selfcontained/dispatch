@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowDownToLine, ArrowLeft, Bell, ChevronRight, Package, Settings, Users, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Bell, ChevronRight, Database, Package, Server, Settings, Users, X } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
+import { ServiceStatus } from "@/components/app/service-status";
+import { type ServiceState } from "@/components/app/types";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
@@ -329,6 +331,9 @@ type SettingsPaneProps = {
   clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
+  apiState: ServiceState;
+  dbState: ServiceState;
+  serviceDotClass: (state: ServiceState) => string;
   initialSection?: string;
   onSectionChange?: (section: string | null) => void;
 };
@@ -346,6 +351,9 @@ export function SettingsPane({
   clearIconColorError,
   enabledAgentTypes,
   onEnabledAgentTypesChange,
+  apiState,
+  dbState,
+  serviceDotClass,
   initialSection,
   onSectionChange,
 }: SettingsPaneProps): JSX.Element {
@@ -426,22 +434,33 @@ export function SettingsPane({
           {/* Body */}
           <div className="flex min-h-0 flex-1">
             {/* Desktop nav — always visible */}
-            <nav className="hidden md:flex w-40 shrink-0 flex-col border-r border-border py-2">
-              {sections.map(({ id, label, icon: Icon }) => (
-                <div
-                  key={id}
-                  onClick={() => setActiveSection(id)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm transition-colors",
-                    activeSection === id
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {label}
+            <nav className="hidden w-48 shrink-0 flex-col border-r border-border py-2 md:flex">
+              <div>
+                {sections.map(({ id, label, icon: Icon }) => (
+                  <div
+                    key={id}
+                    onClick={() => setActiveSection(id)}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm transition-colors",
+                      activeSection === id
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    {label}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-auto border-t border-border px-4 pb-3 pt-4">
+                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  System
                 </div>
-              ))}
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
+                  <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
+                </div>
+              </div>
             </nav>
 
             {/* Mobile nav — section list, shown when no section selected */}
@@ -458,6 +477,15 @@ export function SettingsPane({
                     <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
                   </button>
                 ))}
+                <div className="mt-auto border-t border-border px-5 py-4">
+                  <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    System
+                  </div>
+                  <div className="space-y-3 text-xs text-muted-foreground">
+                    <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
+                    <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
+                  </div>
+                </div>
               </nav>
             )}
 

@@ -379,5 +379,5 @@ export async function loadApp(page: Page): Promise<void> {
   }
 
   await sidebar.waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByTestId("status-footer").waitFor({ state: "visible", timeout: 10_000 });
+  await page.getByTestId("terminal-pane").waitFor({ state: "visible", timeout: 10_000 });
 }

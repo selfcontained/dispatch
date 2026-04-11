@@ -6,16 +6,13 @@ test.describe("App shell", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("renders the main layout with a slim terminal header row", async ({
-    page,
-  }) => {
+  test("renders the main layout without dedicated header or footer chrome", async ({ page }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
-    await expect(page.getByTestId("status-footer")).toBeVisible();
-    await expect(page.getByTestId("app-header")).toBeVisible();
-    await expect(page.getByTestId("app-header-status")).toHaveCount(0);
+    await expect(page.getByTestId("status-footer")).toHaveCount(0);
+    await expect(page.getByTestId("app-header")).toHaveCount(0);
   });
 
   test("shows the empty-state prompt when no agent is selected", async ({ page }) => {
@@ -27,17 +24,20 @@ test.describe("App shell", () => {
     );
   });
 
-  test("status footer reports healthy API and DB", async ({ page }) => {
+  test("settings rail reports healthy API and DB", async ({ page }) => {
     await loadApp(page);
 
-    // Wait for health poll to succeed (the dots turn green = bg-emerald-500)
-    const apiDot = page.getByTestId("service-dot-api");
+    await page.getByTestId("settings-button").click();
+
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog).toBeVisible();
+
+    const apiDot = dialog.getByTestId("service-dot-api");
     await expect(apiDot).toBeVisible();
-    // The status text eventually shows "ok"
-    const apiStatus = page.getByTestId("service-status-api");
+    const apiStatus = dialog.getByTestId("service-status-api");
     await expect(apiStatus).toContainText("ok", { timeout: 10_000 });
 
-    const dbStatus = page.getByTestId("service-status-db");
+    const dbStatus = dialog.getByTestId("service-status-db");
     await expect(dbStatus).toContainText("ok", { timeout: 10_000 });
   });
 
