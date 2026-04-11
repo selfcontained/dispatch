@@ -1328,6 +1328,7 @@ async function registerRoutes() {
       worktreeRoot,
       sendNotify: mcpSendNotify,
       upsertEvent: mcpUpsertEvent,
+      renameSession: mcpRenameSession,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
       launchPersona: mcpLaunchPersona,
@@ -4200,6 +4201,15 @@ async function mcpGetParentContext(
       createdAt: m.createdAt
     }))
   };
+}
+
+async function mcpRenameSession(
+  agentId: string,
+  name: string
+): Promise<{ id: string; name: string }> {
+  const agent = await agentManager.renameAgent(agentId, name);
+  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+  return { id: agent.id, name: agent.name };
 }
 
 async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
