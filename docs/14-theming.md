@@ -5,16 +5,16 @@ Dispatch supports multiple color themes. Themes are defined as sets of CSS custo
 ## Architecture overview
 
 ```
-web/src/index.css          ← Theme CSS variable definitions (:root + [data-theme="..."])
-web/tailwind.config.ts     ← Maps CSS vars to Tailwind color utilities
-web/src/hooks/use-theme.ts ← React hook + theme registry (ThemeId, THEMES array)
-web/src/components/app/settings-pane.tsx ← Appearance UI (theme picker)
-web/index.html             ← Inline script for flash-free theme on load
+apps/web/src/index.css          ← Theme CSS variable definitions (:root + [data-theme="..."])
+apps/web/tailwind.config.ts     ← Maps CSS vars to Tailwind color utilities
+apps/web/src/hooks/use-theme.ts ← React hook + theme registry (ThemeId, THEMES array)
+apps/web/src/components/app/settings-pane.tsx ← Appearance UI (theme picker)
+apps/web/index.html             ← Inline script for flash-free theme on load
 ```
 
 ## CSS custom properties
 
-All theme colors live in `web/src/index.css`. The default theme is defined on `:root`. Additional themes use `[data-theme="<id>"]` selectors.
+All theme colors live in `apps/web/src/index.css`. The default theme is defined on `:root`. Additional themes use `[data-theme="<id>"]` selectors.
 
 ### Base tokens (shadcn/ui standard)
 
@@ -64,7 +64,7 @@ All values use **bare HSL components** without the `hsl()` wrapper — this allo
 
 ## Tailwind integration
 
-`web/tailwind.config.ts` maps CSS vars to Tailwind utilities. The status colors use `<alpha-value>` for opacity support:
+`apps/web/tailwind.config.ts` maps CSS vars to Tailwind utilities. The status colors use `<alpha-value>` for opacity support:
 
 ```ts
 status: {
@@ -90,7 +90,7 @@ The `surface` and `terminal-bg` colors are also available as `bg-surface` and `b
 
 ### Step 1: Define the CSS variables
 
-Add a new `[data-theme="your-theme-id"]` block in `web/src/index.css`. You must define **every** variable listed above. Copy an existing theme block as a starting point:
+Add a new `[data-theme="your-theme-id"]` block in `apps/web/src/index.css`. You must define **every** variable listed above. Copy an existing theme block as a starting point:
 
 ```css
 [data-theme="midnight"] {
@@ -178,8 +178,8 @@ That's it — the theme picker, localStorage persistence, flash-free loading, an
 
 | File | What to edit |
 |---|---|
-| `web/src/index.css` | Add `[data-theme="..."]` CSS variable block |
-| `web/src/hooks/use-theme.ts` | Add to `ThemeId` type and `THEMES` array |
-| `web/tailwind.config.ts` | Only if adding new semantic color tokens (rarely needed) |
-| `web/src/components/app/settings-pane.tsx` | Only if changing the picker UI itself |
-| `web/index.html` | Only if changing the flash-prevention script |
+| `apps/web/src/index.css` | Add `[data-theme="..."]` CSS variable block |
+| `apps/web/src/hooks/use-theme.ts` | Add to `ThemeId` type and `THEMES` array |
+| `apps/web/tailwind.config.ts` | Only if adding new semantic color tokens (rarely needed) |
+| `apps/web/src/components/app/settings-pane.tsx` | Only if changing the picker UI itself |
+| `apps/web/index.html` | Only if changing the flash-prevention script |

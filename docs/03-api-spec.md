@@ -274,6 +274,11 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 |--------|------|-------------|
 | GET | `/release/status` | Current deployed release tag and timestamp |
 | GET | `/release/info` | Latest available version and unreleased commits |
+| GET | `/release/channel` | Get current release channel (stable or latest) |
+| POST | `/release/channel` | Set release channel |
+| GET | `/release/admin-check` | Check if current instance is a release admin |
+| POST | `/release/promote` | Promote a pre-release to stable (admin only) |
+| GET | `/releases` | List recent GitHub releases |
 | POST | `/release` | Trigger new release (`versionType`: major/minor/patch) |
 | POST | `/release/update` | Update to a specific release tag |
 | GET | `/release/stream` | SSE stream for release operation progress |

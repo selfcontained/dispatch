@@ -6,6 +6,7 @@
 - `running`
 - `stopping`
 - `stopped`
+- `archiving` (async cleanup during deletion — worktree check, cleanup, finalization)
 - `error`
 - `unknown` (transient reconciliation state after restart)
 
@@ -19,7 +20,11 @@
 - `running -> stopping -> stopped`
 - `running -> error` if stop command fails and process remains inconsistent
 
-3. Restart backend reconciliation
+3. Delete
+- `running|stopped -> archiving -> (soft deleted)` via archive phases: `stopping` → `worktree-check` → `worktree-cleanup` → `finalizing`
+- Returns HTTP 202 immediately; cleanup runs in the background
+
+4. Restart backend reconciliation
 - `unknown -> running` if tmux session exists
 - `unknown -> stopped` if session absent
 
