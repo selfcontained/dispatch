@@ -211,7 +211,7 @@ export function MediaSidebarContent({
   return (
     <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
       {/* Tab header */}
-      <div className="flex min-h-14 items-center border-b-2 border-border pt-[env(safe-area-inset-top)]">
+      <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">
           <button
             onClick={() => setActiveTab("pins")}

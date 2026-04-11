@@ -69,8 +69,9 @@ test.describe("Energy / visibility-aware pausing", () => {
     // data-hidden should be removed
     await expect(page.locator("html[data-hidden]")).not.toBeAttached();
 
-    // Health poll should resume — check API status still shows ok
-    const apiStatus = page.getByTestId("service-status-api");
+    // Health poll should resume — check API status in Settings still shows ok
+    await page.getByTestId("settings-button").click();
+    const apiStatus = page.getByRole("dialog", { name: "Settings" }).getByTestId("service-status-api");
     await expect(apiStatus).toContainText("ok", { timeout: 15_000 });
   });
 

@@ -38,6 +38,7 @@ try {
 import { AgentError, AgentManager } from "./agents/manager.js";
 import type { AgentGitContext, AgentRecord, FeedbackRecord } from "./agents/manager.js";
 import { loadPersonas, loadPersonaBySlug, assemblePersonaPrompt } from "./personas/loader.js";
+import { buildPersonaReviewDiff } from "./personas/review-diff.js";
 import {
   isPasswordSet,
   setPassword,
@@ -4259,30 +4260,7 @@ async function mcpLaunchPersona(
     throw new Error(`Persona "${opts.persona}" not found in .dispatch/personas/.`);
   }
 
-  // Generate git diff for context — detect the base branch rather than assuming main
-  let diff = "";
-  try {
-    const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
-    let baseBranch = "main";
-    let baseBranchDetected = true;
-    try {
-      const headRef = await runCommand(
-        "git", ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
-        { cwd: parentCwd }
-      );
-      // Returns e.g. "origin/main" — strip the remote prefix
-      baseBranch = headRef.stdout.trim().replace(/^origin\//, "");
-    } catch {
-      baseBranchDetected = false;
-    }
-    const diffResult = await runCommand("git", ["diff", `${baseBranch}...HEAD`], { cwd: parentCwd });
-    diff = diffResult.stdout;
-    if (!baseBranchDetected && !diff.trim()) {
-      diff = `(Note: base branch detection failed; diff was generated against "${baseBranch}". If this looks wrong, the repo may use a different default branch.)`;
-    }
-  } catch {
-    diff = "(unable to generate diff)";
-  }
+  const diff = await buildPersonaReviewDiff(parentCwd, runCommand);
 
   const prompt = assemblePersonaPrompt(persona, opts.context, diff);
 
