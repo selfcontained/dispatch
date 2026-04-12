@@ -168,4 +168,54 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("Review queue", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
   });
+
+  test("shows a separate Safari handoff button for pins in standalone iOS mode", async ({ page, request }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window.navigator, "standalone", {
+        configurable: true,
+        get: () => true,
+      });
+      Object.defineProperty(window.navigator, "userAgent", {
+        configurable: true,
+        get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      });
+      const originalMatchMedia = window.matchMedia.bind(window);
+      window.matchMedia = ((query: string) => {
+        if (query === "(display-mode: standalone)") {
+          return {
+            matches: true,
+            media: query,
+            onchange: null,
+            addListener: () => {},
+            removeListener: () => {},
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            dispatchEvent: () => false,
+          } as MediaQueryList;
+        }
+        return originalMatchMedia(query);
+      }) as typeof window.matchMedia;
+    });
+
+    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pwa-pins-${Date.now()}` });
+    await setAgentPinsViaDB(agent.id, [
+      { label: "API", type: "url", value: "https://example.com/docs" },
+      { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
+    ]);
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Pins" }).evaluate((el) => (el as HTMLButtonElement).click());
+
+    await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "https://example.com/docs" }))
+      .toHaveAttribute("href", "https://example.com/docs");
+    await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "selfcontained/dispatch#123" }))
+      .toHaveAttribute("href", "https://github.com/selfcontained/dispatch/pull/123");
+    await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "Open in Safari" }))
+      .toHaveAttribute("href", "x-safari-https://example.com/docs");
+    await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "Open in Safari" }))
+      .toHaveAttribute("href", "x-safari-https://github.com/selfcontained/dispatch/pull/123");
+  });
 });
