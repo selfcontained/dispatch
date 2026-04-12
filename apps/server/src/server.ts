@@ -51,6 +51,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
   validateJobMcpToken
@@ -1006,6 +1007,9 @@ async function registerRoutes() {
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       if (shouldAcceptApiBearerToken(url, token, config.authToken)) {
+        return;
+      }
+      if (isScopedMcpRoute(url)) {
         return;
       }
     }

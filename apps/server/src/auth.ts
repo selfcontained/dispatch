@@ -109,13 +109,12 @@ export function isMcpRoute(url: string): boolean {
   return url === "/api/mcp" || url.startsWith("/api/mcp/");
 }
 
-export function shouldAcceptApiBearerToken(url: string, token: string, serverAuthToken: string): boolean {
-  if (token === serverAuthToken) {
-    return true;
-  }
+export function isScopedMcpRoute(url: string): boolean {
+  return /^\/api\/mcp\/[^/]+$/.test(url) || /^\/api\/mcp\/jobs\/[^/]+\/[^/]+$/.test(url);
+}
 
-  // MCP routes perform their own scoped token validation in the route handlers.
-  return isMcpRoute(url);
+export function shouldAcceptApiBearerToken(url: string, token: string, serverAuthToken: string): boolean {
+  return token === serverAuthToken;
 }
 
 export function createAgentMcpToken(secret: string, agentId: string): string {
