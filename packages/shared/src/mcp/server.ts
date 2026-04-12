@@ -102,22 +102,17 @@ const AGENT_TOOLS = new Set([
   "get_pr_status",
   "dispatch_event",
   "dispatch_rename_session",
-  "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
-  "get_activity_summary",
-  "get_agent_history",
-  "get_feedback_summary",
 ]);
 
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
-  "dispatch_notify",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -125,9 +120,6 @@ const JOB_TOOLS = new Set([
   "list_agents",
   "list_recent_persona_reviews",
   "list_recent_feedback",
-  "get_activity_summary",
-  "get_agent_history",
-  "get_feedback_summary",
 ]);
 
 const PERSONA_TOOLS = new Set([

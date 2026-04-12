@@ -157,16 +157,12 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_get_feedback` | Retrieve feedback findings for review |
 | `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored |
 | `dispatch_launch_persona` | Launch a persona child agent for automated review |
-| `dispatch_notify` | Send a Slack notification from the agent (requires webhook configured) |
 | `create_pr` | Create a GitHub pull request |
 | `get_pr_status` | Check PR CI status and reviews |
-| `get_activity_summary` | Summarize agent activity over a time range |
-| `get_agent_history` | Get detailed agent session history |
-| `get_feedback_summary` | Aggregate persona review feedback for pattern detection |
 
 Persona agents additionally get: `review_status`, `get_parent_context`.
 
-Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `dispatch_notify`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
+Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`.
 
 Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo_` prefix.
 
