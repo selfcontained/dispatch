@@ -162,7 +162,8 @@ describe("assemblePersonaPrompt", () => {
 
   it("includes info feedback limits", () => {
     const result = assemblePersonaPrompt(basePersona, "", "");
-    expect(result).toContain("maximum of 2–3 items");
+    expect(result).toContain("Info feedback limits");
+    expect(result).toContain("Do NOT submit positive affirmations");
   });
 });
 
