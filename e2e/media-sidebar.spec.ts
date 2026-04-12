@@ -166,9 +166,8 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByRole("link", { name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" })).toBeVisible();
     const devWebPin = mediaSidebar.locator("[data-pin-label='Dev Web']");
-    const devWebLinks = devWebPin.getByRole("link");
-    await expect(devWebLinks.first()).toHaveText("http://127.0.0.1:52804");
-    await expect(devWebLinks.first()).toHaveAttribute("href", "http://127.0.0.1:52804/");
+    await expect(devWebPin.getByRole("link", { name: "http://127.0.0.1:52804" })).toBeVisible();
+    await expect(devWebPin.getByTestId("pin-open-link")).toHaveAttribute("href", "http://127.0.0.1:52804/");
     await expect(mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })).toBeVisible();
     await expect(mediaSidebar.getByText("Review queue", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
