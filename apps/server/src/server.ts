@@ -51,6 +51,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
   validateJobMcpToken
@@ -1006,6 +1007,9 @@ async function registerRoutes() {
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       if (shouldAcceptApiBearerToken(url, token, config.authToken)) {
+        return;
+      }
+      if (isScopedMcpRoute(url)) {
         return;
       }
     }
@@ -3353,23 +3357,42 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
   throw new Error("Database not available after retries");
 }
 
-async function start() {
+let routesRegistered = false;
+
+export async function initializeApp(options?: { runMigrations?: boolean; reconcileState?: boolean }): Promise<typeof app> {
   await waitForDatabase();
-  if (process.env.SKIP_MIGRATIONS === "1") {
+  const shouldRunMigrations = options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";
+  if (!shouldRunMigrations) {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
   }
   config.authToken = await getOrCreateAuthToken(pool);
-  await agentManager.reconcileAgents();
-  await jobService.reconcileActiveRuns();
-  await jobService.startSchedulers();
-  const agents = await agentManager.listAgents();
-  queueGitContextRefresh(agents.map((agent) => agent.id));
-  startGitContextRefreshLoop();
-  startAgentStatusReconcileLoop();
-  startSessionCleanupTimer();
-  await registerRoutes();
+  const shouldReconcileState = options?.reconcileState ?? true;
+  if (shouldReconcileState) {
+    await agentManager.reconcileAgents();
+    await jobService.reconcileActiveRuns();
+    await jobService.startSchedulers();
+    const agents = await agentManager.listAgents();
+    queueGitContextRefresh(agents.map((agent) => agent.id));
+    startGitContextRefreshLoop();
+    startAgentStatusReconcileLoop();
+    startSessionCleanupTimer();
+  }
+  if (!routesRegistered) {
+    await registerRoutes();
+    routesRegistered = true;
+  }
+  await app.ready();
+  return app;
+}
+
+export async function closeApp(): Promise<void> {
+  await cleanupAppResources();
+}
+
+export async function start() {
+  await initializeApp();
 
   const protocol = config.tls ? "https" : "http";
   await app.listen({
@@ -3379,30 +3402,7 @@ async function start() {
   app.log.info(`Dispatch listening on ${protocol}://${config.host}:${config.port}`);
 }
 
-// Global error handlers — prevent silent crashes from background tasks
-process.on("unhandledRejection", (reason) => {
-  app.log.error({ err: reason }, "Unhandled promise rejection");
-});
-
-process.on("uncaughtException", async (err) => {
-  // Hard timeout: if shutdown hangs (corrupted state), force-exit after 5s
-  setTimeout(() => process.exit(1), 5_000).unref();
-  app.log.error({ err }, "Uncaught exception — shutting down");
-  await shutdown(1);
-});
-
-start().catch(async (error) => {
-  app.log.error(error);
-  await shutdown(1);
-});
-
-process.on("SIGINT", async () => {
-  await shutdown(0);
-});
-
-process.on("SIGTERM", async () => {
-  await shutdown(0);
-});
+export { app, shutdown };
 
 function handleAgentError(reply: FastifyReply, error: unknown) {
   if (error instanceof AgentError) {
@@ -4056,7 +4056,7 @@ function resolveMediaDir(agentId: string, mediaDir: string | null): string {
 }
 
 let shuttingDown = false;
-async function shutdown(code: number): Promise<void> {
+async function cleanupAppResources(): Promise<void> {
   if (shuttingDown) {
     return;
   }
@@ -4080,6 +4080,10 @@ async function shutdown(code: number): Promise<void> {
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
+}
+
+async function shutdown(code: number): Promise<void> {
+  await cleanupAppResources();
   process.exit(code);
 }
 
