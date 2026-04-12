@@ -130,8 +130,8 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 - **low**: Minor issue, hardening opportunity, or improvement suggestion
 - **info**: Non-obvious good decision that a future contributor might mistakenly undo
 
-### Info feedback limits
-Keep \`info\` severity feedback to a maximum of 2–3 items per review. Only use info for decisions that are *surprisingly good* or that need to be *preserved* — do not submit info feedback for code that is simply correct or working as expected. The goal is signal, not a checklist of everything that passed inspection.
+### Info feedback limits — STRICT
+Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback like "Good defense-in-depth...", "Good design decision...", or "This is well-structured..." is noise and will be ignored — do not submit it. The \`info\` severity is ONLY for non-obvious decisions that a future contributor might mistakenly undo. Limit to at most 2 items per review. If you have nothing critical to preserve, submit zero info items.
 `.trim();
 
 export function assemblePersonaPrompt(
