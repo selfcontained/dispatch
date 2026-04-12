@@ -176,6 +176,8 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
       expect(setupScript).toContain("do not start repo work or infer a task from branch/worktree context alone");
       expect(setupScript).toContain("dispatch_rename_session");
+      expect(setupScript).toContain("short topic/goal/feature name");
+      expect(setupScript).toContain("stable label for the task, not as a live status update");
     });
 
     it("should skip rename guidance when the user provided a custom name", async () => {
