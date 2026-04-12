@@ -14,6 +14,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   createAgentMcpToken,
   validateAgentMcpToken,
@@ -161,13 +162,21 @@ describe("auth token and cookie secret", () => {
     expect(validateJobMcpToken(secret, token, "run_123", "agt_otheragent")).toBe(false);
   });
 
-  it("lets scoped MCP bearer tokens through the global auth gate only for MCP routes", async () => {
+  it("does not let scoped MCP bearer tokens through the global auth gate", async () => {
     const secret = await getOrCreateAuthToken(pool);
     const agentToken = createAgentMcpToken(secret, "agt_123456abcdef");
 
-    expect(shouldAcceptApiBearerToken("/api/mcp/agt_123456abcdef", agentToken, secret)).toBe(true);
-    expect(shouldAcceptApiBearerToken("/api/mcp/jobs/run_123/agt_123456abcdef", agentToken, secret)).toBe(true);
+    expect(shouldAcceptApiBearerToken("/api/mcp", agentToken, secret)).toBe(false);
+    expect(shouldAcceptApiBearerToken("/api/mcp/agt_123456abcdef", agentToken, secret)).toBe(false);
+    expect(shouldAcceptApiBearerToken("/api/mcp/jobs/run_123/agt_123456abcdef", agentToken, secret)).toBe(false);
     expect(shouldAcceptApiBearerToken("/api/v1/agents", agentToken, secret)).toBe(false);
+  });
+
+  it("identifies only agent and job MCP routes as scoped routes", () => {
+    expect(isScopedMcpRoute("/api/mcp")).toBe(false);
+    expect(isScopedMcpRoute("/api/mcp/agt_123456abcdef")).toBe(true);
+    expect(isScopedMcpRoute("/api/mcp/jobs/run_123/agt_123456abcdef")).toBe(true);
+    expect(isScopedMcpRoute("/api/v1/agents")).toBe(false);
   });
 
   it("still accepts the raw server auth token on non-MCP routes", async () => {
