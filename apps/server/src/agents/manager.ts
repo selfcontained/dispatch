@@ -1640,7 +1640,7 @@ export class AgentManager {
         "Dispatch startup rules: " +
         "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
         (suggestSessionRename
-          ? "If your session still has the default generated name, update it to a short goal or topic using dispatch_rename_session. "
+          ? "If your session still has the default generated name, wait until you understand the user's concrete task, then call dispatch_rename_session once with a short topic/goal/feature name. Use the session name as a stable label for the task, not as a live status update, and do not rename it again unless the user starts a separate task or explicitly asks for a rename. "
           : "") +
         "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
         "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
@@ -2011,7 +2011,6 @@ export class AgentManager {
     // Build conditions for agents table queries
     const agentConditions = [
       "parent_agent_id IS NULL",
-      "deleted_at IS NULL",
       "created_at >= $1",
       "created_at <= $2",
     ];
@@ -2033,7 +2032,7 @@ export class AgentManager {
             COALESCE(ae.project_dir, a.cwd) AS project_dir
           FROM agent_events ae
           JOIN agents a ON a.id = ae.agent_id
-            AND a.deleted_at IS NULL AND a.parent_agent_id IS NULL
+            AND a.parent_agent_id IS NULL
           WHERE ae.created_at < $1
           ORDER BY ae.agent_id, ae.created_at DESC
         ),
@@ -2042,7 +2041,7 @@ export class AgentManager {
                  COALESCE(ae.project_dir, a.cwd) AS project_dir
           FROM agent_events ae
           JOIN agents a ON a.id = ae.agent_id
-            AND a.deleted_at IS NULL AND a.parent_agent_id IS NULL
+            AND a.parent_agent_id IS NULL
           WHERE ae.created_at >= $1 AND ae.created_at <= $2
         ),
         all_events AS (
@@ -2189,7 +2188,6 @@ export class AgentManager {
     includeChildren: boolean;
   }): Promise<AgentHistoryResult> {
     const conditions: string[] = [
-      "deleted_at IS NULL",
       "created_at >= $1",
       "created_at <= $2",
     ];

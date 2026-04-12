@@ -150,6 +150,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | Tool | Description |
 |------|-------------|
 | `dispatch_event` | Report agent status (working, blocked, waiting_user, done, idle) |
+| `dispatch_rename_session` | Update the current session's display name |
 | `dispatch_pin` | Surface key info in the sidebar (URLs, ports, PRs, files) |
 | `dispatch_share` | Upload screenshots and media to the agent's media pane |
 | `dispatch_feedback` | Submit structured review findings (severity, file refs, suggestions) |

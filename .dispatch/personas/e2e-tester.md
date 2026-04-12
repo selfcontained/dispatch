@@ -28,4 +28,5 @@ Your testing MUST focus exclusively on the features and flows introduced or modi
 ## How to report findings
 - Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 - Include screenshot references (`mediaRef`) when visual.
+- **Only submit feedback for actual bugs or issues.** Do not submit positive observations or affirmations about things that work correctly. If everything works as expected, say so in your review summary and approve with zero feedback items.
 
