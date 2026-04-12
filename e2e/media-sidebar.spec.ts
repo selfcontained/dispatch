@@ -116,6 +116,7 @@ test.describe("Media sidebar", () => {
       { label: "Long file", type: "filename", value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx` },
       { label: "Ports", type: "port", value: "3000 4000,\n5000" },
       { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
+      { label: "Dev Web", type: "url", value: "  http://127.0.0.1:52804 \n" },
       { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
       { label: "Review", type: "pr", value: "Review queue" },
       { label: "Agent ID", type: "code", value: "DISPATCH_AGENT_ID=agt_123" },
@@ -164,6 +165,10 @@ test.describe("Media sidebar", () => {
     await expect(mediaSidebar.getByText("4000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByRole("link", { name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" })).toBeVisible();
+    const devWebPin = mediaSidebar.locator("[data-pin-label='Dev Web']");
+    const devWebLinks = devWebPin.getByRole("link");
+    await expect(devWebLinks.first()).toHaveText("http://127.0.0.1:52804");
+    await expect(devWebLinks.first()).toHaveAttribute("href", "http://127.0.0.1:52804/");
     await expect(mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })).toBeVisible();
     await expect(mediaSidebar.getByText("Review queue", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
