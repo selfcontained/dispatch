@@ -259,7 +259,7 @@ describe("getActivitySummary", () => {
     expect(result.totals.sessionCount).toBe(1);
   });
 
-  it("excludes deleted agents from session counts", async () => {
+  it("includes archived parent agents in session counts", async () => {
     await insertAgent("a1", { latestEventType: "done" });
     await insertAgent("a2", { latestEventType: "done" });
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
@@ -269,7 +269,7 @@ describe("getActivitySummary", () => {
       end: new Date(),
     });
 
-    expect(result.totals.sessionCount).toBe(1);
+    expect(result.totals.sessionCount).toBe(2);
   });
 
   it("returns top agents sorted by working time", async () => {
@@ -526,7 +526,7 @@ describe("getAgentHistory", () => {
     expect(result.total).toBe(1);
   });
 
-  it("excludes deleted agents", async () => {
+  it("includes archived parent agents", async () => {
     await insertAgent("a1");
     await insertAgent("a2");
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
@@ -542,8 +542,8 @@ describe("getAgentHistory", () => {
       includeChildren: false,
     });
 
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0].id).toBe("a1");
+    expect(result.agents).toHaveLength(2);
+    expect(result.agents.map((agent) => agent.id).sort()).toEqual(["a1", "a2"]);
   });
 });
 
@@ -755,5 +755,25 @@ describe("getFeedbackSummary", () => {
 
     expect(result.totalFindings).toBe(1);
     expect(result.groups[0].topFindings[0].description).toBe("Recent");
+  });
+
+  it("includes feedback and review verdicts for archived parent agents", async () => {
+    await insertAgent("parent");
+    await insertAgent("reviewer", { persona: "sec", parentAgentId: "parent" });
+    await insertFeedback("reviewer", { description: "Archived parent finding" });
+    await insertReview("reviewer", "parent", "sec", { verdict: "approve" });
+    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'parent'");
+
+    const result = await manager.getFeedbackSummary({
+      start: daysAgo(7),
+      end: new Date(),
+      groupBy: "persona",
+    });
+
+    expect(result.totalFindings).toBe(1);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].topFindings[0].description).toBe("Archived parent finding");
+    expect(result.reviewVerdicts.total).toBe(1);
+    expect(result.reviewVerdicts.approved).toBe(1);
   });
 });
