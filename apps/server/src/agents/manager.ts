@@ -2011,7 +2011,6 @@ export class AgentManager {
     // Build conditions for agents table queries
     const agentConditions = [
       "parent_agent_id IS NULL",
-      "deleted_at IS NULL",
       "created_at >= $1",
       "created_at <= $2",
     ];
@@ -2033,7 +2032,7 @@ export class AgentManager {
             COALESCE(ae.project_dir, a.cwd) AS project_dir
           FROM agent_events ae
           JOIN agents a ON a.id = ae.agent_id
-            AND a.deleted_at IS NULL AND a.parent_agent_id IS NULL
+            AND a.parent_agent_id IS NULL
           WHERE ae.created_at < $1
           ORDER BY ae.agent_id, ae.created_at DESC
         ),
@@ -2042,7 +2041,7 @@ export class AgentManager {
                  COALESCE(ae.project_dir, a.cwd) AS project_dir
           FROM agent_events ae
           JOIN agents a ON a.id = ae.agent_id
-            AND a.deleted_at IS NULL AND a.parent_agent_id IS NULL
+            AND a.parent_agent_id IS NULL
           WHERE ae.created_at >= $1 AND ae.created_at <= $2
         ),
         all_events AS (
@@ -2189,7 +2188,6 @@ export class AgentManager {
     includeChildren: boolean;
   }): Promise<AgentHistoryResult> {
     const conditions: string[] = [
-      "deleted_at IS NULL",
       "created_at >= $1",
       "created_at <= $2",
     ];
