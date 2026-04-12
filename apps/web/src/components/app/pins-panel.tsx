@@ -69,6 +69,28 @@ function shouldRenderMarkdownAsPlainText(value: string): boolean {
   return unsupportedPatterns.some((pattern) => pattern.test(sanitized));
 }
 
+function normalizeExternalHref(type: AgentPin["type"], value: string): string | null {
+  if (type !== "url" && type !== "pr") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const candidates = SAFE_URL_RE.test(trimmed) ? [trimmed] : type === "url" ? [`https://${trimmed}`, `http://${trimmed}`] : [trimmed];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.toString();
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function MarkdownPinBody({ value }: { value: string }): JSX.Element {
   const renderAsPlainText = shouldRenderMarkdownAsPlainText(value);
 
@@ -94,14 +116,15 @@ function MarkdownPinBody({ value }: { value: string }): JSX.Element {
 }
 
 function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedValue {
-  if (type === "pr" && SAFE_URL_RE.test(value)) {
-    return { display: formatPrDisplay(value), tooltip: value, href: value, badge: false, icon: "pr" };
+  const href = normalizeExternalHref(type, value);
+  if (type === "pr" && href) {
+    return { display: formatPrDisplay(href), tooltip: value.trim(), href, badge: false, icon: "pr" };
   }
   if (type === "pr") {
     return { display: value, tooltip: value, href: null, badge: false, icon: "pr" };
   }
-  if (type === "url" && SAFE_URL_RE.test(value)) {
-    return { display: value, tooltip: value, href: value, badge: false, icon: null };
+  if (type === "url" && href) {
+    return { display: value.trim(), tooltip: value.trim(), href, badge: false, icon: null };
   }
   if (type === "url") {
     return { display: value, tooltip: value, href: null, badge: false, icon: null };
@@ -237,7 +260,7 @@ export function PinsPanel({ pins, selectedAgentName, selectedAgentWorkspaceRoot 
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+    <div data-testid="pins-panel-scroll" className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
       {pins.map((pin) => (
         <PinItem key={pin.label.toLowerCase()} pin={pin} workspaceRoot={selectedAgentWorkspaceRoot} />
       ))}

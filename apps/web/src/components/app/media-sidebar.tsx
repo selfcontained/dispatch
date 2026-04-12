@@ -90,7 +90,11 @@ function MediaContent({
         <LiveStreamSection streamUrl={streamUrl} selectedAgentId={selectedAgentId} />
       ) : null}
 
-      <div ref={mediaViewportRef} className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+      <div
+        ref={mediaViewportRef}
+        data-testid="media-panel-scroll"
+        className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+      >
         {mediaFiles.length === 0 && !hasStream ? (
           <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
             <div className="flex flex-col items-center gap-2">

@@ -33,4 +33,18 @@ test.describe("Sidebar interactions", () => {
     await expect(page.getByTestId("create-agent-form")).toBeVisible({ timeout: 3_000 });
     await expect(page.getByText("Create Agent")).toBeVisible();
   });
+
+  test("mobile navigation back to agents opens the sidebar", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadApp(page);
+
+    await page.getByTitle("Open agent sidebar").click();
+    await page.getByTestId("jobs-button").click();
+    await expect(page).toHaveURL(/\/jobs$/);
+
+    await page.getByTestId("agents-button").click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByTestId("agent-sidebar")).toBeVisible();
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+  });
 });
