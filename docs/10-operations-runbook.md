@@ -160,6 +160,8 @@ Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 | `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
 | `AUTH_TOKEN` | — | API authentication token for MCP endpoints (generate with `openssl rand -hex 32`) |
 | `MEDIA_ROOT` | `~/.dispatch/media` | File upload storage path |
+| `DISPATCH_AGENT_RUNTIME` | `tmux` | Agent runtime mode (`tmux` or `inert` for dev/test) |
+| `DISPATCH_COPY_DISPLAY` | — | Virtual X display for clipboard image paste on Linux (e.g. `:99`) |
 | `TLS_CERT` | — | Path to TLS certificate file (enables HTTPS when both cert and key are set) |
 | `TLS_KEY` | — | Path to TLS private key file |
 
