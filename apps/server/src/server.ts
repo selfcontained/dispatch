@@ -3388,8 +3388,7 @@ export async function initializeApp(options?: { runMigrations?: boolean; reconci
 }
 
 export async function closeApp(): Promise<void> {
-  await app.close().catch(() => null);
-  await pool.end().catch(() => null);
+  await cleanupAppResources();
 }
 
 export async function start() {
@@ -4057,7 +4056,7 @@ function resolveMediaDir(agentId: string, mediaDir: string | null): string {
 }
 
 let shuttingDown = false;
-async function shutdown(code: number): Promise<void> {
+async function cleanupAppResources(): Promise<void> {
   if (shuttingDown) {
     return;
   }
@@ -4081,6 +4080,10 @@ async function shutdown(code: number): Promise<void> {
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
+}
+
+async function shutdown(code: number): Promise<void> {
+  await cleanupAppResources();
   process.exit(code);
 }
 
