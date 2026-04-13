@@ -76,17 +76,15 @@ function normalizeExternalHref(type: AgentPin["type"], value: string): string | 
   const trimmed = value.trim();
   if (!trimmed) return null;
 
-  const candidates = SAFE_URL_RE.test(trimmed) ? [trimmed] : type === "url" ? [`https://${trimmed}`, `http://${trimmed}`] : [trimmed];
+  const candidate = SAFE_URL_RE.test(trimmed) ? trimmed : type === "url" ? `http://${trimmed}` : trimmed;
 
-  for (const candidate of candidates) {
-    try {
-      const parsed = new URL(candidate);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-        return parsed.toString();
-      }
-    } catch {
-      continue;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
     }
+  } catch {
+    return null;
   }
 
   return null;
