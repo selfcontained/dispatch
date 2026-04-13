@@ -1,7 +1,5 @@
 ## What's Changed
-* [codex] Refine session rename guidance by @selfcontained in https://github.com/selfcontained/dispatch/pull/304
-* [codex] Fix MCP root bearer auth bypass by @selfcontained in https://github.com/selfcontained/dispatch/pull/302
-* [codex] Polish mobile sidebar navigation and overflow behavior by @selfcontained in https://github.com/selfcontained/dispatch/pull/303
+* Fix launchd wrapper to use main.js entry point by @selfcontained in https://github.com/selfcontained/dispatch/pull/305
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.26...v0.11.27
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.27...v0.11.28
