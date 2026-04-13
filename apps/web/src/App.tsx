@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
-import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom } from "@/lib/store";
+import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom, autoReviewByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { ActivityPane } from "@/components/app/activity-pane";
 import { DocsPane } from "@/components/app/docs-pane";
@@ -163,6 +163,7 @@ export function DashboardLayout(): JSX.Element {
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(() => readLastUsedAgentType());
   const [createType, setCreateType] = useState<AgentType>("codex");
   const [createFullAccess, setCreateFullAccess] = useAtom(fullAccessByCwdAtom(createCwd));
+  const [createAutoReview, setCreateAutoReview] = useAtom(autoReviewByCwdAtom(createCwd));
   const [createBaseBranch, setCreateBaseBranch] = useAtom(baseBranchByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
@@ -478,6 +479,7 @@ export function DashboardLayout(): JSX.Element {
             cwd: createCwd.trim(),
             type: createType,
             fullAccess: createFullAccess,
+            autoReview: createAutoReview,
             useWorktree: createUseWorktree,
             worktreeBranch: createWorktreeBranch.trim() || undefined,
             baseBranch: createBaseBranch !== "main" ? createBaseBranch : undefined,
@@ -501,7 +503,7 @@ export function DashboardLayout(): JSX.Element {
         setCreating(false);
       }
     },
-    [createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+    [createAutoReview, createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const borderForAgentState = (state: AgentVisualState): string => {
@@ -825,6 +827,7 @@ export function DashboardLayout(): JSX.Element {
         createType={createType}
         createCwd={createCwd}
         createFullAccess={createFullAccess}
+        createAutoReview={createAutoReview}
         createUseWorktree={createUseWorktree}
         createWorktreeBranch={createWorktreeBranch}
         createBaseBranch={createBaseBranch}
@@ -836,6 +839,7 @@ export function DashboardLayout(): JSX.Element {
         setCreateType={setCreateType}
         setCreateCwd={setCreateCwd}
         setCreateFullAccess={setCreateFullAccess}
+        setCreateAutoReview={setCreateAutoReview}
         setCreateUseWorktree={setCreateUseWorktree}
         setCreateWorktreeBranch={setCreateWorktreeBranch}
         setCreateBaseBranch={setCreateBaseBranch}

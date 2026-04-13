@@ -142,6 +142,23 @@ describe("AgentManager", () => {
       expect(agent.fullAccess).toBe(true);
     });
 
+    it("should persist autoReview", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        autoReview: true,
+        useWorktree: false,
+      });
+      expect(agent.autoReview).toBe(true);
+    });
+
+    it("should default autoReview to false", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      expect(agent.autoReview).toBe(false);
+    });
+
     it("should reject non-absolute paths", async () => {
       await expect(manager.createAgent({ cwd: "relative/path" })).rejects.toThrow(
         "absolute path"
@@ -275,6 +292,73 @@ describe("AgentManager", () => {
       }
     });
 
+    it("should include autonomous review guidance when autoReview is true", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("list_personas");
+      expect(setupScript).toContain("dispatch_launch_persona");
+      expect(setupScript).toContain("dispatch_get_feedback");
+    });
+
+    it("should not include autonomous review guidance when autoReview is false", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: false,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+    });
+
+    it("should not include autonomous review guidance for persona agents even if autoReview is true", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        persona: "security-review",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+    });
+
+    it("should include autonomous review guidance for Codex agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("list_personas");
+    });
+
+    it("should not include autonomous review guidance for job agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        jobRunId: "run_abc123",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("Dispatch job startup rules");
+    });
+
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
       const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: true });
 
@@ -339,6 +423,26 @@ describe("AgentManager", () => {
       expect(fetched).not.toBeNull();
       expect(fetched!.id).toBe(created.id);
       expect(fetched!.name).toBe("fetch-me");
+    });
+
+    it("should round-trip autoReview through getAgent", async () => {
+      const created = await manager.createAgent({ cwd: "/tmp", autoReview: true, useWorktree: false });
+      const fetched = await manager.getAgent(created.id);
+
+      expect(fetched).not.toBeNull();
+      expect(fetched!.autoReview).toBe(true);
+    });
+
+    it("should include autoReview in listAgents results", async () => {
+      await manager.createAgent({ name: "review-on", cwd: "/tmp", autoReview: true, useWorktree: false });
+      await manager.createAgent({ name: "review-off", cwd: "/tmp", autoReview: false, useWorktree: false });
+
+      const agents = await manager.listAgents();
+      const reviewOn = agents.find((a) => a.name === "review-on");
+      const reviewOff = agents.find((a) => a.name === "review-off");
+
+      expect(reviewOn!.autoReview).toBe(true);
+      expect(reviewOff!.autoReview).toBe(false);
     });
 
     it("should rename an agent", async () => {

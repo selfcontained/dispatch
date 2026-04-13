@@ -233,6 +233,21 @@ feedbackFormat: checklist
     const personas = await loadPersonas("/tmp/nonexistent-dispatch-test");
     expect(personas).toEqual([]);
   });
+
+  it("can be safely projected to slug/name/description without leaking body", async () => {
+    const personas = await loadPersonas(tmpRoot);
+    const projected = personas.map(({ slug, name, description }) => ({ slug, name, description }));
+
+    expect(projected).toHaveLength(2);
+    for (const p of projected) {
+      expect(Object.keys(p).sort()).toEqual(["description", "name", "slug"]);
+      expect(p.slug).toBeTruthy();
+      expect(p.name).toBeTruthy();
+      // Ensure the body text does not leak into the projected fields
+      expect(JSON.stringify(p)).not.toContain("# Security Reviewer");
+      expect(JSON.stringify(p)).not.toContain("# Design Reviewer");
+    }
+  });
 });
 
 describe("loadPersonaBySlug", () => {

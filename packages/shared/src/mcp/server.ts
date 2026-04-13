@@ -106,6 +106,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
+  "list_personas",
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
@@ -123,6 +124,7 @@ const JOB_TOOLS = new Set([
   "job_needs_input",
   "job_log",
   "list_agents",
+  "list_personas",
   "list_recent_persona_reviews",
   "list_recent_feedback",
   "get_activity_summary",
@@ -201,6 +203,9 @@ export type McpRequestContext = {
     agentId: string,
     feedback: FeedbackInput
   ) => Promise<{ id: number }>;
+  listPersonas?: (
+    agentCwd: string
+  ) => Promise<Array<{ slug: string; name: string; description: string }>>;
   launchPersona?: (
     agentId: string,
     opts: { persona: string; context: string }
@@ -553,6 +558,35 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
   if (allowed.has("dispatch_feedback")) registerFeedbackTool(server, context);
+
+  // ── list_personas ────────────────────────────────────────────────
+  if (allowed.has("list_personas") && context.agent && context.listPersonas) {
+    const personaRoot = context.worktreeRoot ?? context.repoRoot;
+    const listPersonas = context.listPersonas;
+
+    server.registerTool(
+      "list_personas",
+      {
+        description:
+          "List the persona reviewers available for this project. Returns each persona's slug, name, and description. Use this to decide which personas to launch via dispatch_launch_persona.",
+        inputSchema: {}
+      },
+      async () => {
+        if (!personaRoot) {
+          return { content: [{ type: "text", text: JSON.stringify({ personas: [] }, null, 2) }], structuredContent: { personas: [] } };
+        }
+        try {
+          const personas = await listPersonas(personaRoot);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ personas }, null, 2) }],
+            structuredContent: { personas }
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   // ── dispatch_launch_persona ───────────────────────────────────────
   if (allowed.has("dispatch_launch_persona") && context.agent && context.launchPersona) {

@@ -74,6 +74,7 @@ export type AgentRecord = {
     filesReviewed: string[] | null;
     updatedAt: string;
   } | null;
+  autoReview: boolean;
   cliSessionId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +101,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
+  autoReview?: boolean;
   cliSessionId?: string;
   jobRunId?: string;
 };
@@ -384,12 +386,12 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, auto_review, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
         input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
-        cliSessionId]
+        cliSessionId, input.autoReview ?? false]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -439,7 +441,8 @@ export class AgentManager {
           cliSessionId ?? undefined,
           false,
           input.jobRunId,
-          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId })
+          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId }),
+          !input.persona && !input.jobRunId && (input.autoReview ?? false)
         );
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
@@ -584,7 +587,8 @@ export class AgentManager {
         agent.agentArgs ?? [],
         agent.fullAccess ?? false,
         cliSessionId ?? undefined,
-        shouldResume
+        shouldResume,
+        agent.autoReview ?? false
       );
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
@@ -1509,7 +1513,8 @@ export class AgentManager {
     agentArgs: string[],
     fullAccess: boolean,
     cliSessionId?: string,
-    resume?: boolean
+    resume?: boolean,
+    autoReview?: boolean
   ): Promise<void> {
     if (this.config.agentRuntime === "inert") {
       await mkdir(mediaDir, { recursive: true });
@@ -1526,7 +1531,8 @@ export class AgentManager {
       cliSessionId,
       resume,
       undefined,
-      this.shouldSuggestSessionRename(agentName, agentId, { persona })
+      this.shouldSuggestSessionRename(agentName, agentId, { persona }),
+      !persona && (autoReview ?? false)
     );
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
@@ -1629,7 +1635,8 @@ export class AgentManager {
     cliSessionId?: string,
     resume?: boolean,
     jobRunId?: string,
-    suggestSessionRename?: boolean
+    suggestSessionRename?: boolean,
+    autoReview?: boolean
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -1647,7 +1654,10 @@ export class AgentManager {
         "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
         "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-        "For longer artifacts, write to a file via dispatch_share and pin a reference.";
+        "For longer artifacts, write to a file via dispatch_share and pin a reference." +
+        (autoReview
+          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Do not emit done until all reviews are resolved."
+          : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
@@ -2662,6 +2672,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
+        auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
         (SELECT json_build_object(
            'status', pr.status,

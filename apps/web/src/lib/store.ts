@@ -41,3 +41,8 @@ export const fullAccessByCwdAtom = atomFamily((cwd: string) =>
 export const baseBranchByCwdAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage(`dispatch:baseBranch:${cwd}`, "main"),
 );
+
+/** Per-directory autonomous review preference, backed by localStorage (sync read). */
+export const autoReviewByCwdAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage(`dispatch:autoReview:${cwd}`, false),
+);
