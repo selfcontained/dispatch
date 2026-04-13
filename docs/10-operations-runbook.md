@@ -13,7 +13,7 @@ Dispatch runs as a **launchd LaunchAgent** (`com.dispatch.server`) — a macOS-n
 
 The server binary lives in a **separate checkout** at `~/.dispatch/server/` (independent from your working copy at `~/dev/apps/dispatch`). This means `git checkout`, deploys, and agent activity in the main repo never interfere with the running server.
 
-**Postgres** runs in Docker (`dispatch-postgres`, port 5432).
+**Postgres** runs via Homebrew (`brew services start postgresql@17`, port 5432). Docker is available for isolated dev databases via `dispatch-dev`.
 
 **Server port**: 6767 (set via `DISPATCH_PORT` in `~/.dispatch/server/.env`).
 
@@ -39,15 +39,15 @@ launchctl load ~/Library/LaunchAgents/com.dispatch.server.plist
 
 ## Database
 
-Postgres runs via Docker Compose. Start/stop with:
+Production uses Homebrew Postgres (native, no Docker overhead):
 
 ```bash
-docker compose up -d postgres     # start
-docker compose stop postgres      # stop (data preserved)
-docker compose down postgres      # stop + remove container (data preserved in volume)
+brew services start postgresql@17   # start (auto-starts at boot)
+brew services stop postgresql@17    # stop
+pg_isready                          # check status
 ```
 
-Data is persisted in the `dispatch_pgdata` Docker volume.
+For development, `dispatch-dev up` creates an isolated Docker Postgres container on a free port — no manual setup needed.
 
 ## Release Pipeline
 

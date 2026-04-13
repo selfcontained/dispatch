@@ -891,7 +891,7 @@ function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
@@ -1098,11 +1098,14 @@ function JobDetail({
         <div className="min-h-0 flex-1">
           <HistoryTab runs={history} loading={historyLoading} selectedRunId={selectedRunId} onSelectRun={onSelectRun} />
         </div>
-      ) : (
+      ) : tab === "configure" ? (
         <ScrollArea className="min-h-0 flex-1 pr-1">
-          {tab === "configure" ? <SettingsTab job={job} enabledAgentTypes={enabledAgentTypes} onUpdateJob={onUpdateJob} onRemoveJob={onRemoveJob} isUpdating={isUpdating} isRemoving={isRemoving} /> : null}
-          {tab === "prompt" ? <PromptTab job={job} onUpdateJob={onUpdateJob} isUpdating={isUpdating} /> : null}
+          <SettingsTab job={job} enabledAgentTypes={enabledAgentTypes} onUpdateJob={onUpdateJob} onRemoveJob={onRemoveJob} isUpdating={isUpdating} isRemoving={isRemoving} />
         </ScrollArea>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <PromptTab job={job} onUpdateJob={onUpdateJob} isUpdating={isUpdating} />
+        </div>
       )}
     </div>
   );
@@ -1448,8 +1451,8 @@ function PromptTab({
   }, [job]);
 
   return (
-    <div className="mt-4 grid gap-4">
-      <div className="rounded-md border border-border bg-background/50 p-4">
+    <div className="mt-4 flex h-full min-h-full flex-col">
+      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-border bg-background/50 p-4">
         <div className="space-y-1">
           <label className="text-sm font-medium text-foreground" htmlFor={`prompt-${job.id}`}>Prompt</label>
           <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
@@ -1459,7 +1462,7 @@ function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 min-h-44 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
         {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt saved.</div> : null}
