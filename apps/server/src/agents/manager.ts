@@ -104,6 +104,7 @@ type CreateAgentInput = {
   autoReview?: boolean;
   cliSessionId?: string;
   jobRunId?: string;
+  initialPrompt?: string;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -442,7 +443,8 @@ export class AgentManager {
           false,
           input.jobRunId,
           this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId }),
-          !input.persona && !input.jobRunId && (input.autoReview ?? false)
+          !input.persona && !input.jobRunId && (input.autoReview ?? false),
+          input.initialPrompt
         );
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
@@ -1636,7 +1638,8 @@ export class AgentManager {
     resume?: boolean,
     jobRunId?: string,
     suggestSessionRename?: boolean,
-    autoReview?: boolean
+    autoReview?: boolean,
+    initialPrompt?: string
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -1746,15 +1749,18 @@ export class AgentManager {
         ? (resume ? `--resume ${this.shellEscape(cliSessionId)}` : `--session-id ${this.shellEscape(cliSessionId)}`)
         : "";
       const flags = [mcpFlag, systemFlag, sessionFlag].filter(Boolean).join(" ");
-      if (args.length === 0) {
+      // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
+      const allArgs = initialPrompt ? [...args, initialPrompt] : args;
+      if (allArgs.length === 0) {
         return `${envPrefix} ${this.shellEscape(cliBin)} ${flags}`;
       }
-      const escaped = args.map((arg) => this.shellEscape(arg)).join(" ");
+      const escaped = allArgs.map((arg) => this.shellEscape(arg)).join(" ");
       return `${envPrefix} ${this.shellEscape(cliBin)} ${flags} ${escaped}`;
     }
 
     if (type === "opencode") {
-      const startupPrompt = appendedSystemPrompt ? `${launchGuidance}\n\n${appendedSystemPrompt}` : launchGuidance;
+      const promptParts = [launchGuidance, appendedSystemPrompt, initialPrompt].filter(Boolean);
+      const startupPrompt = promptParts.join("\n\n");
       const promptFlag = `--prompt ${this.shellEscape(startupPrompt)}`;
       const sessionFlag = (resume && cliSessionId) ? `--session ${this.shellEscape(cliSessionId)}` : "";
       const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
@@ -1777,7 +1783,8 @@ export class AgentManager {
     if (resume && cliSessionId) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
     }
-    const startupPrompt = appendedSystemPrompt ? `${launchGuidance}\n\n${appendedSystemPrompt}` : launchGuidance;
+    const codexPromptParts = [launchGuidance, appendedSystemPrompt, initialPrompt].filter(Boolean);
+    const startupPrompt = codexPromptParts.join("\n\n");
     if (passthroughArgs.length === 0) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(startupPrompt)}`;
     }
