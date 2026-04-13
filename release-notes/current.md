@@ -1,5 +1,5 @@
 ## What's Changed
-* Fix launchd wrapper to use main.js entry point by @selfcontained in https://github.com/selfcontained/dispatch/pull/305
+* Use TypeScript project references for shared package by @selfcontained in https://github.com/selfcontained/dispatch/pull/306
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.27...v0.11.28
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.28...v0.11.29
