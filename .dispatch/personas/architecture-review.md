@@ -40,4 +40,5 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 2. Explore surrounding code to understand context and existing patterns.
 3. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
 4. **Make findings actionable.** Each finding should include a concrete suggestion for what to change. Avoid abstract observations like "this could be cleaner" — specify what the better structure looks like and where to apply it.
+5. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that are well-designed. If the architecture is sound, say so in your review summary and approve with fewer feedback items. Every feedback item should identify something that needs to change.
 
