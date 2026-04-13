@@ -1,5 +1,5 @@
 ## What's Changed
-* [codex] Persist reviewer agent type on parent sessions by @selfcontained in https://github.com/selfcontained/dispatch/pull/311
+* feat: add optional initial prompt to agent creation by @selfcontained in https://github.com/selfcontained/dispatch/pull/312
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.12.0...v0.12.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.12.1...v0.12.2
