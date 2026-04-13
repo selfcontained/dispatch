@@ -167,6 +167,7 @@ export function DashboardLayout(): JSX.Element {
   const [createBaseBranch, setCreateBaseBranch] = useAtom(baseBranchByCwdAtom(createCwd));
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
+  const [createInitialPrompt, setCreateInitialPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() => readCwdHistory());
 
@@ -483,6 +484,7 @@ export function DashboardLayout(): JSX.Element {
             useWorktree: createUseWorktree,
             worktreeBranch: createWorktreeBranch.trim() || undefined,
             baseBranch: createBaseBranch !== "main" ? createBaseBranch : undefined,
+            initialPrompt: createInitialPrompt.trim() || undefined,
           }),
         });
 
@@ -490,6 +492,7 @@ export function DashboardLayout(): JSX.Element {
         setCreateName("");
         setCreateUseWorktree(true);
         setCreateWorktreeBranch("");
+        setCreateInitialPrompt("");
         window.localStorage.setItem(LAST_USED_CWD_KEY, createCwd.trim());
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         setLastUsedAgentType(createType);
@@ -503,7 +506,7 @@ export function DashboardLayout(): JSX.Element {
         setCreating(false);
       }
     },
-    [createAutoReview, createBaseBranch, createCwd, createFullAccess, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+    [createAutoReview, createBaseBranch, createCwd, createFullAccess, createInitialPrompt, createName, createType, createUseWorktree, createWorktreeBranch, ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
   );
 
   const borderForAgentState = (state: AgentVisualState): string => {
@@ -834,6 +837,7 @@ export function DashboardLayout(): JSX.Element {
         creating={creating}
         cwdHistory={cwdHistory}
         enabledAgentTypes={enabledAgentTypes}
+        initialPrompt={createInitialPrompt}
         setOpen={setCreateOpen}
         setCreateName={setCreateName}
         setCreateType={setCreateType}
@@ -843,6 +847,7 @@ export function DashboardLayout(): JSX.Element {
         setCreateUseWorktree={setCreateUseWorktree}
         setCreateWorktreeBranch={setCreateWorktreeBranch}
         setCreateBaseBranch={setCreateBaseBranch}
+        setInitialPrompt={setCreateInitialPrompt}
         onSubmit={handleCreateAgent}
         onRemoveCwdHistory={handleRemoveCwdHistory}
       />

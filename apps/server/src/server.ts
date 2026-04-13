@@ -2957,6 +2957,7 @@ async function registerRoutes() {
       parentAgentId?: unknown;
       personaContext?: unknown;
       autoReview?: unknown;
+      initialPrompt?: unknown;
     };
 
     if (typeof body?.cwd !== "string") {
@@ -2990,6 +2991,10 @@ async function registerRoutes() {
 
     if (body.baseBranch !== undefined && typeof body.baseBranch !== "string") {
       return reply.code(400).send({ error: "baseBranch must be a string when provided." });
+    }
+
+    if (body.initialPrompt !== undefined && typeof body.initialPrompt !== "string") {
+      return reply.code(400).send({ error: "initialPrompt must be a string when provided." });
     }
 
     const agentArgs = providedAgentArgs as string[] | undefined;
@@ -3031,6 +3036,7 @@ async function registerRoutes() {
         parentAgentId: typeof body.parentAgentId === "string" ? body.parentAgentId : undefined,
         personaContext: typeof body.personaContext === "string" ? body.personaContext : undefined,
         autoReview: body.autoReview === true,
+        initialPrompt: typeof body.initialPrompt === "string" ? body.initialPrompt.trim() || undefined : undefined,
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
