@@ -1656,15 +1656,7 @@ export class AgentManager {
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
         "For longer artifacts, write to a file via dispatch_share and pin a reference." +
         (autoReview
-          ? " Autonomous Review is enabled for this session. Before marking your task as done, you must run at least one persona review: " +
-            "(1) Call list_personas to see which reviewers are available for this project. " +
-            "(2) Choose 1–3 personas based on the nature of your changes — always pick at least 1 that is most relevant; add a 2nd or 3rd only if the changes span multiple concern areas. " +
-            "If no personas are available or none are relevant, note that in your response and proceed to done. " +
-            "(3) Launch each chosen persona via dispatch_launch_persona with thorough context: what you changed, key files, areas of concern, and what is NOT in scope. " +
-            "(4) After launching, poll dispatch_get_feedback every 60–90 seconds until all persona reviews reach a terminal status. " +
-            "(5) For each feedback item: critical/high severity — address the issue then resolve; medium — use judgment, fix if straightforward or resolve with a comment; low/info — acknowledge and resolve. " +
-            "(6) Only emit your final done event after all launched reviews have completed and all actionable feedback has been addressed or resolved. " +
-            "Do not skip Autonomous Review even if your changes seem minor — the user opted in to this workflow."
+          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Do not emit done until all reviews are resolved."
           : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
