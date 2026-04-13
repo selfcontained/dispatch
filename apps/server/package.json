@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -b",
     "start": "node dist/main.js",
-    "check": "tsc --noEmit",
+    "check": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/db/migrate.ts"

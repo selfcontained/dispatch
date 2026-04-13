@@ -3,6 +3,7 @@ node_modules
 npm-debug.log*
 .DS_Store
 dist
+*.tsbuildinfo
 .env
 .env.local
 data
