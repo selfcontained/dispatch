@@ -66,6 +66,7 @@ export type AgentRecord = {
   persona: string | null;
   parentAgentId: string | null;
   personaContext: string | null;
+  reviewAgentType: AgentType | null;
   review: {
     status: string;
     message: string | null;
@@ -101,6 +102,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
+  reviewAgentType?: AgentType | null;
   autoReview?: boolean;
   cliSessionId?: string;
   jobRunId?: string;
@@ -386,11 +388,11 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, auto_review, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
-        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
+        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null, input.reviewAgentType ?? null,
         cliSessionId, input.autoReview ?? false]
     );
 
@@ -539,6 +541,16 @@ export class AgentManager {
 
   async updateSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.setSetupPhase(id, phase);
+  }
+
+  async updateReviewAgentType(id: string, reviewAgentType: AgentType | null): Promise<void> {
+    const result = await this.pool.query(
+      `UPDATE agents SET review_agent_type = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [id, reviewAgentType]
+    );
+    if (result.rowCount === 0) {
+      throw new AgentError("Agent not found.", 404);
+    }
   }
 
   async startAgent(id: string): Promise<AgentRecord> {
@@ -2672,6 +2684,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
+        review_agent_type AS "reviewAgentType",
         auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
         (SELECT json_build_object(

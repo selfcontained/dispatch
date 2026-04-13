@@ -212,6 +212,7 @@ export function AgentSidebarContent({
                 setStopTarget={setStopTarget}
                 setStopConfirmOpen={setStopConfirmOpen}
                 sendTerminalInput={sendTerminalInput}
+                enabledAgentTypes={enabledAgentTypes}
                 connectedAgentId={connectedAgentId}
                 onOpenFeedbackDetail={onOpenFeedbackDetail}
                 feedbackDetailState={feedbackDetailState}

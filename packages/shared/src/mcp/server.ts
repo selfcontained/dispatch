@@ -94,6 +94,9 @@ export type JobTools = {
   }) => Promise<Record<string, unknown>>;
 };
 
+const LAUNCH_PERSONA_AGENT_TYPES = ["codex", "claude", "opencode"] as const;
+type LaunchPersonaAgentType = (typeof LAUNCH_PERSONA_AGENT_TYPES)[number];
+
 // ── Tool sets per agent type ──────────────────────────────────────────
 // Each list defines which MCP tools are exposed to that agent type.
 // To add a tool to an agent type, just add its name here.
@@ -208,7 +211,7 @@ export type McpRequestContext = {
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
   launchPersona?: (
     agentId: string,
-    opts: { persona: string; context: string }
+    opts: { persona: string; context: string; agentType?: LaunchPersonaAgentType }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   getFeedback?: (
     agentId: string,
@@ -600,14 +603,16 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files.",
         inputSchema: {
           persona: z.string().describe("Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."),
-          context: z.string().max(100_000).describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention.")
+          context: z.string().max(100_000).describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention."),
+          agentType: z.enum(LAUNCH_PERSONA_AGENT_TYPES).optional().describe("Optional agent runtime override for the persona launch.")
         }
       },
       async (args) => {
         try {
           const result = await launchPersona(agentId, {
             persona: args.persona,
-            context: args.context
+            context: args.context,
+            agentType: args.agentType
           });
           return {
             content: [

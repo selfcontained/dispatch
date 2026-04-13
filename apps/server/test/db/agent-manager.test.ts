@@ -124,6 +124,11 @@ describe("AgentManager", () => {
       expect(agent.type).toBe("opencode");
     });
 
+    it("should persist reviewAgentType when provided", async () => {
+      const agent = await manager.createAgent({ type: "codex", reviewAgentType: "claude", cwd: "/tmp", useWorktree: false });
+      expect(agent.reviewAgentType).toBe("claude");
+    });
+
     it("should store agentArgs", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -457,6 +462,15 @@ describe("AgentManager", () => {
       const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
       await expect(manager.renameAgent(agent.id, "   ")).rejects.toThrow("Agent name must not be empty.");
+    });
+
+    it("should update reviewAgentType", async () => {
+      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+
+      await manager.updateReviewAgentType(agent.id, "opencode");
+      const updated = await manager.getAgent(agent.id);
+
+      expect(updated?.reviewAgentType).toBe("opencode");
     });
   });
 

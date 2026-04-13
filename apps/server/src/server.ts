@@ -2641,6 +2641,40 @@ async function registerRoutes() {
     return { agent: withStreamFlag(agent) };
   });
 
+  app.patch("/api/v1/agents/:id/review-agent-type", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const body = request.body as { reviewAgentType?: unknown } | null;
+
+    let reviewAgentType: typeof AGENT_TYPES[number] | null;
+    if (body?.reviewAgentType === null || body?.reviewAgentType === undefined) {
+      reviewAgentType = null;
+    } else if (typeof body.reviewAgentType === "string" && AGENT_TYPES.includes(body.reviewAgentType as typeof AGENT_TYPES[number])) {
+      reviewAgentType = body.reviewAgentType as typeof AGENT_TYPES[number];
+    } else {
+      return reply.code(400).send({ error: `reviewAgentType must be null or one of ${AGENT_TYPES.join(", ")}.` });
+    }
+
+    if (reviewAgentType) {
+      const enabledAgentTypes = await getEnabledAgentTypes(pool);
+      if (!enabledAgentTypes.includes(reviewAgentType)) {
+        return reply.code(400).send({ error: `${reviewAgentType} agents are disabled in settings.` });
+      }
+    }
+
+    try {
+      await agentManager.updateReviewAgentType(id, reviewAgentType);
+      const agent = await agentManager.getAgent(id);
+      if (!agent) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      return { agent: withStreamFlag(agent) };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/latest-event", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as {
@@ -4270,10 +4304,20 @@ async function mcpListPersonas(
 
 async function mcpLaunchPersona(
   agentId: string,
-  opts: { persona: string; context: string }
+  opts: { persona: string; context: string; agentType?: typeof AGENT_TYPES[number] }
 ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
   const parent = await agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+
+  const personaAgentType = opts.agentType ?? parent.reviewAgentType ?? (parent.type === "claude" || parent.type === "opencode" ? parent.type : "codex");
+  if (!AGENT_TYPES.includes(personaAgentType)) {
+    throw new Error(`Unsupported persona agent type "${personaAgentType}".`);
+  }
+
+  const enabledAgentTypes = await getEnabledAgentTypes(pool);
+  if (!enabledAgentTypes.includes(personaAgentType)) {
+    throw new Error(`${personaAgentType} agents are disabled in settings.`);
+  }
 
   const parentCwd = parent.worktreePath ?? parent.cwd;
   // Try worktree root first (persona files may be uncommitted), then repo root
@@ -4310,8 +4354,8 @@ async function mcpLaunchPersona(
   const personaArgs: string[] = [`--append-system-prompt`, prompt];
   if (parent.fullAccess) {
     const fullAccessArg =
-      parent.type === "claude" ? CLAUDE_FULL_ACCESS_ARG
-      : parent.type === "codex" ? CODEX_FULL_ACCESS_ARG
+      personaAgentType === "claude" ? CLAUDE_FULL_ACCESS_ARG
+      : personaAgentType === "codex" ? CODEX_FULL_ACCESS_ARG
       : null;
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
@@ -4319,11 +4363,11 @@ async function mcpLaunchPersona(
   // For Claude persona agents, pre-assign a session ID so we know exactly which
   // session file belongs to this agent. buildAgentCommand handles adding the
   // --session-id flag; we just store it on the agent record here.
-  const cliSessionId = parent.type === "claude" ? randomUUID() : undefined;
+  const cliSessionId = personaAgentType === "claude" ? randomUUID() : undefined;
 
   const agent = await agentManager.createAgent({
     name: `${opts.persona}-${agentId.slice(-6)}`,
-    type: parent.type,
+    type: personaAgentType,
     cwd: parentCwd,
     agentArgs: personaArgs,
     fullAccess: parent.fullAccess,
