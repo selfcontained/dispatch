@@ -65,6 +65,64 @@ test.describe("Agent CRUD", () => {
     await expect(page.getByTestId("terminal-inert-state")).toContainText("Agent running in inert mode");
   });
 
+  test("create dialog shows autonomous review checkbox that can be toggled", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    // Open the create dialog
+    await page.getByTestId("create-agent-button").click();
+    const form = page.getByTestId("create-agent-form");
+    await expect(form).toBeVisible();
+
+    // The autonomous review checkbox should be visible and unchecked by default
+    const autoReviewCheckbox = page.getByTestId("create-agent-auto-review");
+    await expect(autoReviewCheckbox).toBeVisible();
+    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "false");
+
+    // Toggle it on by clicking the label text (avoids double-toggle from label+button)
+    await form.getByText("Autonomous Review").click();
+    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "true");
+
+    // Toggle it back off
+    await form.getByText("Autonomous Review").click();
+    await expect(autoReviewCheckbox).toHaveAttribute("aria-checked", "false");
+  });
+
+  test("POST /api/v1/agents accepts autoReview flag", async ({ request }) => {
+    const AUTH_HEADER = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+    const agentName = `e2e-agent-${Date.now()}`;
+
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      data: {
+        name: agentName,
+        cwd: "/tmp",
+        useWorktree: false,
+        autoReview: true,
+      },
+    });
+    expect(res.status()).toBe(201);
+    const { agent } = (await res.json()) as { agent: { id: string; autoReview: boolean } };
+    expect(agent.autoReview).toBe(true);
+  });
+
+  test("POST /api/v1/agents defaults autoReview to false when omitted", async ({ request }) => {
+    const AUTH_HEADER = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      data: {
+        name: `e2e-agent-${Date.now()}`,
+        cwd: "/tmp",
+        useWorktree: false,
+      },
+    });
+    expect(res.status()).toBe(201);
+    const { agent } = (await res.json()) as { agent: { id: string; autoReview: boolean } };
+    expect(agent.autoReview).toBe(false);
+  });
+
   test("cancel create dialog does not create an agent", async ({ page }) => {
     await loadApp(page);
 

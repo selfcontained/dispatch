@@ -74,6 +74,7 @@ export type AgentRecord = {
     filesReviewed: string[] | null;
     updatedAt: string;
   } | null;
+  autoReview: boolean;
   cliSessionId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +101,7 @@ type CreateAgentInput = {
   persona?: string;
   parentAgentId?: string;
   personaContext?: string;
+  autoReview?: boolean;
   cliSessionId?: string;
   jobRunId?: string;
 };
@@ -384,12 +386,12 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, cli_session_id, auto_review, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
         input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null,
-        cliSessionId]
+        cliSessionId, input.autoReview ?? false]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -439,7 +441,8 @@ export class AgentManager {
           cliSessionId ?? undefined,
           false,
           input.jobRunId,
-          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId })
+          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId }),
+          !input.persona && !input.jobRunId && (input.autoReview ?? false)
         );
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
@@ -584,7 +587,8 @@ export class AgentManager {
         agent.agentArgs ?? [],
         agent.fullAccess ?? false,
         cliSessionId ?? undefined,
-        shouldResume
+        shouldResume,
+        agent.autoReview ?? false
       );
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
@@ -1509,7 +1513,8 @@ export class AgentManager {
     agentArgs: string[],
     fullAccess: boolean,
     cliSessionId?: string,
-    resume?: boolean
+    resume?: boolean,
+    autoReview?: boolean
   ): Promise<void> {
     if (this.config.agentRuntime === "inert") {
       await mkdir(mediaDir, { recursive: true });
@@ -1526,7 +1531,8 @@ export class AgentManager {
       cliSessionId,
       resume,
       undefined,
-      this.shouldSuggestSessionRename(agentName, agentId, { persona })
+      this.shouldSuggestSessionRename(agentName, agentId, { persona }),
+      !persona && (autoReview ?? false)
     );
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
@@ -1629,7 +1635,8 @@ export class AgentManager {
     cliSessionId?: string,
     resume?: boolean,
     jobRunId?: string,
-    suggestSessionRename?: boolean
+    suggestSessionRename?: boolean,
+    autoReview?: boolean
   ): string {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -1647,7 +1654,18 @@ export class AgentManager {
         "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
         "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-        "For longer artifacts, write to a file via dispatch_share and pin a reference.";
+        "For longer artifacts, write to a file via dispatch_share and pin a reference." +
+        (autoReview
+          ? " Autonomous Review is enabled for this session. Before marking your task as done, you must run at least one persona review: " +
+            "(1) Call list_personas to see which reviewers are available for this project. " +
+            "(2) Choose 1–3 personas based on the nature of your changes — always pick at least 1 that is most relevant; add a 2nd or 3rd only if the changes span multiple concern areas. " +
+            "If no personas are available or none are relevant, note that in your response and proceed to done. " +
+            "(3) Launch each chosen persona via dispatch_launch_persona with thorough context: what you changed, key files, areas of concern, and what is NOT in scope. " +
+            "(4) After launching, poll dispatch_get_feedback every 60–90 seconds until all persona reviews reach a terminal status. " +
+            "(5) For each feedback item: critical/high severity — address the issue then resolve; medium — use judgment, fix if straightforward or resolve with a comment; low/info — acknowledge and resolve. " +
+            "(6) Only emit your final done event after all launched reviews have completed and all actionable feedback has been addressed or resolved. " +
+            "Do not skip Autonomous Review even if your changes seem minor — the user opted in to this workflow."
+          : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
@@ -2662,6 +2680,7 @@ export class AgentManager {
         persona,
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
+        auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
         (SELECT json_build_object(
            'status', pr.status,

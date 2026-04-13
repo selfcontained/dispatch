@@ -1347,6 +1347,7 @@ async function registerRoutes() {
       renameSession: mcpRenameSession,
       shareMedia: mcpShareMedia,
       submitFeedback: mcpSubmitFeedback,
+      listPersonas: mcpListPersonas,
       launchPersona: mcpLaunchPersona,
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
@@ -2921,6 +2922,7 @@ async function registerRoutes() {
       persona?: unknown;
       parentAgentId?: unknown;
       personaContext?: unknown;
+      autoReview?: unknown;
     };
 
     if (typeof body?.cwd !== "string") {
@@ -2994,6 +2996,7 @@ async function registerRoutes() {
         persona: typeof body.persona === "string" ? body.persona : undefined,
         parentAgentId: typeof body.parentAgentId === "string" ? body.parentAgentId : undefined,
         personaContext: typeof body.personaContext === "string" ? body.personaContext : undefined,
+        autoReview: body.autoReview === true,
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
@@ -4256,6 +4259,13 @@ async function mcpJobLog(
 ): Promise<{ runId: string; status: string }> {
   const run = await jobService.logForAgent(agentId, input);
   return { runId: run.id, status: run.status };
+}
+
+async function mcpListPersonas(
+  agentCwd: string
+): Promise<Array<{ slug: string; name: string; description: string }>> {
+  const personas = await loadPersonas(agentCwd);
+  return personas.map(({ slug, name, description }) => ({ slug, name, description }));
 }
 
 async function mcpLaunchPersona(

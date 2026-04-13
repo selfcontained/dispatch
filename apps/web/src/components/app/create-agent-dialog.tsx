@@ -30,6 +30,7 @@ type CreateAgentDialogProps = {
   createType: AgentType;
   createCwd: string;
   createFullAccess: boolean;
+  createAutoReview: boolean;
   createUseWorktree: boolean;
   createWorktreeBranch: string;
   createBaseBranch: string;
@@ -41,6 +42,7 @@ type CreateAgentDialogProps = {
   setCreateType: (value: AgentType) => void;
   setCreateCwd: (cwd: string) => void;
   setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
+  setCreateAutoReview: (value: boolean | ((current: boolean) => boolean)) => void;
   setCreateUseWorktree: (value: boolean | ((current: boolean) => boolean)) => void;
   setCreateWorktreeBranch: (value: string) => void;
   setCreateBaseBranch: (value: string) => void;
@@ -54,6 +56,7 @@ export function CreateAgentDialog({
   createType,
   createCwd,
   createFullAccess,
+  createAutoReview,
   createUseWorktree,
   createWorktreeBranch,
   createBaseBranch,
@@ -65,6 +68,7 @@ export function CreateAgentDialog({
   setCreateType,
   setCreateCwd,
   setCreateFullAccess,
+  setCreateAutoReview,
   setCreateUseWorktree,
   setCreateWorktreeBranch,
   setCreateBaseBranch,
@@ -323,6 +327,22 @@ export function CreateAgentDialog({
               <span className="block text-sm font-medium text-foreground">Start in full access mode</span>
               <span className="block text-xs text-muted-foreground">
                 Starts the selected agent with its most permissive supported execution mode.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+            <Checkbox
+              checked={createAutoReview}
+              onCheckedChange={() => setCreateAutoReview((current) => !current)}
+              className="mt-0.5"
+              title="Toggle autonomous review"
+              data-testid="create-agent-auto-review"
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-medium text-foreground">Autonomous Review</span>
+              <span className="block text-xs text-muted-foreground">
+                Agent will launch persona reviews and address feedback before completing.
               </span>
             </span>
           </label>
