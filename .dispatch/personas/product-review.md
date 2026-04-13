@@ -40,4 +40,5 @@ Your review MUST focus exclusively on user-facing impact introduced by the chang
 2. Explore surrounding UI and API context to understand user-facing impact.
 3. Think like a user, not a developer. Focus on what someone experiences, not how it's implemented.
 4. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+5. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that work well. If the product experience is solid, say so in your review summary and approve with fewer feedback items. Every feedback item should identify a user-facing gap or concern.
 

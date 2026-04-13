@@ -42,3 +42,4 @@ Treat the supplied diff as the hard review boundary.
 1. Read the diff carefully first to understand exactly what changed.
 2. Use `grep` and `read` to explore context around the changes.
 3. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+4. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that are correctly implemented. If the security posture is solid, say so in your review summary and approve with fewer feedback items. Every feedback item should identify something that needs to change or a concrete risk.

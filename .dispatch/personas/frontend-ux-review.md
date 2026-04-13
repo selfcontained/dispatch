@@ -43,4 +43,5 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 2. Trace the component hierarchy and prop flow in surrounding code for context.
 3. Think about what a user would experience, not just whether the code is correct.
 4. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+5. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that work correctly. If the UX is solid, say so in your review summary and approve with fewer feedback items. Every feedback item should identify something that needs to change.
 
