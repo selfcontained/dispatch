@@ -45,6 +45,7 @@ export type AgentCardProps = {
   feedbackDetailState?: FeedbackDetailState;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
+  enabledAgentTypes: AgentType[];
 };
 
 export function AgentCard({
@@ -70,6 +71,7 @@ export function AgentCard({
   feedbackDetailState,
   onRequestClose,
   closeOnSessionAction = false,
+  enabledAgentTypes,
 }: AgentCardProps): JSX.Element {
   const state = getVisualState(agent);
   const isSelected = selectedAgentId === agent.id;
@@ -312,6 +314,7 @@ export function AgentCard({
                   {!isStopped && !agent.persona ? (
                     <PersonaLauncher
                       agent={agent}
+                      enabledAgentTypes={enabledAgentTypes}
                       sendTerminalInput={sendTerminalInput}
                       disabled={connectedAgentId !== agent.id}
                     />
