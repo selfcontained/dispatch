@@ -1,7 +1,13 @@
+import { readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const migrationsDir = join(__dirname, "../../src/db/migrations");
 
 let pool: Pool;
 
@@ -81,6 +87,42 @@ describe("migrations", () => {
     const seen = await pool.query(`SELECT * FROM media_seen WHERE agent_id = 'test-cascade'`);
     expect(media.rowCount).toBe(0);
     expect(seen.rowCount).toBe(0);
+  });
+
+  it("should have unique, sequential numeric prefixes", () => {
+    const files = readdirSync(migrationsDir)
+      .filter((f) => /^\d+_.+\.sql$/.test(f))
+      .sort();
+
+    expect(files.length).toBeGreaterThan(0);
+
+    const prefixes = files.map((f) => {
+      const match = f.match(/^(\d+)_/);
+      return Number(match![1]);
+    });
+
+    // Check for duplicate prefixes
+    const seen = new Map<number, string>();
+    for (const file of files) {
+      const prefix = Number(file.match(/^(\d+)_/)![1]);
+      if (seen.has(prefix)) {
+        throw new Error(
+          `Duplicate migration prefix ${prefix}: "${seen.get(prefix)}" and "${file}"`
+        );
+      }
+      seen.set(prefix, file);
+    }
+
+    // Check sequential with no gaps (should be 1, 2, 3, …)
+    const sorted = [...prefixes].sort((a, b) => a - b);
+    for (let i = 0; i < sorted.length; i++) {
+      const expected = i + 1;
+      if (sorted[i] !== expected) {
+        throw new Error(
+          `Migration prefix gap: expected ${String(expected).padStart(4, "0")} but next is ${String(sorted[i]).padStart(4, "0")}`
+        );
+      }
+    }
   });
 
   it("should track migrations in pgmigrations table", async () => {
