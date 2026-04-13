@@ -1462,7 +1462,7 @@ function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
         {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt saved.</div> : null}
