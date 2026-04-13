@@ -15,7 +15,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > 5. Copy `.env.example` to `.env` and configure: set `AUTH_TOKEN` to a random value (use `openssl rand -hex 32`). The default host binds to localhost; set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections.
 > 6. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
->    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/server.js` with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
+>    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/main.js` with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
 > 7. Verify: `curl http://127.0.0.1:6767/api/v1/health`
 > 8. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
@@ -27,7 +27,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Persist each agent in `tmux` so browser disconnects do not kill work.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
-- Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery (`.dispatch/jobs/`).
+- Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
 - Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`).
 - GitHub integration — PR creation and CI status checks via MCP tools.
 - Slack notifications with focus-aware suppression.

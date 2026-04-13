@@ -86,7 +86,7 @@ For persona agents (launched via `dispatch_launch_persona`):
 
 ### `DELETE /agents/:id`
 
-Query params: `force=true`, `cleanupWorktree=true`
+Query params: `cleanupWorktree=auto|keep|force` (default: `auto` — cleans up worktree if no unmerged/uncommitted changes; `keep` preserves worktree; `force` always removes)
 
 ## Agent Setup
 
