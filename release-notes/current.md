@@ -1,7 +1,7 @@
 ## What's Changed
-* docs: add missing MCP tool and env vars to documentation by @selfcontained in https://github.com/selfcontained/dispatch/pull/299
-* chore: tune persona prompts based on weekly review by @selfcontained in https://github.com/selfcontained/dispatch/pull/300
-* [codex] Include archived agents in summaries by @selfcontained in https://github.com/selfcontained/dispatch/pull/301
+* [codex] Refine session rename guidance by @selfcontained in https://github.com/selfcontained/dispatch/pull/304
+* [codex] Fix MCP root bearer auth bypass by @selfcontained in https://github.com/selfcontained/dispatch/pull/302
+* [codex] Polish mobile sidebar navigation and overflow behavior by @selfcontained in https://github.com/selfcontained/dispatch/pull/303
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.25...v0.11.26
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.11.26...v0.11.27
