@@ -225,9 +225,12 @@ export function CreateAgentDialog({
                   autoFocus
                   value={createName}
                   onChange={(event) => setCreateName(event.target.value)}
-                  placeholder="agent name (optional)"
+                  placeholder="agent name"
                   data-testid="create-agent-name"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Leave blank and the agent will set its own name based on the task.
+                </p>
               </div>
 
               <PathInput

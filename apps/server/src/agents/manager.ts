@@ -1671,7 +1671,7 @@ export class AgentManager {
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
         "For longer artifacts, write to a file via dispatch_share and pin a reference." +
         (autoReview
-          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Do not emit done until all reviews are resolved."
+          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each feedback item, call dispatch_resolve_feedback to mark it as fixed or ignored. Do not emit done until all reviews are resolved."
           : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;

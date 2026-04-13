@@ -130,38 +130,6 @@ export function PathInput({
         </label>
       ) : null}
 
-      {showValidation ? (
-        <div className="mb-1.5 flex items-center gap-1.5 text-xs">
-          {validating ? (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          ) : pathValidation ? (
-            pathValidation.isDirectory ? (
-              <>
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                {pathValidation.isGitRepo ? (
-                  <>
-                    <GitBranch className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Git repository</span>
-                  </>
-                ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400">Valid directory</span>
-                )}
-              </>
-            ) : pathValidation.exists ? (
-              <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">Not a directory</span>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
-              </>
-            )
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="relative" ref={cmdRef}>
         <div className="relative">
           {/* Ghost autocomplete overlay */}
@@ -267,6 +235,38 @@ export function PathInput({
           </div>
         ) : null}
       </div>
+
+      {showValidation ? (
+        <div className="flex h-5 items-center justify-end gap-1.5 text-xs">
+          {validating ? (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          ) : pathValidation ? (
+            pathValidation.isDirectory ? (
+              <>
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                {pathValidation.isGitRepo ? (
+                  <>
+                    <GitBranch className="h-3 w-3 text-emerald-500" />
+                    <span className="text-emerald-600 dark:text-emerald-400">Git repository</span>
+                  </>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400">Valid directory</span>
+                )}
+              </>
+            ) : pathValidation.exists ? (
+              <>
+                <AlertCircle className="h-3 w-3 text-amber-500" />
+                <span className="text-amber-600 dark:text-amber-400">Not a directory</span>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="h-3 w-3 text-amber-500" />
+                <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
+              </>
+            )
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
