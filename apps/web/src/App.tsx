@@ -37,6 +37,7 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { useTemporaryState } from "@/hooks/use-temporary-state";
 import { AGENT_TYPES, type AgentType, isAgentType, sanitizeEnabledAgentTypes } from "@/lib/agent-types";
 import { Button } from "@/components/ui/button";
 
@@ -514,6 +515,43 @@ export function DashboardLayout(): JSX.Element {
     return "bg-status-waiting";
   };
 
+  const [pulsingNavItem, setPulsingNavItem] = useTemporaryState<string | null>(null, 260);
+  const [pendingNavPulse, setPendingNavPulse] = useState<string | null>(null);
+
+  const currentNavItem = (() => {
+    if (location.pathname.startsWith("/jobs")) return "jobs";
+    if (location.pathname.startsWith("/activity")) return "activity";
+    if (location.pathname.startsWith("/docs")) return "docs";
+    if (location.pathname.startsWith("/settings")) return "settings";
+    return "agents";
+  })();
+  const prevNavItemRef = useRef(currentNavItem);
+
+  useEffect(() => {
+    const previousNavItem = prevNavItemRef.current;
+    prevNavItemRef.current = currentNavItem;
+
+    if (!isMobile) return;
+    if (currentNavItem !== "agents" || previousNavItem === "agents") return;
+
+    setMobileMediaOpen(false);
+    setMobileLeftOpen(true);
+  }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
+
+  useEffect(() => {
+    if (!pendingNavPulse || pendingNavPulse !== currentNavItem) return;
+    setPulsingNavItem(pendingNavPulse);
+    setPendingNavPulse(null);
+  }, [currentNavItem, pendingNavPulse, setPulsingNavItem]);
+
+  const triggerNavAnimation = useCallback((navItem: string) => {
+    if (navItem === currentNavItem) {
+      setPulsingNavItem(navItem);
+      return;
+    }
+    setPendingNavPulse(navItem);
+  }, [currentNavItem, setPulsingNavItem]);
+
   // ── Navigation callbacks for overlay panes ────────────────────────────
   const openSettings = useCallback(() => navigate("/settings"), [navigate]);
   const openDocs = useCallback(() => navigate("/docs"), [navigate]);
@@ -556,6 +594,8 @@ export function DashboardLayout(): JSX.Element {
               connectedAgentId={connectedAgentId}
               onOpenFeedbackDetail={setFeedbackDetail}
               feedbackDetailState={feedbackDetail}
+              pulsingNavItem={pulsingNavItem}
+              triggerNavAnimation={triggerNavAnimation}
             />
           </div>
         ) : null}
@@ -587,6 +627,8 @@ export function DashboardLayout(): JSX.Element {
                 agents={agents}
                 onOpenAgent={attachToAgent}
                 enabledAgentTypes={enabledAgentTypes}
+                pulsingNavItem={pulsingNavItem}
+                triggerNavAnimation={triggerNavAnimation}
               />
             ) : (
               <div className="relative min-h-0 min-w-0 pb-14 pt-14">
@@ -744,6 +786,8 @@ export function DashboardLayout(): JSX.Element {
             connectedAgentId={connectedAgentId}
             closeOnSessionAction={true}
             onRequestClose={() => setMobileLeftOpen(false)}
+            pulsingNavItem={pulsingNavItem}
+            triggerNavAnimation={triggerNavAnimation}
           />
         </MobileSlidePanel>
       ) : null}

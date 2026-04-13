@@ -50,6 +50,8 @@ type AgentSidebarSharedProps = {
   connectedAgentId?: string | null;
   onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
   feedbackDetailState?: FeedbackDetailState;
+  pulsingNavItem?: string | null;
+  triggerNavAnimation?: (navItem: string) => void;
 };
 
 type AgentSidebarProps = AgentSidebarSharedProps & {
@@ -92,6 +94,8 @@ export function AgentSidebarContent({
   connectedAgentId,
   onOpenFeedbackDetail,
   feedbackDetailState,
+  pulsingNavItem,
+  triggerNavAnimation,
   onRequestClose,
   closeOnSessionAction = false,
   closeButtonIcon = "x",
@@ -103,6 +107,23 @@ export function AgentSidebarContent({
   const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
     ? lastUsedAgentType
     : enabledAgentTypes[0] ?? "codex";
+
+  const navButtonClassName = (navItem: string, active = false): string => cn(
+    "rounded-md p-2 transition-colors hover:bg-muted/50 hover:text-foreground",
+    active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
+  );
+
+  const triggerNavAnimationForKey = (event: React.KeyboardEvent<HTMLButtonElement>, navItem: string): void => {
+    if (event.key === "Enter" || event.key === " ") {
+      triggerNavAnimation?.(navItem);
+    }
+  };
+
+  const renderNavIcon = (icon: JSX.Element): JSX.Element => (
+    <span className="flex items-center justify-center">
+      {icon}
+    </span>
+  );
 
   return (
     <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
@@ -165,7 +186,7 @@ export function AgentSidebarContent({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div data-testid="agent-sidebar-scroll" className="min-h-0 flex-1 overflow-y-auto">
         <TooltipProvider delayDuration={120}>
           {agents.length === 0 ? (
             <div data-testid="no-agents-message" className="p-4 text-sm text-muted-foreground">No agents yet.</div>
@@ -203,16 +224,18 @@ export function AgentSidebarContent({
         </TooltipProvider>
       </div>
       <TooltipProvider delayDuration={120}>
-        <div className="flex items-center justify-around border-t border-border py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onPointerDown={() => triggerNavAnimation?.("agents")}
+                onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")}
                 onClick={() => undefined}
                 aria-label="Agents"
                 data-testid="agents-button"
-                className="rounded-md p-2 text-primary transition-colors hover:text-primary/80"
+                className={cn(navButtonClassName("agents", true), pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}
               >
-                <Bot className="h-5 w-5" />
+                {renderNavIcon(<Bot className="h-5 w-5" />)}
               </button>
             </TooltipTrigger>
             <TooltipContent>Agents</TooltipContent>
@@ -220,12 +243,14 @@ export function AgentSidebarContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onPointerDown={() => triggerNavAnimation?.("jobs")}
+                onKeyDown={(event) => triggerNavAnimationForKey(event, "jobs")}
                 onClick={onOpenJobs}
                 aria-label="Jobs"
                 data-testid="jobs-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className={cn(navButtonClassName("jobs"), pulsingNavItem === "jobs" && "animate-sidebar-nav-pulse")}
               >
-                <AlarmClock className="h-5 w-5" />
+                {renderNavIcon(<AlarmClock className="h-5 w-5" />)}
               </button>
             </TooltipTrigger>
             <TooltipContent>Jobs</TooltipContent>
@@ -233,11 +258,13 @@ export function AgentSidebarContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onPointerDown={() => triggerNavAnimation?.("activity")}
+                onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")}
                 onClick={onOpenActivity}
                 data-testid="activity-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className={cn(navButtonClassName("activity"), pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}
               >
-                <Activity className="h-5 w-5" />
+                {renderNavIcon(<Activity className="h-5 w-5" />)}
               </button>
             </TooltipTrigger>
             <TooltipContent>Activity</TooltipContent>
@@ -245,11 +272,13 @@ export function AgentSidebarContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onPointerDown={() => triggerNavAnimation?.("docs")}
+                onKeyDown={(event) => triggerNavAnimationForKey(event, "docs")}
                 onClick={onOpenDocs}
                 data-testid="docs-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className={cn(navButtonClassName("docs"), pulsingNavItem === "docs" && "animate-sidebar-nav-pulse")}
               >
-                <BookOpenText className="h-5 w-5" />
+                {renderNavIcon(<BookOpenText className="h-5 w-5" />)}
               </button>
             </TooltipTrigger>
             <TooltipContent>Documentation</TooltipContent>
@@ -257,11 +286,13 @@ export function AgentSidebarContent({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onPointerDown={() => triggerNavAnimation?.("settings")}
+                onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")}
                 onClick={onOpenSettings}
                 data-testid="settings-button"
-                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className={cn(navButtonClassName("settings"), pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}
               >
-                <Settings className="h-5 w-5" />
+                {renderNavIcon(<Settings className="h-5 w-5" />)}
               </button>
             </TooltipTrigger>
             <TooltipContent>Settings</TooltipContent>

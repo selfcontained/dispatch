@@ -30,6 +30,8 @@ type JobsPaneProps = {
   onOpenAgent: (agent: Agent) => Promise<void>;
   enabledAgentTypes: AgentType[];
   footer?: React.ReactNode;
+  pulsingNavItem?: string | null;
+  triggerNavAnimation?: (navItem: string) => void;
 };
 
 type DetailTab = "configure" | "prompt" | "history";
@@ -132,7 +134,7 @@ function useActiveRun(job: Job | null, agents: Agent[]) {
   }, [agents, job]);
 }
 
-export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer }: JobsPaneProps): JSX.Element {
+export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer, pulsingNavItem, triggerNavAnimation }: JobsPaneProps): JSX.Element {
   const navigate = useNavigate();
   const { jobId: routeJobId, section: routeSection, runId: routeRunId } = useParams();
   const { iconColor } = useIconColor();
@@ -164,7 +166,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background text-foreground" aria-labelledby="jobs-page-title">
-            <aside className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r-2 border-border bg-card md:w-[320px] md:shrink-0", showDetailPane && "hidden md:flex")}>
+            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r-2 border-border bg-card md:w-[320px] md:shrink-0", showDetailPane && "hidden md:flex")}>
               <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-2.5">
                   <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -196,7 +198,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div data-testid="jobs-sidebar-scroll" className="min-h-0 flex-1 overflow-y-auto">
                 {error ? (
                   <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{error instanceof Error ? error.message : "Failed to load jobs."}</div>
                 ) : isLoading ? (
@@ -260,6 +262,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer 
                 onOpenActivity={() => navigate("/activity")}
                 onOpenJobs={() => navigate("/jobs")}
                 onOpenSettings={() => navigate("/settings")}
+                pulsingNavItem={pulsingNavItem}
+                triggerNavAnimation={triggerNavAnimation}
               />
             </aside>
 
@@ -706,19 +710,29 @@ function JobsNav({
   onOpenActivity,
   onOpenJobs,
   onOpenSettings,
+  pulsingNavItem,
+  triggerNavAnimation,
 }: {
   onOpenAgents: () => void;
   onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenJobs: () => void;
   onOpenSettings: () => void;
+  pulsingNavItem?: string | null;
+  triggerNavAnimation?: (navItem: string) => void;
 }) {
+  const triggerNavAnimationForKey = (event: React.KeyboardEvent<HTMLButtonElement>, navItem: string): void => {
+    if (event.key === "Enter" || event.key === " ") {
+      triggerNavAnimation?.(navItem);
+    }
+  };
+
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-border py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
               <Bot className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -726,7 +740,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenJobs} aria-label="Jobs" data-testid="jobs-button" className="rounded-md p-2 text-primary transition-colors hover:text-primary/80">
+            <button onPointerDown={() => triggerNavAnimation?.("jobs")} onKeyDown={(event) => triggerNavAnimationForKey(event, "jobs")} onClick={onOpenJobs} aria-label="Jobs" data-testid="jobs-button" className={cn("rounded-md p-2 text-primary transition-colors hover:text-primary/80", pulsingNavItem === "jobs" && "animate-sidebar-nav-pulse")}>
               <AlarmClock className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -734,7 +748,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenActivity} data-testid="activity-button" className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
               <Activity className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -742,7 +756,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenDocs} data-testid="docs-button" className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+            <button onPointerDown={() => triggerNavAnimation?.("docs")} onKeyDown={(event) => triggerNavAnimationForKey(event, "docs")} onClick={onOpenDocs} data-testid="docs-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "docs" && "animate-sidebar-nav-pulse")}>
               <BookOpenText className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -750,7 +764,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onClick={onOpenSettings} data-testid="settings-button" className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground">
+            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
               <Settings className="h-5 w-5" />
             </button>
           </TooltipTrigger>

@@ -1,6 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { loadApp } from "./helpers";
 
+async function expectMobileSidebarOpen(page: import("@playwright/test").Page): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: "Agent sidebar" });
+  await expect(dialog.getByTitle("Close sidebar")).toBeVisible();
+  await expect
+    .poll(async () => dialog.evaluate((el) => Math.round(el.getBoundingClientRect().left)))
+    .toBe(0);
+}
+
 test.describe("Sidebar interactions", () => {
   test("closing and reopening the left sidebar", async ({ page }) => {
     await loadApp(page);
@@ -32,5 +40,19 @@ test.describe("Sidebar interactions", () => {
 
     await expect(page.getByTestId("create-agent-form")).toBeVisible({ timeout: 3_000 });
     await expect(page.getByText("Create Agent")).toBeVisible();
+  });
+
+  test("mobile navigation back to agents opens the sidebar", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadApp(page);
+
+    await page.getByTitle("Open agent sidebar").click();
+    await expectMobileSidebarOpen(page);
+    await page.getByTestId("jobs-button").click();
+    await expect(page).toHaveURL(/\/jobs$/);
+
+    await page.getByTestId("agents-button").click();
+    await expect(page).toHaveURL(/\/$/);
+    await expectMobileSidebarOpen(page);
   });
 });
