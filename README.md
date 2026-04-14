@@ -174,9 +174,9 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Operations
 
-- Release flow (build + restart + health check): `bin/dispatch-server update`
-- Deploy a tag to production: `bin/dispatch-deploy --latest` or `bin/dispatch-deploy v0.2.30`
-- Cut a new release: `bin/dispatch-release patch|minor|major`
+- Update production from the Dispatch UI: **Settings → Updates**
+- Cut releases from the Dispatch UI: **Settings → Releases** (release admin only)
+- CLI/API path for updates and releases: `bin/dispatch-server update`
 - Service management: `bin/dispatch-server start|stop|restart|status|logs|build`
 
 ## Docs

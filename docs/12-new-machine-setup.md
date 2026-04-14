@@ -166,13 +166,13 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 tail -20 ~/.dispatch/logs/dispatch.log
 ```
 
-### 7. GitHub CLI auth (for releases)
+### 7. GitHub CLI auth (for server-managed releases)
 
 ```bash
 gh auth login
 ```
 
-This is needed for `bin/dispatch-release` to trigger GitHub Actions workflows.
+This is needed for the Dispatch server's release flow to trigger GitHub Actions workflows.
 
 ### 8. Agent CLIs
 
@@ -241,19 +241,22 @@ open http://127.0.0.1:6767
 ## Deploying Updates
 
 ```bash
-# From the dev checkout (not ~/.dispatch/server):
+# Preferred: use the Dispatch UI
+# Settings -> Updates
+# Settings -> Releases
 
-# Option A: Deploy latest tag
-bin/dispatch-deploy --latest
+# API fallback: update to a specific tag
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v0.2.4"}'
 
-# Option B: Cut a new release and deploy
-bin/dispatch-release patch   # or minor/major
-
-# Option C: Deploy specific tag
-bin/dispatch-deploy v0.2.4
+# API fallback: cut a patch release
+curl -X POST http://127.0.0.1:6767/api/v1/release \
+  -H 'Content-Type: application/json' \
+  -d '{"versionType":"patch"}'
 ```
 
-Deploy includes automatic rollback on health check failure.
+Updates include automatic rollback on health check failure.
 
 ## Key Paths Reference
 
@@ -310,7 +313,7 @@ These tools are served via the Dispatch MCP server at `/api/mcp/:agentId`. They 
 
 ## Design Decisions
 
-- **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production via `bin/dispatch-deploy <tag>`.
+- **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production through the server-managed release/update flow.
 - **Migrations run on boot**: No explicit `db:migrate` step needed. The server runs migrations automatically on startup.
 - **Database retry on boot**: Server retries the Postgres connection up to 15 times (30s) on startup. With Homebrew Postgres (starts via launchd at boot), this is rarely needed but provides resilience.
 - **Homebrew Postgres for production, Docker for dev**: Production uses native Homebrew Postgres — no VM overhead, starts at boot via `brew services`, one fewer moving part. Docker Compose is available for isolated dev databases when needed.
