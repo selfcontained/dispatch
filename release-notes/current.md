@@ -1,5 +1,5 @@
 ## What's Changed
-* fix: improve create agent name field and auto review feedback resolution by @selfcontained in https://github.com/selfcontained/dispatch/pull/316
+* Fix Linux release restart and remove deploy scripts by @selfcontained in https://github.com/selfcontained/dispatch/pull/318
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.12.4...v0.12.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.12.5...v0.12.6
