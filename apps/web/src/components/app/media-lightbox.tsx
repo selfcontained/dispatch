@@ -115,7 +115,7 @@ type MediaLightboxItem = {
     name: string;
     size: number;
     updatedAt: string;
-    source?: "screenshot" | "stream" | "simulator" | "text";
+    source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   };
 };
 
@@ -284,6 +284,16 @@ export function MediaLightbox({
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
 
+  // Allow pinch-to-zoom while lightbox is open by relaxing the viewport meta tag
+  useEffect(() => {
+    if (!item) return;
+    const meta = document.querySelector<HTMLMetaElement>("meta[name=viewport]");
+    if (!meta) return;
+    const original = meta.content;
+    meta.content = "width=device-width, initial-scale=1.0";
+    return () => { meta.content = original; };
+  }, [item]);
+
   useEffect(() => {
     if (!item) {
       return;
@@ -322,6 +332,7 @@ export function MediaLightbox({
   }
 
   const isText = item.file.source === "text" || isTextFile(item.file.name);
+  const isDocument = /\.pdf$/i.test(item.file.name);
   const isVideo = /\.mp4/i.test(item.src);
   const displayName = stripTimestamp(item.file.name);
 
@@ -334,21 +345,21 @@ export function MediaLightbox({
       className="fixed inset-0 z-[120] grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] bg-black/90 p-2 sm:p-6"
       data-testid="media-lightbox"
     >
-      <div className="mx-auto flex w-full max-w-4xl items-center gap-1 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-2 py-1.5 sm:px-4 sm:py-2">
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-3 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-3 py-2 sm:px-4 sm:py-2.5">
         <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
-        <div className="ml-auto flex shrink-0 items-center">
+        <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
             aria-label="Previous media item"
             data-testid="media-lightbox-prev"
             disabled={!canGoPrev}
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(currentIndex - 1)}
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
           <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
             {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
@@ -359,30 +370,32 @@ export function MediaLightbox({
             disabled={!canGoNext}
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(currentIndex + 1)}
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
             aria-label="Close"
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(null)}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
         </div>
       </div>
       <div
         className={cn(
           "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border touch-pinch-zoom",
-          isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
+          isDocument ? "bg-white" : isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
         )}
       >
-        {isText ? (
+        {isDocument ? (
+          <iframe src={item.src} title={displayName} className="h-full w-full" />
+        ) : isText ? (
           <TextViewer src={item.src} fileName={item.file.name} />
         ) : isVideo ? (
           <video
@@ -401,7 +414,7 @@ export function MediaLightbox({
       </div>
       <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
         {item.caption ? <span className="min-w-0 truncate">{item.caption}</span> : null}
-        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source}</span> : null}
+        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source === "user" ? "your upload" : item.file.source}</span> : null}
         <span className="ml-auto flex-none">{sizeLabel}</span>
         <span className="hidden flex-none sm:inline">{new Date(item.file.updatedAt).toLocaleString()}</span>
       </div>

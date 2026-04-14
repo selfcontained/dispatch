@@ -109,6 +109,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",
+  "dispatch_list_media",
   "dispatch_feedback",
   "list_personas",
   "dispatch_launch_persona",
@@ -203,6 +204,10 @@ export type McpRequestContext = {
     agentId: string,
     opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
   ) => Promise<MediaResult>;
+  listMedia?: (
+    agentId: string,
+    opts: { source?: string }
+  ) => Promise<Array<{ fileName: string; filePath: string; source: string; description: string | null; sizeBytes: number; createdAt: string }>>;
   submitFeedback?: (
     agentId: string,
     feedback: FeedbackInput
@@ -563,6 +568,39 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
 
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
+
+  // ── dispatch_list_media ──────────────────────────────────────────
+  if (allowed.has("dispatch_list_media") && context.agent && context.listMedia) {
+    const agentId = context.agent.id;
+    const listMedia = context.listMedia;
+
+    server.registerTool(
+      "dispatch_list_media",
+      {
+        description:
+          "List media files shared with or by this agent. Returns metadata only — use file reading tools to access content via filePath.",
+        inputSchema: {
+          source: z
+            .string()
+            .optional()
+            .describe(
+              'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all media.'
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const items = await listMedia(agentId, { source: args.source });
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(items, null, 2) }],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
   if (allowed.has("dispatch_feedback")) registerFeedbackTool(server, context);
 
   // ── list_personas ────────────────────────────────────────────────
@@ -1099,7 +1137,7 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
     "dispatch_share",
     {
       description:
-        "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
+        "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), documents (pdf), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
       inputSchema: {
         filePath: z
           .string()

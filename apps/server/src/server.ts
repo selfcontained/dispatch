@@ -1356,6 +1356,7 @@ async function registerRoutes() {
       upsertEvent: mcpUpsertEvent,
       renameSession: mcpRenameSession,
       shareMedia: mcpShareMedia,
+      listMedia: mcpListMedia,
       submitFeedback: mcpSubmitFeedback,
       listPersonas: mcpListPersonas,
       launchPersona: mcpLaunchPersona,
@@ -2788,40 +2789,44 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     if (!isMediaFile(fileName)) {
-      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc)." });
+      return reply.code(400).send({ error: "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)." });
     }
 
     const isText = isTextFile(fileName);
     const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? (isText ? "text" : "screenshot");
-    const validSources = ["screenshot", "stream", "simulator", "text"];
+    const validSources = ["screenshot", "stream", "simulator", "text", "user"];
     const source = validSources.includes(sourceField) ? sourceField : (isText ? "text" : "screenshot");
     const description = (data.fields.description as { value?: string } | undefined)?.value ?? null;
-    if (!description) {
-      return reply.code(400).send({ error: "A description field is required." });
-    }
 
     const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
     await mkdir(mediaDir, { recursive: true });
 
     const buffer = await data.toBuffer();
-    const filePath = path.join(mediaDir, fileName);
+
+    // Timestamp filenames to prevent collisions (matches mcpShareMedia pattern)
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    const timestampedFileName = `${base}-${timestamp}${ext}`;
+
+    const filePath = path.join(mediaDir, timestampedFileName);
     await writeFile(filePath, buffer);
 
     const result = await pool.query<{ id: number; created_at: Date }>(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, created_at`,
-      [id, fileName, source, buffer.length, description]
+      [id, timestampedFileName, source, buffer.length, description]
     );
 
     const row = result.rows[0];
     const mediaRecord = {
       id: row.id,
-      fileName,
+      fileName: timestampedFileName,
       source,
       sizeBytes: buffer.length,
       createdAt: row.created_at.toISOString(),
-      url: `/api/v1/agents/${id}/media/${encodeURIComponent(fileName)}`
+      url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`
     };
 
     uiEventBroker.publish({ type: "media.changed", agentId: id });
@@ -4050,8 +4055,15 @@ function isTextFile(name: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
+const DOCUMENT_EXTENSIONS = new Set([".pdf"]);
+
+function isDocumentFile(name: string): boolean {
+  const ext = path.extname(name).toLowerCase();
+  return DOCUMENT_EXTENSIONS.has(ext);
+}
+
 function isMediaFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name);
+  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name) || isDocumentFile(name);
 }
 
 function mimeType(name: string): string {
@@ -4105,6 +4117,10 @@ function mimeType(name: string): string {
 
   if (/\.ya?ml$/i.test(name)) {
     return "text/yaml";
+  }
+
+  if (/\.pdf$/i.test(name)) {
+    return "application/pdf";
   }
 
   if (isTextFile(name)) {
@@ -4441,7 +4457,7 @@ async function mcpShareMedia(
   if (!agent) throw new Error("Agent not found.");
 
   if (!isMediaFile(opts.filePath)) {
-    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc).");
+    throw new Error("Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).");
   }
 
   const isText = isTextFile(opts.filePath);
@@ -4515,4 +4531,41 @@ async function mcpShareMedia(
     source,
     description: opts.description
   };
+}
+
+async function mcpListMedia(
+  agentId: string,
+  opts: { source?: string }
+): Promise<Array<{ fileName: string; filePath: string; source: string; description: string | null; sizeBytes: number; createdAt: string }>> {
+  const agent = await agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+
+  const whereClause = opts.source
+    ? `WHERE agent_id = $1 AND source = $2`
+    : `WHERE agent_id = $1`;
+  const params: (string | number)[] = opts.source ? [agentId, opts.source] : [agentId];
+
+  const result = await pool.query<{
+    file_name: string;
+    source: string;
+    description: string | null;
+    size_bytes: number;
+    created_at: Date;
+  }>(
+    `SELECT file_name, source, description, size_bytes, created_at
+     FROM media ${whereClause}
+     ORDER BY created_at DESC LIMIT 100`,
+    params
+  );
+
+  return result.rows.map((row) => ({
+    fileName: row.file_name,
+    filePath: path.join(mediaDir, row.file_name),
+    source: row.source,
+    description: row.description ?? null,
+    sizeBytes: row.size_bytes,
+    createdAt: row.created_at.toISOString(),
+  }));
 }

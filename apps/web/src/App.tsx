@@ -236,6 +236,21 @@ export function DashboardLayout(): JSX.Element {
   const focusedAgentHasStream = focusedAgentId ? streamingAgentIds.has(focusedAgentId) : false;
   const focusedAgentStreamUrl = focusedAgentId ? `/api/v1/agents/${focusedAgentId}/stream` : null;
 
+  const uploadFile = useCallback(async (agentId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("source", "user");
+    const res = await fetch(`/api/v1/agents/${agentId}/media`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      throw new Error(body?.error ?? `Upload failed (${res.status})`);
+    }
+  }, []);
+
   const ensureAuxExpanded = useCallback((agentId: string) => {
     setExpandedAgentId(agentId);
   }, [setExpandedAgentId]);
@@ -750,6 +765,7 @@ export function DashboardLayout(): JSX.Element {
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
+            onUploadFile={uploadFile}
           />
         </div>
         ) : null}
@@ -821,6 +837,7 @@ export function DashboardLayout(): JSX.Element {
               streamUrl={focusedAgentStreamUrl}
               openLightbox={openLightbox}
               onRequestClose={() => setMobileMediaOpen(false)}
+              onUploadFile={uploadFile}
             />
         </MobileSlidePanel>
       ) : null}

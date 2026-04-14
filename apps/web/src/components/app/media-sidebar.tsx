@@ -1,5 +1,5 @@
-import { type RefObject, useCallback, useEffect, useRef } from "react";
-import { ChevronRight, ExternalLink, FileText, MonitorPlay, X, Image, File as FileIcon, Video } from "lucide-react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { Check, ChevronRight, ExternalLink, FileText, Loader2, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
@@ -8,6 +8,9 @@ import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const ACCEPTED_EXTENSIONS =
+  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
 
 
 function fileExtension(name: string): string {
@@ -27,6 +30,7 @@ type MediaSidebarSharedProps = {
   hasStream: boolean;
   streamUrl: string | null;
   unseenMediaCount: number;
+  onUploadFile?: (agentId: string, file: File) => Promise<void>;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -83,11 +87,79 @@ function MediaContent({
   openLightbox,
   hasStream,
   streamUrl,
-}: Pick<MediaSidebarSharedProps, "mediaFiles" | "selectedAgentId" | "animatingMediaKeys" | "mediaViewportRef" | "openLightbox" | "hasStream" | "streamUrl">): JSX.Element {
+  onUploadFile,
+}: Pick<MediaSidebarSharedProps, "mediaFiles" | "selectedAgentId" | "animatingMediaKeys" | "mediaViewportRef" | "openLightbox" | "hasStream" | "streamUrl" | "onUploadFile">): JSX.Element {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const successTimerRef = useRef<number | null>(null);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !selectedAgentId || !onUploadFile) return;
+      setUploading(true);
+      setUploadError(null);
+      setUploadSuccess(false);
+      try {
+        await onUploadFile(selectedAgentId, file);
+        setUploadSuccess(true);
+        if (successTimerRef.current) window.clearTimeout(successTimerRef.current);
+        successTimerRef.current = window.setTimeout(() => {
+          setUploadSuccess(false);
+          successTimerRef.current = null;
+        }, 4000);
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setUploading(false);
+      }
+      // Reset input so the same file can be re-uploaded
+      e.target.value = "";
+    },
+    [selectedAgentId, onUploadFile]
+  );
+
+  const triggerFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   return (
     <>
       {hasStream && streamUrl && selectedAgentId ? (
         <LiveStreamSection streamUrl={streamUrl} selectedAgentId={selectedAgentId} />
+      ) : null}
+
+      {/* Upload button bar */}
+      {selectedAgentId && onUploadFile ? (
+        <div className="border-b-2 border-border px-3 py-2">
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept={ACCEPTED_EXTENSIONS}
+              onChange={handleFileChange}
+            />
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 gap-1.5 text-xs"
+              disabled={uploading}
+              onClick={triggerFilePicker}
+            >
+              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : uploadSuccess ? <Check className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+              {uploading ? "Uploading…" : uploadSuccess ? "Shared" : "Share file"}
+            </Button>
+            {uploadError ? (
+              <span className="truncate text-xs text-destructive">{uploadError}</span>
+            ) : null}
+          </div>
+          {uploadSuccess ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">Tell the agent about the file so it knows to look.</p>
+          ) : null}
+        </div>
       ) : null}
 
       <div
@@ -104,7 +176,15 @@ function MediaContent({
                 <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <div className="mt-4">
-                {selectedAgentId ? "No media yet. Agents can share screenshots, videos and documents." : "Focus an agent to view media."}
+                {selectedAgentId ? (
+                  <>
+                    No media yet.{" "}
+                    <button className="underline hover:text-foreground" onClick={triggerFilePicker}>
+                      Share a file
+                    </button>{" "}
+                    or wait for agents to share screenshots, videos and documents.
+                  </>
+                ) : "Focus an agent to view media."}
               </div>
             </div>
           </div>
@@ -117,6 +197,8 @@ function MediaContent({
 
             const isStream = file.source === "stream";
             const isText = file.source === "text" || isTextFile(file.name);
+            const isDocument = /\.pdf$/i.test(file.name);
+            const isUser = file.source === "user";
 
             return (
               <article
@@ -135,9 +217,17 @@ function MediaContent({
                     <span className="ml-auto text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</span>
                   </div>
                 ) : (
-                  <div className="mb-2 text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
+                  <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>{new Date(file.updatedAt).toLocaleString()}</span>
+                    {isUser ? (
+                      <span className="ml-auto flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        <User className="h-2.5 w-2.5" />
+                        Shared by you
+                      </span>
+                    ) : null}
+                  </div>
                 )}
-                {isText ? (
+                {isText || isDocument ? (
                   <button
                     className={cn(
                       "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
@@ -199,7 +289,8 @@ export function MediaSidebarContent({
   onRequestClose,
   closeButtonIcon = "x",
   className,
-  unseenMediaCount
+  unseenMediaCount,
+  onUploadFile
 }: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
   const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
   const prevAgentIdRef = useRef(selectedAgentId);
@@ -282,6 +373,7 @@ export function MediaSidebarContent({
           openLightbox={openLightbox}
           hasStream={hasStream}
           streamUrl={streamUrl}
+          onUploadFile={onUploadFile}
         />
       </div>
     </aside>

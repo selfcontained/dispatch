@@ -72,7 +72,7 @@ export type MediaFile = {
   updatedAt: string;
   url: string;
   seen?: boolean;
-  source?: "screenshot" | "stream" | "simulator" | "text";
+  source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   description?: string | null;
 };
 
