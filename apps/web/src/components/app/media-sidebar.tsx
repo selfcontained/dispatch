@@ -1,5 +1,5 @@
-import { type RefObject, useCallback, useEffect, useRef } from "react";
-import { ChevronRight, ExternalLink, FileText, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, ExternalLink, FileText, Loader2, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
@@ -90,21 +90,31 @@ function MediaContent({
   onUploadFile,
 }: Pick<MediaSidebarSharedProps, "mediaFiles" | "selectedAgentId" | "animatingMediaKeys" | "mediaViewportRef" | "openLightbox" | "hasStream" | "streamUrl" | "onUploadFile">): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !selectedAgentId || !onUploadFile) return;
+      setUploading(true);
+      setUploadError(null);
       try {
         await onUploadFile(selectedAgentId, file);
-      } catch {
-        // upload errors are non-fatal — the SSE refresh will show the file if it landed
+      } catch (err) {
+        setUploadError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setUploading(false);
       }
       // Reset input so the same file can be re-uploaded
       e.target.value = "";
     },
     [selectedAgentId, onUploadFile]
   );
+
+  const triggerFilePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   return (
     <>
@@ -114,7 +124,7 @@ function MediaContent({
 
       {/* Upload button bar */}
       {selectedAgentId && onUploadFile ? (
-        <div className="flex items-center border-b-2 border-border px-3 py-2">
+        <div className="flex items-center gap-2 border-b-2 border-border px-3 py-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -126,11 +136,15 @@ function MediaContent({
             size="sm"
             variant="default"
             className="h-7 gap-1.5 text-xs"
-            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            onClick={triggerFilePicker}
           >
-            <Upload className="h-3 w-3" />
-            Share file
+            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            {uploading ? "Uploading…" : "Share file"}
           </Button>
+          {uploadError ? (
+            <span className="truncate text-xs text-destructive">{uploadError}</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -148,7 +162,15 @@ function MediaContent({
                 <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <div className="mt-4">
-                {selectedAgentId ? "No media yet. Share files or wait for agents to share screenshots, videos and documents." : "Focus an agent to view media."}
+                {selectedAgentId ? (
+                  <>
+                    No media yet.{" "}
+                    <button className="underline hover:text-foreground" onClick={triggerFilePicker}>
+                      Share a file
+                    </button>{" "}
+                    or wait for agents to share screenshots, videos and documents.
+                  </>
+                ) : "Focus an agent to view media."}
               </div>
             </div>
           </div>

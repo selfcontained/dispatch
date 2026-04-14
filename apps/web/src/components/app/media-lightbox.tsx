@@ -401,7 +401,7 @@ export function MediaLightbox({
       </div>
       <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
         {item.caption ? <span className="min-w-0 truncate">{item.caption}</span> : null}
-        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source}</span> : null}
+        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source === "user" ? "your upload" : item.file.source}</span> : null}
         <span className="ml-auto flex-none">{sizeLabel}</span>
         <span className="hidden flex-none sm:inline">{new Date(item.file.updatedAt).toLocaleString()}</span>
       </div>
