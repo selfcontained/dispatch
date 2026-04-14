@@ -25,10 +25,10 @@ const BASE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof Ar
   { id: "agents", label: "Agents", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
-  { id: "help", label: "Help", icon: BookOpenText },
 ];
 
 const RELEASES_SECTION = { id: "releases" as SettingsSection, label: "Releases", icon: Package };
+const HELP_SECTION = { id: "help" as SettingsSection, label: "Help", icon: BookOpenText };
 
 function InstanceNameSettings(): JSX.Element {
   const { instanceName, setInstanceName, isSaving, saveError, didSave, clearSaveState } = useInstanceName();
@@ -379,7 +379,7 @@ export function SettingsPane({
     return () => { cancelled = true; };
   }, [open]);
 
-  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION] : BASE_SECTIONS;
+  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION] : [...BASE_SECTIONS, HELP_SECTION];
 
   // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
   useEffect(() => {
