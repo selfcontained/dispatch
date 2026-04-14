@@ -115,7 +115,7 @@ type MediaLightboxItem = {
     name: string;
     size: number;
     updatedAt: string;
-    source?: "screenshot" | "stream" | "simulator" | "text";
+    source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   };
 };
 
