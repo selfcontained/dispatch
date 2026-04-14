@@ -216,6 +216,12 @@ cmd_up() {
     done
   fi
 
+  # --- Build shared package (needed for fresh worktrees where dist/ doesn't exist) ---
+  if [ -f "${cwd}/packages/shared/tsconfig.json" ] && [ ! -d "${cwd}/packages/shared/dist" ]; then
+    echo "Building shared package..."
+    (cd "$cwd" && pnpm --filter @dispatch/shared build 2>&1) || echo "Warning: shared package build failed" >&2
+  fi
+
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
 
@@ -297,7 +303,7 @@ cmd_up() {
   (
     cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" npx vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    DISPATCH_PORT="$DEV_API_PORT" pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 
