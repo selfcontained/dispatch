@@ -6,7 +6,6 @@ import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom, autoReviewByCwdAtom } from "@/lib/store";
 import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
 import { ActivityPane } from "@/components/app/activity-pane";
-import { DocsPane } from "@/components/app/docs-pane";
 import { JobsPane } from "@/components/app/jobs-pane";
 import { SettingsPane } from "@/components/app/settings-pane";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -108,8 +107,6 @@ export function DashboardLayout(): JSX.Element {
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const settingsOpen = pathSegments[0] === "settings";
   const settingsSection = settingsOpen ? pathSegments[1] : undefined;
-  const docsOpen = pathSegments[0] === "docs";
-  const docsSection = docsOpen ? pathSegments[1] : undefined;
   const activityOpen = pathSegments[0] === "activity";
   const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
@@ -526,7 +523,6 @@ export function DashboardLayout(): JSX.Element {
   const currentNavItem = (() => {
     if (location.pathname.startsWith("/jobs")) return "jobs";
     if (location.pathname.startsWith("/activity")) return "activity";
-    if (location.pathname.startsWith("/docs")) return "docs";
     if (location.pathname.startsWith("/settings")) return "settings";
     return "agents";
   })();
@@ -559,7 +555,6 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Navigation callbacks for overlay panes ────────────────────────────
   const openSettings = useCallback(() => navigate("/settings"), [navigate]);
-  const openDocs = useCallback(() => navigate("/docs"), [navigate]);
   const openActivity = useCallback(() => navigate("/activity"), [navigate]);
   const openJobs = useCallback(() => navigate("/jobs"), [navigate]);
 
@@ -579,7 +574,6 @@ export function DashboardLayout(): JSX.Element {
               onOpenCreateDialog={openCreateDialog}
               enabledAgentTypes={enabledAgentTypes}
               lastUsedAgentType={lastUsedAgentType}
-              onOpenDocs={openDocs}
               onOpenActivity={openActivity}
               onOpenJobs={openJobs}
               onOpenSettings={openSettings}
@@ -771,7 +765,6 @@ export function DashboardLayout(): JSX.Element {
             onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
             enabledAgentTypes={enabledAgentTypes}
             lastUsedAgentType={lastUsedAgentType}
-            onOpenDocs={() => { setMobileLeftOpen(false); openDocs(); }}
             onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
             onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
             onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
@@ -868,12 +861,6 @@ export function DashboardLayout(): JSX.Element {
         onStop={stopAgent}
       />
 
-      <DocsPane
-        open={docsOpen}
-        onClose={closeOverlay}
-        initialSection={docsSection}
-        onSectionChange={(section) => navigate(section ? `/docs/${section}` : "/docs", { replace: true })}
-      />
       {activityOpen ? (
         <ActivityPane
           open={true}

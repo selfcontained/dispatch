@@ -1,6 +1,5 @@
 import {
   Activity,
-  BookOpenText,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -30,7 +29,6 @@ type AgentSidebarSharedProps = {
   onOpenCreateDialog: (type?: AgentType) => void;
   enabledAgentTypes: AgentType[];
   lastUsedAgentType: AgentType | null;
-  onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenJobs: () => void;
   onOpenSettings: () => void;
@@ -74,7 +72,6 @@ export function AgentSidebarContent({
   onOpenCreateDialog,
   enabledAgentTypes,
   lastUsedAgentType,
-  onOpenDocs,
   onOpenActivity,
   onOpenJobs,
   onOpenSettings,
@@ -269,20 +266,6 @@ export function AgentSidebarContent({
               </button>
             </TooltipTrigger>
             <TooltipContent>Activity</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.("docs")}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, "docs")}
-                onClick={onOpenDocs}
-                data-testid="docs-button"
-                className={cn(navButtonClassName("docs"), pulsingNavItem === "docs" && "animate-sidebar-nav-pulse")}
-              >
-                {renderNavIcon(<BookOpenText className="h-5 w-5" />)}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Documentation</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
