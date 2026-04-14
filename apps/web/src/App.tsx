@@ -105,8 +105,11 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Route matching ───────────────────────────────────────────────────
   const pathSegments = location.pathname.split("/").filter(Boolean);
+  const legacyDocsOpen = pathSegments[0] === "docs";
+  const legacyDocsSection = legacyDocsOpen ? pathSegments[1] : undefined;
   const settingsOpen = pathSegments[0] === "settings";
   const settingsSection = settingsOpen ? pathSegments[1] : undefined;
+  const settingsSubsection = settingsOpen ? pathSegments[2] : undefined;
   const activityOpen = pathSegments[0] === "activity";
   const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
@@ -114,6 +117,11 @@ export function DashboardLayout(): JSX.Element {
   const closeOverlay = useCallback(() => {
     navigate("/");
   }, [navigate]);
+
+  useEffect(() => {
+    if (!legacyDocsOpen) return;
+    navigate(legacyDocsSection ? `/settings/help/${legacyDocsSection}` : "/settings/help", { replace: true });
+  }, [legacyDocsOpen, legacyDocsSection, navigate]);
 
   // ── Theme & Branding ──────────────────────────────────────────────────
   const { theme, setTheme } = useTheme();
@@ -886,7 +894,12 @@ export function DashboardLayout(): JSX.Element {
         dbState={dbState}
         serviceDotClass={serviceDotClass}
         initialSection={settingsSection}
+        initialSubsection={settingsSubsection}
         onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
+        onSubsectionChange={(subsection) => {
+          if (settingsSection !== "help") return;
+          navigate(subsection ? `/settings/help/${subsection}` : "/settings/help", { replace: true });
+        }}
       />
 
       <MediaLightbox

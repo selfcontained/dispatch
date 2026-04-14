@@ -337,7 +337,9 @@ type SettingsPaneProps = {
   dbState: ServiceState;
   serviceDotClass: (state: ServiceState) => string;
   initialSection?: string;
+  initialSubsection?: string;
   onSectionChange?: (section: string | null) => void;
+  onSubsectionChange?: (subsection: string | null) => void;
 };
 
 export function SettingsPane({
@@ -357,7 +359,9 @@ export function SettingsPane({
   dbState,
   serviceDotClass,
   initialSection,
+  initialSubsection,
   onSectionChange,
+  onSubsectionChange,
 }: SettingsPaneProps): JSX.Element {
   const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
   const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
@@ -520,7 +524,13 @@ export function SettingsPane({
               )}
               {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
-              {activeSection === "help" && <DocsContent title="Help & Docs" />}
+              {activeSection === "help" && (
+                <DocsContent
+                  title="Help & Docs"
+                  initialSection={initialSubsection}
+                  onSectionChange={onSubsectionChange}
+                />
+              )}
               {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
             </div>
           </div>
