@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowDownToLine, ArrowLeft, Bell, ChevronRight, Database, Package, Server, Settings, Users, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, Bell, BookOpenText, ChevronRight, Database, Package, Server, Settings, Users, X } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
+import { DocsContent } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/release-manager";
@@ -17,7 +18,7 @@ import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "general" | "agents" | "notifications" | "updates" | "releases";
+type SettingsSection = "general" | "agents" | "notifications" | "updates" | "help" | "releases";
 
 const BASE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
   { id: "general", label: "General", icon: Settings },
@@ -27,6 +28,7 @@ const BASE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof Ar
 ];
 
 const RELEASES_SECTION = { id: "releases" as SettingsSection, label: "Releases", icon: Package };
+const HELP_SECTION = { id: "help" as SettingsSection, label: "Help", icon: BookOpenText };
 
 function InstanceNameSettings(): JSX.Element {
   const { instanceName, setInstanceName, isSaving, saveError, didSave, clearSaveState } = useInstanceName();
@@ -312,7 +314,7 @@ function AppearanceSettings({
   );
 }
 
-const ALL_VALID_SECTIONS: SettingsSection[] = ["general", "agents", "notifications", "updates", "releases"];
+const ALL_VALID_SECTIONS: SettingsSection[] = ["general", "agents", "notifications", "updates", "help", "releases"];
 
 function isValidSection(value: string | undefined): value is SettingsSection {
   return value !== undefined && ALL_VALID_SECTIONS.includes(value as SettingsSection);
@@ -335,7 +337,9 @@ type SettingsPaneProps = {
   dbState: ServiceState;
   serviceDotClass: (state: ServiceState) => string;
   initialSection?: string;
+  initialSubsection?: string;
   onSectionChange?: (section: string | null) => void;
+  onSubsectionChange?: (subsection: string | null) => void;
 };
 
 export function SettingsPane({
@@ -355,7 +359,9 @@ export function SettingsPane({
   dbState,
   serviceDotClass,
   initialSection,
+  initialSubsection,
   onSectionChange,
+  onSubsectionChange,
 }: SettingsPaneProps): JSX.Element {
   const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
   const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
@@ -373,7 +379,7 @@ export function SettingsPane({
     return () => { cancelled = true; };
   }, [open]);
 
-  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION] : BASE_SECTIONS;
+  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION] : [...BASE_SECTIONS, HELP_SECTION];
 
   // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
   useEffect(() => {
@@ -437,11 +443,12 @@ export function SettingsPane({
             <nav className="hidden w-48 shrink-0 flex-col border-r border-border py-2 md:flex">
               <div>
                 {sections.map(({ id, label, icon: Icon }) => (
-                  <div
+                  <button
+                    type="button"
                     key={id}
                     onClick={() => setActiveSection(id)}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2.5 px-4 py-2.5 text-sm transition-colors",
+                      "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
                       activeSection === id
                         ? "bg-muted text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -449,7 +456,7 @@ export function SettingsPane({
                   >
                     <Icon className="h-3.5 w-3.5 shrink-0" />
                     {label}
-                  </div>
+                  </button>
                 ))}
               </div>
               <div className="mt-auto border-t border-border px-4 pb-3 pt-4">
@@ -490,7 +497,15 @@ export function SettingsPane({
             )}
 
             {/* Content */}
-            <div key={activeSection} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto", activeSection === null && "hidden md:block")}>
+            <div
+              key={activeSection}
+              className={cn(
+                "min-h-0 min-w-0 flex-1 overflow-y-auto",
+                activeSection === "help" && "flex",
+                activeSection === "help" && "overflow-hidden",
+                activeSection === null && "hidden md:block"
+              )}
+            >
               {activeSection === "general" && (
                 <div className="flex flex-col">
                   <div className="p-4 md:p-6">
@@ -517,6 +532,13 @@ export function SettingsPane({
               )}
               {activeSection === "notifications" && <NotificationSettings />}
               {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
+              {activeSection === "help" && (
+                <DocsContent
+                  title="Help & Docs"
+                  initialSection={initialSubsection}
+                  onSectionChange={onSubsectionChange}
+                />
+              )}
               {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
             </div>
           </div>

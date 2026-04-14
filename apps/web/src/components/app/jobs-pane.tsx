@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, BookOpenText, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlarmClock, ArrowLeft, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -258,7 +258,6 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
               </div>
               <JobsNav
                 onOpenAgents={() => navigate("/")}
-                onOpenDocs={() => navigate("/docs")}
                 onOpenActivity={() => navigate("/activity")}
                 onOpenJobs={() => navigate("/jobs")}
                 onOpenSettings={() => navigate("/settings")}
@@ -706,7 +705,6 @@ function RunHistoryGrid({ runs }: {
 
 function JobsNav({
   onOpenAgents,
-  onOpenDocs,
   onOpenActivity,
   onOpenJobs,
   onOpenSettings,
@@ -714,7 +712,6 @@ function JobsNav({
   triggerNavAnimation,
 }: {
   onOpenAgents: () => void;
-  onOpenDocs: () => void;
   onOpenActivity: () => void;
   onOpenJobs: () => void;
   onOpenSettings: () => void;
@@ -753,14 +750,6 @@ function JobsNav({
             </button>
           </TooltipTrigger>
           <TooltipContent>Activity</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("docs")} onKeyDown={(event) => triggerNavAnimationForKey(event, "docs")} onClick={onOpenDocs} data-testid="docs-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "docs" && "animate-sidebar-nav-pulse")}>
-              <BookOpenText className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Documentation</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

@@ -31,6 +31,7 @@ export const router = createBrowserRouter([
               { index: true },
               { path: "settings" },
               { path: "settings/:section" },
+              { path: "settings/:section/:subsection" },
               { path: "docs" },
               { path: "docs/:section" },
               { path: "activity" },

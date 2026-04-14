@@ -591,15 +591,25 @@ function isValidDocsSection(value: string | undefined): value is DocsSection {
   return value !== undefined && SECTIONS.some((s) => s.id === value);
 }
 
-export function DocsPane({ open, onClose, initialSection, onSectionChange }: DocsPaneProps): JSX.Element {
-  const resolvedInitial = isValidDocsSection(initialSection) ? initialSection : "agents";
+type DocsContentProps = {
+  initialSection?: string;
+  onSectionChange?: (section: string | null) => void;
+  title?: string;
+};
+
+export function DocsContent({
+  initialSection,
+  onSectionChange,
+  title = "Docs",
+}: DocsContentProps): JSX.Element {
+  const resolvedInitial = isValidDocsSection(initialSection) ? initialSection : null;
   const [activeSection, setActiveSectionState] = useState<DocsSection | null>(resolvedInitial);
 
   useEffect(() => {
-    if (open && isValidDocsSection(initialSection)) {
+    if (isValidDocsSection(initialSection)) {
       setActiveSectionState(initialSection);
     }
-  }, [open, initialSection]);
+  }, [initialSection]);
 
   const setActiveSection = useCallback((section: DocsSection | null) => {
     setActiveSectionState(section);
@@ -609,15 +619,73 @@ export function DocsPane({ open, onClose, initialSection, onSectionChange }: Doc
   const active = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) {
-          onClose();
-          setActiveSectionState("agents");
-        }
-      }}
-    >
+    <div className="flex min-h-0 flex-1 items-stretch">
+      <nav className="hidden h-full w-56 shrink-0 flex-col self-stretch border-r border-border py-2 md:flex">
+        {SECTIONS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveSection(id)}
+            className={cn(
+              "flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+              activeSection === id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {activeSection === null ? (
+        <nav className="flex flex-1 flex-col md:hidden">
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveSection(id)}
+              className="flex items-center gap-3 border-b border-border px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
+            >
+              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {label}
+              <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", activeSection === null && "hidden md:block")}>
+        <ScrollArea className="h-full">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
+            <div className="border-b border-border pb-5">
+              <div className="flex items-center gap-2">
+                {activeSection !== null ? (
+                  <button
+                    onClick={() => setActiveSection(null)}
+                    className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 md:hidden"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    {title}
+                  </div>
+                  <h2 className="text-2xl font-semibold tracking-tight">{active.title}</h2>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-6">
+              {active.content}
+            </div>
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
+export function DocsPane({ open, onClose, initialSection, onSectionChange }: DocsPaneProps): JSX.Element {
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
@@ -628,72 +696,14 @@ export function DocsPane({ open, onClose, initialSection, onSectionChange }: Doc
           <DialogPrimitive.Description className="sr-only">
             Product documentation for core Dispatch functionality
           </DialogPrimitive.Description>
-
           <div className="flex h-12 shrink-0 items-center border-b border-border px-5">
-            {activeSection !== null ? (
-              <button
-                onClick={() => setActiveSection(null)}
-                className="mr-2 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 md:hidden"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            ) : null}
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              {activeSection !== null ? <span className="md:hidden">{active.label}</span> : null}
-              <span className={activeSection !== null ? "hidden md:inline" : ""}>Docs</span>
-            </span>
+            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Docs</span>
             <DialogPrimitive.Close className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
               <X className="h-4 w-4" />
               <span className="sr-only">Close</span>
             </DialogPrimitive.Close>
           </div>
-
-          <div className="flex min-h-0 flex-1">
-            <nav className="hidden w-56 shrink-0 flex-col border-r border-border py-2 md:flex">
-              {SECTIONS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveSection(id)}
-                  className={cn(
-                    "flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
-                    activeSection === id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {label}
-                </button>
-              ))}
-            </nav>
-
-            {activeSection === null ? (
-              <nav className="flex flex-1 flex-col md:hidden">
-                {SECTIONS.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => setActiveSection(id)}
-                    className="flex items-center gap-3 border-b border-border px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
-                  >
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {label}
-                    <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
-                  </button>
-                ))}
-              </nav>
-            ) : null}
-
-            <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
-              <ScrollArea className="h-full">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
-                  <div className="border-b border-border pb-5">
-                    <h2 className="text-2xl font-semibold tracking-tight">{active.title}</h2>
-                  </div>
-                  <div className="grid gap-6">
-                    {active.content}
-                  </div>
-                </div>
-              </ScrollArea>
-            </div>
-          </div>
+          <DocsContent initialSection={initialSection} onSectionChange={onSectionChange} />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
