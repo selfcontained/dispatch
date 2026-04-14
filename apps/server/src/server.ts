@@ -158,7 +158,7 @@ const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
-type ActivityGranularity = "day" | "week" | "month";
+type ActivityGranularity = "hour" | "day" | "week" | "month";
 type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
@@ -250,7 +250,7 @@ type ActivityQuery = {
   granularity: ActivityGranularity;
 };
 
-const VALID_GRANULARITIES = new Set<ActivityGranularity>(["day", "week", "month"]);
+const VALID_GRANULARITIES = new Set<ActivityGranularity>(["hour", "day", "week", "month"]);
 const FALLBACK_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const VALID_TIMEZONES = new Set(Intl.supportedValuesOf("timeZone"));
 
@@ -296,7 +296,12 @@ function timeRangeClause(
 }
 
 function dateTruncTz(granularity: ActivityGranularity, column: string, tz: string): string {
-  return `date_trunc('${granularity}', ${column} AT TIME ZONE '${tz.replace(/'/g, "''")}')::date::text`;
+  const escaped = tz.replace(/'/g, "''");
+  const trunc = `date_trunc('${granularity}', ${column} AT TIME ZONE '${escaped}')`;
+  if (granularity === "hour") {
+    return `to_char(${trunc}, 'YYYY-MM-DD HH24:00')`;
+  }
+  return `${trunc}::date::text`;
 }
 
 function escapeHtml(s: string): string {
