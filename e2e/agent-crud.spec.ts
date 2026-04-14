@@ -123,6 +123,38 @@ test.describe("Agent CRUD", () => {
     expect(agent.autoReview).toBe(false);
   });
 
+  test("POST /api/v1/agents rejects non-boolean autoReview", async ({ request }) => {
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      data: {
+        name: `e2e-agent-${Date.now()}`,
+        cwd: "/tmp",
+        useWorktree: false,
+        autoReview: "true",
+      },
+    });
+    expect(res.status()).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "autoReview must be a boolean when provided.",
+    });
+  });
+
+  test("POST /api/v1/agents rejects oversized initialPrompt", async ({ request }) => {
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      data: {
+        name: `e2e-agent-${Date.now()}`,
+        cwd: "/tmp",
+        useWorktree: false,
+        initialPrompt: "x".repeat(16_001),
+      },
+    });
+    expect(res.status()).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "initialPrompt must be at most 16000 characters when provided.",
+    });
+  });
+
   test("cancel create dialog does not create an agent", async ({ page }) => {
     await loadApp(page);
 

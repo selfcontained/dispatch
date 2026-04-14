@@ -26,7 +26,7 @@ dispatch/
 │           ├── mcp/           # MCP server + repo tools
 │           └── lib/           # run-command utility
 ├── e2e/                       # Playwright E2E tests
-├── bin/                       # dispatch-dev, dispatch-server, dispatch-deploy, etc.
+├── bin/                       # dispatch-dev, dispatch-server, install-launchd, etc.
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)

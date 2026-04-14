@@ -93,6 +93,7 @@ slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
+const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
 const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
 jobService.onRunStateChange((run) => {
   uiEventBroker.publish({ type: "job.changed" });
@@ -762,14 +763,22 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "restarting");
   appendReleaseLog(job, "==> restarting service");
 
-  // Trigger the restart. launchctl kill sends SIGKILL to this process
-  // (and its process group). KeepAlive ensures launchd restarts it
-  // with the newly built code. The UI health-poll takes over from here.
-  const uid = process.getuid?.() ?? 501;
-  spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
-    detached: true,
-    stdio: "ignore"
-  }).unref();
+  // Trigger the restart. On macOS, launchctl kill sends SIGKILL to this
+  // process (and its process group). KeepAlive ensures launchd restarts it
+  // with the newly built code. On Linux, restart the user service directly.
+  // The UI health-poll takes over from here.
+  if (process.platform === "linux") {
+    spawn("systemctl", ["--user", "restart", "dispatch"], {
+      detached: true,
+      stdio: "ignore"
+    }).unref();
+  } else {
+    const uid = process.getuid?.() ?? 501;
+    spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
+      detached: true,
+      stdio: "ignore"
+    }).unref();
+  }
 }
 
 async function runUpdateJob(job: ReleaseJob): Promise<void> {
@@ -2985,6 +2994,10 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "useWorktree must be a boolean when provided." });
     }
 
+    if (body.autoReview !== undefined && typeof body.autoReview !== "boolean") {
+      return reply.code(400).send({ error: "autoReview must be a boolean when provided." });
+    }
+
     if (body.worktreeBranch !== undefined && typeof body.worktreeBranch !== "string") {
       return reply.code(400).send({ error: "worktreeBranch must be a string when provided." });
     }
@@ -2995,6 +3008,12 @@ async function registerRoutes() {
 
     if (body.initialPrompt !== undefined && typeof body.initialPrompt !== "string") {
       return reply.code(400).send({ error: "initialPrompt must be a string when provided." });
+    }
+
+    if (typeof body.initialPrompt === "string" && body.initialPrompt.trim().length > AGENT_INITIAL_PROMPT_MAX_CHARS) {
+      return reply.code(400).send({
+        error: `initialPrompt must be at most ${AGENT_INITIAL_PROMPT_MAX_CHARS} characters when provided.`
+      });
     }
 
     const agentArgs = providedAgentArgs as string[] | undefined;

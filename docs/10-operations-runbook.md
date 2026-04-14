@@ -51,23 +51,19 @@ For development, `dispatch-dev up` creates an isolated Docker Postgres container
 
 ## Release Pipeline
 
-Releases are handled by `bin/dispatch-release`, which:
+Releases are triggered from the Dispatch UI in **Settings → Releases** (release admin only). The server handles the job internally via `POST /api/v1/release`, which:
 
 1. Verifies `main` branch is clean and up-to-date with origin
 2. Triggers the `.github/workflows/release.yml` workflow via `gh` CLI
 3. Blocks until the workflow completes (`gh run watch` — zero token cost)
-4. On workflow success: captures the produced tag and calls `bin/dispatch-deploy <tag>`
+4. On workflow success: captures the produced tag and starts the server's update flow for that tag
 5. On workflow failure: fetches failed-step logs and spawns a diagnosis agent inside Dispatch
 
 ```bash
-# Cut a patch release (e.g. 1.2.3 → 1.2.4)
-bin/dispatch-release patch
-
-# Cut a minor release (e.g. 1.2.3 → 1.3.0)
-bin/dispatch-release minor
-
-# Cut a major release (e.g. 1.2.3 → 2.0.0)
-bin/dispatch-release major
+# Trigger a patch release from the API
+curl -X POST http://127.0.0.1:6767/api/v1/release \
+  -H 'Content-Type: application/json' \
+  -d '{"versionType":"patch"}'
 ```
 
 The **release workflow** (GitHub Actions):
@@ -76,23 +72,19 @@ The **release workflow** (GitHub Actions):
 - Commits, creates a git tag, pushes, and publishes a GitHub Release
 - Outputs the tag for downstream use
 
-## Deploy (Specific Tag)
+## Update To A Tag
 
 ```bash
-# Deploy a specific tag (also used for rollback)
-bin/dispatch-deploy v1.2.3
-
-# Deploy the latest stable release
-bin/dispatch-deploy --latest
-
-# Deploy the latest release from the "latest" channel (includes pre-releases)
-bin/dispatch-deploy --latest --channel latest
+# Update to a specific tag (also used for rollback)
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v1.2.3"}'
 ```
 
-`bin/dispatch-deploy` operates on `~/.dispatch/server/` and:
+The server update flow operates on `~/.dispatch/server/` and:
 1. Records the current tag for rollback
 2. Fetches and checks out the target tag
-3. Installs deps, builds, restarts the launchd service
+3. Installs deps, builds, restarts the managed service
 4. Polls `/api/v1/health` until the server responds (or times out)
 5. On failure: writes a detailed log to `~/.dispatch/logs/last-release-failure.log`, attempts automatic rollback to the previous tag
 
@@ -100,10 +92,12 @@ bin/dispatch-deploy --latest --channel latest
 
 ```bash
 # Roll back to a previously deployed tag
-bin/dispatch-deploy v1.2.2
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v1.2.2"}'
 ```
 
-If a deploy fails mid-flight, `dispatch-deploy` attempts auto-rollback automatically. Check the failure log for details:
+If an update fails mid-flight, the server attempts auto-rollback automatically. Check the failure log for details:
 
 ```bash
 cat ~/.dispatch/logs/last-release-failure.log
@@ -147,7 +141,7 @@ After installation, edit `~/.dispatch/server/.env` to set `DATABASE_URL` and any
 bin/uninstall-launchd
 ```
 
-Unloads and removes the plist. Does not remove `~/.dispatch/server/` or the Docker volume.
+Unloads and removes the plist. Does not remove `~/.dispatch/server/`, the Homebrew Postgres data directory, or any `dispatch-dev` Docker data created for isolated development environments.
 
 ## Configuration
 
