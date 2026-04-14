@@ -338,9 +338,8 @@ describe("AgentManager", () => {
       });
 
       const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
-      expect(setupScript).toContain("open a draft PR using create_pr");
-      expect(setupScript).toContain("Do not override baseBranch unless you intentionally need a different target");
-      expect(setupScript).toContain("Launch persona reviewers after the draft PR is open");
+      expect(setupScript).toContain("open a draft PR via create_pr");
+      expect(setupScript).toContain("do not override baseBranch");
     });
 
     it("should not include autonomous review guidance when autoReview is false", async () => {

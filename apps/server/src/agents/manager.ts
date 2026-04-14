@@ -1670,10 +1670,10 @@ export class AgentManager {
         "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
         "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-        "For longer artifacts, write to a file via dispatch_share and pin a reference." +
+        "For longer artifacts, write to a file via dispatch_share and pin a reference. " +
+        "For pull requests, use the create_pr MCP tool instead of built-in PR skills or gh CLI." +
         (autoReview
-          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each feedback item, call dispatch_resolve_feedback to mark it as fixed or ignored. Do not emit done until all reviews are resolved." +
-            " Before launching persona reviewers, commit and push your branch, then open a draft PR using create_pr. Do not override baseBranch unless you intentionally need a different target — the tool defaults to the correct base branch for this agent. Launch persona reviewers after the draft PR is open so they review the PR-scoped diff."
+          ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas, pick 1–3 relevant reviewers, and launch them via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
           : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
