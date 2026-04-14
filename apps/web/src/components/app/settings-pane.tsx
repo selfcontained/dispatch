@@ -497,7 +497,15 @@ export function SettingsPane({
             )}
 
             {/* Content */}
-            <div key={activeSection} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto", activeSection === null && "hidden md:block")}>
+            <div
+              key={activeSection}
+              className={cn(
+                "min-h-0 min-w-0 flex-1 overflow-y-auto",
+                activeSection === "help" && "flex",
+                activeSection === "help" && "overflow-hidden",
+                activeSection === null && "hidden md:block"
+              )}
+            >
               {activeSection === "general" && (
                 <div className="flex flex-col">
                   <div className="p-4 md:p-6">

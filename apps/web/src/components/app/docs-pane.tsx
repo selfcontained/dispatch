@@ -619,8 +619,8 @@ export function DocsContent({
   const active = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <nav className="hidden w-56 shrink-0 flex-col border-r border-border py-2 md:flex">
+    <div className="flex min-h-0 flex-1 items-stretch">
+      <nav className="hidden h-full w-56 shrink-0 flex-col self-stretch border-r border-border py-2 md:flex">
         {SECTIONS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -652,7 +652,7 @@ export function DocsContent({
         </nav>
       ) : null}
 
-      <div className={cn("min-h-0 min-w-0 flex-1", activeSection === null && "hidden md:block")}>
+      <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", activeSection === null && "hidden md:block")}>
         <ScrollArea className="h-full">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
             <div className="border-b border-border pb-5">
