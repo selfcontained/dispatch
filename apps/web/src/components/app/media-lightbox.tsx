@@ -284,6 +284,16 @@ export function MediaLightbox({
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
 
+  // Allow pinch-to-zoom while lightbox is open by relaxing the viewport meta tag
+  useEffect(() => {
+    if (!item) return;
+    const meta = document.querySelector<HTMLMetaElement>("meta[name=viewport]");
+    if (!meta) return;
+    const original = meta.content;
+    meta.content = "width=device-width, initial-scale=1.0";
+    return () => { meta.content = original; };
+  }, [item]);
+
   useEffect(() => {
     if (!item) {
       return;
@@ -335,21 +345,21 @@ export function MediaLightbox({
       className="fixed inset-0 z-[120] grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] bg-black/90 p-2 sm:p-6"
       data-testid="media-lightbox"
     >
-      <div className="mx-auto flex w-full max-w-4xl items-center gap-1 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-2 py-1.5 sm:px-4 sm:py-2">
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-3 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-3 py-2 sm:px-4 sm:py-2.5">
         <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
-        <div className="ml-auto flex shrink-0 items-center">
+        <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
             aria-label="Previous media item"
             data-testid="media-lightbox-prev"
             disabled={!canGoPrev}
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(currentIndex - 1)}
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
           <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
             {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
@@ -360,20 +370,20 @@ export function MediaLightbox({
             disabled={!canGoNext}
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(currentIndex + 1)}
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
             aria-label="Close"
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-9 sm:w-9"
             onClick={() => setLightboxIndex(null)}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
         </div>
       </div>
