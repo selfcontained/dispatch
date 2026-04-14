@@ -47,6 +47,7 @@ export type Agent = {
     filesReviewed: string[] | null;
     updatedAt: string;
   } | null;
+  baseBranch?: string | null;
   autoReview?: boolean;
   hasStream?: boolean;
   createdAt: string;
