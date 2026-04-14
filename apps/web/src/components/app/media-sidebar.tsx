@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, ExternalLink, FileText, Loader2, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, FileText, Loader2, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
@@ -92,6 +92,8 @@ function MediaContent({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const successTimerRef = useRef<number | null>(null);
 
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,8 +101,15 @@ function MediaContent({
       if (!file || !selectedAgentId || !onUploadFile) return;
       setUploading(true);
       setUploadError(null);
+      setUploadSuccess(false);
       try {
         await onUploadFile(selectedAgentId, file);
+        setUploadSuccess(true);
+        if (successTimerRef.current) window.clearTimeout(successTimerRef.current);
+        successTimerRef.current = window.setTimeout(() => {
+          setUploadSuccess(false);
+          successTimerRef.current = null;
+        }, 4000);
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "Upload failed");
       } finally {
@@ -124,26 +133,31 @@ function MediaContent({
 
       {/* Upload button bar */}
       {selectedAgentId && onUploadFile ? (
-        <div className="flex items-center gap-2 border-b-2 border-border px-3 py-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept={ACCEPTED_EXTENSIONS}
-            onChange={handleFileChange}
-          />
-          <Button
-            size="sm"
-            variant="default"
-            className="h-7 gap-1.5 text-xs"
-            disabled={uploading}
-            onClick={triggerFilePicker}
-          >
-            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-            {uploading ? "Uploading…" : "Share file"}
-          </Button>
-          {uploadError ? (
-            <span className="truncate text-xs text-destructive">{uploadError}</span>
+        <div className="border-b-2 border-border px-3 py-2">
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept={ACCEPTED_EXTENSIONS}
+              onChange={handleFileChange}
+            />
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 gap-1.5 text-xs"
+              disabled={uploading}
+              onClick={triggerFilePicker}
+            >
+              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : uploadSuccess ? <Check className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+              {uploading ? "Uploading…" : uploadSuccess ? "Shared" : "Share file"}
+            </Button>
+            {uploadError ? (
+              <span className="truncate text-xs text-destructive">{uploadError}</span>
+            ) : null}
+          </div>
+          {uploadSuccess ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">Tell the agent about the file so it knows to look.</p>
           ) : null}
         </div>
       ) : null}
