@@ -37,7 +37,7 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
-6. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
+6. Copy .env.example to .env. The defaults work for local-only use.
 7. Run: nvm use && pnpm install && pnpm run build
 8. Verify locally: pnpm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
 9. Install the launchd service: bin/install-launchd --port 6767
@@ -116,20 +116,9 @@ cd dispatch
 cp .env.example .env
 ```
 
-Edit `.env` — the only value you must change is `AUTH_TOKEN` for a local-only setup:
+The defaults work for local-only use. Authentication is handled automatically — the server generates a secure token on first run and stores it in the database.
 
-```
-DISPATCH_HOST=127.0.0.1
-DISPATCH_PORT=6767
-DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:5432/dispatch
-AUTH_TOKEN=<generate-a-real-token>
-MEDIA_ROOT=~/.dispatch/media
-```
-
-Generate a token with `openssl rand -hex 32`.
-
-If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` explicitly in
-`~/.dispatch/server/.env` after installation.
+If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` in `.env` (and in `~/.dispatch/server/.env` after installation).
 
 ### 5. Build & verify locally
 
