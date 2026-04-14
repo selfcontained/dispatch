@@ -105,6 +105,11 @@ Before marking any task as done, run the following checks and fix any failures:
   ```
 - `dispatch-dev up` auto-selects free ports and prints the URLs — just use the printed URLs.
 
+## Pull Request Creation
+- Always use the `create_pr` MCP tool to create pull requests. Do not use `gh pr create` directly.
+- When calling `create_pr`, do not pass `baseBranch` unless you intentionally need a different target — the tool automatically defaults to the correct base branch for this agent.
+- Use `fillFromCommits: true` or provide explicit `title` and `body` — omitting all three will fail because `gh` cannot open an interactive editor.
+
 ## Backend Testing Safety
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
 - When backend changes need local validation, use `dispatch-dev up` and point validation tooling to the printed URL.
