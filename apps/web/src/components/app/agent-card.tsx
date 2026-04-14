@@ -274,23 +274,13 @@ export function AgentCard({
                         <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Branch</div>
                         {agent.baseBranch ? (
                           <div className="grid gap-0">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="text-muted-foreground">
-                                  <FrontTruncatedValue value={agent.baseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${agent.baseBranch}`} />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="text-xs">Base branch</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="flex items-center gap-1 pl-1">
-                                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">└</span>
-                                  <FrontTruncatedValue value={agent.gitContext.branch} mono tooltipValue={`Working branch: ${agent.gitContext.branch}`} />
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="right" className="text-xs">Working branch</TooltipContent>
-                            </Tooltip>
+                            <div className="text-muted-foreground">
+                              <FrontTruncatedValue value={agent.baseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${agent.baseBranch}`} />
+                            </div>
+                            <div className="flex items-center gap-1 pl-1">
+                              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">└</span>
+                              <FrontTruncatedValue value={agent.gitContext.branch} mono tooltipValue={`Working branch: ${agent.gitContext.branch}`} />
+                            </div>
                           </div>
                         ) : (
                           <FrontTruncatedValue value={agent.gitContext.branch} mono />
