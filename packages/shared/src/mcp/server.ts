@@ -20,6 +20,7 @@ export type McpAgent = {
   cwd: string;
   persona?: string | null;
   parentAgentId?: string | null;
+  baseBranch?: string | null;
 };
 
 export type MediaResult = {
@@ -393,13 +394,15 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
 
   // ── create_pr ─────────────────────────────────────────────────────
   if (allowed.has("create_pr")) {
+    const agentBaseBranch = context.agent?.baseBranch;
+    const defaultBaseBranch = agentBaseBranch || "main";
     server.registerTool(
       "create_pr",
       {
         description: "Create a GitHub pull request for the current branch.",
         inputSchema: {
           cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
-          baseBranch: z.string().default("main").describe("Base branch to target."),
+          baseBranch: z.string().default(defaultBaseBranch).describe("Base branch to target."),
           title: z.string().optional().describe("Explicit PR title."),
           body: z.string().optional().describe("Explicit PR body."),
           draft: z.boolean().default(false).describe("Create the PR as a draft."),

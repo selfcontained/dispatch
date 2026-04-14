@@ -60,6 +60,60 @@ describe("github pr services", () => {
     expect(result.prNumber).toBe(99);
   });
 
+  it("creates a PR targeting a custom base branch", async () => {
+    const repoRoot = "/tmp/repo";
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} symbolic-ref --short -q HEAD`:
+          return { exitCode: 0, stdout: "fix/bug-on-feature", stderr: "" };
+        case `-C ${repoRoot} fetch origin feature/foo --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-list --count origin/feature/foo..HEAD`:
+          return { exitCode: 0, stdout: "1", stderr: "" };
+        case `-C ${repoRoot} rev-parse --abbrev-ref --symbolic-full-name @{upstream}`:
+          return { exitCode: 0, stdout: "origin/fix/bug-on-feature", stderr: "" };
+        case `-C ${repoRoot} push origin fix/bug-on-feature`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `pr create --base feature/foo --head fix/bug-on-feature --fill`:
+          return { exitCode: 0, stdout: "https://github.com/selfcontained/dispatch/pull/100", stderr: "" };
+        case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              number: 100,
+              url: "https://github.com/selfcontained/dispatch/pull/100",
+              title: "Fix bug on feature",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: null,
+              mergeStateStatus: "UNSTABLE",
+              mergeable: "MERGEABLE",
+              autoMergeRequest: null,
+              headRefName: "fix/bug-on-feature",
+              baseRefName: "feature/foo",
+              statusCheckRollup: []
+            }),
+            stderr: ""
+          };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const result = await createPr({
+      cwd: repoRoot,
+      baseBranch: "feature/foo",
+      fillFromCommits: true
+    }, runner);
+
+    expect(result.url).toBe("https://github.com/selfcontained/dispatch/pull/100");
+    expect(result.baseBranch).toBe("feature/foo");
+    expect(result.branchName).toBe("fix/bug-on-feature");
+  });
+
   it("rejects create_pr without non-interactive title/body settings", async () => {
     const repoRoot = "/tmp/repo";
     const runner = vi.fn(async (_command: string, args: string[]) => {

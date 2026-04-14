@@ -1348,6 +1348,7 @@ async function registerRoutes() {
         cwd: agent.cwd,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
+        baseBranch: agent.baseBranch,
       },
       repoRoot,
       worktreeRoot,

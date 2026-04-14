@@ -75,6 +75,7 @@ export type AgentRecord = {
     filesReviewed: string[] | null;
     updatedAt: string;
   } | null;
+  baseBranch: string | null;
   autoReview: boolean;
   cliSessionId: string | null;
   createdAt: string;
@@ -389,12 +390,12 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, updated_at)
+      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
       `,
       [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
         input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null, input.reviewAgentType ?? null,
-        cliSessionId, input.autoReview ?? false]
+        cliSessionId, input.autoReview ?? false, input.baseBranch ?? null]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -1669,9 +1670,10 @@ export class AgentManager {
         "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
         "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
         "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-        "For longer artifacts, write to a file via dispatch_share and pin a reference." +
+        "For longer artifacts, write to a file via dispatch_share and pin a reference. " +
+        "For pull requests, use the create_pr MCP tool instead of built-in PR skills or gh CLI." +
         (autoReview
-          ? " Autonomous Review is enabled. Before emitting done, call list_personas, pick 1–3 relevant reviewers, launch them via dispatch_launch_persona with context about your changes, then poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each feedback item, call dispatch_resolve_feedback to mark it as fixed or ignored. Do not emit done until all reviews are resolved."
+          ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas, pick 1–3 relevant reviewers, and launch them via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
           : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
@@ -2692,6 +2694,7 @@ export class AgentManager {
         parent_agent_id AS "parentAgentId",
         persona_context AS "personaContext",
         review_agent_type AS "reviewAgentType",
+        base_branch AS "baseBranch",
         auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
         (SELECT json_build_object(

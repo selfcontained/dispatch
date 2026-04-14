@@ -164,6 +164,23 @@ describe("AgentManager", () => {
       expect(agent.autoReview).toBe(false);
     });
 
+    it("should persist baseBranch when provided", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        baseBranch: "feature/foo",
+        useWorktree: false,
+      });
+      expect(agent.baseBranch).toBe("feature/foo");
+    });
+
+    it("should default baseBranch to null when not provided", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      expect(agent.baseBranch).toBeNull();
+    });
+
     it("should reject non-absolute paths", async () => {
       await expect(manager.createAgent({ cwd: "relative/path" })).rejects.toThrow(
         "absolute path"
@@ -310,6 +327,19 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("list_personas");
       expect(setupScript).toContain("dispatch_launch_persona");
       expect(setupScript).toContain("dispatch_get_feedback");
+    });
+
+    it("should include draft PR guidance in autonomous review", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      expect(setupScript).toContain("open a draft PR via create_pr");
+      expect(setupScript).toContain("do not override baseBranch");
     });
 
     it("should not include autonomous review guidance when autoReview is false", async () => {
