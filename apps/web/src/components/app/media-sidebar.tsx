@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
-  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
 
 
 function fileExtension(name: string): string {
@@ -197,6 +197,7 @@ function MediaContent({
 
             const isStream = file.source === "stream";
             const isText = file.source === "text" || isTextFile(file.name);
+            const isDocument = /\.pdf$/i.test(file.name);
             const isUser = file.source === "user";
 
             return (
@@ -226,7 +227,7 @@ function MediaContent({
                     ) : null}
                   </div>
                 )}
-                {isText ? (
+                {isText || isDocument ? (
                   <button
                     className={cn(
                       "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",

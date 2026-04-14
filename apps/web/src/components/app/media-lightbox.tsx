@@ -322,6 +322,7 @@ export function MediaLightbox({
   }
 
   const isText = item.file.source === "text" || isTextFile(item.file.name);
+  const isDocument = /\.pdf$/i.test(item.file.name);
   const isVideo = /\.mp4/i.test(item.src);
   const displayName = stripTimestamp(item.file.name);
 
@@ -379,10 +380,12 @@ export function MediaLightbox({
       <div
         className={cn(
           "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border touch-pinch-zoom",
-          isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
+          isDocument ? "bg-white" : isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
         )}
       >
-        {isText ? (
+        {isDocument ? (
+          <iframe src={item.src} title={displayName} className="h-full w-full" />
+        ) : isText ? (
           <TextViewer src={item.src} fileName={item.file.name} />
         ) : isVideo ? (
           <video

@@ -2789,7 +2789,7 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     if (!isMediaFile(fileName)) {
-      return reply.code(400).send({ error: "Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc)." });
+      return reply.code(400).send({ error: "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)." });
     }
 
     const isText = isTextFile(fileName);
@@ -4055,8 +4055,15 @@ function isTextFile(name: string): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
+const DOCUMENT_EXTENSIONS = new Set([".pdf"]);
+
+function isDocumentFile(name: string): boolean {
+  const ext = path.extname(name).toLowerCase();
+  return DOCUMENT_EXTENSIONS.has(ext);
+}
+
 function isMediaFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name);
+  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name) || isDocumentFile(name);
 }
 
 function mimeType(name: string): string {
@@ -4110,6 +4117,10 @@ function mimeType(name: string): string {
 
   if (/\.ya?ml$/i.test(name)) {
     return "text/yaml";
+  }
+
+  if (/\.pdf$/i.test(name)) {
+    return "application/pdf";
   }
 
   if (isTextFile(name)) {
@@ -4446,7 +4457,7 @@ async function mcpShareMedia(
   if (!agent) throw new Error("Agent not found.");
 
   if (!isMediaFile(opts.filePath)) {
-    throw new Error("Unsupported file type. Use png/jpg/jpeg/gif/webp/mp4 or text files (txt/md/json/yaml/ts/py/etc).");
+    throw new Error("Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).");
   }
 
   const isText = isTextFile(opts.filePath);
