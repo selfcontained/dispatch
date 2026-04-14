@@ -1,4 +1,4 @@
-export type ActivityGranularity = "day" | "week" | "month";
+export type ActivityGranularity = "hour" | "day" | "week" | "month";
 
 export type ActivityEventRow = {
   agent_id: string;
@@ -23,6 +23,10 @@ function localDateString(d: Date): string {
 
 function bucketStart(timeMs: number, granularity: ActivityGranularity): string {
   const bucket = new Date(timeMs);
+  if (granularity === "hour") {
+    const h = String(bucket.getHours()).padStart(2, "0");
+    return `${localDateString(bucket)} ${h}:00`;
+  }
   if (granularity === "week") {
     const day = bucket.getDay();
     const diff = day === 0 ? -6 : 1 - day;

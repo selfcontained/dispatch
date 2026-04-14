@@ -1,6 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { CalendarIcon, X } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { AgentHistoryTab } from "@/components/app/agent-history-tab";
 import {
   Bar,
@@ -71,6 +74,14 @@ function formatDate(iso: string): string {
 }
 
 function formatBucketLabel(iso: string, granularity: ActivityGranularity): string {
+  if (granularity === "hour") {
+    // iso is like "2026-04-14 09:00"
+    const hourStr = iso.split(" ")[1] ?? "00:00";
+    const hour = parseInt(hourStr.split(":")[0], 10);
+    const suffix = hour >= 12 ? "pm" : "am";
+    const normalized = hour % 12 === 0 ? 12 : hour % 12;
+    return `${normalized}${suffix}`;
+  }
   const d = new Date(iso + "T00:00:00");
   if (granularity === "month") {
     return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
@@ -273,7 +284,7 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
     [data]
   );
   const max = Math.max(...data.map((cell) => cell.avgPerWeek), 0.01);
-  const cadenceLabel = range === "7d" ? "events" : "avg events / week";
+  const cadenceLabel = range === "daily" ? "events" : range === "7d" ? "events" : "avg events / week";
 
   return (
     <div className="space-y-3">
@@ -302,7 +313,7 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
                   avgPerWeek: 0,
                 };
                 const title =
-                  range === "7d"
+                  range === "daily" || range === "7d"
                     ? `${ACTIVE_HOURS_DAY_LABELS[dayOfWeek]} ${formatHour(hour)}: ${cell.count} active events`
                     : `${ACTIVE_HOURS_DAY_LABELS[dayOfWeek]} ${formatHour(hour)}: ${cell.avgPerWeek} avg events/week (${cell.count} total)`;
                 return (
@@ -343,8 +354,20 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
 function fillGaps<T extends { day: string }>(
   data: T[],
   granularity: ActivityGranularity,
-  defaultEntry: (day: string) => T
+  defaultEntry: (day: string) => T,
+  dailyDate?: string
 ): T[] {
+  if (granularity === "hour") {
+    // Fill all 24 hours for the selected day
+    const dataMap = new Map(data.map((d) => [d.day, d]));
+    const datePrefix = dailyDate ?? (data.length > 0 ? data[0].day.split(" ")[0] : new Date().toISOString().slice(0, 10));
+    const filled: T[] = [];
+    for (let h = 0; h < 24; h++) {
+      const key = `${datePrefix} ${String(h).padStart(2, "0")}:00`;
+      filled.push(dataMap.get(key) ?? defaultEntry(key));
+    }
+    return filled;
+  }
   if (granularity !== "day") return data;
   if (data.length < 2) return data;
   const filled: T[] = [];
@@ -363,12 +386,14 @@ function fillGaps<T extends { day: string }>(
 function DailyStackedBarChart({
   data: rawData,
   granularity,
+  dailyDate,
 }: {
   data: DailyStatusEntry[];
   granularity: ActivityGranularity;
+  dailyDate?: string;
 }) {
   const chartData = useMemo(() => {
-    const filled = fillGaps<DailyStatusEntry>(rawData, granularity, (day) => ({ day }));
+    const filled = fillGaps<DailyStatusEntry>(rawData, granularity, (day) => ({ day }), dailyDate);
     return filled.map((d) => ({
       day: d.day,
       label: formatBucketLabel(d.day, granularity),
@@ -376,7 +401,7 @@ function DailyStackedBarChart({
       blocked: msToMinutes(d.blocked ?? 0),
       waiting_user: msToMinutes(d.waiting_user ?? 0),
     }));
-  }, [granularity, rawData]);
+  }, [granularity, rawData, dailyDate]);
 
   if (chartData.length === 0) {
     return (
@@ -478,20 +503,22 @@ function DailyTokenChart({
   data: rawData,
   granularity,
   agentsCreatedData,
+  dailyDate,
 }: {
   data: TokenDailyEntry[];
   granularity: ActivityGranularity;
   agentsCreatedData?: AgentsCreatedEntry[];
+  dailyDate?: string;
 }) {
   const chartData = useMemo(() => {
-    const filled = fillGaps(rawData, granularity, EMPTY_TOKEN_ENTRY);
+    const filled = fillGaps(rawData, granularity, EMPTY_TOKEN_ENTRY, dailyDate);
     const agentsMap = new Map(agentsCreatedData?.map((d) => [d.day, d.count]) ?? []);
     return filled.map((d) => ({
       ...d,
       label: formatBucketLabel(d.day, granularity),
       agents_created: agentsMap.get(d.day) ?? 0,
     }));
-  }, [granularity, rawData, agentsCreatedData]);
+  }, [granularity, rawData, agentsCreatedData, dailyDate]);
 
   const hasAgentsLine = chartData.some((d) => d.agents_created > 0);
 
@@ -519,32 +546,41 @@ function DailyTokenChart({
           <YAxis yAxisId="agents" orientation="right" hide />
         )}
         <ChartTooltip
-          content={
-            <ChartTooltipContent
-              indicator="dot"
-              formatter={(value, name) => (
-                <>
-                  <div
-                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                    style={{
-                      backgroundColor: tokenChartConfig[name as string]?.color,
-                    }}
-                  />
-                  <div className="flex flex-1 items-center justify-between gap-8">
-                    <span className="text-muted-foreground">
-                      {tokenChartConfig[name as string]?.label ?? name}
+          content={({ active, payload, label: tooltipLabel }) => {
+            if (!active || !payload?.length) return null;
+            const tokenEntries = payload.filter((p) => p.dataKey !== "agents_created");
+            const total = tokenEntries.reduce((sum, p) => sum + (typeof p.value === "number" ? p.value : 0), 0);
+            return (
+              <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-md">
+                <div className="mb-1.5 font-medium">{tooltipLabel}</div>
+                {payload.map((p) => (
+                  <div key={String(p.dataKey)} className="flex items-center gap-2 py-0.5">
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: tokenChartConfig[p.dataKey as string]?.color }}
+                    />
+                    <span className="flex-1 text-muted-foreground">
+                      {tokenChartConfig[p.dataKey as string]?.label ?? String(p.dataKey)}
                     </span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
-                      {name === "agents_created"
-                        ? String(value)
-                        : formatTokenCount(value as number)}
+                      {p.dataKey === "agents_created"
+                        ? String(p.value)
+                        : formatTokenCount(p.value as number)}
                     </span>
                   </div>
-                </>
-              )}
-              labelFormatter={(label) => label as string}
-            />
-          }
+                ))}
+                {tokenEntries.length > 1 && (
+                  <div className="mt-1.5 flex items-center gap-2 border-t border-border pt-1.5">
+                    <div className="h-2.5 w-2.5 shrink-0" />
+                    <span className="flex-1 font-medium text-foreground">Total</span>
+                    <span className="font-mono font-medium text-foreground tabular-nums">
+                      {formatTokenCount(total)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          }}
         />
         <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />} />
         {TOKEN_ORDER.map((key) => (
@@ -681,12 +717,70 @@ function ProjectBreakdown({
   );
 }
 
+// ── Date picker with z-index fix for dialog context ─────────────────
+
+function DatePickerPopover({
+  dailyDate,
+  onDateChange,
+}: {
+  dailyDate: string;
+  onDateChange: (date: string) => void;
+}) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  // Radix Popover sets inline z-index:50 via floating-ui, but our dialog is z-70.
+  // Scoped to this component so it only applies while the date picker is mounted.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = "[data-radix-popper-content-wrapper]{z-index:80!important}";
+    document.head.appendChild(style);
+    return () => { style.remove(); };
+  }, []);
+
+
+  return (
+    <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="default"
+          className="h-8 gap-1.5 bg-muted/30 text-xs font-normal"
+          data-testid="activity-date-picker"
+        >
+          <CalendarIcon className="h-3.5 w-3.5" />
+          {new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto bg-muted p-0 shadow-lg" align="end">
+        <Calendar
+          mode="single"
+          selected={new Date(dailyDate + "T00:00:00")}
+          onSelect={(date) => {
+            if (date) {
+              onDateChange(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+              setCalendarOpen(false);
+            }
+          }}
+          disabled={{ after: new Date() }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ── Main pane ───────────────────────────────────────────────────────
 
 type ActivityTab = "metrics" | "history";
 
 export function ActivityPane({ open, onClose, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
+  const [dailyDate, setDailyDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [tab, setTabState] = useState<ActivityTab>(initialTab ?? "metrics");
 
   useEffect(() => {
@@ -699,16 +793,20 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
     setTabState(newTab);
     onTabChange?.(newTab);
   }, [onTabChange]);
+
+  const isDaily = range === "daily";
+  const dailyDateParam = isDaily ? dailyDate : undefined;
+
   const { data: heatmapData } = useActivityHeatmap();
-  const { data: stats } = useActivityStats(range);
-  const { data: dailyStatus } = useDailyStatus(range);
-  const { data: activeHours } = useActiveHours(range);
-  const { data: tokenStats } = useTokenStats(range);
-  const { data: tokenDaily } = useTokenDaily(range);
-  const { data: tokenByModel } = useTokenByModel(range);
-  const { data: tokenByProject } = useTokenByProject(range);
-  const { data: agentsCreated } = useAgentsCreated(range);
-  const { data: workingTimeByProject } = useWorkingTimeByProject(range);
+  const { data: stats } = useActivityStats(range, dailyDateParam);
+  const { data: dailyStatus } = useDailyStatus(range, dailyDateParam);
+  const { data: activeHours } = useActiveHours(range, dailyDateParam);
+  const { data: tokenStats } = useTokenStats(range, dailyDateParam);
+  const { data: tokenDaily } = useTokenDaily(range, dailyDateParam);
+  const { data: tokenByModel } = useTokenByModel(range, dailyDateParam);
+  const { data: tokenByProject } = useTokenByProject(range, dailyDateParam);
+  const { data: agentsCreated } = useAgentsCreated(range, dailyDateParam);
+  const { data: workingTimeByProject } = useWorkingTimeByProject(range, dailyDateParam);
 
   const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
   const totalTokens = tokenStats
@@ -752,22 +850,27 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
             </div>
             <div className="ml-auto flex items-center gap-2">
               {tab === "metrics" && (
-                <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
-                  <SelectTrigger
-                    className="h-8 w-[132px] bg-muted/30 text-xs"
-                    data-testid="activity-range-select"
-                    aria-label="Activity time range"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACTIVITY_RANGES.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {rangeLabel(option)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <>
+                  {isDaily && (
+                    <DatePickerPopover dailyDate={dailyDate} onDateChange={setDailyDate} />
+                  )}
+                  <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+                    <SelectTrigger
+                      className="h-8 w-[132px] bg-muted/30 text-xs"
+                      data-testid="activity-range-select"
+                      aria-label="Activity time range"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTIVITY_RANGES.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {rangeLabel(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
               )}
             </div>
             <DialogPrimitive.Close className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
@@ -825,12 +928,15 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
               {tokenDaily && tokenDaily.days.length > 0 && (
                 <div>
                   <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Token usage ({rangeLabel(range).toLowerCase()})
+                    Token usage ({isDaily
+                      ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                      : rangeLabel(range).toLowerCase()})
                   </h2>
                   <DailyTokenChart
                     data={tokenDaily.days}
                     granularity={tokenDaily.granularity}
                     agentsCreatedData={agentsCreated?.days}
+                    dailyDate={dailyDateParam}
                   />
                 </div>
               )}
@@ -876,9 +982,11 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
                     Active hours
                   </h2>
                   <p className="mb-3 text-xs text-muted-foreground">
-                    {range === "7d"
-                      ? "Active-state events by weekday and hour for the last 7 days."
-                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
+                    {isDaily
+                      ? "Active-state events by weekday and hour for the selected day."
+                      : range === "7d"
+                        ? "Active-state events by weekday and hour for the last 7 days."
+                        : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
                   </p>
                   <ActiveHoursGrid data={activeHours} range={range} />
                 </div>
@@ -911,11 +1019,14 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
               {dailyStatus && dailyStatus.days.length > 0 && (
                 <div>
                   <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Status breakdown ({rangeLabel(range).toLowerCase()})
+                    Status breakdown ({isDaily
+                      ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                      : rangeLabel(range).toLowerCase()})
                   </h2>
                   <DailyStackedBarChart
                     data={dailyStatus.days}
                     granularity={dailyStatus.granularity}
+                    dailyDate={dailyDateParam}
                   />
                 </div>
               )}
