@@ -4,8 +4,6 @@ import {
   Archive,
   ChevronDown,
   AlarmClock,
-  GitBranch,
-  GitFork,
   Loader2,
   Play,
   Pause,
@@ -275,11 +273,10 @@ export function AgentCard({
                       <div className="grid gap-1">
                         <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Branch</div>
                         {agent.baseBranch ? (
-                          <div className="grid gap-0.5">
+                          <div className="grid gap-0">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <GitFork className="h-3 w-3 shrink-0" />
+                                <div className="text-muted-foreground">
                                   <FrontTruncatedValue value={agent.baseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${agent.baseBranch}`} />
                                 </div>
                               </TooltipTrigger>
@@ -287,8 +284,8 @@ export function AgentCard({
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div className="flex items-center gap-1.5 pl-1.5">
-                                  <GitBranch className="h-3 w-3 shrink-0 text-foreground" />
+                                <div className="flex items-center gap-1 pl-1">
+                                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">└</span>
                                   <FrontTruncatedValue value={agent.gitContext.branch} mono tooltipValue={`Working branch: ${agent.gitContext.branch}`} />
                                 </div>
                               </TooltipTrigger>
