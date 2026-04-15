@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlarmClock, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -239,7 +239,7 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
             onClick={openAddJob}
             data-testid="add-job-button"
           >
-            <Plus className="mr-1 h-4 w-4" />
+            <AlarmClock className="mr-1 h-4 w-4" />
             Create
           </Button>
         </div>
