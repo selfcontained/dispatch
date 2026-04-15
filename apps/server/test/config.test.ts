@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assertSafeDatabaseConfig, assertSafePortConfig } from "../src/config.js";
+import {
+  assertSafeDatabaseConfig,
+  assertSafePortConfig,
+} from "../src/config.js";
 
 describe("database safety config", () => {
   it("refuses the production database from a Dispatch agent context", () => {
@@ -15,7 +18,10 @@ describe("database safety config", () => {
   it("allows isolated dispatch-dev databases from a Dispatch agent context", () => {
     expect(() =>
       assertSafeDatabaseConfig(
-        { databaseUrl: "postgres://dispatch:dispatch@127.0.0.1:5433/dispatch_agt_test" },
+        {
+          databaseUrl:
+            "postgres://dispatch:dispatch@127.0.0.1:5433/dispatch_agt_test",
+        },
         { DISPATCH_AGENT_ID: "agt_test" }
       )
     ).not.toThrow();
@@ -45,8 +51,6 @@ describe("port safety config", () => {
   });
 
   it("allows production port outside agent context", () => {
-    expect(() =>
-      assertSafePortConfig({ port: 6767 }, {})
-    ).not.toThrow();
+    expect(() => assertSafePortConfig({ port: 6767 }, {})).not.toThrow();
   });
 });

@@ -3,7 +3,12 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
-import { appendJobLog, validateJobReport, validateTerminalJobReport, type JobReport } from "./report.js";
+import {
+  appendJobLog,
+  validateJobReport,
+  validateTerminalJobReport,
+  type JobReport,
+} from "./report.js";
 
 export type JobNotifyConfig = {
   onComplete: string[];
@@ -11,7 +16,14 @@ export type JobNotifyConfig = {
   onNeedsInput: string[];
 };
 
-export type JobRunStatus = "started" | "running" | "completed" | "failed" | "needs_input" | "timed_out" | "crashed";
+export type JobRunStatus =
+  | "started"
+  | "running"
+  | "completed"
+  | "failed"
+  | "needs_input"
+  | "timed_out"
+  | "crashed";
 export type JobAgentType = "claude" | "codex" | "opencode";
 
 export type JobRecord = {
@@ -47,7 +59,11 @@ export type JobRunRecord = {
   createdAt: string;
 };
 
-const ACTIVE_RUN_STATUSES: JobRunStatus[] = ["started", "running", "needs_input"];
+const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
+  "started",
+  "running",
+  "needs_input",
+];
 
 export type JobWithLatestRun = JobRecord & {
   lastRunId: string | null;
@@ -123,7 +139,9 @@ export class JobStore {
       return mapJob(result.rows[0]);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new Error(`A job named "${input.name}" already exists in directory "${input.directory}".`);
+        throw new Error(
+          `A job named "${input.name}" already exists in directory "${input.directory}".`
+        );
       }
       throw error;
     }
@@ -158,7 +176,9 @@ export class JobStore {
     } catch (error) {
       if (isUniqueViolation(error)) {
         const activeRun = await this.findActiveRun(jobId);
-        throw new Error(`Job already has active run ${activeRun?.id ?? "unknown"}.`);
+        throw new Error(
+          `Job already has active run ${activeRun?.id ?? "unknown"}.`
+        );
       }
       throw error;
     }
@@ -178,15 +198,32 @@ export class JobStore {
     return mapRun(result.rows[0]);
   }
 
-  async completeRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
-    return this.setTerminalRunForAgent(agentId, "completed", validateTerminalJobReport(report, "completed"));
+  async completeRunForAgent(
+    agentId: string,
+    report: unknown
+  ): Promise<JobRunRecord> {
+    return this.setTerminalRunForAgent(
+      agentId,
+      "completed",
+      validateTerminalJobReport(report, "completed")
+    );
   }
 
-  async failRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
-    return this.setTerminalRunForAgent(agentId, "failed", validateTerminalJobReport(report, "failed"));
+  async failRunForAgent(
+    agentId: string,
+    report: unknown
+  ): Promise<JobRunRecord> {
+    return this.setTerminalRunForAgent(
+      agentId,
+      "failed",
+      validateTerminalJobReport(report, "failed")
+    );
   }
 
-  async markNeedsInputForAgent(agentId: string, question: string): Promise<JobRunRecord> {
+  async markNeedsInputForAgent(
+    agentId: string,
+    question: string
+  ): Promise<JobRunRecord> {
     const trimmed = question.trim();
     if (!trimmed) throw new Error("question must be a non-empty string.");
     const result = await this.pool.query(
@@ -202,15 +239,19 @@ export class JobStore {
       `,
       [agentId, trimmed, ACTIVE_RUN_STATUSES]
     );
-    if (!result.rows[0]) throw new Error(`No active job run found for agent ${agentId}.`);
+    if (!result.rows[0])
+      throw new Error(`No active job run found for agent ${agentId}.`);
     return mapRun(result.rows[0]);
   }
 
-  async logForAgent(agentId: string, input: {
-    task: string;
-    message: string;
-    level: "debug" | "info" | "warn" | "error";
-  }): Promise<JobRunRecord> {
+  async logForAgent(
+    agentId: string,
+    input: {
+      task: string;
+      message: string;
+      level: "debug" | "info" | "warn" | "error";
+    }
+  ): Promise<JobRunRecord> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -259,7 +300,10 @@ export class JobStore {
   }
 
   async getRun(runId: string): Promise<JobRunRecord | null> {
-    const result = await this.pool.query(`SELECT ${this.runColumns()} FROM job_runs WHERE id = $1`, [runId]);
+    const result = await this.pool.query(
+      `SELECT ${this.runColumns()} FROM job_runs WHERE id = $1`,
+      [runId]
+    );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
 
@@ -353,14 +397,16 @@ export class JobStore {
     return result.rows.map((row) => mapRun(row));
   }
 
-  async listRecentRuns(limit = 10): Promise<Array<{
-    id: string;
-    jobId: string;
-    status: JobRunStatus;
-    startedAt: string;
-    durationMs: number | null;
-    jobName: string;
-  }>> {
+  async listRecentRuns(limit = 10): Promise<
+    Array<{
+      id: string;
+      jobId: string;
+      status: JobRunStatus;
+      startedAt: string;
+      durationMs: number | null;
+      jobName: string;
+    }>
+  > {
     const result = await this.pool.query(
       `
       SELECT
@@ -443,7 +489,10 @@ export class JobStore {
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
 
-  async getJobByDirectoryAndName(directory: string, name: string): Promise<JobRecord | null> {
+  async getJobByDirectoryAndName(
+    directory: string,
+    name: string
+  ): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
       [path.resolve(directory), name]
@@ -465,7 +514,10 @@ export class JobStore {
     return mapJob(result.rows[0]);
   }
 
-  async updateJobConfig(jobId: string, input: JobConfigUpdate): Promise<JobRecord> {
+  async updateJobConfig(
+    jobId: string,
+    input: JobConfigUpdate
+  ): Promise<JobRecord> {
     try {
       const result = await this.pool.query(
         `
@@ -505,7 +557,9 @@ export class JobStore {
       return mapJob(result.rows[0]);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new Error(`A job named "${input.name}" already exists in this directory.`);
+        throw new Error(
+          `A job named "${input.name}" already exists in this directory.`
+        );
       }
       throw error;
     }
@@ -555,7 +609,9 @@ export class JobStore {
     if (!result.rows[0]) {
       const existing = await this.getRun(runId);
       if (!existing) throw new Error(`Job run ${runId} not found.`);
-      throw new Error(`Job run ${runId} is no longer active (${existing.status}).`);
+      throw new Error(
+        `Job run ${runId} is no longer active (${existing.status}).`
+      );
     }
     return mapRun(result.rows[0]);
   }
@@ -611,5 +667,10 @@ function mapJobWithLatestRun(row: Record<string, unknown>): JobWithLatestRun {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  );
 }

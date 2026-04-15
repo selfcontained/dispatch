@@ -1,4 +1,9 @@
-import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type APIRequestContext,
+} from "@playwright/test";
 import { execSync } from "child_process";
 import { cleanupE2EAgents, loadApp } from "./helpers";
 
@@ -17,7 +22,9 @@ async function createAndStartAgent(
     headers: authHeaders(),
     data: { name, type: "codex", cwd: "/tmp" },
   });
-  const { agent } = (await createRes.json()) as { agent: { id: string; name: string } };
+  const { agent } = (await createRes.json()) as {
+    agent: { id: string; name: string };
+  };
 
   await request.post(`/api/v1/agents/${agent.id}/start`, {
     headers: authHeaders(),
@@ -26,11 +33,14 @@ async function createAndStartAgent(
   return agent;
 }
 
-async function waitForTerminalConnected(page: Page, timeoutMs = 10_000): Promise<void> {
+async function waitForTerminalConnected(
+  page: Page,
+  timeoutMs = 10_000
+): Promise<void> {
   // The detach button in the header is visible when the terminal WebSocket is connected
-  await expect(
-    page.getByTestId("detach-button")
-  ).toBeVisible({ timeout: timeoutMs });
+  await expect(page.getByTestId("detach-button")).toBeVisible({
+    timeout: timeoutMs,
+  });
 }
 
 async function simulateHidden(page: Page): Promise<void> {
@@ -87,7 +97,10 @@ test.describe("Terminal live connection", () => {
     await waitForTerminalConnected(page, 3_000);
   });
 
-  test("terminal stays connected during SSE agent events", async ({ page, request }) => {
+  test("terminal stays connected during SSE agent events", async ({
+    page,
+    request,
+  }) => {
     test.skip(!IS_LIVE, "Requires --live agent runtime");
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
@@ -103,7 +116,11 @@ test.describe("Terminal live connection", () => {
     for (let i = 0; i < 3; i++) {
       await request.post("/api/v1/agents", {
         headers: authHeaders(),
-        data: { name: `e2e-agent-noise-${Date.now()}-${i}`, type: "shell", cwd: "/tmp" },
+        data: {
+          name: `e2e-agent-noise-${Date.now()}-${i}`,
+          type: "shell",
+          cwd: "/tmp",
+        },
       });
       // Small delay so events fire individually
       await page.waitForTimeout(200);
@@ -148,8 +165,14 @@ test.describe("Terminal live connection", () => {
   test("rapid agent switching stays stable", async ({ page, request }) => {
     test.skip(!IS_LIVE, "Requires --live agent runtime");
 
-    const agentA = await createAndStartAgent(request, `e2e-agent-A-${Date.now()}`);
-    const agentB = await createAndStartAgent(request, `e2e-agent-B-${Date.now()}`);
+    const agentA = await createAndStartAgent(
+      request,
+      `e2e-agent-A-${Date.now()}`
+    );
+    const agentB = await createAndStartAgent(
+      request,
+      `e2e-agent-B-${Date.now()}`
+    );
     await loadApp(page);
 
     const cardA = page.getByTestId(`agent-card-${agentA.id}`);
@@ -168,13 +191,19 @@ test.describe("Terminal live connection", () => {
     await waitForTerminalConnected(page, 5_000);
   });
 
-  test("healthy resume does not fetch a duplicate terminal token", async ({ page, request }) => {
+  test("healthy resume does not fetch a duplicate terminal token", async ({
+    page,
+    request,
+  }) => {
     test.skip(!IS_LIVE, "Requires --live agent runtime");
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     let tokenRequests = 0;
     page.on("request", (req) => {
-      if (req.method() === "POST" && req.url().includes(`/api/v1/agents/${agent.id}/terminal/token`)) {
+      if (
+        req.method() === "POST" &&
+        req.url().includes(`/api/v1/agents/${agent.id}/terminal/token`)
+      ) {
         tokenRequests += 1;
       }
     });
@@ -196,7 +225,9 @@ test.describe("Terminal live connection", () => {
     await expect.poll(() => tokenRequests).toBe(1);
   });
 
-  test("terminal-features not duplicated across attaches", async ({ request }) => {
+  test("terminal-features not duplicated across attaches", async ({
+    request,
+  }) => {
     test.skip(!IS_LIVE, "Requires --live agent runtime");
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);

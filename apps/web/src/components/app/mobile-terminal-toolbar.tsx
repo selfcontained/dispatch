@@ -1,4 +1,10 @@
-import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -7,7 +13,10 @@ type MobileTerminalToolbarProps = {
   ctrlPendingRef: MutableRefObject<boolean>;
 };
 
-export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTerminalToolbarProps): JSX.Element {
+export function MobileTerminalToolbar({
+  onSendInput,
+  ctrlPendingRef,
+}: MobileTerminalToolbarProps): JSX.Element {
   const [inputOpen, setInputOpen] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -27,14 +36,17 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
     });
   }, [ctrlPendingRef]);
 
-  const sendKey = useCallback((key: string) => {
-    onSendInput(key);
-    // After any toolbar key press, clear ctrl
-    if (ctrlActive) {
-      setCtrlActive(false);
-      ctrlPendingRef.current = false;
-    }
-  }, [ctrlActive, ctrlPendingRef, onSendInput]);
+  const sendKey = useCallback(
+    (key: string) => {
+      onSendInput(key);
+      // After any toolbar key press, clear ctrl
+      if (ctrlActive) {
+        setCtrlActive(false);
+        ctrlPendingRef.current = false;
+      }
+    },
+    [ctrlActive, ctrlPendingRef, onSendInput]
+  );
 
   const openInput = useCallback(() => {
     setInputOpen(true);
@@ -114,7 +126,16 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
             aria-label="Open text input"
             onClick={openInput}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <rect x="2" y="4" width="20" height="16" rx="2" />
               <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h8" />
             </svg>
@@ -176,7 +197,9 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
             >
               Cancel
             </button>
-            <span className="text-sm font-medium text-foreground">Terminal Input</span>
+            <span className="text-sm font-medium text-foreground">
+              Terminal Input
+            </span>
             <button
               className="text-sm font-medium text-primary"
               onClick={submitInput}

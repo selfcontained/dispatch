@@ -5,8 +5,13 @@ test.describe("Settings pane", () => {
   test.afterEach(async ({ request }) => {
     await setEnabledAgentTypesViaAPI(request, ["codex", "claude", "opencode"]);
     await request.post("/api/v1/notifications/settings", {
-      headers: { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` },
-      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
+      data: {
+        webNotifyEnabled: false,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
   });
 
@@ -18,7 +23,9 @@ test.describe("Settings pane", () => {
 
     // Settings nav should appear in the sidebar with "General" nav item
     const sidebar = page.getByTestId("sidebar-shell");
-    await expect(sidebar.getByText("Settings").first()).toBeVisible({ timeout: 3_000 });
+    await expect(sidebar.getByText("Settings").first()).toBeVisible({
+      timeout: 3_000,
+    });
     const generalNav = sidebar.getByText("General");
     await expect(generalNav).toBeVisible();
 
@@ -33,7 +40,10 @@ test.describe("Settings pane", () => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByTestId("sidebar-shell").getByText("Updates", { exact: true }).click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Updates", { exact: true })
+      .click();
 
     // Version info is displayed in the Updates section
     await expect(page.getByText("Current version")).toBeVisible();
@@ -41,11 +51,16 @@ test.describe("Settings pane", () => {
     await expect(page.getByText("Release channel")).toBeVisible();
   });
 
-  test("agent type settings filter the create-agent dialog", async ({ page }) => {
+  test("agent type settings filter the create-agent dialog", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByTestId("sidebar-shell").getByText("Agents", { exact: true }).click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Agents", { exact: true })
+      .click();
 
     const claudeToggle = page.getByTestId("agent-type-toggle-claude");
     await expect(claudeToggle).toBeChecked();
@@ -65,6 +80,8 @@ test.describe("Settings pane", () => {
 
     await expect(page.getByRole("option", { name: "Codex" })).toBeVisible();
     await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible();
-    await expect(page.getByRole("option", { name: "Claude" })).not.toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "Claude" })
+    ).not.toBeVisible();
   });
 });

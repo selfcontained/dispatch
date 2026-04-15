@@ -59,7 +59,8 @@ export class FocusTracker {
     if (this.webNotifyPermission !== "granted") return false;
     // Expire stale permission reports — if the client stopped sending
     // heartbeats, assume permission is no longer available.
-    if (Date.now() - this.webNotifyPermissionUpdatedAt > FOCUS_TTL_MS) return false;
+    if (Date.now() - this.webNotifyPermissionUpdatedAt > FOCUS_TTL_MS)
+      return false;
     return true;
   }
 }

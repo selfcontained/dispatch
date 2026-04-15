@@ -15,11 +15,11 @@ Dispatch sends Slack notifications when agents need attention, so you don't have
 
 You can enable or disable notifications for each event type:
 
-| Event | Default | Description |
-|-------|---------|-------------|
-| `done` | Enabled | Agent finished its task |
-| `waiting_user` | Enabled | Agent needs your input or a decision |
-| `blocked` | Disabled | Agent hit an error it can't resolve |
+| Event          | Default  | Description                          |
+| -------------- | -------- | ------------------------------------ |
+| `done`         | Enabled  | Agent finished its task              |
+| `waiting_user` | Enabled  | Agent needs your input or a decision |
+| `blocked`      | Disabled | Agent hit an error it can't resolve  |
 
 ## Focus-Aware Suppression
 
@@ -30,17 +30,18 @@ Focus tracking uses a 30-second TTL. If you switch away from an agent for more t
 ## Message Format
 
 Slack messages include:
+
 - Agent name and status emoji (green for done, yellow for waiting, red for blocked)
 - The event message from the agent
 - Color-coded attachment matching the event type
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/notifications/settings` | Get webhook URL and enabled events |
-| POST | `/api/v1/notifications/settings` | Update webhook URL and event config |
-| POST | `/api/v1/notifications/test` | Send test message to configured webhook |
+| Method | Path                             | Description                             |
+| ------ | -------------------------------- | --------------------------------------- |
+| GET    | `/api/v1/notifications/settings` | Get webhook URL and enabled events      |
+| POST   | `/api/v1/notifications/settings` | Update webhook URL and event config     |
+| POST   | `/api/v1/notifications/test`     | Send test message to configured webhook |
 
 ### `POST /api/v1/notifications/settings`
 

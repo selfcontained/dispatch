@@ -5,7 +5,11 @@ type LogStreamProps = HTMLAttributes<HTMLDivElement> & {
   viewportRef?: Ref<HTMLDivElement>;
 };
 
-export function LogStream({ viewportRef, className, ...props }: LogStreamProps): JSX.Element {
+export function LogStream({
+  viewportRef,
+  className,
+  ...props
+}: LogStreamProps): JSX.Element {
   return (
     <div
       ref={viewportRef}

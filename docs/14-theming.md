@@ -20,46 +20,46 @@ All theme colors live in `apps/web/src/index.css`. The default theme is defined 
 
 These are the standard shadcn tokens. Every theme must define all of them:
 
-| Variable | Purpose |
-|---|---|
-| `--background` | Page background |
-| `--foreground` | Default text color |
-| `--card` / `--card-foreground` | Card surfaces |
-| `--popover` / `--popover-foreground` | Popover/dropdown surfaces |
-| `--primary` / `--primary-foreground` | Primary action color (buttons, links) |
-| `--muted` / `--muted-foreground` | Muted/secondary surfaces and text |
-| `--accent` / `--accent-foreground` | Accent highlight |
-| `--destructive` / `--destructive-foreground` | Destructive/error actions |
-| `--border` | Border color |
-| `--input` | Input field border |
-| `--ring` | Focus ring color |
+| Variable                                     | Purpose                               |
+| -------------------------------------------- | ------------------------------------- |
+| `--background`                               | Page background                       |
+| `--foreground`                               | Default text color                    |
+| `--card` / `--card-foreground`               | Card surfaces                         |
+| `--popover` / `--popover-foreground`         | Popover/dropdown surfaces             |
+| `--primary` / `--primary-foreground`         | Primary action color (buttons, links) |
+| `--muted` / `--muted-foreground`             | Muted/secondary surfaces and text     |
+| `--accent` / `--accent-foreground`           | Accent highlight                      |
+| `--destructive` / `--destructive-foreground` | Destructive/error actions             |
+| `--border`                                   | Border color                          |
+| `--input`                                    | Input field border                    |
+| `--ring`                                     | Focus ring color                      |
 
 ### Status tokens
 
 These control agent state indicators, badges, buttons, and status dots throughout the UI:
 
-| Variable | Purpose | Default theme | Example usage |
-|---|---|---|---|
-| `--status-working` | Active/success state | Emerald | Agent working indicator, "running" badge, service OK dot |
-| `--status-blocked` | Error/blocked state | Red | Agent blocked, error badge, live stream indicator |
-| `--status-waiting` | Warning/pending state | Amber | Waiting for user, reconnect indicator, full-access warning |
-| `--status-done` | Info/complete state | Sky blue | Agent done, transitional badge, info buttons |
-| `--status-idle` | Neutral/idle state | Zinc gray | Idle agent border |
+| Variable           | Purpose               | Default theme | Example usage                                              |
+| ------------------ | --------------------- | ------------- | ---------------------------------------------------------- |
+| `--status-working` | Active/success state  | Emerald       | Agent working indicator, "running" badge, service OK dot   |
+| `--status-blocked` | Error/blocked state   | Red           | Agent blocked, error badge, live stream indicator          |
+| `--status-waiting` | Warning/pending state | Amber         | Waiting for user, reconnect indicator, full-access warning |
+| `--status-done`    | Info/complete state   | Sky blue      | Agent done, transitional badge, info buttons               |
+| `--status-idle`    | Neutral/idle state    | Zinc gray     | Idle agent border                                          |
 
 ### Surface tokens
 
-| Variable | Purpose |
-|---|---|
-| `--surface` | Header, footer, and toolbar background (slightly darker than `--background`) |
-| `--terminal-bg` | Terminal pane and xterm background |
+| Variable        | Purpose                                                                      |
+| --------------- | ---------------------------------------------------------------------------- |
+| `--surface`     | Header, footer, and toolbar background (slightly darker than `--background`) |
+| `--terminal-bg` | Terminal pane and xterm background                                           |
 
 ### Value format
 
 All values use **bare HSL components** without the `hsl()` wrapper — this allows Tailwind's opacity modifier syntax to work:
 
 ```css
---status-working: 158 64% 52%;   /* ✓ correct */
---status-working: hsl(158, 64%, 52%);  /* ✗ wrong — breaks Tailwind opacity */
+--status-working: 158 64% 52%; /* ✓ correct */
+--status-working: hsl(158, 64%, 52%); /* ✗ wrong — breaks Tailwind opacity */
 ```
 
 ## Tailwind integration
@@ -176,10 +176,10 @@ That's it — the theme picker, localStorage persistence, flash-free loading, an
 
 ## File reference
 
-| File | What to edit |
-|---|---|
-| `apps/web/src/index.css` | Add `[data-theme="..."]` CSS variable block |
-| `apps/web/src/hooks/use-theme.ts` | Add to `ThemeId` type and `THEMES` array |
-| `apps/web/tailwind.config.ts` | Only if adding new semantic color tokens (rarely needed) |
-| `apps/web/src/components/app/settings-pane.tsx` | Only if changing the picker UI itself |
-| `apps/web/index.html` | Only if changing the flash-prevention script |
+| File                                            | What to edit                                             |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `apps/web/src/index.css`                        | Add `[data-theme="..."]` CSS variable block              |
+| `apps/web/src/hooks/use-theme.ts`               | Add to `ThemeId` type and `THEMES` array                 |
+| `apps/web/tailwind.config.ts`                   | Only if adding new semantic color tokens (rarely needed) |
+| `apps/web/src/components/app/settings-pane.tsx` | Only if changing the picker UI itself                    |
+| `apps/web/index.html`                           | Only if changing the flash-prevention script             |

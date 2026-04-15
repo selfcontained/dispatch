@@ -72,13 +72,24 @@ export async function createGitWorktree(
 
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
-  const branchName = normalizeRefName(input.branchName, slugify(name), "branchName");
+  const branchName = normalizeRefName(
+    input.branchName,
+    slugify(name),
+    "branchName"
+  );
   const worktreePath = input.worktreePath?.trim()
     ? path.resolve(input.worktreePath)
-    : path.resolve(repoRoot, "..", `${path.basename(repoRoot)}-${slugify(branchName)}`);
+    : path.resolve(
+        repoRoot,
+        "..",
+        `${path.basename(repoRoot)}-${slugify(branchName)}`
+      );
 
   if (normalizePath(worktreePath) === normalizePath(repoRoot)) {
-    throw new GitWorktreeError("worktree path must differ from the repository root.", 400);
+    throw new GitWorktreeError(
+      "worktree path must differ from the repository root.",
+      400
+    );
   }
 
   await ensurePathDoesNotExist(worktreePath);
@@ -87,7 +98,14 @@ export async function createGitWorktree(
   const baseRef = updateBase ? `origin/${baseBranch}` : baseBranch;
 
   if (updateBase) {
-    await commandRunner("git", ["-C", repoRoot, "fetch", "origin", baseBranch, "--quiet"]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "fetch",
+      "origin",
+      baseBranch,
+      "--quiet",
+    ]);
     await ensureGitRefExists(repoRoot, baseRef, commandRunner);
   } else {
     await ensureGitRefExists(repoRoot, baseRef, commandRunner);
@@ -98,18 +116,22 @@ export async function createGitWorktree(
   await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
 
   await commandRunner("git", [
-    "-C", repoRoot,
-    "worktree", "add",
-    "-b", branchName,
+    "-C",
+    repoRoot,
+    "worktree",
+    "add",
+    "-b",
+    branchName,
     worktreePath,
-    baseRef
+    baseRef,
   ]);
 
   // Set upstream tracking so archival checks know which branch to compare against
-  await commandRunner("git", [
-    "-C", worktreePath,
-    "branch", "--set-upstream-to", baseRef, branchName
-  ], { allowedExitCodes: [0, 1, 128] });
+  await commandRunner(
+    "git",
+    ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],
+    { allowedExitCodes: [0, 1, 128] }
+  );
 
   return {
     repoRoot,
@@ -118,7 +140,7 @@ export async function createGitWorktree(
     branchName,
     baseBranch,
     baseRef,
-    baseSha
+    baseSha,
   };
 }
 
@@ -137,7 +159,10 @@ export async function cleanupGitWorktree(
   const normalizedRepoRoot = normalizePath(repoRoot);
 
   if (normalizedWorktreePath === normalizedRepoRoot) {
-    throw new GitWorktreeError("cleanup-worktree only removes linked worktrees, not the primary checkout.", 400);
+    throw new GitWorktreeError(
+      "cleanup-worktree only removes linked worktrees, not the primary checkout.",
+      400
+    );
   }
 
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
@@ -146,8 +171,22 @@ export async function cleanupGitWorktree(
   let updatedBaseBranch = false;
   if (input.updateBaseBranch ?? false) {
     await ensurePrimaryCheckoutCanUpdate(repoRoot, baseBranch, commandRunner);
-    await commandRunner("git", ["-C", repoRoot, "fetch", "origin", baseBranch, "--quiet"]);
-    await commandRunner("git", ["-C", repoRoot, "pull", "--ff-only", "origin", baseBranch]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "fetch",
+      "origin",
+      baseBranch,
+      "--quiet",
+    ]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "pull",
+      "--ff-only",
+      "origin",
+      baseBranch,
+    ]);
     updatedBaseBranch = true;
   }
 
@@ -162,10 +201,11 @@ export async function cleanupGitWorktree(
   if ((input.deleteBranch ?? false) && branchName) {
     await ensureBranchExists(repoRoot, branchName, commandRunner);
     await commandRunner("git", [
-      "-C", repoRoot,
+      "-C",
+      repoRoot,
       "branch",
       input.force ? "-D" : "--delete",
-      branchName
+      branchName,
     ]);
     deletedBranch = true;
   }
@@ -177,42 +217,70 @@ export async function cleanupGitWorktree(
     branchName,
     baseBranch,
     updatedBaseBranch,
-    deletedBranch
+    deletedBranch,
   };
 }
 
-async function resolveRepoRoot(cwd: string, commandRunner: CommandRunner): Promise<string> {
+async function resolveRepoRoot(
+  cwd: string,
+  commandRunner: CommandRunner
+): Promise<string> {
   try {
     return normalizePath(
       (
-        await commandRunner("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-          allowedExitCodes: [0]
-        })
+        await commandRunner(
+          "git",
+          ["-C", cwd, "rev-parse", "--show-toplevel"],
+          {
+            allowedExitCodes: [0],
+          }
+        )
       ).stdout
     );
   } catch {
-    throw new GitWorktreeError("No git repository found for the provided working directory.", 404);
+    throw new GitWorktreeError(
+      "No git repository found for the provided working directory.",
+      404
+    );
   }
 }
 
-async function resolveCurrentCheckoutRoot(cwd: string, commandRunner: CommandRunner): Promise<string> {
+async function resolveCurrentCheckoutRoot(
+  cwd: string,
+  commandRunner: CommandRunner
+): Promise<string> {
   return await resolveRepoRoot(cwd, commandRunner);
 }
 
-async function resolveCommonRepoRoot(cwd: string, commandRunner: CommandRunner): Promise<string> {
+async function resolveCommonRepoRoot(
+  cwd: string,
+  commandRunner: CommandRunner
+): Promise<string> {
   const commonDir = (
-    await commandRunner("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    await commandRunner("git", [
+      "-C",
+      cwd,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ])
   ).stdout;
 
   const absoluteCommonDir = normalizePath(commonDir);
   if (path.basename(absoluteCommonDir) !== ".git") {
-    throw new GitWorktreeError("Unable to resolve the repository root for this worktree.", 500);
+    throw new GitWorktreeError(
+      "Unable to resolve the repository root for this worktree.",
+      500
+    );
   }
 
   return normalizePath(path.dirname(absoluteCommonDir));
 }
 
-async function resolveCurrentBranch(cwd: string, commandRunner: CommandRunner): Promise<string | null> {
+async function resolveCurrentBranch(
+  cwd: string,
+  commandRunner: CommandRunner
+): Promise<string | null> {
   const result = await commandRunner(
     "git",
     ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
@@ -222,15 +290,23 @@ async function resolveCurrentBranch(cwd: string, commandRunner: CommandRunner): 
   return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
-async function resolveGitRef(repoRoot: string, ref: string, commandRunner: CommandRunner): Promise<string> {
+async function resolveGitRef(
+  repoRoot: string,
+  ref: string,
+  commandRunner: CommandRunner
+): Promise<string> {
   return (
     await commandRunner("git", ["-C", repoRoot, "rev-parse", "--verify", ref], {
-      allowedExitCodes: [0]
+      allowedExitCodes: [0],
     })
   ).stdout;
 }
 
-async function ensureGitRefExists(repoRoot: string, ref: string, commandRunner: CommandRunner): Promise<void> {
+async function ensureGitRefExists(
+  repoRoot: string,
+  ref: string,
+  commandRunner: CommandRunner
+): Promise<void> {
   const result = await commandRunner(
     "git",
     ["-C", repoRoot, "rev-parse", "--verify", ref],
@@ -238,39 +314,80 @@ async function ensureGitRefExists(repoRoot: string, ref: string, commandRunner: 
   );
 
   if (result.exitCode !== 0) {
-    throw new GitWorktreeError(`Git ref "${ref}" was not found in ${repoRoot}.`, 404);
+    throw new GitWorktreeError(
+      `Git ref "${ref}" was not found in ${repoRoot}.`,
+      404
+    );
   }
 }
 
-async function ensureBranchDoesNotExist(repoRoot: string, branchName: string, commandRunner: CommandRunner): Promise<void> {
+async function ensureBranchDoesNotExist(
+  repoRoot: string,
+  branchName: string,
+  commandRunner: CommandRunner
+): Promise<void> {
   const localBranch = await commandRunner(
     "git",
-    ["-C", repoRoot, "show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
+    [
+      "-C",
+      repoRoot,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchName}`,
+    ],
     { allowedExitCodes: [0, 1] }
   );
   if (localBranch.exitCode === 0) {
-    throw new GitWorktreeError(`Local branch "${branchName}" already exists.`, 409);
+    throw new GitWorktreeError(
+      `Local branch "${branchName}" already exists.`,
+      409
+    );
   }
 
   const remoteBranch = await commandRunner(
     "git",
-    ["-C", repoRoot, "show-ref", "--verify", "--quiet", `refs/remotes/origin/${branchName}`],
+    [
+      "-C",
+      repoRoot,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/remotes/origin/${branchName}`,
+    ],
     { allowedExitCodes: [0, 1] }
   );
   if (remoteBranch.exitCode === 0) {
-    throw new GitWorktreeError(`Remote branch "origin/${branchName}" already exists.`, 409);
+    throw new GitWorktreeError(
+      `Remote branch "origin/${branchName}" already exists.`,
+      409
+    );
   }
 }
 
-async function ensureBranchExists(repoRoot: string, branchName: string, commandRunner: CommandRunner): Promise<void> {
+async function ensureBranchExists(
+  repoRoot: string,
+  branchName: string,
+  commandRunner: CommandRunner
+): Promise<void> {
   const result = await commandRunner(
     "git",
-    ["-C", repoRoot, "show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
+    [
+      "-C",
+      repoRoot,
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchName}`,
+    ],
     { allowedExitCodes: [0, 1] }
   );
 
   if (result.exitCode !== 0) {
-    throw new GitWorktreeError(`Local branch "${branchName}" no longer exists.`, 404);
+    throw new GitWorktreeError(
+      `Local branch "${branchName}" no longer exists.`,
+      404
+    );
   }
 }
 
@@ -287,7 +404,12 @@ async function ensurePrimaryCheckoutCanUpdate(
     );
   }
 
-  const status = await commandRunner("git", ["-C", repoRoot, "status", "--porcelain"]);
+  const status = await commandRunner("git", [
+    "-C",
+    repoRoot,
+    "status",
+    "--porcelain",
+  ]);
   if (status.stdout) {
     throw new GitWorktreeError(
       `Primary checkout at ${repoRoot} has uncommitted changes. Refusing to update "${baseBranch}".`,
@@ -299,7 +421,10 @@ async function ensurePrimaryCheckoutCanUpdate(
 async function ensurePathDoesNotExist(targetPath: string): Promise<void> {
   try {
     await access(targetPath);
-    throw new GitWorktreeError(`Target worktree path already exists: ${targetPath}`, 409);
+    throw new GitWorktreeError(
+      `Target worktree path already exists: ${targetPath}`,
+      409
+    );
   } catch (error) {
     if (error instanceof GitWorktreeError) {
       throw error;
@@ -307,14 +432,21 @@ async function ensurePathDoesNotExist(targetPath: string): Promise<void> {
   }
 }
 
-function normalizeRefName(value: string | undefined, fallback: string, fieldName: string): string {
+function normalizeRefName(
+  value: string | undefined,
+  fallback: string,
+  fieldName: string
+): string {
   const normalized = (value?.trim() || fallback).trim();
   if (!normalized) {
     throw new GitWorktreeError(`${fieldName} must not be empty.`, 400);
   }
 
   if (/\s/.test(normalized)) {
-    throw new GitWorktreeError(`${fieldName} must not contain whitespace.`, 400);
+    throw new GitWorktreeError(
+      `${fieldName} must not contain whitespace.`,
+      400
+    );
   }
 
   return normalized;
@@ -328,7 +460,10 @@ function slugify(value: string): string {
     .replace(/-{2,}/g, "-");
 
   if (!slug) {
-    throw new GitWorktreeError("Unable to derive a valid worktree name from the provided input.", 400);
+    throw new GitWorktreeError(
+      "Unable to derive a valid worktree name from the provided input.",
+      400
+    );
   }
 
   return slug;

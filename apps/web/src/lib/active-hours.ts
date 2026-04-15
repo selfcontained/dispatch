@@ -29,9 +29,16 @@ export function buildActiveHours(
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
-  const effectiveStartMs = Number.isFinite(firstTimestamp) ? firstTimestamp : now.getTime();
-  const effectiveEndMs = Number.isFinite(lastTimestamp) ? Math.max(lastTimestamp, now.getTime()) : now.getTime();
-  const spanWeeks = Math.max(1, (effectiveEndMs - effectiveStartMs) / (7 * 24 * 60 * 60 * 1000));
+  const effectiveStartMs = Number.isFinite(firstTimestamp)
+    ? firstTimestamp
+    : now.getTime();
+  const effectiveEndMs = Number.isFinite(lastTimestamp)
+    ? Math.max(lastTimestamp, now.getTime())
+    : now.getTime();
+  const spanWeeks = Math.max(
+    1,
+    (effectiveEndMs - effectiveStartMs) / (7 * 24 * 60 * 60 * 1000)
+  );
 
   const cells: ActiveHoursCell[] = [];
   for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {

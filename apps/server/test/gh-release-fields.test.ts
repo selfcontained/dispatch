@@ -48,7 +48,10 @@ describe.skipIf(!GH_AVAILABLE)("gh release list JSON fields", () => {
 
     // Fields used in GET /api/v1/releases
     for (const field of ["tagName", "publishedAt", "isPrerelease"]) {
-      expect(available, `field "${field}" should be available on gh release list`).toContain(field);
+      expect(
+        available,
+        `field "${field}" should be available on gh release list`
+      ).toContain(field);
     }
   });
 
@@ -58,7 +61,10 @@ describe.skipIf(!GH_AVAILABLE)("gh release list JSON fields", () => {
 
     // Fields used in the channel-aware tag resolution
     for (const field of ["tagName", "isPrerelease"]) {
-      expect(available, `field "${field}" should be available on gh release list`).toContain(field);
+      expect(
+        available,
+        `field "${field}" should be available on gh release list`
+      ).toContain(field);
     }
   });
 

@@ -8,7 +8,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icons/teal/apple-touch-icon.png", "icons/teal/favicon.png"],
+      includeAssets: [
+        "icons/teal/apple-touch-icon.png",
+        "icons/teal/favicon.png",
+      ],
       manifest: {
         id: "/",
         name: "Dispatch",
@@ -24,46 +27,48 @@ export default defineConfig({
             src: "/icons/teal/pwa-192.png",
             sizes: "192x192",
             type: "image/png",
-            purpose: "any"
+            purpose: "any",
           },
           {
             src: "/icons/teal/pwa-512.png",
             sizes: "512x512",
             type: "image/png",
-            purpose: "any"
+            purpose: "any",
           },
           {
             src: "/icons/teal/pwa-512.png",
             sizes: "512x512",
             type: "image/png",
-            purpose: "maskable"
-          }
-        ]
+            purpose: "maskable",
+          },
+        ],
       },
       workbox: {
         // Do not cache API traffic by default; this app is realtime-oriented.
-        navigateFallbackDenylist: [/^\/api\//]
-      }
-    })
+        navigateFallbackDenylist: [/^\/api\//],
+      },
+    }),
   ],
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: process.env.VITE_API_TARGET ?? `http://127.0.0.1:${process.env.DISPATCH_PORT}`,
+        target:
+          process.env.VITE_API_TARGET ??
+          `http://127.0.0.1:${process.env.DISPATCH_PORT}`,
         changeOrigin: true,
-        ws: true
-      }
-    }
+        ws: true,
+      },
+    },
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src")
-    }
+      "@": path.resolve(__dirname, "./src"),
+    },
   },
   build: {
     outDir: "dist",
-    emptyOutDir: true
-  }
+    emptyOutDir: true,
+  },
 });

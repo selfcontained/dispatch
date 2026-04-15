@@ -29,12 +29,12 @@
   --status-idle: 240 4% 46%;
 
   /* Chart colors */
-  --chart-1: 158 64% 52%;   /* teal — input tokens */
-  --chart-2: 45 96% 64%;    /* amber — output tokens */
-  --chart-3: 200 80% 55%;   /* sky — cache read */
-  --chart-4: 280 60% 60%;   /* purple — cache write */
-  --chart-5: 158 64% 42%;   /* deep teal — model bars */
-  --chart-6: 45 96% 54%;    /* deep amber — project bars */
+  --chart-1: 158 64% 52%; /* teal — input tokens */
+  --chart-2: 45 96% 64%; /* amber — output tokens */
+  --chart-3: 200 80% 55%; /* sky — cache read */
+  --chart-4: 280 60% 60%; /* purple — cache write */
+  --chart-5: 158 64% 42%; /* deep teal — model bars */
+  --chart-6: 45 96% 54%; /* deep amber — project bars */
 
   /* Surface & terminal */
   --surface: 50 15% 5%;
@@ -383,8 +383,16 @@ body {
 
 html[data-theme="mytra"] body {
   background-image:
-    radial-gradient(circle at top center, hsl(var(--primary) / 0.18), transparent 22%),
-    radial-gradient(circle at 50% 18%, hsl(var(--status-done) / 0.08), transparent 28%),
+    radial-gradient(
+      circle at top center,
+      hsl(var(--primary) / 0.18),
+      transparent 22%
+    ),
+    radial-gradient(
+      circle at 50% 18%,
+      hsl(var(--status-done) / 0.08),
+      transparent 28%
+    ),
     linear-gradient(180deg, hsl(var(--background)), hsl(var(--surface)));
 }
 
@@ -395,10 +403,29 @@ html[data-theme="mytra"] body::before {
   pointer-events: none;
   z-index: 0;
   background:
-    linear-gradient(180deg, hsl(var(--foreground) / 0.018), transparent 18%, transparent 84%, hsl(var(--foreground) / 0.02)),
-    radial-gradient(circle at 22% 24%, hsl(var(--primary) / 0.055), transparent 20%),
-    radial-gradient(circle at 78% 72%, hsl(var(--status-done) / 0.045), transparent 24%),
-    linear-gradient(118deg, transparent 0 64%, hsl(var(--primary) / 0.03) 72%, transparent 78%);
+    linear-gradient(
+      180deg,
+      hsl(var(--foreground) / 0.018),
+      transparent 18%,
+      transparent 84%,
+      hsl(var(--foreground) / 0.02)
+    ),
+    radial-gradient(
+      circle at 22% 24%,
+      hsl(var(--primary) / 0.055),
+      transparent 20%
+    ),
+    radial-gradient(
+      circle at 78% 72%,
+      hsl(var(--status-done) / 0.045),
+      transparent 24%
+    ),
+    linear-gradient(
+      118deg,
+      transparent 0 64%,
+      hsl(var(--primary) / 0.03) 72%,
+      transparent 78%
+    );
   opacity: 0.32;
 }
 
@@ -409,8 +436,16 @@ html[data-theme="mytra"] body::after {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(circle at 50% -8%, hsl(var(--primary) / 0.22), transparent 24%),
-    radial-gradient(circle at 50% 108%, hsl(var(--status-done) / 0.12), transparent 30%);
+    radial-gradient(
+      circle at 50% -8%,
+      hsl(var(--primary) / 0.22),
+      transparent 24%
+    ),
+    radial-gradient(
+      circle at 50% 108%,
+      hsl(var(--status-done) / 0.12),
+      transparent 30%
+    );
   opacity: 0.9;
 }
 
@@ -427,7 +462,13 @@ html[data-theme="matrix"] body::before {
   pointer-events: none;
   z-index: 0;
   background-image:
-    linear-gradient(to bottom, hsl(var(--primary) / 0.045), transparent 22%, transparent 78%, hsl(var(--primary) / 0.03)),
+    linear-gradient(
+      to bottom,
+      hsl(var(--primary) / 0.045),
+      transparent 22%,
+      transparent 78%,
+      hsl(var(--primary) / 0.03)
+    ),
     linear-gradient(to right, hsl(var(--primary) / 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, hsl(var(--primary) / 0.035) 1px, transparent 1px);
   background-size:
@@ -444,8 +485,16 @@ html[data-theme="matrix"] body::after {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(circle at 50% -10%, hsl(var(--status-working) / 0.08), transparent 40%),
-    radial-gradient(circle at 50% 120%, hsl(var(--status-working) / 0.06), transparent 34%);
+    radial-gradient(
+      circle at 50% -10%,
+      hsl(var(--status-working) / 0.08),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 50% 120%,
+      hsl(var(--status-working) / 0.06),
+      transparent 34%
+    );
 }
 
 #root {
@@ -654,18 +703,18 @@ html[data-theme="matrix"] [role="button"] {
 [data-theme="midnight"] .hljs-keyword,
 [data-theme="midnight"] .hljs-selector-tag,
 [data-theme="midnight"] .hljs-deletion {
-  color: hsl(var(--primary));             /* blue */
+  color: hsl(var(--primary)); /* blue */
 }
 [data-theme="midnight"] .hljs-string,
 [data-theme="midnight"] .hljs-doctag,
 [data-theme="midnight"] .hljs-regexp,
 [data-theme="midnight"] .hljs-addition {
-  color: hsl(var(--destructive));         /* pink */
+  color: hsl(var(--destructive)); /* pink */
 }
 [data-theme="midnight"] .hljs-title,
 [data-theme="midnight"] .hljs-title\.class_,
 [data-theme="midnight"] .hljs-title\.function_ {
-  color: hsl(var(--status-waiting));      /* yellow */
+  color: hsl(var(--status-waiting)); /* yellow */
 }
 [data-theme="midnight"] .hljs-attr,
 [data-theme="midnight"] .hljs-attribute {
@@ -674,52 +723,57 @@ html[data-theme="matrix"] [role="button"] {
 }
 [data-theme="midnight"] .hljs-name,
 [data-theme="midnight"] .hljs-tag {
-  color: hsl(var(--destructive));         /* pink for tags */
+  color: hsl(var(--destructive)); /* pink for tags */
 }
 [data-theme="midnight"] .hljs-meta,
 [data-theme="midnight"] .hljs-meta .hljs-keyword {
-  color: hsl(var(--status-working));      /* green for meta only */
+  color: hsl(var(--status-working)); /* green for meta only */
 }
 
 /* OLED Black: green primary is too monochrome — use blue/yellow/red accents */
 [data-theme="oled-black"] .hljs-keyword,
 [data-theme="oled-black"] .hljs-selector-tag,
 [data-theme="oled-black"] .hljs-deletion {
-  color: hsl(var(--status-done));         /* blue */
+  color: hsl(var(--status-done)); /* blue */
 }
 [data-theme="oled-black"] .hljs-string,
 [data-theme="oled-black"] .hljs-doctag,
 [data-theme="oled-black"] .hljs-regexp,
 [data-theme="oled-black"] .hljs-addition {
-  color: hsl(var(--destructive));         /* red */
+  color: hsl(var(--destructive)); /* red */
 }
 [data-theme="oled-black"] .hljs-title,
 [data-theme="oled-black"] .hljs-title\.class_,
 [data-theme="oled-black"] .hljs-title\.function_ {
-  color: hsl(var(--status-waiting));      /* yellow */
+  color: hsl(var(--status-waiting)); /* yellow */
 }
 [data-theme="oled-black"] .hljs-type,
 [data-theme="oled-black"] .hljs-built_in {
-  color: hsl(var(--primary));             /* green — just for types */
+  color: hsl(var(--primary)); /* green — just for types */
 }
 [data-theme="oled-black"] .hljs-attr,
 [data-theme="oled-black"] .hljs-attribute {
-  color: hsl(var(--status-done));         /* blue */
+  color: hsl(var(--status-done)); /* blue */
   opacity: 0.8;
 }
 [data-theme="oled-black"] .hljs-name,
 [data-theme="oled-black"] .hljs-tag {
-  color: hsl(var(--status-done));         /* blue */
+  color: hsl(var(--status-done)); /* blue */
 }
 [data-theme="oled-black"] .hljs-meta,
 [data-theme="oled-black"] .hljs-meta .hljs-keyword {
-  color: hsl(var(--status-waiting));      /* yellow for meta */
+  color: hsl(var(--status-waiting)); /* yellow for meta */
 }
 
 /* Persona reviewing animation — subtle pulse on the status icon */
 @keyframes persona-reviewing-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 .animate-persona-reviewing {
   animation: persona-reviewing-pulse 2s ease-in-out infinite;
@@ -760,8 +814,12 @@ html[data-theme="matrix"] [role="button"] {
 
 /* Persona reviewing row — subtle left-border shimmer */
 @keyframes persona-reviewing-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .persona-reviewing-row {

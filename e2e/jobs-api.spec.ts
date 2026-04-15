@@ -3,7 +3,9 @@ import { mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const AUTH_HEADER = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const AUTH_HEADER = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 const HEADERS = { ...AUTH_HEADER, "Content-Type": "application/json" };
 
 // Use a unique directory per test run to avoid collisions
@@ -11,14 +13,17 @@ const jobDir = join(tmpdir(), `dispatch-e2e-jobs-${Date.now()}`);
 mkdirSync(jobDir, { recursive: true });
 
 // Helper to create the shared test job used by several tests
-async function ensureTestJob(request: import("@playwright/test").APIRequestContext) {
+async function ensureTestJob(
+  request: import("@playwright/test").APIRequestContext
+) {
   // Try to create — ignore if already exists
   const res = await request.post("/api/v1/jobs", {
     headers: HEADERS,
     data: {
       name: "E2E Test Job",
       directory: jobDir,
-      prompt: 'This is an E2E test job. Call job_complete immediately with status "completed", summary "E2E passed", and one task "check" with status "success" and summary "ok".',
+      prompt:
+        'This is an E2E test job. Call job_complete immediately with status "completed", summary "E2E passed", and one task "check" with status "success" and summary "ok".',
       schedule: "0 * * * *",
       timeoutMs: 120000,
       needsInputTimeoutMs: 86400000,
@@ -64,11 +69,18 @@ test.describe("Jobs API", () => {
     expect(body.agentId).toBeTruthy();
     expect(body.status).toBe("running");
 
-    const params = new URLSearchParams({ name: "E2E Test Job", directory: jobDir });
-    const historyRes = await request.get(`/api/v1/jobs/history?${params}`, { headers: AUTH_HEADER });
+    const params = new URLSearchParams({
+      name: "E2E Test Job",
+      directory: jobDir,
+    });
+    const historyRes = await request.get(`/api/v1/jobs/history?${params}`, {
+      headers: AUTH_HEADER,
+    });
     expect(historyRes.ok()).toBeTruthy();
     const history = await historyRes.json();
-    const run = history.runs.find((entry: { id: string }) => entry.id === body.runId);
+    const run = history.runs.find(
+      (entry: { id: string }) => entry.id === body.runId
+    );
     expect(run.config.triggerSource).toBe("manual");
   });
 
@@ -79,13 +91,19 @@ test.describe("Jobs API", () => {
     expect(res.ok()).toBeTruthy();
 
     const body = await res.json();
-    const job = body.find((j: { name: string; directory: string }) => j.name === "E2E Test Job" && j.directory === jobDir);
+    const job = body.find(
+      (j: { name: string; directory: string }) =>
+        j.name === "E2E Test Job" && j.directory === jobDir
+    );
     expect(job).toBeTruthy();
     expect(job.schedule).toBe("0 * * * *");
   });
 
   test("POST /api/v1/jobs accepts full config", async ({ request }) => {
-    const configDir = join(tmpdir(), `dispatch-e2e-add-job-config-${Date.now()}`);
+    const configDir = join(
+      tmpdir(),
+      `dispatch-e2e-add-job-config-${Date.now()}`
+    );
     const res = await request.post("/api/v1/jobs", {
       headers: HEADERS,
       data: {
@@ -157,7 +175,9 @@ test.describe("Jobs API", () => {
     expect(body.enabled).toBe(true);
   });
 
-  test("POST /api/v1/jobs/enable validates schedule exists", async ({ request }) => {
+  test("POST /api/v1/jobs/enable validates schedule exists", async ({
+    request,
+  }) => {
     const noScheduleDir = join(tmpdir(), `dispatch-e2e-nosched-${Date.now()}`);
     // Create a job without a schedule
     const createRes = await request.post("/api/v1/jobs", {
@@ -181,7 +201,9 @@ test.describe("Jobs API", () => {
     expect(body.error).toContain("no schedule");
   });
 
-  test("POST /api/v1/jobs/enable + disable toggles enabled", async ({ request }) => {
+  test("POST /api/v1/jobs/enable + disable toggles enabled", async ({
+    request,
+  }) => {
     await ensureTestJob(request);
 
     // Enable
@@ -190,7 +212,10 @@ test.describe("Jobs API", () => {
       data: { name: "E2E Test Job", directory: jobDir },
     });
     const enableBody = await enableRes.json();
-    expect(enableRes.ok(), `Enable failed: ${JSON.stringify(enableBody)}`).toBeTruthy();
+    expect(
+      enableRes.ok(),
+      `Enable failed: ${JSON.stringify(enableBody)}`
+    ).toBeTruthy();
     expect(enableBody.enabled).toBe(true);
 
     // Verify in list
@@ -210,14 +235,18 @@ test.describe("Jobs API", () => {
     expect(disabled.enabled).toBe(false);
 
     // Verify in list
-    const listRes2 = await request.get("/api/v1/jobs", { headers: AUTH_HEADER });
+    const listRes2 = await request.get("/api/v1/jobs", {
+      headers: AUTH_HEADER,
+    });
     const jobs2 = await listRes2.json();
     const job2 = jobs2.find((j: { id: string }) => j.id === enableBody.id);
     expect(job2.enabled).toBe(false);
     expect(job2.nextRun).toBeNull();
   });
 
-  test("GET /api/v1/jobs/history returns runs for a job", async ({ request }) => {
+  test("GET /api/v1/jobs/history returns runs for a job", async ({
+    request,
+  }) => {
     await ensureTestJob(request);
 
     // Ensure job has at least one run
@@ -226,8 +255,13 @@ test.describe("Jobs API", () => {
       data: { name: "E2E Test Job", directory: jobDir, wait: false },
     });
 
-    const params = new URLSearchParams({ name: "E2E Test Job", directory: jobDir });
-    const res = await request.get(`/api/v1/jobs/history?${params}`, { headers: AUTH_HEADER });
+    const params = new URLSearchParams({
+      name: "E2E Test Job",
+      directory: jobDir,
+    });
+    const res = await request.get(`/api/v1/jobs/history?${params}`, {
+      headers: AUTH_HEADER,
+    });
     const body = await res.json();
     expect(res.ok(), `History failed: ${JSON.stringify(body)}`).toBeTruthy();
 
@@ -237,7 +271,9 @@ test.describe("Jobs API", () => {
     expect(body.runs.length).toBeGreaterThan(0);
   });
 
-  test("POST /api/v1/jobs/run validates required fields", async ({ request }) => {
+  test("POST /api/v1/jobs/run validates required fields", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/jobs/run", {
       headers: HEADERS,
       data: {},
@@ -245,7 +281,9 @@ test.describe("Jobs API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/jobs/enable validates required fields", async ({ request }) => {
+  test("POST /api/v1/jobs/enable validates required fields", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/jobs/enable", {
       headers: HEADERS,
       data: {},
@@ -253,7 +291,9 @@ test.describe("Jobs API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/jobs/disable validates required fields", async ({ request }) => {
+  test("POST /api/v1/jobs/disable validates required fields", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/jobs/disable", {
       headers: HEADERS,
       data: {},
@@ -261,13 +301,22 @@ test.describe("Jobs API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("GET /api/v1/jobs/history returns 404 for unknown job", async ({ request }) => {
-    const params = new URLSearchParams({ name: "nonexistent", directory: "/tmp/nope" });
-    const res = await request.get(`/api/v1/jobs/history?${params}`, { headers: AUTH_HEADER });
+  test("GET /api/v1/jobs/history returns 404 for unknown job", async ({
+    request,
+  }) => {
+    const params = new URLSearchParams({
+      name: "nonexistent",
+      directory: "/tmp/nope",
+    });
+    const res = await request.get(`/api/v1/jobs/history?${params}`, {
+      headers: AUTH_HEADER,
+    });
     expect(res.status()).toBe(404);
   });
 
-  test("POST /api/v1/jobs/run with nonexistent job returns error", async ({ request }) => {
+  test("POST /api/v1/jobs/run with nonexistent job returns error", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/jobs/run", {
       headers: HEADERS,
       data: { name: "does-not-exist", directory: "/tmp/no-such-dir" },

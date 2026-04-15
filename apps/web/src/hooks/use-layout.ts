@@ -8,7 +8,9 @@ export function useLayout() {
   const [leftOpen, setLeftOpen] = useAtom(leftSidebarOpenAtom);
   const [mediaOpen, setMediaOpen] = useAtom(mediaSidebarOpenAtom);
   const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches : false
+    typeof window !== "undefined"
+      ? window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches
+      : false
   );
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
@@ -57,31 +59,34 @@ export function useLayout() {
     [isMobile, setMediaOpen]
   );
 
-  return useMemo(() => ({
-    isMobile,
-    leftOpen,
-    mediaOpen,
-    leftPanelOpen,
-    mediaPanelOpen,
-    mobileLeftOpen,
-    mobileMediaOpen,
-    setLeftOpen,
-    setMediaOpen,
-    setMobileLeftOpen,
-    setMobileMediaOpen,
-    handleSetLeftPanelOpen,
-    handleSetMediaPanelOpen,
-  }), [
-    isMobile,
-    leftOpen,
-    mediaOpen,
-    leftPanelOpen,
-    mediaPanelOpen,
-    mobileLeftOpen,
-    mobileMediaOpen,
-    setLeftOpen,
-    setMediaOpen,
-    handleSetLeftPanelOpen,
-    handleSetMediaPanelOpen,
-  ]);
+  return useMemo(
+    () => ({
+      isMobile,
+      leftOpen,
+      mediaOpen,
+      leftPanelOpen,
+      mediaPanelOpen,
+      mobileLeftOpen,
+      mobileMediaOpen,
+      setLeftOpen,
+      setMediaOpen,
+      setMobileLeftOpen,
+      setMobileMediaOpen,
+      handleSetLeftPanelOpen,
+      handleSetMediaPanelOpen,
+    }),
+    [
+      isMobile,
+      leftOpen,
+      mediaOpen,
+      leftPanelOpen,
+      mediaPanelOpen,
+      mobileLeftOpen,
+      mobileMediaOpen,
+      setLeftOpen,
+      setMediaOpen,
+      handleSetLeftPanelOpen,
+      handleSetMediaPanelOpen,
+    ]
+  );
 }

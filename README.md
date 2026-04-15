@@ -46,32 +46,32 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Prerequisites
 
-| Dependency | Purpose | macOS | Linux |
-|---|---|---|---|
-| **Build tools** | Compile native npm modules (node-pty) | `xcode-select --install` | `apt install build-essential python3` |
-| **Node.js 22+** | Runtime | `nvm install 22` | `nvm install 22` |
-| **pnpm** | Package manager | `npm i -g pnpm` | `npm i -g pnpm` |
-| **PostgreSQL 14+** | Database | `brew install postgresql@17` | `apt install postgresql` |
-| **tmux** | Agent session management | `brew install tmux` | `apt install tmux` |
-| **At least one agent CLI** | The agents Dispatch runs | See below | See below |
+| Dependency                 | Purpose                               | macOS                        | Linux                                 |
+| -------------------------- | ------------------------------------- | ---------------------------- | ------------------------------------- |
+| **Build tools**            | Compile native npm modules (node-pty) | `xcode-select --install`     | `apt install build-essential python3` |
+| **Node.js 22+**            | Runtime                               | `nvm install 22`             | `nvm install 22`                      |
+| **pnpm**                   | Package manager                       | `npm i -g pnpm`              | `npm i -g pnpm`                       |
+| **PostgreSQL 14+**         | Database                              | `brew install postgresql@17` | `apt install postgresql`              |
+| **tmux**                   | Agent session management              | `brew install tmux`          | `apt install tmux`                    |
+| **At least one agent CLI** | The agents Dispatch runs              | See below                    | See below                             |
 
 ### Optional
 
-| Dependency | Purpose | Install |
-|---|---|---|
-| **Docker** | Isolated dev databases via `dispatch-dev` | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
-| **Xcode** (full) | iOS Simulator, `xcrun simctl` (macOS only) | App Store |
-| **xclip + Xvfb** | Clipboard image paste (Linux only) | `apt install xclip xvfb` |
+| Dependency       | Purpose                                    | Install                                                                                                 |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| **Docker**       | Isolated dev databases via `dispatch-dev`  | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
+| **Xcode** (full) | iOS Simulator, `xcrun simctl` (macOS only) | App Store                                                                                               |
+| **xclip + Xvfb** | Clipboard image paste (Linux only)         | `apt install xclip xvfb`                                                                                |
 
 ### Agent CLIs
 
 Dispatch spawns agents via their CLI tools. Install at least one:
 
-| Agent | Install | Authenticate |
-|---|---|---|
-| **Claude** | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts) |
-| **Codex** | `npm install -g codex` | Set `OPENAI_API_KEY` in your shell profile |
-| **OpenCode** | `npm install -g opencode` | Set `ANTHROPIC_API_KEY` in your shell profile |
+| Agent        | Install                                    | Authenticate                                  |
+| ------------ | ------------------------------------------ | --------------------------------------------- |
+| **Claude**   | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)               |
+| **Codex**    | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile    |
+| **OpenCode** | `npm install -g opencode`                  | Set `ANTHROPIC_API_KEY` in your shell profile |
 
 The agent CLI must be authenticated before Dispatch can spawn agents of that type. Dispatch invokes the CLI directly, so any API keys or login state in your shell environment are inherited automatically.
 
@@ -104,9 +104,10 @@ bin/dispatch-dev up --live
 ```
 
 > **Important:** Docker Desktop must be running (not just installed). If you see
-> *"Error: docker compose is not available"*, open Docker.app first.
+> _"Error: docker compose is not available"_, open Docker.app first.
 
 `dispatch-dev` automatically:
+
 - Spins up an isolated Postgres container on a free port
 - Runs database migrations on server start
 - Starts the API server on a free port
@@ -147,24 +148,24 @@ For setting up Dispatch as a persistent service on a dedicated machine, see [doc
 
 Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. These tools are available automatically — no configuration needed:
 
-| Tool | Description |
-|------|-------------|
-| `dispatch_event` | Report agent status (working, blocked, waiting_user, done, idle) |
-| `dispatch_rename_session` | Update the current session's display name |
-| `dispatch_pin` | Surface key info in the sidebar (URLs, ports, PRs, files) |
-| `dispatch_share` | Upload screenshots and media to the agent's media pane |
-| `dispatch_feedback` | Submit structured review findings (severity, file refs, suggestions) |
-| `dispatch_get_feedback` | Retrieve feedback findings for review |
-| `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored |
-| `dispatch_launch_persona` | Launch a persona child agent for automated review |
-| `dispatch_list_media` | List media files shared with or by this agent |
-| `dispatch_notify` | Send a Slack notification from the agent (requires webhook configured) |
-| `list_personas` | List available persona reviewers for this project |
-| `create_pr` | Create a GitHub pull request |
-| `get_pr_status` | Check PR CI status and reviews |
-| `get_activity_summary` | Summarize agent activity over a time range |
-| `get_agent_history` | Get detailed agent session history |
-| `get_feedback_summary` | Aggregate persona review feedback for pattern detection |
+| Tool                        | Description                                                            |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `dispatch_event`            | Report agent status (working, blocked, waiting_user, done, idle)       |
+| `dispatch_rename_session`   | Update the current session's display name                              |
+| `dispatch_pin`              | Surface key info in the sidebar (URLs, ports, PRs, files)              |
+| `dispatch_share`            | Upload screenshots and media to the agent's media pane                 |
+| `dispatch_feedback`         | Submit structured review findings (severity, file refs, suggestions)   |
+| `dispatch_get_feedback`     | Retrieve feedback findings for review                                  |
+| `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored                               |
+| `dispatch_launch_persona`   | Launch a persona child agent for automated review                      |
+| `dispatch_list_media`       | List media files shared with or by this agent                          |
+| `dispatch_notify`           | Send a Slack notification from the agent (requires webhook configured) |
+| `list_personas`             | List available persona reviewers for this project                      |
+| `create_pr`                 | Create a GitHub pull request                                           |
+| `get_pr_status`             | Check PR CI status and reviews                                         |
+| `get_activity_summary`      | Summarize agent activity over a time range                             |
+| `get_agent_history`         | Get detailed agent session history                                     |
+| `get_feedback_summary`      | Aggregate persona review feedback for pattern detection                |
 
 Persona agents additionally get: `review_status`, `get_parent_context`.
 

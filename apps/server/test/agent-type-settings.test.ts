@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_TYPES, sanitizeEnabledAgentTypes } from "../src/agent-type-settings.js";
+import {
+  AGENT_TYPES,
+  sanitizeEnabledAgentTypes,
+} from "../src/agent-type-settings.js";
 
 describe("sanitizeEnabledAgentTypes", () => {
   it("returns defaults when the value is not an array", () => {
@@ -8,10 +11,9 @@ describe("sanitizeEnabledAgentTypes", () => {
   });
 
   it("filters unknown values and removes duplicates", () => {
-    expect(sanitizeEnabledAgentTypes(["codex", "claude", "codex", "unknown"])).toEqual([
-      "codex",
-      "claude",
-    ]);
+    expect(
+      sanitizeEnabledAgentTypes(["codex", "claude", "codex", "unknown"])
+    ).toEqual(["codex", "claude"]);
   });
 
   it("falls back to defaults when the array has no valid types", () => {

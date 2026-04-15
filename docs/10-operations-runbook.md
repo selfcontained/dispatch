@@ -67,6 +67,7 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
 ```
 
 The **release workflow** (GitHub Actions):
+
 - Runs type-check, lint, and build
 - Bumps version in `package.json` and `web/package.json`
 - Commits, creates a git tag, pushes, and publishes a GitHub Release
@@ -82,6 +83,7 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
 ```
 
 The server update flow operates on `~/.dispatch/server/` and:
+
 1. Records the current tag for rollback
 2. Fetches and checks out the target tag
 3. Installs deps, builds, restarts the managed service
@@ -108,6 +110,7 @@ The failure log includes: timestamp, failed step, rollback status, last 50 lines
 ## CI Pipeline
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
+
 - Type-check (`pnpm run check`)
 - Lint (`pnpm run lint:web`)
 - Build (`pnpm run build`)
@@ -127,6 +130,7 @@ bin/install-launchd --port 6767
 ```
 
 This script:
+
 1. Clones the repo to `~/.dispatch/server/`
 2. Copies `.env` (or `.env.example`) as `~/.dispatch/server/.env`
 3. Sets `DISPATCH_PORT` in the server `.env` if `--port` was specified
@@ -147,16 +151,16 @@ Unloads and removes the plist. Does not remove `~/.dispatch/server/`, the Homebr
 
 Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
-| Variable | Default | Description |
-|---|---|---|
-| `DISPATCH_HOST` | `127.0.0.1` | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
-| `DISPATCH_PORT` | `6767` | HTTP port the server listens on |
-| `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
-| `MEDIA_ROOT` | `~/.dispatch/media` | File upload storage path |
-| `DISPATCH_AGENT_RUNTIME` | `tmux` | Agent runtime mode (`tmux` or `inert` for dev/test) |
-| `DISPATCH_COPY_DISPLAY` | — | Virtual X display for clipboard image paste on Linux (e.g. `:99`) |
-| `TLS_CERT` | — | Path to TLS certificate file (enables HTTPS when both cert and key are set) |
-| `TLS_KEY` | — | Path to TLS private key file |
+| Variable                 | Default                                                | Description                                                                                              |
+| ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `DISPATCH_HOST`          | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
+| `DISPATCH_PORT`          | `6767`                                                 | HTTP port the server listens on                                                                          |
+| `DATABASE_URL`           | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
+| `MEDIA_ROOT`             | `~/.dispatch/media`                                    | File upload storage path                                                                                 |
+| `DISPATCH_AGENT_RUNTIME` | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                      |
+| `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
+| `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
+| `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
 
 Changes to `.env` require a service restart to take effect.
 
@@ -288,12 +292,12 @@ Known limits:
 
 ## File Locations
 
-| Path | Description |
-|---|---|
-| `~/.dispatch/server/` | Server checkout (deploy target) |
-| `~/.dispatch/server/.env` | Server environment config |
-| `~/.dispatch/logs/dispatch.log` | Live server log |
-| `~/.dispatch/logs/last-release-failure.log` | Last deploy failure details |
-| `~/.dispatch/diagnostics/tmux-inventory.jsonl` | Periodic tmux inventory snapshots from reconcile |
-| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions |
-| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition |
+| Path                                                       | Description                                      |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `~/.dispatch/server/`                                      | Server checkout (deploy target)                  |
+| `~/.dispatch/server/.env`                                  | Server environment config                        |
+| `~/.dispatch/logs/dispatch.log`                            | Live server log                                  |
+| `~/.dispatch/logs/last-release-failure.log`                | Last deploy failure details                      |
+| `~/.dispatch/diagnostics/tmux-inventory.jsonl`             | Periodic tmux inventory snapshots from reconcile |
+| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions        |
+| `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition                       |

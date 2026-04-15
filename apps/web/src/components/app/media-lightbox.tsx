@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, Download, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
+  X,
+} from "lucide-react";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -65,24 +72,94 @@ import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
 const EXT_TO_LANG: Record<string, string> = {
-  ".ts": "typescript", ".tsx": "typescript", ".js": "javascript", ".jsx": "javascript",
-  ".py": "python", ".go": "go", ".rs": "rust", ".sh": "bash", ".bash": "bash",
-  ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".toml": "ini",
-  ".html": "xml", ".xml": "xml", ".css": "css", ".sql": "sql",
-  ".md": "markdown", ".swift": "swift", ".kt": "kotlin", ".java": "java",
-  ".c": "c", ".cpp": "cpp", ".h": "c", ".hpp": "cpp",
-  ".rb": "ruby", ".php": "php", ".lua": "lua", ".r": "r",
-  ".ex": "elixir", ".exs": "elixir", ".erl": "erlang", ".hs": "haskell",
-  ".diff": "diff", ".patch": "diff", ".ini": "ini", ".cfg": "ini", ".conf": "ini",
-  ".zig": "zig", ".nim": "nim", ".m": "objectivec",
+  ".ts": "typescript",
+  ".tsx": "typescript",
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".py": "python",
+  ".go": "go",
+  ".rs": "rust",
+  ".sh": "bash",
+  ".bash": "bash",
+  ".json": "json",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".toml": "ini",
+  ".html": "xml",
+  ".xml": "xml",
+  ".css": "css",
+  ".sql": "sql",
+  ".md": "markdown",
+  ".swift": "swift",
+  ".kt": "kotlin",
+  ".java": "java",
+  ".c": "c",
+  ".cpp": "cpp",
+  ".h": "c",
+  ".hpp": "cpp",
+  ".rb": "ruby",
+  ".php": "php",
+  ".lua": "lua",
+  ".r": "r",
+  ".ex": "elixir",
+  ".exs": "elixir",
+  ".erl": "erlang",
+  ".hs": "haskell",
+  ".diff": "diff",
+  ".patch": "diff",
+  ".ini": "ini",
+  ".cfg": "ini",
+  ".conf": "ini",
+  ".zig": "zig",
+  ".nim": "nim",
+  ".m": "objectivec",
 };
 
 const TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".xml",
-  ".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".sh",
-  ".sql", ".diff", ".patch", ".env", ".ini", ".cfg", ".conf", ".swift",
-  ".kt", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".lua",
-  ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
+  ".txt",
+  ".md",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".csv",
+  ".log",
+  ".xml",
+  ".html",
+  ".css",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".go",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".diff",
+  ".patch",
+  ".env",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".swift",
+  ".kt",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".rb",
+  ".php",
+  ".lua",
+  ".zig",
+  ".nim",
+  ".r",
+  ".m",
+  ".ex",
+  ".exs",
+  ".erl",
+  ".hs",
 ]);
 
 function fileExtension(name: string): string {
@@ -106,7 +183,8 @@ export function stripTimestamp(name: string): string {
   return name.replace(TIMESTAMP_RE, "");
 }
 
-const HAS_CLIPBOARD_WRITE = typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;
+const HAS_CLIPBOARD_WRITE =
+  typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;
 
 type MediaLightboxItem = {
   src: string;
@@ -126,7 +204,13 @@ type MediaLightboxProps = {
   setLightboxIndex: (nextIndex: number | null) => void;
 };
 
-function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.Element {
+function TextViewer({
+  src,
+  fileName,
+}: {
+  src: string;
+  fileName: string;
+}): JSX.Element {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -139,9 +223,15 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
         if (!res.ok) throw new Error(`Failed to load (${res.status})`);
         return res.text();
       })
-      .then((text) => { if (!cancelled) setContent(text); })
-      .catch((err) => { if (!cancelled) setError(String(err)); });
-    return () => { cancelled = true; };
+      .then((text) => {
+        if (!cancelled) setContent(text);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [src]);
 
   const highlightedHtml = useMemo(() => {
@@ -163,10 +253,15 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   }, [content, fileName]);
 
   const shouldWrapText = isMarkdownFile(fileName);
-  const textWrapClassName = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+  const textWrapClassName =
+    "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
 
   if (error) {
-    return <div className="grid h-full place-items-center text-sm text-destructive">{error}</div>;
+    return (
+      <div className="grid h-full place-items-center text-sm text-destructive">
+        {error}
+      </div>
+    );
   }
 
   if (content === null) {
@@ -180,22 +275,42 @@ function TextViewer({ src, fileName }: { src: string; fileName: string }): JSX.E
   return (
     <LogStream className="min-h-full overflow-auto p-0">
       {highlightedHtml ? (
-        <pre className={cn("p-4 text-sm leading-relaxed", shouldWrapText && textWrapClassName)}>
+        <pre
+          className={cn(
+            "p-4 text-sm leading-relaxed",
+            shouldWrapText && textWrapClassName
+          )}
+        >
           <code
             className={cn("hljs", shouldWrapText && textWrapClassName)}
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
         </pre>
       ) : (
-        <pre className={cn("p-4 text-sm leading-relaxed", shouldWrapText && textWrapClassName)}>
-          <code className={cn(shouldWrapText && textWrapClassName)}>{content}</code>
+        <pre
+          className={cn(
+            "p-4 text-sm leading-relaxed",
+            shouldWrapText && textWrapClassName
+          )}
+        >
+          <code className={cn(shouldWrapText && textWrapClassName)}>
+            {content}
+          </code>
         </pre>
       )}
     </LogStream>
   );
 }
 
-function MediaActions({ src, fileName, isText }: { src: string; fileName: string; isText?: boolean }): JSX.Element {
+function MediaActions({
+  src,
+  fileName,
+  isText,
+}: {
+  src: string;
+  fileName: string;
+  isText?: boolean;
+}): JSX.Element {
   const [copied, copyText] = useCopyText();
   const [imageCopied, setImageCopied] = useState(false);
   const imageCopiedTimerRef = useRef<number | null>(null);
@@ -210,20 +325,30 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
     const controller = new AbortController();
     void fetch(src, { signal: controller.signal })
       .then((r) => r.text())
-      .then((t) => { cachedTextRef.current = t; })
+      .then((t) => {
+        cachedTextRef.current = t;
+      })
       .catch(() => {});
     return () => controller.abort();
   }, [src, isText]);
 
   // Clean up the image-copied timer on unmount.
-  useEffect(() => () => {
-    if (imageCopiedTimerRef.current) window.clearTimeout(imageCopiedTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (imageCopiedTimerRef.current)
+        window.clearTimeout(imageCopiedTimerRef.current);
+    },
+    []
+  );
 
   const markImageCopied = useCallback(() => {
     setImageCopied(true);
-    if (imageCopiedTimerRef.current) window.clearTimeout(imageCopiedTimerRef.current);
-    imageCopiedTimerRef.current = window.setTimeout(() => setImageCopied(false), 2000);
+    if (imageCopiedTimerRef.current)
+      window.clearTimeout(imageCopiedTimerRef.current);
+    imageCopiedTimerRef.current = window.setTimeout(
+      () => setImageCopied(false),
+      2000
+    );
   }, []);
 
   const handleCopy = useCallback(() => {
@@ -247,7 +372,10 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
   const showCopy = isText || HAS_CLIPBOARD_WRITE;
 
   return (
-    <div className="flex flex-none items-center gap-1" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="flex flex-none items-center gap-1"
+      onClick={(e) => e.stopPropagation()}
+    >
       <a
         href={src}
         download={displayName}
@@ -261,12 +389,22 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
         <Button
           size="sm"
           variant={showCopied ? "default" : "ghost"}
-          className={showCopied ? "h-7 gap-1.5 px-2 text-xs" : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"}
+          className={
+            showCopied
+              ? "h-7 gap-1.5 px-2 text-xs"
+              : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+          }
           onClick={handleCopy}
           title="Copy"
         >
-          {showCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">{showCopied ? "Copied!" : "Copy"}</span>
+          {showCopied ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden sm:inline">
+            {showCopied ? "Copied!" : "Copy"}
+          </span>
         </Button>
       )}
     </div>
@@ -279,7 +417,7 @@ export function MediaLightbox({
   item,
   currentIndex,
   totalItems,
-  setLightboxIndex
+  setLightboxIndex,
 }: MediaLightboxProps): JSX.Element | null {
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
@@ -291,7 +429,9 @@ export function MediaLightbox({
     if (!meta) return;
     const original = meta.content;
     meta.content = "width=device-width, initial-scale=1.0";
-    return () => { meta.content = original; };
+    return () => {
+      meta.content = original;
+    };
   }, [item]);
 
   useEffect(() => {
@@ -336,9 +476,10 @@ export function MediaLightbox({
   const isVideo = /\.mp4/i.test(item.src);
   const displayName = stripTimestamp(item.file.name);
 
-  const sizeLabel = item.file.size >= 1024 * 1024
-    ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
-    : `${Math.max(1, Math.round(item.file.size / 1024))} KB`;
+  const sizeLabel =
+    item.file.size >= 1024 * 1024
+      ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(item.file.size / 1024))} KB`;
 
   return (
     <div
@@ -346,9 +487,15 @@ export function MediaLightbox({
       data-testid="media-lightbox"
     >
       <div className="mx-auto flex w-full max-w-4xl items-center gap-3 overflow-hidden rounded-t-lg border border-b-0 border-border bg-surface px-3 py-2 sm:px-4 sm:py-2.5">
-        <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
+        <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">
+          {displayName}
+        </span>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-          <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
+          <MediaActions
+            src={item.src}
+            fileName={item.file.name}
+            isText={isText}
+          />
           <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
             aria-label="Previous media item"
@@ -390,11 +537,19 @@ export function MediaLightbox({
       <div
         className={cn(
           "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border touch-pinch-zoom",
-          isDocument ? "bg-white" : isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
+          isDocument
+            ? "bg-white"
+            : isText
+              ? "bg-[hsl(var(--log-stream-bg))]"
+              : "bg-black"
         )}
       >
         {isDocument ? (
-          <iframe src={item.src} title={displayName} className="h-full w-full" />
+          <iframe
+            src={item.src}
+            title={displayName}
+            className="h-full w-full"
+          />
         ) : isText ? (
           <TextViewer src={item.src} fileName={item.file.name} />
         ) : isVideo ? (
@@ -413,10 +568,18 @@ export function MediaLightbox({
         )}
       </div>
       <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
-        {item.caption ? <span className="min-w-0 truncate">{item.caption}</span> : null}
-        {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source === "user" ? "your upload" : item.file.source}</span> : null}
+        {item.caption ? (
+          <span className="min-w-0 truncate">{item.caption}</span>
+        ) : null}
+        {item.file.source ? (
+          <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            {item.file.source === "user" ? "your upload" : item.file.source}
+          </span>
+        ) : null}
         <span className="ml-auto flex-none">{sizeLabel}</span>
-        <span className="hidden flex-none sm:inline">{new Date(item.file.updatedAt).toLocaleString()}</span>
+        <span className="hidden flex-none sm:inline">
+          {new Date(item.file.updatedAt).toLocaleString()}
+        </span>
       </div>
     </div>
   );

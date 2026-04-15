@@ -10,7 +10,12 @@ describe("token-harvester", () => {
     it("encodes a simple path by sanitizing non-alphanumeric path chars", () => {
       const result = cwdToClaudeProjectDir("/home/testuser/dev/apps/dispatch");
       expect(result).toBe(
-        path.join(os.homedir(), ".claude", "projects", "-home-testuser-dev-apps-dispatch")
+        path.join(
+          os.homedir(),
+          ".claude",
+          "projects",
+          "-home-testuser-dev-apps-dispatch"
+        )
       );
     });
 
@@ -94,7 +99,8 @@ describe("token-harvester", () => {
 
       await writeFile(jsonlPath, lines.join("\n") + "\n");
 
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
 
       const upserted: Array<{ params: unknown[] }> = [];
       const mockPool = {
@@ -133,7 +139,9 @@ describe("token-harvester", () => {
       expect(opusCall!.params[7]).toBe(2); // message_count
 
       // Find sonnet upsert
-      const sonnetCall = upserted.find((u) => u.params[2] === "claude-sonnet-4-6");
+      const sonnetCall = upserted.find(
+        (u) => u.params[2] === "claude-sonnet-4-6"
+      );
       expect(sonnetCall).toBeDefined();
       expect(sonnetCall!.params[3]).toBe(50); // input_tokens
       expect(sonnetCall!.params[4]).toBe(10); // cache_creation
@@ -146,7 +154,8 @@ describe("token-harvester", () => {
     });
 
     it("silently returns when project dir does not exist", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
 
       const mockPool = {
         query: vi.fn(),
@@ -163,7 +172,8 @@ describe("token-harvester", () => {
     });
 
     it("skips malformed JSON lines", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
@@ -210,10 +220,13 @@ describe("token-harvester", () => {
     });
 
     it("uses worktreePath when available", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
-      const worktreeDir = await mkdtemp(path.join(os.tmpdir(), "worktree-test-"));
+      const worktreeDir = await mkdtemp(
+        path.join(os.tmpdir(), "worktree-test-")
+      );
       const fakeProjectDir = cwdToClaudeProjectDir(worktreeDir);
       await mkdir(fakeProjectDir, { recursive: true });
 
@@ -251,7 +264,8 @@ describe("token-harvester", () => {
     });
 
     it("only harvests the agent's own session when cliSessionId is set", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
@@ -270,8 +284,14 @@ describe("token-harvester", () => {
           timestamp: "2026-03-28T10:00:00.000Z",
         });
 
-      await writeFile(path.join(fakeProjectDir, `${agentSession}.jsonl`), makeEntry(500) + "\n");
-      await writeFile(path.join(fakeProjectDir, `${otherSession}.jsonl`), makeEntry(100) + "\n");
+      await writeFile(
+        path.join(fakeProjectDir, `${agentSession}.jsonl`),
+        makeEntry(500) + "\n"
+      );
+      await writeFile(
+        path.join(fakeProjectDir, `${otherSession}.jsonl`),
+        makeEntry(100) + "\n"
+      );
 
       const upserted: Array<{ params: unknown[] }> = [];
       const mockPool = {
@@ -299,7 +319,8 @@ describe("token-harvester", () => {
     });
 
     it("harvests nothing when cliSessionId does not match any file", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
@@ -309,12 +330,17 @@ describe("token-harvester", () => {
         path.join(fakeProjectDir, "some-session.jsonl"),
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: 100, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: 100, output_tokens: 10 },
+          },
           timestamp: "2026-03-28T10:00:00.000Z",
         }) + "\n"
       );
 
-      const mockPool = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+      const mockPool = {
+        query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      };
 
       await harvestTokenUsage(mockPool as any, {
         id: "agt-no-match",
@@ -330,7 +356,8 @@ describe("token-harvester", () => {
     });
 
     it("harvests all sessions when cliSessionId is undefined (legacy agents)", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       const fakeProjectDir = cwdToClaudeProjectDir(tmpDir);
@@ -339,12 +366,21 @@ describe("token-harvester", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-03-28T10:00:00.000Z",
         });
 
-      await writeFile(path.join(fakeProjectDir, "session-a.jsonl"), makeEntry(100) + "\n");
-      await writeFile(path.join(fakeProjectDir, "session-b.jsonl"), makeEntry(200) + "\n");
+      await writeFile(
+        path.join(fakeProjectDir, "session-a.jsonl"),
+        makeEntry(100) + "\n"
+      );
+      await writeFile(
+        path.join(fakeProjectDir, "session-b.jsonl"),
+        makeEntry(200) + "\n"
+      );
 
       const upserted: Array<{ params: unknown[] }> = [];
       const mockPool = {
@@ -370,7 +406,8 @@ describe("token-harvester", () => {
     });
 
     it("skips opencode agents gracefully", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
 
       const mockPool = { query: vi.fn() };
 
@@ -397,11 +434,17 @@ describe("token-harvester", () => {
     });
 
     it("parses Codex rollout token_count events and normalizes cache tokens", async () => {
-      const { harvestTokenUsage } = await import("../src/agents/token-harvester.js");
+      const { harvestTokenUsage } =
+        await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
       // Create a fake ~/.codex/sessions/ structure
-      const sessionsDir = path.join(os.homedir(), ".codex", "sessions", "test-harvest");
+      const sessionsDir = path.join(
+        os.homedir(),
+        ".codex",
+        "sessions",
+        "test-harvest"
+      );
       await mkdir(sessionsDir, { recursive: true });
 
       const rolloutFile = path.join(sessionsDir, "rollout-test-codex.jsonl");
@@ -413,7 +456,12 @@ describe("token-harvester", () => {
           payload: {
             type: "message",
             role: "user",
-            content: [{ type: "input_text", text: "[dispatch:agt_codex_test] Say hello" }],
+            content: [
+              {
+                type: "input_text",
+                text: "[dispatch:agt_codex_test] Say hello",
+              },
+            ],
           },
         }),
         JSON.stringify({

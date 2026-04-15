@@ -1,8 +1,23 @@
-import { Check, ChevronRight, Eye, ListChecks, Terminal, X, XCircle } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Eye,
+  ListChecks,
+  Terminal,
+  X,
+  XCircle,
+} from "lucide-react";
 
-import { reviewVerdictLabel, type ReviewVerdict } from "@/components/app/agent-event-utils";
+import {
+  reviewVerdictLabel,
+  type ReviewVerdict,
+} from "@/components/app/agent-event-utils";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type PersonaAgentRowProps = {
@@ -23,7 +38,15 @@ export type PersonaAgentRowProps = {
   onOpenSummary?: () => void;
 };
 
-function PersonaStatusIcon({ reviewStatus, verdict, className }: { reviewStatus?: string | null; verdict?: ReviewVerdict; className?: string }): JSX.Element {
+function PersonaStatusIcon({
+  reviewStatus,
+  verdict,
+  className,
+}: {
+  reviewStatus?: string | null;
+  verdict?: ReviewVerdict;
+  className?: string;
+}): JSX.Element {
   // Review complete — show verdict icon
   if (reviewStatus === "complete" && verdict) {
     return <PersonaVerdictIcon verdict={verdict} className={className} />;
@@ -59,17 +82,33 @@ function PersonaStatusIcon({ reviewStatus, verdict, className }: { reviewStatus?
   );
 }
 
-function PersonaVerdictIcon({ verdict, className }: { verdict?: ReviewVerdict; className?: string }): JSX.Element {
+function PersonaVerdictIcon({
+  verdict,
+  className,
+}: {
+  verdict?: ReviewVerdict;
+  className?: string;
+}): JSX.Element {
   if (verdict === "approve") {
     return (
-      <span className={cn("inline-flex shrink-0 items-center justify-center rounded-full border border-emerald-500/50 bg-emerald-500/15 text-emerald-500", className)}>
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center rounded-full border border-emerald-500/50 bg-emerald-500/15 text-emerald-500",
+          className
+        )}
+      >
         <Check className="h-3 w-3" />
       </span>
     );
   }
   // request_changes or unknown
   return (
-    <span className={cn("inline-flex shrink-0 items-center justify-center rounded-full border border-orange-500/50 bg-orange-500/15 text-orange-500", className)}>
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-full border border-orange-500/50 bg-orange-500/15 text-orange-500",
+        className
+      )}
+    >
       <XCircle className="h-3 w-3" />
     </span>
   );
@@ -128,7 +167,12 @@ export function PersonaAgentRow({
       )}
     >
       {hasFeedback ? (
-        <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
+        <ChevronRight
+          className={cn(
+            "h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform",
+            !isCollapsed && "rotate-90"
+          )}
+        />
       ) : null}
       <PersonaStatusIcon
         reviewStatus={reviewStatus}
@@ -137,13 +181,20 @@ export function PersonaAgentRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="truncate text-xs font-medium" style={{ color: `hsl(${colorVar})` }}>
+          <span
+            className="truncate text-xs font-medium"
+            style={{ color: `hsl(${colorVar})` }}
+          >
             {child.persona ?? child.name}
           </span>
           {feedbackCount != null && feedbackCount > 0 ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">{feedbackCount}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">
+              {feedbackCount}
+            </span>
           ) : resolvedCount != null && resolvedCount > 0 ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">{resolvedCount}</span>
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">
+              {resolvedCount}
+            </span>
           ) : null}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
@@ -153,19 +204,31 @@ export function PersonaAgentRow({
                 data-agent-control="true"
                 className={cn(
                   "font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-colors",
-                  verdict === "approve" ? "text-emerald-500 decoration-emerald-500/40 hover:decoration-emerald-500" : "text-orange-500 decoration-orange-500/40 hover:decoration-orange-500"
+                  verdict === "approve"
+                    ? "text-emerald-500 decoration-emerald-500/40 hover:decoration-emerald-500"
+                    : "text-orange-500 decoration-orange-500/40 hover:decoration-orange-500"
                 )}
-                onClick={(e) => { e.stopPropagation(); onOpenSummary(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenSummary();
+                }}
               >
                 {reviewVerdictLabel(verdict)}
               </button>
             ) : (
-              <span className={cn("font-medium", verdict === "approve" ? "text-emerald-500" : "text-orange-500")}>
+              <span
+                className={cn(
+                  "font-medium",
+                  verdict === "approve" ? "text-emerald-500" : "text-orange-500"
+                )}
+              >
                 {reviewVerdictLabel(verdict)}
               </span>
             )
           ) : isReviewing ? (
-            <span className="font-medium text-status-working">{reviewMessage ?? "Reviewing"}</span>
+            <span className="font-medium text-status-working">
+              {reviewMessage ?? "Reviewing"}
+            </span>
           ) : child.status === "running" ? (
             <span className="font-medium text-muted-foreground">Starting</span>
           ) : null}
@@ -183,18 +246,30 @@ export function PersonaAgentRow({
         {onTriage ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span data-agent-control="true" className={cn(triageDisabled && "cursor-not-allowed")}>
+              <span
+                data-agent-control="true"
+                className={cn(triageDisabled && "cursor-not-allowed")}
+              >
                 <button
                   aria-label="Auto-triage feedback"
                   disabled={triageDisabled}
-                  className={cn("rounded p-2 transition-colors", triageDisabled ? "text-muted-foreground/25" : "text-muted-foreground/50 hover:text-foreground")}
+                  className={cn(
+                    "rounded p-2 transition-colors",
+                    triageDisabled
+                      ? "text-muted-foreground/25"
+                      : "text-muted-foreground/50 hover:text-foreground"
+                  )}
                   onClick={onTriage}
                 >
                   <ListChecks className="h-3.5 w-3.5" />
                 </button>
               </span>
             </TooltipTrigger>
-            <TooltipContent>{triageDisabled ? "Connect to parent agent to auto-triage" : "Auto-triage feedback"}</TooltipContent>
+            <TooltipContent>
+              {triageDisabled
+                ? "Connect to parent agent to auto-triage"
+                : "Auto-triage feedback"}
+            </TooltipContent>
           </Tooltip>
         ) : null}
         {!childIsStopped ? (

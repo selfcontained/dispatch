@@ -3,12 +3,17 @@ const IOS_DEVICE_RE = /iPad|iPhone|iPod/i;
 type StandaloneNavigator = Navigator & { standalone?: boolean };
 
 function isIOSDevice(): boolean {
-  return IOS_DEVICE_RE.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  return (
+    IOS_DEVICE_RE.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))
+  );
 }
 
 export function isStandaloneApp(): boolean {
-  return window.matchMedia("(display-mode: standalone)").matches ||
-    (navigator as StandaloneNavigator).standalone === true;
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as StandaloneNavigator).standalone === true
+  );
 }
 
 export function isStandaloneIOSApp(): boolean {

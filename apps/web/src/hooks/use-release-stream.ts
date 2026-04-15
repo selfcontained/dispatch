@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 
 export type ReleaseVersionType = "patch" | "minor" | "major";
-export type ReleasePhase = "preflight" | "triggering" | "watching" | "fetching" | "deploying" | "restarting" | "done" | "failed";
+export type ReleasePhase =
+  | "preflight"
+  | "triggering"
+  | "watching"
+  | "fetching"
+  | "deploying"
+  | "restarting"
+  | "done"
+  | "failed";
 export type ReleaseJobType = "create" | "update";
 
 export type ReleaseChannel = "stable" | "latest";
@@ -65,10 +73,14 @@ export function useReleaseStream(): UseReleaseStreamResult {
     try {
       const res = await fetch("/api/v1/release/status");
       if (res.ok) setStatus((await res.json()) as ReleaseStatus);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  useEffect(() => { void fetchStatus(); }, [fetchStatus]);
+  useEffect(() => {
+    void fetchStatus();
+  }, [fetchStatus]);
 
   const startHealthPoll = useCallback((expectedTag: string | null) => {
     setPostRestartPolling(true);
@@ -86,11 +98,15 @@ export function useReleaseStream(): UseReleaseStreamResult {
             healthPollRef.current = null;
             setPostRestartPolling(false);
             setStatus(data);
-            setJob((prev) => prev ? { ...prev, phase: "done", tag: data.tag } : prev);
+            setJob((prev) =>
+              prev ? { ...prev, phase: "done", tag: data.tag } : prev
+            );
             setTimeout(() => window.location.reload(), 1500);
           }
         }
-      } catch { /* server still down */ }
+      } catch {
+        /* server still down */
+      }
     }, 2000);
   }, []);
 
@@ -107,7 +123,8 @@ export function useReleaseStream(): UseReleaseStreamResult {
       }
       setJob((prev) => {
         if (!prev) return prev;
-        if (event.type === "log") return { ...prev, log: [...prev.log, event.line] };
+        if (event.type === "log")
+          return { ...prev, log: [...prev.log, event.line] };
         if (event.type === "log.rewind") {
           return { ...prev, log: prev.log.slice(0, -event.count) };
         }
@@ -120,7 +137,12 @@ export function useReleaseStream(): UseReleaseStreamResult {
           }
           return { ...prev, log: updated };
         }
-        if (event.type === "phase") return { ...prev, phase: event.phase, error: event.error ?? prev.error };
+        if (event.type === "phase")
+          return {
+            ...prev,
+            phase: event.phase,
+            error: event.error ?? prev.error,
+          };
         if (event.type === "runUrl") return { ...prev, runUrl: event.url };
         if (event.type === "tag") return { ...prev, tag: event.tag };
         return prev;
@@ -129,7 +151,10 @@ export function useReleaseStream(): UseReleaseStreamResult {
 
     es.onerror = () => {
       setJob((prev) => {
-        if (prev?.jobType === "update" && (prev.phase === "restarting" || prev.phase === "deploying")) {
+        if (
+          prev?.jobType === "update" &&
+          (prev.phase === "restarting" || prev.phase === "deploying")
+        ) {
           startHealthPoll(prev.tag);
           return { ...prev, phase: "restarting" };
         }
@@ -148,5 +173,12 @@ export function useReleaseStream(): UseReleaseStreamResult {
     };
   }, [connectStream]);
 
-  return { status, job, postRestartPolling, connectStream, fetchStatus, setJob };
+  return {
+    status,
+    job,
+    postRestartPolling,
+    connectStream,
+    fetchStatus,
+    setJob,
+  };
 }

@@ -23,7 +23,10 @@ type PersonaFrontmatter = {
 const PERSONAS_DIR = ".dispatch/personas";
 const MAX_DIFF_BYTES = 50 * 1024;
 
-export function parseFrontmatter(content: string): { frontmatter: PersonaFrontmatter; body: string } {
+export function parseFrontmatter(content: string): {
+  frontmatter: PersonaFrontmatter;
+  body: string;
+} {
   const trimmed = content.trimStart();
   if (!trimmed.startsWith("---")) {
     return { frontmatter: {}, body: content };
@@ -51,7 +54,9 @@ export function parseFrontmatter(content: string): { frontmatter: PersonaFrontma
   return { frontmatter: frontmatter as PersonaFrontmatter, body };
 }
 
-export async function loadPersonas(repoRoot: string): Promise<PersonaDefinition[]> {
+export async function loadPersonas(
+  repoRoot: string
+): Promise<PersonaDefinition[]> {
   const dir = path.join(repoRoot, PERSONAS_DIR);
   let entries: string[];
   try {

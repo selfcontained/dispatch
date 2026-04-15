@@ -26,7 +26,7 @@ export async function runMigrations(
   const opts: MigrationOptions =
     typeof optionsOrUrl === "string"
       ? { databaseUrl: optionsOrUrl }
-      : optionsOrUrl ?? {};
+      : (optionsOrUrl ?? {});
 
   const url = opts.databaseUrl ?? loadConfig().databaseUrl;
 
@@ -47,7 +47,9 @@ export async function runMigrations(
 
     console.log("Migrations completed.");
   } finally {
-    await lockClient.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]).catch(() => null);
+    await lockClient
+      .query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID])
+      .catch(() => null);
     await lockClient.end().catch(() => null);
   }
 }

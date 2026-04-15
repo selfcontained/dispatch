@@ -3,7 +3,13 @@ import { Loader2, Pause } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type StopAgentDialogProps = {
   open: boolean;
@@ -18,7 +24,7 @@ export function StopAgentDialog({
   stopTarget,
   setOpen,
   setStopTarget,
-  onStop
+  onStop,
 }: StopAgentDialogProps): JSX.Element {
   const [stopping, setStopping] = useState(false);
 
@@ -41,7 +47,12 @@ export function StopAgentDialog({
   }, [stopTarget, onStop, setOpen, setStopTarget]);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) close();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Pause Agent</DialogTitle>
@@ -52,7 +63,12 @@ export function StopAgentDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" data-testid="stop-agent-cancel" onClick={close} disabled={stopping}>
+          <Button
+            variant="ghost"
+            data-testid="stop-agent-cancel"
+            onClick={close}
+            disabled={stopping}
+          >
             Cancel
           </Button>
           <Button
@@ -61,7 +77,11 @@ export function StopAgentDialog({
             disabled={stopping}
             onClick={() => void handleConfirmStop()}
           >
-            {stopping ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Pause className="mr-1.5 h-4 w-4" />}
+            {stopping ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Pause className="mr-1.5 h-4 w-4" />
+            )}
             Pause
           </Button>
         </div>

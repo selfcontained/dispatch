@@ -1,4 +1,11 @@
-export type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";
+export type AgentStatus =
+  | "creating"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "archiving"
+  | "error"
+  | "unknown";
 
 export type AgentPin = {
   label: string;
@@ -18,7 +25,12 @@ export type Agent = {
   agentArgs: string[];
   fullAccess: boolean;
   setupPhase?: "worktree" | "env" | "deps" | "session" | null;
-  archivePhase?: "stopping" | "worktree-check" | "worktree-cleanup" | "finalizing" | null;
+  archivePhase?:
+    | "stopping"
+    | "worktree-check"
+    | "worktree-cleanup"
+    | "finalizing"
+    | null;
   lastError?: string | null;
   latestEvent?: {
     type: "working" | "blocked" | "waiting_user" | "done" | "idle";

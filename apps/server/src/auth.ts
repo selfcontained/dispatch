@@ -15,11 +15,18 @@ function hashToken(token: string): string {
 
 function createMcpScopeToken(secret: string, scope: string): string {
   const payload = Buffer.from(scope, "utf-8").toString("base64url");
-  const signature = crypto.createHmac("sha256", secret).update(scope).digest("base64url");
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(scope)
+    .digest("base64url");
   return `${payload}.${signature}`;
 }
 
-function validateMcpScopeToken(secret: string, token: string, expectedScope: string): boolean {
+function validateMcpScopeToken(
+  secret: string,
+  token: string,
+  expectedScope: string
+): boolean {
   const expected = createMcpScopeToken(secret, expectedScope);
   const actualBuffer = Buffer.from(token, "utf-8");
   const expectedBuffer = Buffer.from(expected, "utf-8");
@@ -36,7 +43,10 @@ export async function setPassword(pool: Pool, password: string): Promise<void> {
   await setSetting(pool, "password_hash", hash);
 }
 
-export async function verifyPassword(pool: Pool, password: string): Promise<boolean> {
+export async function verifyPassword(
+  pool: Pool,
+  password: string
+): Promise<boolean> {
   const hash = await getSetting(pool, "password_hash");
   if (!hash) return false;
   return bcrypt.compare(password, hash);
@@ -44,15 +54,20 @@ export async function verifyPassword(pool: Pool, password: string): Promise<bool
 
 export async function createSession(pool: Pool): Promise<string> {
   const token = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
-  await pool.query(
-    "INSERT INTO sessions (token, expires_at) VALUES ($1, $2)",
-    [hashToken(token), expiresAt]
+  const expiresAt = new Date(
+    Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
   );
+  await pool.query("INSERT INTO sessions (token, expires_at) VALUES ($1, $2)", [
+    hashToken(token),
+    expiresAt,
+  ]);
   return token;
 }
 
-export async function validateSession(pool: Pool, token: string): Promise<boolean> {
+export async function validateSession(
+  pool: Pool,
+  token: string
+): Promise<boolean> {
   const hashed = hashToken(token);
   // Single query checks both hashed and legacy plaintext tokens to avoid timing side-channel
   const result = await pool.query(
@@ -64,13 +79,19 @@ export async function validateSession(pool: Pool, token: string): Promise<boolea
   // Upgrade legacy plaintext token to hashed in-place
   const matched = result.rows[0].token as string;
   if (matched !== hashed) {
-    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [hashed, matched]);
+    await pool.query("UPDATE sessions SET token = $1 WHERE token = $2", [
+      hashed,
+      matched,
+    ]);
   }
   return true;
 }
 
 export async function deleteSession(pool: Pool, token: string): Promise<void> {
-  await pool.query("DELETE FROM sessions WHERE token = $1 OR token = $2", [hashToken(token), token]);
+  await pool.query("DELETE FROM sessions WHERE token = $1 OR token = $2", [
+    hashToken(token),
+    token,
+  ]);
 }
 
 export async function deleteAllSessions(pool: Pool): Promise<void> {
@@ -110,10 +131,17 @@ export function isMcpRoute(url: string): boolean {
 }
 
 export function isScopedMcpRoute(url: string): boolean {
-  return /^\/api\/mcp\/[^/]+$/.test(url) || /^\/api\/mcp\/jobs\/[^/]+\/[^/]+$/.test(url);
+  return (
+    /^\/api\/mcp\/[^/]+$/.test(url) ||
+    /^\/api\/mcp\/jobs\/[^/]+\/[^/]+$/.test(url)
+  );
 }
 
-export function shouldAcceptApiBearerToken(url: string, token: string, serverAuthToken: string): boolean {
+export function shouldAcceptApiBearerToken(
+  url: string,
+  token: string,
+  serverAuthToken: string
+): boolean {
   return token === serverAuthToken;
 }
 
@@ -121,15 +149,28 @@ export function createAgentMcpToken(secret: string, agentId: string): string {
   return createMcpScopeToken(secret, `agent:${agentId}`);
 }
 
-export function validateAgentMcpToken(secret: string, token: string, agentId: string): boolean {
+export function validateAgentMcpToken(
+  secret: string,
+  token: string,
+  agentId: string
+): boolean {
   return validateMcpScopeToken(secret, token, `agent:${agentId}`);
 }
 
-export function createJobMcpToken(secret: string, runId: string, agentId: string): string {
+export function createJobMcpToken(
+  secret: string,
+  runId: string,
+  agentId: string
+): string {
   return createMcpScopeToken(secret, `job:${runId}:${agentId}`);
 }
 
-export function validateJobMcpToken(secret: string, token: string, runId: string, agentId: string): boolean {
+export function validateJobMcpToken(
+  secret: string,
+  token: string,
+  runId: string,
+  agentId: string
+): boolean {
   return validateMcpScopeToken(secret, token, `job:${runId}:${agentId}`);
 }
 

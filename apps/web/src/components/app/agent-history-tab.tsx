@@ -1,5 +1,20 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, Search, X } from "lucide-react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Search,
+  X,
+} from "lucide-react";
 import { Bar, BarChart, XAxis, YAxis } from "recharts";
 
 import { Input } from "@/components/ui/input";
@@ -19,7 +34,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
-import { formatDuration, formatTokenCount, formatRelativeTime, shortProjectName } from "@/lib/format";
+import {
+  formatDuration,
+  formatTokenCount,
+  formatRelativeTime,
+  shortProjectName,
+} from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
@@ -42,13 +62,15 @@ import {
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function shortModelName(model: string): string {
-  return model
-    .replace(/-\d{8}$/, "")
-    .replace("claude-", "");
+  return model.replace(/-\d{8}$/, "").replace("claude-", "");
 }
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
@@ -94,7 +116,15 @@ function AgentHistoryList({
   }, [search]);
 
   const filters: HistoryFilters = useMemo(
-    () => ({ search: debouncedSearch, type, project, range, sort, order, offset: 0 }),
+    () => ({
+      search: debouncedSearch,
+      type,
+      project,
+      range,
+      sort,
+      order,
+      offset: 0,
+    }),
     [debouncedSearch, type, project, range, sort, order]
   );
 
@@ -125,7 +155,8 @@ function AgentHistoryList({
     [sort]
   );
 
-  const hasActiveFilters = debouncedSearch || type || project || range !== "all";
+  const hasActiveFilters =
+    debouncedSearch || type || project || range !== "all";
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col px-3 sm:px-5 md:px-8">
@@ -150,7 +181,10 @@ function AgentHistoryList({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={type || "__all__"} onValueChange={(v) => setType(v === "__all__" ? "" : v)}>
+          <Select
+            value={type || "__all__"}
+            onValueChange={(v) => setType(v === "__all__" ? "" : v)}
+          >
             <SelectTrigger className="h-7 w-[100px] text-[11px]">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
@@ -163,7 +197,10 @@ function AgentHistoryList({
           </Select>
 
           {projects && projects.length > 0 && (
-            <Select value={project || "__all__"} onValueChange={(v) => setProject(v === "__all__" ? "" : v)}>
+            <Select
+              value={project || "__all__"}
+              onValueChange={(v) => setProject(v === "__all__" ? "" : v)}
+            >
               <SelectTrigger className="h-7 max-w-[180px] text-[11px]">
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
@@ -178,7 +215,10 @@ function AgentHistoryList({
             </Select>
           )}
 
-          <Select value={range} onValueChange={(v) => onRangeChange(v as ActivityRange)}>
+          <Select
+            value={range}
+            onValueChange={(v) => onRangeChange(v as ActivityRange)}
+          >
             <SelectTrigger className="h-7 w-[120px] text-[11px]">
               <SelectValue />
             </SelectTrigger>
@@ -222,16 +262,30 @@ function AgentHistoryList({
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"
                 onClick={() => toggleSort("name")}
               >
-                Name {sort === "name" && (order === "desc" ? <ChevronDown className="ml-0.5 inline h-3 w-3" /> : <ChevronUp className="ml-0.5 inline h-3 w-3" />)}
+                Name{" "}
+                {sort === "name" &&
+                  (order === "desc" ? (
+                    <ChevronDown className="ml-0.5 inline h-3 w-3" />
+                  ) : (
+                    <ChevronUp className="ml-0.5 inline h-3 w-3" />
+                  ))}
               </th>
-              <th className="hidden px-2 py-2 font-medium sm:table-cell">Project</th>
+              <th className="hidden px-2 py-2 font-medium sm:table-cell">
+                Project
+              </th>
               <th className="px-2 py-2 font-medium">Duration</th>
               <th className="px-2 py-2 font-medium">Tokens</th>
               <th
                 className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-5"
                 onClick={() => toggleSort("created_at")}
               >
-                Created {sort === "created_at" && (order === "desc" ? <ChevronDown className="ml-0.5 inline h-3 w-3" /> : <ChevronUp className="ml-0.5 inline h-3 w-3" />)}
+                Created{" "}
+                {sort === "created_at" &&
+                  (order === "desc" ? (
+                    <ChevronDown className="ml-0.5 inline h-3 w-3" />
+                  ) : (
+                    <ChevronUp className="ml-0.5 inline h-3 w-3" />
+                  ))}
               </th>
             </tr>
           </thead>
@@ -261,9 +315,11 @@ function AgentHistoryList({
                             onClick={(e) => toggleExpanded(agent.id, e)}
                             className="flex-shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                           >
-                            {isExpanded
-                              ? <ChevronDown className="h-3.5 w-3.5" />
-                              : <ChevronRight className="h-3.5 w-3.5" />}
+                            {isExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         ) : (
                           <span className="w-[18px] flex-shrink-0" />
@@ -280,8 +336,13 @@ function AgentHistoryList({
                       </div>
                     </td>
                     <td className="hidden px-2 py-2.5 text-muted-foreground sm:table-cell">
-                      <span className="truncate" title={agent.gitContext?.repoRoot ?? agent.cwd}>
-                        {shortProjectName(agent.gitContext?.repoRoot ?? agent.cwd)}
+                      <span
+                        className="truncate"
+                        title={agent.gitContext?.repoRoot ?? agent.cwd}
+                      >
+                        {shortProjectName(
+                          agent.gitContext?.repoRoot ?? agent.cwd
+                        )}
                       </span>
                     </td>
                     <td className="px-2 py-2.5 text-muted-foreground">
@@ -290,43 +351,54 @@ function AgentHistoryList({
                     <td className="px-2 py-2.5 text-muted-foreground">
                       {hasChildren ? (
                         <div>
-                          <span>{formatTokenCount(agent.groupTotalTokens)}</span>
+                          <span>
+                            {formatTokenCount(agent.groupTotalTokens)}
+                          </span>
                           <span className="ml-1 text-[10px] text-muted-foreground/60">
                             ({formatTokenCount(agent.totalTokens)})
                           </span>
                         </div>
+                      ) : agent.totalTokens > 0 ? (
+                        formatTokenCount(agent.totalTokens)
                       ) : (
-                        agent.totalTokens > 0 ? formatTokenCount(agent.totalTokens) : "—"
+                        "—"
                       )}
                     </td>
                     <td className="px-2 py-2.5 pr-3 text-muted-foreground sm:pr-5">
                       {formatRelativeTime(agent.createdAt)}
                     </td>
                   </tr>
-                  {hasChildren && isExpanded && agent.children.map((child) => (
-                    <tr
-                      key={child.id}
-                      className="cursor-pointer border-b border-border/30 bg-muted/10 transition-colors hover:bg-muted/30"
-                      onClick={() => onSelect(child.id)}
-                    >
-                      <td colSpan={3} className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5">
-                        <div className="flex items-center gap-2">
-                          <Badge className="h-4 px-1.5 text-[10px] font-normal">
-                            {child.persona ?? "review"}
-                          </Badge>
-                          <span className="truncate text-muted-foreground">
-                            {child.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2 text-muted-foreground">
-                        {child.totalTokens > 0 ? formatTokenCount(child.totalTokens) : "—"}
-                      </td>
-                      <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5">
-                        {formatRelativeTime(child.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
+                  {hasChildren &&
+                    isExpanded &&
+                    agent.children.map((child) => (
+                      <tr
+                        key={child.id}
+                        className="cursor-pointer border-b border-border/30 bg-muted/10 transition-colors hover:bg-muted/30"
+                        onClick={() => onSelect(child.id)}
+                      >
+                        <td
+                          colSpan={3}
+                          className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Badge className="h-4 px-1.5 text-[10px] font-normal">
+                              {child.persona ?? "review"}
+                            </Badge>
+                            <span className="truncate text-muted-foreground">
+                              {child.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-muted-foreground">
+                          {child.totalTokens > 0
+                            ? formatTokenCount(child.totalTokens)
+                            : "—"}
+                        </td>
+                        <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5">
+                          {formatRelativeTime(child.createdAt)}
+                        </td>
+                      </tr>
+                    ))}
                 </Fragment>
               );
             })}
@@ -338,9 +410,7 @@ function AgentHistoryList({
                   className="px-5 py-12 text-center text-sm text-muted-foreground"
                 >
                   No agents found.{" "}
-                  {hasActiveFilters && (
-                    <span>Try adjusting your filters.</span>
-                  )}
+                  {hasActiveFilters && <span>Try adjusting your filters.</span>}
                 </td>
               </tr>
             )}
@@ -350,7 +420,8 @@ function AgentHistoryList({
         {data && data.agents.length < data.total && (
           <div className="py-3 text-center">
             <button className="text-xs text-muted-foreground hover:text-foreground">
-              Showing {data.agents.length} of {data.total} — load more coming soon
+              Showing {data.agents.length} of {data.total} — load more coming
+              soon
             </button>
           </div>
         )}
@@ -392,9 +463,19 @@ function DurationBar({ durations }: { durations: Record<string, number> }) {
             />
           }
         />
-        <Bar dataKey="working" stackId="a" fill="var(--color-working)" radius={[4, 0, 0, 4]} />
+        <Bar
+          dataKey="working"
+          stackId="a"
+          fill="var(--color-working)"
+          radius={[4, 0, 0, 4]}
+        />
         <Bar dataKey="blocked" stackId="a" fill="var(--color-blocked)" />
-        <Bar dataKey="waiting_user" stackId="a" fill="var(--color-waiting_user)" radius={[0, 4, 4, 0]} />
+        <Bar
+          dataKey="waiting_user"
+          stackId="a"
+          fill="var(--color-waiting_user)"
+          radius={[0, 4, 4, 0]}
+        />
       </BarChart>
     </ChartContainer>
   );
@@ -403,7 +484,9 @@ function DurationBar({ durations }: { durations: Record<string, number> }) {
 function EventTimeline({ events }: { events: HistoryEvent[] }) {
   const [expanded, setExpanded] = useState(false);
   const showAll = expanded || events.length <= 10;
-  const visible = showAll ? events : [...events.slice(0, 5), ...events.slice(-5)];
+  const visible = showAll
+    ? events
+    : [...events.slice(0, 5), ...events.slice(-5)];
   const hiddenCount = events.length - 10;
 
   return (
@@ -427,7 +510,8 @@ function EventTimeline({ events }: { events: HistoryEvent[] }) {
                   <div
                     className={cn(
                       "h-2 w-2 shrink-0 rounded-full",
-                      EVENT_TYPE_COLORS[event.event_type] ?? "bg-muted-foreground"
+                      EVENT_TYPE_COLORS[event.event_type] ??
+                        "bg-muted-foreground"
                     )}
                   />
                   {i < visible.length - 1 && (
@@ -442,17 +526,24 @@ function EventTimeline({ events }: { events: HistoryEvent[] }) {
                     <span
                       className={cn(
                         "inline-block rounded px-1 py-0.5 text-[10px] font-medium",
-                        event.event_type === "working" && "bg-status-working/15 text-status-working",
-                        event.event_type === "blocked" && "bg-status-blocked/15 text-status-blocked",
-                        event.event_type === "waiting_user" && "bg-status-waiting/15 text-status-waiting",
-                        event.event_type === "done" && "bg-status-done/15 text-status-done",
-                        event.event_type === "idle" && "bg-muted text-muted-foreground"
+                        event.event_type === "working" &&
+                          "bg-status-working/15 text-status-working",
+                        event.event_type === "blocked" &&
+                          "bg-status-blocked/15 text-status-blocked",
+                        event.event_type === "waiting_user" &&
+                          "bg-status-waiting/15 text-status-waiting",
+                        event.event_type === "done" &&
+                          "bg-status-done/15 text-status-done",
+                        event.event_type === "idle" &&
+                          "bg-muted text-muted-foreground"
                       )}
                     >
                       {EVENT_TYPE_LABELS[event.event_type] ?? event.event_type}
                     </span>
                   </div>
-                  <p className="mt-0.5 text-xs text-foreground">{event.message}</p>
+                  <p className="mt-0.5 text-xs text-foreground">
+                    {event.message}
+                  </p>
                 </div>
               </div>
             </Fragment>
@@ -473,7 +564,10 @@ const SEVERITY_DOT: Record<string, string> = {
   info: "bg-muted-foreground",
 };
 
-const SEVERITY_LABELS: Record<string, { label: string; variant: "error" | "default" }> = {
+const SEVERITY_LABELS: Record<
+  string,
+  { label: string; variant: "error" | "default" }
+> = {
   critical: { label: "Critical", variant: "error" },
   high: { label: "High", variant: "error" },
   medium: { label: "Medium", variant: "default" },
@@ -481,11 +575,12 @@ const SEVERITY_LABELS: Record<string, { label: string; variant: "error" | "defau
   info: { label: "Info", variant: "default" },
 };
 
-const FEEDBACK_STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  fixed: { label: "Fixed", color: "text-green-500" },
-  ignored: { label: "Ignored", color: "text-muted-foreground/60" },
-  dismissed: { label: "Dismissed", color: "text-muted-foreground/60" },
-};
+const FEEDBACK_STATUS_LABELS: Record<string, { label: string; color: string }> =
+  {
+    fixed: { label: "Fixed", color: "text-green-500" },
+    ignored: { label: "Ignored", color: "text-muted-foreground/60" },
+    dismissed: { label: "Dismissed", color: "text-muted-foreground/60" },
+  };
 
 const PERSONA_COLORS = [
   "hsl(var(--chart-1))",
@@ -505,7 +600,10 @@ function FeedbackItemRow({
 }) {
   const dotColor = SEVERITY_DOT[item.severity] ?? SEVERITY_DOT.info;
   const statusLabel = FEEDBACK_STATUS_LABELS[item.status];
-  const isResolved = item.status === "fixed" || item.status === "ignored" || item.status === "dismissed";
+  const isResolved =
+    item.status === "fixed" ||
+    item.status === "ignored" ||
+    item.status === "dismissed";
   const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
 
   return (
@@ -514,17 +612,26 @@ function FeedbackItemRow({
         className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-1.5 text-left text-[11px] hover:bg-muted/40 transition-colors"
         onClick={onToggle}
       >
-        <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
+        <ChevronRight
+          className={cn(
+            "h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform",
+            isExpanded && "rotate-90"
+          )}
+        />
         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotColor)} />
         <span className="shrink-0 font-mono text-muted-foreground truncate max-w-[100px] sm:max-w-[120px]">
-          {item.filePath ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}` : "—"}
+          {item.filePath
+            ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}`
+            : "—"}
         </span>
         <span className="min-w-0 flex-1 truncate text-foreground">
           {item.description}
         </span>
         {statusLabel ? (
           <span className={cn("shrink-0 text-[9px]", statusLabel.color)}>
-            {item.status === "fixed" && <CheckCircle2 className="mr-0.5 inline h-2.5 w-2.5" />}
+            {item.status === "fixed" && (
+              <CheckCircle2 className="mr-0.5 inline h-2.5 w-2.5" />
+            )}
             {statusLabel.label}
           </span>
         ) : null}
@@ -536,23 +643,34 @@ function FeedbackItemRow({
             <Badge variant={severityInfo.variant}>{severityInfo.label}</Badge>
             {item.filePath ? (
               <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                {item.filePath}{item.lineNumber ? `:${item.lineNumber}` : ""}
+                {item.filePath}
+                {item.lineNumber ? `:${item.lineNumber}` : ""}
               </span>
             ) : null}
             {statusLabel ? (
-              <span className={cn("ml-auto text-[11px]", statusLabel.color)}>{statusLabel.label}</span>
+              <span className={cn("ml-auto text-[11px]", statusLabel.color)}>
+                {statusLabel.label}
+              </span>
             ) : null}
           </div>
 
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Description</div>
-            <Markdown className="text-sm text-foreground">{item.description}</Markdown>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
+              Description
+            </div>
+            <Markdown className="text-sm text-foreground">
+              {item.description}
+            </Markdown>
           </div>
 
           {item.suggestion ? (
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">Suggestion</div>
-              <Markdown className="text-sm text-muted-foreground">{item.suggestion}</Markdown>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
+                Suggestion
+              </div>
+              <Markdown className="text-sm text-muted-foreground">
+                {item.suggestion}
+              </Markdown>
             </div>
           ) : null}
         </div>
@@ -563,7 +681,9 @@ function FeedbackItemRow({
 
 function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set()
+  );
 
   // Group by persona
   const groups = useMemo(() => {
@@ -604,15 +724,17 @@ function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
                 className="flex w-full items-center gap-1.5 mb-0.5 py-0.5 text-left hover:bg-muted/40 rounded transition-colors"
                 onClick={() => toggleGroup(persona)}
               >
-                <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
+                <ChevronRight
+                  className={cn(
+                    "h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform",
+                    !isCollapsed && "rotate-90"
+                  )}
+                />
                 <span
                   className="h-2 w-2 shrink-0 rounded-full"
                   style={{ backgroundColor: color }}
                 />
-                <span
-                  className="text-xs font-medium"
-                  style={{ color }}
-                >
+                <span className="text-xs font-medium" style={{ color }}>
                   {label}
                 </span>
                 <span className="text-[10px] text-muted-foreground/50">
@@ -627,7 +749,9 @@ function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
                     key={item.id}
                     item={item}
                     isExpanded={expandedId === item.id}
-                    onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                    onToggle={() =>
+                      setExpandedId(expandedId === item.id ? null : item.id)
+                    }
                   />
                 ))}
               </div>
@@ -670,7 +794,8 @@ function DetailTabs({
     [media, agentId]
   );
 
-  const lightboxItem = lightboxIndex !== null ? lightboxItems[lightboxIndex] ?? null : null;
+  const lightboxItem =
+    lightboxIndex !== null ? (lightboxItems[lightboxIndex] ?? null) : null;
 
   const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
     { key: "events", label: "Events", count: events.length },
@@ -791,7 +916,10 @@ function AgentHistoryDetail({
   if (isLoading || !data) {
     return (
       <div className="space-y-4 p-5">
-        <button onClick={onBack} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
         <div className="space-y-3">
@@ -824,7 +952,9 @@ function AgentHistoryDetail({
         </button>
         <div className="flex items-center gap-2">
           <AgentTypeIcon type={agent.type} />
-          <h2 className="text-base font-semibold text-foreground">{agent.name}</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {agent.name}
+          </h2>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
@@ -861,13 +991,17 @@ function AgentHistoryDetail({
           {agent.gitContext?.worktreePath && agent.gitContext.isWorktree && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-[11px]">Worktree</span>
-              <span className="font-mono text-[11px]">{shortProjectName(agent.gitContext.worktreePath)}</span>
+              <span className="font-mono text-[11px]">
+                {shortProjectName(agent.gitContext.worktreePath)}
+              </span>
             </div>
           )}
           {agent.cwd !== agent.gitContext?.repoRoot && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-[11px]">Directory</span>
-              <span className="font-mono text-[11px]">{shortProjectName(agent.cwd)}</span>
+              <span className="font-mono text-[11px]">
+                {shortProjectName(agent.cwd)}
+              </span>
             </div>
           )}
         </div>
@@ -876,9 +1010,18 @@ function AgentHistoryDetail({
       {/* Stats */}
       <div className="flex flex-wrap gap-2 sm:gap-3">
         <StatCard label="Total duration" value={formatDuration(durationMs)} />
-        <StatCard label="Working" value={formatDuration(stateDurations.working ?? 0)} />
-        <StatCard label="Blocked" value={formatDuration(stateDurations.blocked ?? 0)} />
-        <StatCard label="Waiting" value={formatDuration(stateDurations.waiting_user ?? 0)} />
+        <StatCard
+          label="Working"
+          value={formatDuration(stateDurations.working ?? 0)}
+        />
+        <StatCard
+          label="Blocked"
+          value={formatDuration(stateDurations.blocked ?? 0)}
+        />
+        <StatCard
+          label="Waiting"
+          value={formatDuration(stateDurations.waiting_user ?? 0)}
+        />
         {totalTokens > 0 && (
           <StatCard
             label="Tokens"
@@ -900,7 +1043,9 @@ function AgentHistoryDetail({
       {/* Duration bar */}
       {Object.values(stateDurations).some((v) => v > 0) && (
         <div>
-          <h3 className="mb-2 text-sm font-medium text-foreground">Duration breakdown</h3>
+          <h3 className="mb-2 text-sm font-medium text-foreground">
+            Duration breakdown
+          </h3>
           <DurationBar durations={stateDurations} />
           <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
             {["working", "blocked", "waiting_user"].map(
@@ -913,7 +1058,8 @@ function AgentHistoryDetail({
                         EVENT_TYPE_COLORS[key]
                       )}
                     />
-                    {EVENT_TYPE_LABELS[key]}: {formatDuration(stateDurations[key])}
+                    {EVENT_TYPE_LABELS[key]}:{" "}
+                    {formatDuration(stateDurations[key])}
                   </span>
                 )
             )}
@@ -922,7 +1068,12 @@ function AgentHistoryDetail({
       )}
 
       {/* Tabbed: Events / Media */}
-      <DetailTabs events={events} media={media} feedback={feedback} agentId={agentId} />
+      <DetailTabs
+        events={events}
+        media={media}
+        feedback={feedback}
+        agentId={agentId}
+      />
     </div>
   );
 }

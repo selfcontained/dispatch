@@ -17,7 +17,7 @@ export function createPool(config: AppConfig): Pool {
   const pool = new Pool({
     connectionString: config.databaseUrl,
     max: 10,
-    idleTimeoutMillis: 30_000
+    idleTimeoutMillis: 30_000,
   });
   // Prevent unhandled 'error' events on idle clients from crashing the process.
   // Connection errors during shutdown (e.g. pg_terminate_backend in tests) are

@@ -39,7 +39,7 @@ export function useInstanceName(): {
     (name: string) => {
       mutation.mutate(name);
     },
-    [mutation],
+    [mutation]
   );
 
   const clearSaveState = useCallback(() => {
