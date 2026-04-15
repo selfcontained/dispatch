@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -264,11 +265,217 @@ export type McpRequestContext = {
   toolScope?: "agent" | "reviewer" | "job";
 };
 
-export async function handleMcpRequest(
+/**
+ * Manages stateful MCP sessions per agent, enabling server→client notifications
+ * via persistent SSE streams.
+ *
+ * Lifecycle:
+ * 1. Agent POSTs initialize → session created, stored by agentId
+ * 2. Agent opens GET SSE stream → transport keeps it open for notifications
+ * 3. Server calls `notify()` → pushes to the agent's active transport
+ * 4. Agent archived/deleted → `removeSession()` cleans up
+ */
+export class McpSessionManager {
+  /** sessionId → session state */
+  private sessions = new Map<string, {
+    server: McpServer;
+    transport: StreamableHTTPServerTransport;
+    agentId: string;
+    context: McpRequestContext;
+  }>();
+
+  /** agentId → sessionId (lookup for notification dispatch) */
+  private agentSessions = new Map<string, string>();
+
+  /**
+   * Handle a POST request. On initialize, creates a stateful session.
+   * On subsequent requests with a session ID, routes to the existing session.
+   * Falls back to stateless handling for clients that don't use sessions.
+   */
+  async handlePost(
+    req: IncomingMessage,
+    res: ServerResponse,
+    parsedBody: unknown,
+    context: McpRequestContext
+  ): Promise<void> {
+    const agentId = context.agent?.id;
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    // Route to existing session if the client provides a session ID
+    if (sessionId) {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        await session.transport.handleRequest(req, res, parsedBody);
+        return;
+      }
+      // Unknown session — let the stateless fallback handle it (may be a stale session)
+    }
+
+    // Check if this is an initialize request — only then create a stateful session
+    const isInit = isInitializeBody(parsedBody);
+
+    if (isInit && agentId) {
+      // Clean up any previous session for this agent
+      const prevSessionId = this.agentSessions.get(agentId);
+      if (prevSessionId) {
+        const prev = this.sessions.get(prevSessionId);
+        if (prev) {
+          void prev.transport.close();
+          void prev.server.close();
+          this.sessions.delete(prevSessionId);
+        }
+        this.agentSessions.delete(agentId);
+      }
+
+      // Create a new stateful session
+      const server = await createDispatchMcpServer(context);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (sid) => {
+          this.sessions.set(sid, { server, transport, agentId: agentId, context });
+          this.agentSessions.set(agentId, sid);
+        },
+      });
+
+      let closing = false;
+      transport.onclose = () => {
+        if (closing) return;
+        closing = true;
+        const sid = transport.sessionId;
+        if (sid) {
+          const currentSid = this.agentSessions.get(agentId);
+          if (currentSid === sid) {
+            this.agentSessions.delete(agentId);
+          }
+          this.sessions.delete(sid);
+        }
+        void server.close();
+      };
+
+      await server.connect(transport);
+      await transport.handleRequest(req, res, parsedBody);
+      return;
+    }
+
+    // Non-initialize request without a session — stateless fallback
+    await handleStatelessMcpRequest(req, res, parsedBody, context);
+  }
+
+  /**
+   * Handle a GET request for server-initiated SSE notification streams.
+   */
+  async handleGet(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    // Session ID comes from the Mcp-Session-Id header
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (!sessionId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Mcp-Session-Id header required" }, id: null }));
+      return;
+    }
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null }));
+      return;
+    }
+
+    await session.transport.handleRequest(req, res);
+  }
+
+  /**
+   * Handle a DELETE request to close a session.
+   */
+  async handleDelete(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    if (!sessionId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Mcp-Session-Id header required" }, id: null }));
+      return;
+    }
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null }));
+      return;
+    }
+
+    await session.transport.handleRequest(req, res);
+  }
+
+  /**
+   * Send a resource-updated notification to an agent's active MCP session.
+   * Returns true if the notification was sent, false if no active session exists.
+   */
+  async notify(agentId: string, uri: string): Promise<boolean> {
+    const sessionId = this.agentSessions.get(agentId);
+    if (!sessionId) return false;
+
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+
+    try {
+      await session.server.server.sendResourceUpdated({ uri });
+      return true;
+    } catch {
+      // Session may have been closed between lookup and send
+      return false;
+    }
+  }
+
+  /**
+   * Remove all sessions for an agent (call on agent archive/delete).
+   */
+  removeSession(agentId: string): void {
+    const sessionId = this.agentSessions.get(agentId);
+    if (!sessionId) return;
+
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      void session.transport.close();
+      void session.server.close();
+      this.sessions.delete(sessionId);
+    }
+    this.agentSessions.delete(agentId);
+  }
+
+  /**
+   * Check if an agent has an active MCP session.
+   */
+  hasSession(agentId: string): boolean {
+    return this.agentSessions.has(agentId);
+  }
+}
+
+/** Check if a parsed MCP request body is an initialize request. */
+function isInitializeBody(body: unknown): boolean {
+  if (body && typeof body === "object" && "method" in body) {
+    return (body as { method: string }).method === "initialize";
+  }
+  // Could be a batch — check first element
+  if (Array.isArray(body) && body.length > 0 && body[0] && typeof body[0] === "object" && "method" in body[0]) {
+    return (body[0] as { method: string }).method === "initialize";
+  }
+  return false;
+}
+
+/**
+ * Stateless MCP request handler — used for routes that don't need notifications
+ * (e.g. the unauthenticated tool-listing endpoint, job-scoped routes)
+ * and as a fallback for non-session requests.
+ */
+async function handleStatelessMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  parsedBody?: unknown,
-  context: McpRequestContext = { agent: null, repoRoot: null, worktreeRoot: null }
+  parsedBody: unknown,
+  context: McpRequestContext
 ): Promise<void> {
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
@@ -283,6 +490,19 @@ export async function handleMcpRequest(
   await transport.handleRequest(req, res, parsedBody);
 }
 
+/**
+ * Stateless MCP request handler — public export for routes that don't need
+ * session management (tool-listing endpoint, job-scoped routes).
+ */
+export async function handleMcpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  parsedBody?: unknown,
+  context: McpRequestContext = { agent: null, repoRoot: null, worktreeRoot: null }
+): Promise<void> {
+  await handleStatelessMcpRequest(req, res, parsedBody, context);
+}
+
 async function createDispatchMcpServer(context: McpRequestContext): Promise<McpServer> {
   const server = new McpServer({
     name: "dispatch",
@@ -291,6 +511,35 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   const defaultCwd = context.agent?.cwd ?? undefined;
   const agentType: AgentType = context.agent?.persona ? "persona" : context.jobTools ? "job" : "agent";
   const allowed = TOOL_SETS[agentType];
+
+  // ── Reviews resource (agents only) ────────────────────────────────
+  // Register a resource so clients can subscribe to review completion notifications.
+  // The server sends `notifications/resources/updated` with this URI when reviews finish.
+  if (agentType === "agent" && context.agent && context.getFeedback) {
+    const agentId = context.agent.id;
+    const getFeedback = context.getFeedback;
+
+    server.registerResource(
+      "reviews",
+      `dispatch://reviews/${agentId}`,
+      {
+        description: "Persona review results for this agent. The server sends a notification when a review completes.",
+        mimeType: "application/json",
+      },
+      async () => {
+        const result = await getFeedback(agentId, {});
+        return {
+          contents: [
+            {
+              uri: `dispatch://reviews/${agentId}`,
+              mimeType: "application/json",
+              text: JSON.stringify(result, null, 2),
+            }
+          ]
+        };
+      }
+    );
+  }
 
   // ── review_status (persona) ───────────────────────────────────────
   if (allowed.has("review_status") && context.updateReviewStatus && context.completeReview) {

@@ -61,7 +61,7 @@ import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
-import { handleMcpRequest } from "./shared/mcp/server.js";
+import { handleMcpRequest, McpSessionManager } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier, isValidSlackWebhookUrl, type NotifyInput, type NotifyResult } from "./notifications/slack.js";
@@ -88,6 +88,7 @@ const app = Fastify({
 const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
+const mcpSessions = new McpSessionManager();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);
@@ -1321,21 +1322,13 @@ async function registerRoutes() {
     });
   });
 
-  app.post("/api/mcp/:agentId", async (request, reply) => {
-    const params = request.params as { agentId?: string };
-    const agentId = params.agentId ?? "";
-    const bearerToken = getBearerToken(request);
-    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
-      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
-    }
+  // Build the MCP context for an agent — shared by POST/GET/DELETE handlers.
+  async function buildAgentMcpContext(agentId: string) {
     const agent = await agentManager.getAgent(agentId);
-    if (!agent) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
+    if (!agent) return null;
+
     const activeJobRun = await jobService.getActiveRunForAgent(agentId);
-    if (activeJobRun) {
-      return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
-    }
+    if (activeJobRun) return null; // Job agents must use the job-scoped MCP route
 
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
@@ -1346,8 +1339,7 @@ async function registerRoutes() {
       // Agent may not be in a git repository — MCP still works, just without repo context.
     }
 
-    reply.hijack();
-    await handleMcpRequest(request.raw, reply.raw, request.body, {
+    return {
       agent: {
         id: agent.id,
         cwd: agent.cwd,
@@ -1372,10 +1364,33 @@ async function registerRoutes() {
       getParentContext: mcpGetParentContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
-      getActivitySummary: (params) => agentManager.getActivitySummary(params) as Promise<Record<string, unknown>>,
-      getAgentHistory: (params) => agentManager.getAgentHistory(params) as Promise<Record<string, unknown>>,
-      getFeedbackSummary: (params) => agentManager.getFeedbackSummary(params) as Promise<Record<string, unknown>>,
-    });
+      getActivitySummary: (params: { start: Date; end: Date; project?: string }) => agentManager.getActivitySummary(params) as Promise<Record<string, unknown>>,
+      getAgentHistory: (params: {
+        start: Date; end: Date; project?: string; limit: number; offset: number;
+        includeEvents: boolean; includeFeedback: boolean;
+        includeReviews: boolean; includeChildren: boolean;
+      }) => agentManager.getAgentHistory(params) as Promise<Record<string, unknown>>,
+      getFeedbackSummary: (params: { start: Date; end: Date; project?: string; groupBy: "persona" | "severity" | "directory" }) => agentManager.getFeedbackSummary(params) as Promise<Record<string, unknown>>,
+    };
+  }
+
+  app.post("/api/mcp/:agentId", async (request, reply) => {
+    const params = request.params as { agentId?: string };
+    const agentId = params.agentId ?? "";
+    const bearerToken = getBearerToken(request);
+    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+    }
+
+    const context = await buildAgentMcpContext(agentId);
+    if (!context) {
+      const agent = await agentManager.getAgent(agentId);
+      if (!agent) return reply.code(404).send({ error: "Agent not found." });
+      return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
+    }
+
+    reply.hijack();
+    await mcpSessions.handlePost(request.raw, reply.raw, request.body, context);
   });
 
   app.get("/api/mcp", async (_, reply) => {
@@ -1386,12 +1401,38 @@ async function registerRoutes() {
     return reply.code(405).send(mcpMethodNotAllowed());
   });
 
-  app.get("/api/mcp/:agentId", async (_, reply) => {
-    return reply.code(405).send(mcpMethodNotAllowed());
+  app.get("/api/mcp/:agentId", async (request, reply) => {
+    const params = request.params as { agentId?: string };
+    const agentId = params.agentId ?? "";
+    const bearerToken = getBearerToken(request);
+    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+    }
+
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    reply.hijack();
+    await mcpSessions.handleGet(request.raw, reply.raw);
   });
 
-  app.delete("/api/mcp/:agentId", async (_, reply) => {
-    return reply.code(405).send(mcpMethodNotAllowed());
+  app.delete("/api/mcp/:agentId", async (request, reply) => {
+    const params = request.params as { agentId?: string };
+    const agentId = params.agentId ?? "";
+    const bearerToken = getBearerToken(request);
+    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+    }
+
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    reply.hijack();
+    await mcpSessions.handleDelete(request.raw, reply.raw);
   });
 
   // --- Branding (public, no auth required) ---
@@ -3204,6 +3245,7 @@ async function registerRoutes() {
         onComplete: (deletedIds) => {
           for (const deletedId of deletedIds) {
             streamManager.stopStream(deletedId);
+            mcpSessions.removeSession(deletedId);
             pendingGitRefreshAgentIds.delete(deletedId);
             pendingGitRefreshEnqueuedAt.delete(deletedId);
             activeGitRefreshAgentIds.delete(deletedId);
@@ -4275,6 +4317,12 @@ async function mcpCompleteReview(
   ]);
   if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
   if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+
+  // Notify the parent agent's MCP session that reviews are ready
+  const parentAgentId = review.parentAgentId;
+  mcpSessions.notify(parentAgentId, `dispatch://reviews/${parentAgentId}`).catch((err) => {
+    app.log.warn({ err, parentAgentId }, "Failed to send MCP review notification");
+  });
 }
 
 async function mcpGetParentContext(
