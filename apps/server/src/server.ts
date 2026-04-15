@@ -110,18 +110,35 @@ jobService.onRunStateChange((run) => {
 });
 // Suppress agent-level Slack notifications for job agents (job notifier handles those).
 // Job agents are named "job-*" — skip the DB lookup for regular agents.
+// When web notifications are enabled and an SSE client is connected, send a
+// notification event via SSE and skip Slack. Otherwise fall back to Slack.
 agentManager.onLatestEvent((agent) => {
-  if (!agent.name?.startsWith("job-")) {
-    void slackNotifier.onAgentEvent(agent).catch((err) => {
-      app.log.warn({ err, agentId: agent.id }, "Slack agent notification failed");
-    });
-    return;
-  }
-  void jobService.getLatestRunForAgent(agent.id).then((run) => {
-    if (!run) return slackNotifier.onAgentEvent(agent);
-  }).catch((err) => {
-    app.log.warn({ err, agentId: agent.id }, "Job agent notification lookup failed");
-  });
+  const sendSlackNotification = async () => {
+    if (!agent.name?.startsWith("job-")) {
+      await slackNotifier.onAgentEvent(agent);
+      return;
+    }
+    const run = await jobService.getLatestRunForAgent(agent.id);
+    if (!run) await slackNotifier.onAgentEvent(agent);
+  };
+
+  void (async () => {
+    try {
+      // Check if we should send a web notification instead of Slack.
+      // All three conditions must be met to skip Slack:
+      // 1. Web notifications are enabled and configured for this event type
+      // 2. An SSE client is connected (app is open)
+      // 3. The browser has notification permission granted (reported via focus heartbeat)
+      const webPayload = await slackNotifier.shouldWebNotify(agent);
+      if (webPayload && uiEventBroker.hasConnectedClient() && focusTracker.hasWebNotifyPermission()) {
+        uiEventBroker.publish({ type: "notification", ...webPayload });
+      } else {
+        await sendSlackNotification();
+      }
+    } catch (err) {
+      app.log.warn({ err, agentId: agent.id }, "Agent notification failed");
+    }
+  })();
 });
 const activeArchives = new Set<Promise<void>>();
 const archivingAgentIds = new Set<string>();
@@ -169,7 +186,8 @@ type UiEvent =
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
   | { type: "feedback.updated"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
-  | { type: "job.changed" };
+  | { type: "job.changed" }
+  | { type: "notification"; agentId: string; agentName: string; eventType: string; message: string };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -180,6 +198,11 @@ class UiEventBroker {
     return () => {
       this.clients.delete(stream);
     };
+  }
+
+  /** Returns true if at least one SSE client is currently connected. */
+  hasConnectedClient(): boolean {
+    return this.clients.size > 0;
   }
 
   publish(event: UiEvent): void {
@@ -1942,6 +1965,8 @@ async function registerRoutes() {
     const body = request.body as {
       webhookUrl?: unknown;
       notifyEvents?: unknown;
+      webNotifyEnabled?: unknown;
+      webNotifyEvents?: unknown;
     } | null;
 
     if (body?.webhookUrl !== undefined) {
@@ -1959,6 +1984,20 @@ async function registerRoutes() {
         return reply.code(400).send({ error: "notifyEvents must be an array." });
       }
       await slackNotifier.setNotifyEvents(body.notifyEvents as string[]);
+    }
+
+    if (body?.webNotifyEnabled !== undefined) {
+      if (typeof body.webNotifyEnabled !== "boolean") {
+        return reply.code(400).send({ error: "webNotifyEnabled must be a boolean." });
+      }
+      await slackNotifier.setWebNotifyEnabled(body.webNotifyEnabled);
+    }
+
+    if (body?.webNotifyEvents !== undefined) {
+      if (!Array.isArray(body.webNotifyEvents)) {
+        return reply.code(400).send({ error: "webNotifyEvents must be an array." });
+      }
+      await slackNotifier.setWebNotifyEvents(body.webNotifyEvents as string[]);
     }
 
     return slackNotifier.getSettings();
@@ -2628,8 +2667,16 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/focus", async (request, reply) => {
-    const body = request.body as { agentId?: unknown };
+    const body = request.body as { agentId?: unknown; webNotifyPermission?: unknown };
     const agentId = body?.agentId;
+
+    // Track browser notification permission state from the client
+    if (typeof body?.webNotifyPermission === "string") {
+      const perm = body.webNotifyPermission;
+      if (perm === "granted" || perm === "denied" || perm === "default") {
+        focusTracker.setWebNotifyPermission(perm);
+      }
+    }
 
     if (agentId === null || agentId === undefined) {
       // User is no longer focused on any agent — clear all focus immediately
