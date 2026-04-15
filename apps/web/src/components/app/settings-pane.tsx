@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, Bell, BookOpenText, Database, Package, Server, Settings, Users } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
-import { DocsContent } from "@/components/app/docs-pane";
+import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/release-manager";
@@ -372,15 +372,19 @@ export function useSettingsState(open: boolean, initialSection?: string) {
 /** Settings nav for the sidebar. */
 export function SettingsNavContent({
   activeSection,
+  activeSubsection,
   sections,
   onSectionChange,
+  onSubsectionChange,
   apiState,
   dbState,
   serviceDotClass,
 }: {
   activeSection: SettingsSection | null;
+  activeSubsection?: string;
   sections: Array<{ id: SettingsSection; label: string; icon: typeof Settings }>;
   onSectionChange: (section: SettingsSection) => void;
+  onSubsectionChange?: (subsection: string) => void;
   apiState: ServiceState;
   dbState: ServiceState;
   serviceDotClass: (state: ServiceState) => string;
@@ -392,20 +396,41 @@ export function SettingsNavContent({
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
         {sections.map(({ id, label, icon: Icon }) => (
-          <button
-            type="button"
-            key={id}
-            onClick={() => onSectionChange(id)}
-            className={cn(
-              "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
-              activeSection === id
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+          <div key={id}>
+            <button
+              type="button"
+              onClick={() => onSectionChange(id)}
+              className={cn(
+                "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                activeSection === id
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+            </button>
+            {/* Help sub-menu: show docs sections when Help is active */}
+            {id === "help" && activeSection === "help" && (
+              <div className="ml-4 border-l border-border">
+                {DOCS_SECTION_NAV.map((doc) => (
+                  <button
+                    key={doc.id}
+                    type="button"
+                    onClick={() => onSubsectionChange?.(doc.id)}
+                    className={cn(
+                      "flex w-full items-center px-4 py-1.5 text-left text-xs transition-colors",
+                      activeSubsection === doc.id
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {doc.label}
+                  </button>
+                ))}
+              </div>
             )}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            {label}
-          </button>
+          </div>
         ))}
       </nav>
       <div className="border-t border-border px-4 pb-3 pt-4">

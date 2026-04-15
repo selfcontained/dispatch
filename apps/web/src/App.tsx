@@ -670,8 +670,12 @@ export function DashboardLayout(): JSX.Element {
             {currentNavItem === "settings" && (
               <SettingsNavContent
                 activeSection={settingsActiveSection}
+                activeSubsection={settingsSubsection}
                 sections={settingsSections}
                 onSectionChange={handleSettingsSectionChange}
+                onSubsectionChange={(subsection) => {
+                  navigate(`/settings/help/${subsection}`, { replace: true });
+                }}
                 apiState={apiState}
                 dbState={dbState}
                 serviceDotClass={serviceDotClass}
@@ -682,9 +686,23 @@ export function DashboardLayout(): JSX.Element {
                 <div className="mt-2 flex h-14 items-center border-b border-border px-3">
                   <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activity</div>
                 </div>
-                <div className="flex-1 px-3 py-4 text-sm text-muted-foreground">
-                  Metrics and session history are shown in the main area.
-                </div>
+                <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+                  {(["metrics", "history"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => navigate(`/activity/${tab}`, { replace: true })}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                        (activityTab ?? "metrics") === tab
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {tab === "metrics" ? "Metrics" : "History"}
+                    </button>
+                  ))}
+                </nav>
               </div>
             )}
           </SidebarShell>
@@ -711,22 +729,24 @@ export function DashboardLayout(): JSX.Element {
               }
             }}
           >
+            {/* Open sidebar button — shown on all views when sidebar is collapsed */}
+            {!leftPanelOpen ? (
+              <div className="pointer-events-none absolute left-3 top-3 z-10">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="pointer-events-auto"
+                  onClick={() => handleSetLeftPanelOpen(true)}
+                  title="Open sidebar"
+                >
+                  <PanelRightOpen className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
+
             {/* Agents view — terminal */}
             {isAgentsView && (
               <div className="relative min-h-0 min-w-0 pb-14 pt-14">
-                {!leftPanelOpen ? (
-                  <div className="pointer-events-none absolute left-3 top-3 z-10">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="pointer-events-auto"
-                      onClick={() => handleSetLeftPanelOpen(true)}
-                      title="Open sidebar"
-                    >
-                      <PanelRightOpen className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : null}
                 {focusedAgent?.name ? (
                   <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
                     <div
