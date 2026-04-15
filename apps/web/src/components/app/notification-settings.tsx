@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,13 @@ export function NotificationSettings(): JSX.Element {
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [webMessage, setWebMessage] = useState("");
+  const [webError, setWebError] = useState("");
+  const webNotifyEnabledRef = useRef(webNotifyEnabled);
+  const webNotifyEventsRef = useRef(webNotifyEvents);
+  const savedWebEnabledRef = useRef(savedWebEnabled);
+  const savedWebEventsRef = useRef(savedWebEvents);
+  const webSaveRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +98,13 @@ export function NotificationSettings(): JSX.Element {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    webNotifyEnabledRef.current = webNotifyEnabled;
+    webNotifyEventsRef.current = webNotifyEvents;
+    savedWebEnabledRef.current = savedWebEnabled;
+    savedWebEventsRef.current = savedWebEvents;
+  }, [savedWebEnabled, savedWebEvents, webNotifyEnabled, webNotifyEvents]);
 
   const hasChanges =
     webhookUrl !== savedUrl ||
@@ -137,8 +151,10 @@ export function NotificationSettings(): JSX.Element {
     nextEnabled: boolean,
     nextEvents: NotifyEventType[]
   ): Promise<boolean> => {
-    setError("");
-    setMessage("");
+    const requestId = webSaveRequestIdRef.current + 1;
+    webSaveRequestIdRef.current = requestId;
+    setWebError("");
+    setWebMessage("");
     setSaving(true);
     try {
       const data = await api<NotificationSettingsResponse>(
@@ -151,17 +167,25 @@ export function NotificationSettings(): JSX.Element {
           }),
         }
       );
+      if (webSaveRequestIdRef.current !== requestId) {
+        return true;
+      }
       setSavedWebEnabled(data.webNotifyEnabled);
       setSavedWebEvents(data.webNotifyEvents);
       setWebNotifyEnabled(data.webNotifyEnabled);
       setWebNotifyEvents(data.webNotifyEvents);
-      setMessage("Browser notification settings saved.");
+      setWebMessage("Browser notification settings saved.");
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save browser notifications.");
+      if (webSaveRequestIdRef.current !== requestId) {
+        return true;
+      }
+      setWebError(err instanceof Error ? err.message : "Failed to save browser notifications.");
       return false;
     } finally {
-      setSaving(false);
+      if (webSaveRequestIdRef.current === requestId) {
+        setSaving(false);
+      }
     }
   }, []);
 
@@ -198,8 +222,8 @@ export function NotificationSettings(): JSX.Element {
   }, []);
 
   const toggleWebEvent = useCallback(async (eventType: NotifyEventType) => {
-    const previousEnabled = webNotifyEnabled;
-    const previousEvents = webNotifyEvents;
+    const previousEnabled = webNotifyEnabledRef.current;
+    const previousEvents = webNotifyEventsRef.current;
     const nextEvents = previousEvents.includes(eventType)
       ? previousEvents.filter((e) => e !== eventType)
       : [...previousEvents, eventType];
@@ -207,23 +231,22 @@ export function NotificationSettings(): JSX.Element {
     setWebNotifyEvents(nextEvents);
     const saved = await persistWebNotificationSettings(previousEnabled, nextEvents);
     if (!saved) {
-      setWebNotifyEnabled(previousEnabled);
-      setWebNotifyEvents(previousEvents);
+      setWebNotifyEnabled(savedWebEnabledRef.current);
+      setWebNotifyEvents(savedWebEventsRef.current);
     }
-  }, [persistWebNotificationSettings, webNotifyEnabled, webNotifyEvents]);
+  }, [persistWebNotificationSettings]);
 
   const toggleWebNotifyEnabled = useCallback(async (checked: boolean) => {
-    const previousEnabled = webNotifyEnabled;
-    const previousEvents = webNotifyEvents;
+    const previousEvents = webNotifyEventsRef.current;
     const nextEnabled = checked;
 
     setWebNotifyEnabled(nextEnabled);
     const saved = await persistWebNotificationSettings(nextEnabled, previousEvents);
     if (!saved) {
-      setWebNotifyEnabled(previousEnabled);
-      setWebNotifyEvents(previousEvents);
+      setWebNotifyEnabled(savedWebEnabledRef.current);
+      setWebNotifyEvents(savedWebEventsRef.current);
     }
-  }, [persistWebNotificationSettings, webNotifyEnabled, webNotifyEvents]);
+  }, [persistWebNotificationSettings]);
 
   const handleRequestPermission = useCallback(async () => {
     const result = await requestNotificationPermission();
@@ -356,6 +379,10 @@ export function NotificationSettings(): JSX.Element {
                 </div>
               </div>
             )}
+            {webError ? <p className="text-sm text-destructive">{webError}</p> : null}
+            {webMessage ? (
+              <p className="text-sm text-status-working">{webMessage}</p>
+            ) : null}
           </div>
         )}
       </div>
