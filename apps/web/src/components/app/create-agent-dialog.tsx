@@ -243,7 +243,7 @@ export function CreateAgentDialog({
                 historyItemTestId="create-agent-cwd-history-option"
               />
 
-              <div className="space-y-2 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3">
+              <div className="space-y-2 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
                 <label className="flex cursor-pointer items-start gap-3">
                   <Checkbox
                     checked={createUseWorktree}
@@ -347,7 +347,7 @@ export function CreateAgentDialog({
                 ) : null}
               </div>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
                 <Checkbox
                   checked={createFullAccess}
                   onCheckedChange={() => setCreateFullAccess((current) => !current)}
@@ -362,7 +362,7 @@ export function CreateAgentDialog({
                 </span>
               </label>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
                 <Checkbox
                   checked={createAutoReview}
                   onCheckedChange={() => setCreateAutoReview((current) => !current)}

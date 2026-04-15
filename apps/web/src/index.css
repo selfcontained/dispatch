@@ -471,6 +471,7 @@ html[data-theme="matrix"] body::after {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  background: transparent;
 }
 
 /* iPad PWA: prevent viewport jump when typing space in terminal.

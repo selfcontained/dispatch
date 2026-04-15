@@ -466,7 +466,7 @@ export function ParentFeedbackPanel({
                           })}
                           {resolvedCount > 0 ? (
                             <button
-                              className="mt-1 rounded border border-white/[0.08]/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                              className="mt-1 rounded border border-white/[0.05] px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setShowResolvedAgents((prev) => {

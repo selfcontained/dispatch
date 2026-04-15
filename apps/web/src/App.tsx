@@ -583,7 +583,7 @@ export function DashboardLayout(): JSX.Element {
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
-    <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
+    <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
         {!isMobile && !jobsOpen ? (
           <div className="shrink-0">

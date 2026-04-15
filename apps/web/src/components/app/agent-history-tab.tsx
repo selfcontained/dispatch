@@ -238,7 +238,7 @@ function AgentHistoryList({
           <tbody>
             {isLoading &&
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-white/[0.08]/50">
+                <tr key={i} className="border-b border-white/[0.05]">
                   <td className="px-3 py-2.5 sm:px-5" colSpan={5}>
                     <div className="h-4 w-full animate-pulse rounded bg-muted/30" />
                   </td>
@@ -251,7 +251,7 @@ function AgentHistoryList({
               return (
                 <Fragment key={agent.id}>
                   <tr
-                    className="cursor-pointer border-b border-white/[0.08]/50 transition-colors hover:bg-muted/30"
+                    className="cursor-pointer border-b border-white/[0.05] transition-colors hover:bg-muted/30"
                     onClick={() => onSelect(agent.id)}
                   >
                     <td className="px-3 py-2.5 sm:px-5">
@@ -306,7 +306,7 @@ function AgentHistoryList({
                   {hasChildren && isExpanded && agent.children.map((child) => (
                     <tr
                       key={child.id}
-                      className="cursor-pointer border-b border-white/[0.08]/30 bg-muted/10 transition-colors hover:bg-muted/30"
+                      className="cursor-pointer border-b border-white/[0.03] bg-muted/10 transition-colors hover:bg-muted/30"
                       onClick={() => onSelect(child.id)}
                     >
                       <td colSpan={3} className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5">

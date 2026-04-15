@@ -165,8 +165,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
   const showDetailPane = !!selectedJob || showOverview;
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background text-foreground" aria-labelledby="jobs-page-title">
-            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r-2 border-white/[0.08] bg-white/[0.04] backdrop-blur-xl md:w-[320px] md:shrink-0", showDetailPane && "hidden md:flex")}>
+    <section className="flex h-full min-h-0 min-w-0 overflow-hidden text-foreground" aria-labelledby="jobs-page-title">
+            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.1] bg-white/[0.03] backdrop-blur-2xl md:w-[320px] md:shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]", showDetailPane && "hidden md:flex")}>
               <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-2.5">
                   <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -266,7 +266,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
               />
             </aside>
 
-            <div className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background", showDetailPane ? "flex" : "hidden md:flex")}>
+            <div className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden", showDetailPane ? "flex" : "hidden md:flex")}>
               <div className="min-h-0 flex-1 overflow-hidden">
                 {selectedJob ? (
                   <div className="flex h-full min-h-0 flex-col">
@@ -825,7 +825,7 @@ function AddJobFlow({
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
           <div className="min-w-0 rounded-md border border-white/[0.08] bg-background/50 p-4">
-            <label className="flex items-center justify-between gap-3 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 text-sm">
               <span>
                 <span className="block font-medium text-foreground">Enabled</span>
                 <span className="block text-xs text-muted-foreground">Run this job on its schedule after creating it.</span>
@@ -927,7 +927,7 @@ function AddJobFlow({
         </div>
       </ScrollArea>
 
-      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-white/[0.08]/70 pt-4">
+      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-white/[0.06] pt-4">
         <Button
           variant="primary"
           disabled={!canAdd || isAdding}
@@ -1125,7 +1125,7 @@ function JobWorktreeOption({
   onBranchNameChange: (value: string) => void;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <div className="space-y-2 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 md:col-span-2">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
@@ -1164,7 +1164,7 @@ function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 md:col-span-2">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -1264,7 +1264,7 @@ function SettingsTab({
       <div className="rounded-md border border-white/[0.08] bg-background/50 p-4">
         <div className="text-sm font-medium">Job configuration</div>
         <p className="mt-1 text-xs text-muted-foreground">These values are used when the schedule or Run button starts this job.</p>
-        <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-white/[0.08]/70 bg-muted/20 px-3 py-3 text-sm">
+        <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 text-sm">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
             <span className="block text-xs text-muted-foreground">Run this job on its saved schedule.</span>
