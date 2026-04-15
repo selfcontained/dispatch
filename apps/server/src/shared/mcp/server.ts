@@ -305,6 +305,12 @@ export class McpSessionManager {
     if (sessionId) {
       const session = this.sessions.get(sessionId);
       if (session) {
+        // Verify session belongs to the requesting agent
+        if (agentId && session.agentId !== agentId) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Session does not belong to this agent" }, id: null }));
+          return;
+        }
         await session.transport.handleRequest(req, res, parsedBody);
         return;
       }
@@ -366,9 +372,9 @@ export class McpSessionManager {
    */
   async handleGet(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    agentId?: string
   ): Promise<void> {
-    // Session ID comes from the Mcp-Session-Id header
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     if (!sessionId) {
       res.writeHead(400, { "Content-Type": "application/json" });
@@ -380,6 +386,13 @@ export class McpSessionManager {
     if (!session) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null }));
+      return;
+    }
+
+    // Verify session belongs to the requesting agent
+    if (agentId && session.agentId !== agentId) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Session does not belong to this agent" }, id: null }));
       return;
     }
 
@@ -391,7 +404,8 @@ export class McpSessionManager {
    */
   async handleDelete(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    agentId?: string
   ): Promise<void> {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
     if (!sessionId) {
@@ -404,6 +418,13 @@ export class McpSessionManager {
     if (!session) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null }));
+      return;
+    }
+
+    // Verify session belongs to the requesting agent
+    if (agentId && session.agentId !== agentId) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Session does not belong to this agent" }, id: null }));
       return;
     }
 

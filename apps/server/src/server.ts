@@ -1405,7 +1405,7 @@ async function registerRoutes() {
     const params = request.params as { agentId?: string };
     const agentId = params.agentId ?? "";
     const bearerToken = getBearerToken(request);
-    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+    if (!bearerToken || !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
       return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
     }
 
@@ -1415,14 +1415,14 @@ async function registerRoutes() {
     }
 
     reply.hijack();
-    await mcpSessions.handleGet(request.raw, reply.raw);
+    await mcpSessions.handleGet(request.raw, reply.raw, agentId);
   });
 
   app.delete("/api/mcp/:agentId", async (request, reply) => {
     const params = request.params as { agentId?: string };
     const agentId = params.agentId ?? "";
     const bearerToken = getBearerToken(request);
-    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
+    if (!bearerToken || !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
       return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
     }
 
@@ -1432,7 +1432,7 @@ async function registerRoutes() {
     }
 
     reply.hijack();
-    await mcpSessions.handleDelete(request.raw, reply.raw);
+    await mcpSessions.handleDelete(request.raw, reply.raw, agentId);
   });
 
   // --- Branding (public, no auth required) ---
