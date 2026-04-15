@@ -6,7 +6,7 @@ import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
-import { runCommand } from "@dispatch/shared/lib/run-command.js";
+import { runCommand } from "../shared/lib/run-command.js";
 import { JobStore, type JobAgentType, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
 import { getNextRun, validateCronExpression, validateCronInterval } from "./cron.js";
 

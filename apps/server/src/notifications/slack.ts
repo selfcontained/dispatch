@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
-import type { NotifyInput, NotifyResult } from "@dispatch/shared/mcp/server.js";
+import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import type { AgentRecord } from "../agents/manager.js";
 import { getSetting, setSetting, deleteSetting } from "../db/settings.js";
 

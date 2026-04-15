@@ -14,17 +14,11 @@ dispatch/
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
 │   │   │   ├── notifications/ # Slack notifier
 │   │   │   ├── personas/      # persona loader
+│   │   │   ├── shared/        # shared utilities (git, github, mcp, run-command)
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   └── web/                   # Vite React frontend (@dispatch/web)
 │       └── src/
-├── packages/
-│   └── shared/                # Shared code (@dispatch/shared)
-│       └── src/
-│           ├── git/           # git worktree operations
-│           ├── github/        # GitHub PR operations
-│           ├── mcp/           # MCP server + repo tools
-│           └── lib/           # run-command utility
 ├── e2e/                       # Playwright E2E tests
 ├── bin/                       # dispatch-dev, dispatch-server, install-launchd, etc.
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
@@ -35,7 +29,7 @@ dispatch/
 └── docs/
 ```
 - Use `pnpm` (not npm) for all package management.
-- Import shared code as `@dispatch/shared/lib/run-command.js`, `@dispatch/shared/git/worktree.js`, etc.
+- Shared utilities live in `apps/server/src/shared/` — import via relative paths (e.g. `../shared/lib/run-command.js`).
 
 ## CRITICAL: Dispatch Status Events (Mandatory)
 - You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.

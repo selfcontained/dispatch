@@ -216,15 +216,6 @@ cmd_up() {
     done
   fi
 
-  # --- Build shared package (needed for fresh worktrees where dist/ doesn't exist) ---
-  if [ -f "${cwd}/packages/shared/tsconfig.json" ] && [ ! -d "${cwd}/packages/shared/dist" ]; then
-    echo "Building shared package..."
-    if ! (cd "$cwd" && pnpm --filter @dispatch/shared build 2>&1); then
-      echo "Error: failed to build @dispatch/shared — the API server will not start without it." >&2
-      exit 1
-    fi
-  fi
-
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
 
