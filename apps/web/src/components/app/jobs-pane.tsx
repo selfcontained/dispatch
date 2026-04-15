@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { Activity, AlarmClock, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -308,7 +308,7 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
 /** Job detail pane for the main content area. */
 export function JobDetailPane(): JSX.Element {
   const {
-    jobs, selectedJob, showOverview, tab, history, activeRunAgent, jobStats,
+    jobs, selectedJob, tab, history, activeRunAgent, jobStats,
     routeRunId, navigate, onOpenAgent, enabledAgentTypes,
     runNow, setEnabled, updateJob, removeJob, justAddedJobId, setJustAddedJobId, selectJob,
   } = useJobsContext();
@@ -318,22 +318,6 @@ export function JobDetailPane(): JSX.Element {
       <div className="min-h-0 flex-1 overflow-hidden">
         {selectedJob ? (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setJustAddedJobId(null);
-                  navigate("/jobs");
-                }}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">{selectedJob.name}</div>
-                <div className="text-xs text-muted-foreground">Job detail</div>
-              </div>
-            </div>
             <JobDetail
               className="min-h-0 flex-1"
               job={selectedJob}
@@ -365,14 +349,6 @@ export function JobDetailPane(): JSX.Element {
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col">
-            {showOverview && (
-              <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
-                <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <div className="text-sm font-semibold">Overview</div>
-              </div>
-            )}
             <JobsOverview
               jobs={jobs}
               stats={jobStats.data ?? null}
