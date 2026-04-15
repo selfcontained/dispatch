@@ -5,9 +5,10 @@
  * Changing values here updates the entire app's glass treatment.
  */
 
-/** Frosted panel — sidebar, right panel, jobs sidebar */
+/** Frosted panel — sidebar, right panel, jobs sidebar.
+ *  Includes a subtle internal gradient so the glass reads even at full-width on mobile. */
 export const glassPanel =
-  "border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]";
+  "border-white/[0.18] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.04)_40%,rgba(255,255,255,0.06)_100%)] backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]";
 
 /** Elevated surface — cards, stat cards, containers that float above background */
 export const glassSurface =
