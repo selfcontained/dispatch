@@ -89,6 +89,7 @@ const pool = createPool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const mcpSessions = new McpSessionManager();
+mcpSessions.log = (msg) => app.log.info(msg);
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);

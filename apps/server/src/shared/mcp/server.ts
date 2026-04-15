@@ -276,6 +276,9 @@ export type McpRequestContext = {
  * 4. Agent archived/deleted → `removeSession()` cleans up
  */
 export class McpSessionManager {
+  /** Optional logger for debugging notification delivery. */
+  log?: (msg: string) => void;
+
   /** sessionId → session state */
   private sessions = new Map<string, {
     server: McpServer;
@@ -340,6 +343,7 @@ export class McpSessionManager {
         onsessioninitialized: (sid) => {
           this.sessions.set(sid, { server, transport, agentId: agentId, context });
           this.agentSessions.set(agentId, sid);
+          this.log?.(`MCP session created: agent=${agentId} session=${sid}`);
         },
       });
 
@@ -437,16 +441,20 @@ export class McpSessionManager {
    */
   async notify(agentId: string, uri: string): Promise<boolean> {
     const sessionId = this.agentSessions.get(agentId);
-    if (!sessionId) return false;
+    if (!sessionId) {
+      this.log?.(`MCP notify: no session for agent ${agentId}`);
+      return false;
+    }
 
     const session = this.sessions.get(sessionId);
     if (!session) return false;
 
     try {
       await session.server.server.sendResourceUpdated({ uri });
+      this.log?.(`MCP notify: sent resources/updated to ${agentId}`);
       return true;
-    } catch {
-      // Session may have been closed between lookup and send
+    } catch (err) {
+      this.log?.(`MCP notify: send failed for ${agentId}: ${err}`);
       return false;
     }
   }
