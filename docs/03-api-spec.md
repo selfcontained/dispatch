@@ -49,6 +49,7 @@
 | POST | `/agents` | Create new agent |
 | POST | `/agents/:id/start` | Start a stopped agent |
 | POST | `/agents/:id/stop` | Stop a running agent |
+| PATCH | `/agents/:id/review-agent-type` | Set preferred agent type for persona reviews |
 | DELETE | `/agents/:id` | Delete agent (soft delete) |
 
 ### `POST /agents` — Create Agent
