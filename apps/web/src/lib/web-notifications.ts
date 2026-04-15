@@ -17,12 +17,20 @@ export function showWebNotification(payload: {
   if (Notification.permission !== "granted") return;
 
   const verb = EVENT_LABELS[payload.eventType] ?? payload.eventType;
-  const title = `Agent "${payload.agentName}" ${verb}`;
+  const title = `${payload.agentName} ${verb}`;
 
   new Notification(title, {
     body: payload.message,
     tag: `dispatch-${payload.agentName}-${payload.eventType}`,
+    icon: getAppIconUrl(),
   });
+}
+
+/** Derive the app icon URL from the current page's apple-touch-icon link. */
+function getAppIconUrl(): string {
+  const link = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+  if (link?.href) return link.href;
+  return "/icons/teal/brand-icon-192.png";
 }
 
 /** Request notification permission from the browser. Returns the resulting permission state. */
