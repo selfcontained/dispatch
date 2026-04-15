@@ -185,7 +185,7 @@ export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, chi
   const selectJob = (job: Job) => {
     setIsAddingJob(false);
     setJustAddedJobId(null);
-    navigate(selectedJob?.id === job.id ? "/jobs" : `/jobs/${job.id}`);
+    navigate(`/jobs/${job.id}`);
   };
 
   const openAddJob = () => {
@@ -257,7 +257,7 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
         ) : (
           <div>
             <button
-              className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
+              className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40"
               onClick={() => { navigate("/jobs/overview"); onItemSelect?.(); }}
             >
               <Activity className="h-3.5 w-3.5" />
