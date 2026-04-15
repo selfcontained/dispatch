@@ -12,9 +12,9 @@ export function Checkbox({
     <CheckboxPrimitive.Root
       {...props}
       className={cn(
-        "peer inline-flex h-5 w-5 shrink-0 items-center justify-center border transition-colors",
-        "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
-        "data-[state=unchecked]:border-border data-[state=unchecked]:bg-background",
+        "peer inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all duration-150",
+        "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=checked]:shadow-[0_0_8px_hsl(var(--primary)/0.2)]",
+        "data-[state=unchecked]:border-white/[0.08] data-[state=unchecked]:bg-background data-[state=unchecked]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
