@@ -157,7 +157,9 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_get_feedback` | Retrieve feedback findings for review |
 | `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored |
 | `dispatch_launch_persona` | Launch a persona child agent for automated review |
+| `dispatch_list_media` | List media files shared with or by this agent |
 | `dispatch_notify` | Send a Slack notification from the agent (requires webhook configured) |
+| `list_personas` | List available persona reviewers for this project |
 | `create_pr` | Create a GitHub pull request |
 | `get_pr_status` | Check PR CI status and reviews |
 | `get_activity_summary` | Summarize agent activity over a time range |
