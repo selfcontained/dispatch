@@ -2,6 +2,7 @@ import { Database, Server } from "lucide-react";
 
 import { ServiceStatus } from "@/components/app/service-status";
 import { type ServiceState } from "@/components/app/types";
+import { glassDivider } from "@/lib/glass";
 
 type StatusFooterProps = {
   apiState: ServiceState;
@@ -15,7 +16,7 @@ export function StatusFooter({
   serviceDotClass
 }: StatusFooterProps): JSX.Element {
   return (
-    <footer data-testid="status-footer" className="flex h-11 items-center justify-end gap-8 border-t border-white/[0.15] bg-white/[0.06] backdrop-blur-xl px-3 pb-[env(safe-area-inset-bottom)] text-[10px] text-muted-foreground sm:text-xs shadow-[0_-2px_12px_rgba(0,0,0,0.2)]">
+    <footer data-testid="status-footer" className={`flex h-11 items-center justify-end gap-8 border-t ${glassDivider} bg-white/[0.06] backdrop-blur-xl px-3 pb-[env(safe-area-inset-bottom)] text-[10px] text-muted-foreground sm:text-xs shadow-[0_-2px_12px_rgba(0,0,0,0.2)]`}>
       <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
       <ServiceStatus
         icon={<Database className="h-3.5 w-3.5" />}

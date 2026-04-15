@@ -38,7 +38,7 @@ export function PhaseProgress({ job, phasesOrder, isFailed, isRestarting }: Phas
                 done && "bg-status-working",
                 current && !isFailed && "animate-pulse bg-status-waiting",
                 current && isFailed && "bg-destructive",
-                !done && !current && "bg-muted"
+                !done && !current && "bg-white/[0.08]"
               )} />
               <span className={cn(
                 "text-sm",

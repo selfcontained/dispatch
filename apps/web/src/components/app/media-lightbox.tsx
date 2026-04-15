@@ -251,7 +251,7 @@ function MediaActions({ src, fileName, isText }: { src: string; fileName: string
       <a
         href={src}
         download={displayName}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
         title="Download"
       >
         <Download className="h-3.5 w-3.5" />

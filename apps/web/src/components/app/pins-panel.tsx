@@ -23,7 +23,7 @@ function CopyButton({ value, title }: { value: string; title?: string }): JSX.El
   return (
     <button
       onClick={() => copyText(value)}
-      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.08] hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       title={title ?? "Copy to clipboard"}
     >
       {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
@@ -95,7 +95,7 @@ function MarkdownPinBody({ value }: { value: string }): JSX.Element {
 
   return (
     <ScrollArea
-      className="min-w-0 max-h-48 rounded-md border border-border/60 bg-background/40"
+      className="min-w-0 max-h-48 rounded-md border border-white/[0.12] bg-background/40"
       data-testid="markdown-pin-scroll"
       horizontal
     >
@@ -175,13 +175,13 @@ function PinValueRow({
           <FrontTruncatedValue
             value={display}
             mono
-            className="min-w-0 rounded bg-muted px-1.5 py-0.5"
+            className="min-w-0 rounded bg-white/[0.08] px-1.5 py-0.5"
             tooltipClassName="max-w-[480px]"
             tooltipValue={tooltipValue}
           />
         ) : (
           <span
-            className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+            className="min-w-0 truncate rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-foreground"
             title={tooltip}
           >
             {display}
@@ -204,7 +204,7 @@ function PinValueRow({
         <a
           href={safariHref}
           data-testid="pin-open-link"
-          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.08] hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           title="Open in Safari"
           aria-label="Open in Safari"
         >

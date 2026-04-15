@@ -2,6 +2,7 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 
 import { cn } from "@/lib/utils";
+import { glassOverlay } from "@/lib/glass";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -25,7 +26,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-[70] grid w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-2xl border border-white/[0.2] bg-white/[0.08] backdrop-blur-2xl p-4 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15),0_0_80px_hsl(var(--primary)/0.08)]",
+        `fixed left-1/2 top-1/2 z-[70] grid w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-2xl ${glassOverlay} p-4`,
         className
       )}
       {...props}

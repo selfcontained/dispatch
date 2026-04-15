@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React from "react";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { glassDivider, glassHover, glassPanel } from "@/lib/glass";
 
 type AgentSidebarSharedProps = {
   agents: Agent[];
@@ -106,7 +107,7 @@ export function AgentSidebarContent({
     : enabledAgentTypes[0] ?? "codex";
 
   const navButtonClassName = (navItem: string, active = false): string => cn(
-    "rounded-lg p-2 transition-colors hover:bg-white/[0.06] hover:text-foreground",
+    `rounded-lg p-2 transition-colors ${glassHover} hover:text-foreground`,
     active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
   );
 
@@ -123,7 +124,7 @@ export function AgentSidebarContent({
   );
 
   return (
-    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl text-foreground shadow-[4px_0_24px_rgba(0,0,0,0.3),inset_-1px_0_0_rgba(255,255,255,0.1)]", className)}>
+    <aside data-testid="agent-sidebar" className={cn(`flex h-full min-h-0 w-full flex-col border-r ${glassPanel} text-foreground shadow-[4px_0_24px_rgba(0,0,0,0.3)]`, className)}>
       <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-2.5">
           <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -142,7 +143,7 @@ export function AgentSidebarContent({
           </div>
         ) : null}
       </div>
-      <div className="mt-2 flex h-14 items-center border-b border-white/[0.12] px-3">
+      <div className={`mt-2 flex h-14 items-center border-b ${glassDivider} px-3`}>
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
             <Button
@@ -222,7 +223,7 @@ export function AgentSidebarContent({
         </TooltipProvider>
       </div>
       <TooltipProvider delayDuration={120}>
-        <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className={`flex items-center justify-around border-t ${glassDivider} py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]`}>
           <Tooltip>
             <TooltipTrigger asChild>
               <button

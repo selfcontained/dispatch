@@ -102,7 +102,7 @@ export function AgentTypeSettings({
               key={agentType}
               className={cn(
                 "flex items-center gap-3 rounded border border-white/[0.12] px-3 py-2.5 transition-colors",
-                disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
+                disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-white/[0.06]",
               )}
             >
               <Checkbox

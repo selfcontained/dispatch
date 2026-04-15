@@ -322,7 +322,7 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
                     title={title}
                     data-testid={dayOfWeek === 1 && hour === 9 ? "active-hours-cell-sample" : undefined}
                     className={cn(
-                      "h-5 rounded-[6px] border border-white/[0.04] transition-colors",
+                      "h-5 rounded-[6px] border border-white/[0.12] transition-colors",
                       activeHoursIntensity(cell.avgPerWeek, max)
                     )}
                   />

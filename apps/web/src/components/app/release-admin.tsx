@@ -212,7 +212,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                   {info.unreleasedCount} unreleased {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
                   <span className="font-mono">main</span>
                 </div>
-                <div className="flex flex-col gap-0.5 rounded border border-white/[0.12] bg-muted/20 p-2">
+                <div className="flex flex-col gap-0.5 rounded border border-white/[0.12] bg-white/[0.05] p-2">
                   {info.commits.map((c) => (
                     <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
                       <span className="shrink-0 font-mono text-muted-foreground">{c.sha}</span>

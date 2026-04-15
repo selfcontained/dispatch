@@ -240,7 +240,7 @@ function AgentHistoryList({
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-b border-white/[0.05]">
                   <td className="px-3 py-2.5 sm:px-5" colSpan={5}>
-                    <div className="h-4 w-full animate-pulse rounded bg-muted/30" />
+                    <div className="h-4 w-full animate-pulse rounded bg-white/[0.06]" />
                   </td>
                 </tr>
               ))}
@@ -251,7 +251,7 @@ function AgentHistoryList({
               return (
                 <Fragment key={agent.id}>
                   <tr
-                    className="cursor-pointer border-b border-white/[0.05] transition-colors hover:bg-muted/30"
+                    className="cursor-pointer border-b border-white/[0.05] transition-colors hover:bg-white/[0.06]"
                     onClick={() => onSelect(agent.id)}
                   >
                     <td className="px-3 py-2.5 sm:px-5">
@@ -259,7 +259,7 @@ function AgentHistoryList({
                         {hasChildren ? (
                           <button
                             onClick={(e) => toggleExpanded(agent.id, e)}
-                            className="flex-shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                            className="flex-shrink-0 rounded p-0.5 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
                           >
                             {isExpanded
                               ? <ChevronDown className="h-3.5 w-3.5" />
@@ -273,7 +273,7 @@ function AgentHistoryList({
                           {agent.name}
                         </span>
                         {hasChildren && (
-                          <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+                          <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-white/[0.08] text-[10px] text-muted-foreground">
                             {agent.children.length}
                           </span>
                         )}
@@ -306,7 +306,7 @@ function AgentHistoryList({
                   {hasChildren && isExpanded && agent.children.map((child) => (
                     <tr
                       key={child.id}
-                      className="cursor-pointer border-b border-white/[0.03] bg-muted/10 transition-colors hover:bg-muted/30"
+                      className="cursor-pointer border-b border-white/[0.03] bg-white/[0.03] transition-colors hover:bg-white/[0.06]"
                       onClick={() => onSelect(child.id)}
                     >
                       <td colSpan={3} className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5">
@@ -446,7 +446,7 @@ function EventTimeline({ events }: { events: HistoryEvent[] }) {
                         event.event_type === "blocked" && "bg-status-blocked/15 text-status-blocked",
                         event.event_type === "waiting_user" && "bg-status-waiting/15 text-status-waiting",
                         event.event_type === "done" && "bg-status-done/15 text-status-done",
-                        event.event_type === "idle" && "bg-muted text-muted-foreground"
+                        event.event_type === "idle" && "bg-white/[0.08] text-muted-foreground"
                       )}
                     >
                       {EVENT_TYPE_LABELS[event.event_type] ?? event.event_type}
@@ -511,7 +511,7 @@ function FeedbackItemRow({
   return (
     <div className={cn("min-w-0", isResolved && "opacity-50")}>
       <button
-        className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-1.5 text-left text-[11px] hover:bg-muted/40 transition-colors"
+        className="flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-1.5 text-left text-[11px] hover:bg-white/[0.06] transition-colors"
         onClick={onToggle}
       >
         <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", isExpanded && "rotate-90")} />
@@ -531,7 +531,7 @@ function FeedbackItemRow({
       </button>
 
       {isExpanded ? (
-        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-white/[0.12] bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
+        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2.5 text-xs shadow-sm space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={severityInfo.variant}>{severityInfo.label}</Badge>
             {item.filePath ? (
@@ -601,7 +601,7 @@ function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
           <div key={persona}>
             {needsGrouping ? (
               <button
-                className="flex w-full items-center gap-1.5 mb-0.5 py-0.5 text-left hover:bg-muted/40 rounded transition-colors"
+                className="flex w-full items-center gap-1.5 mb-0.5 py-0.5 text-left hover:bg-white/[0.06] rounded transition-colors"
                 onClick={() => toggleGroup(persona)}
               >
                 <ChevronRight className={cn("h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform", !isCollapsed && "rotate-90")} />
@@ -700,7 +700,7 @@ function DetailTabs({
                     "ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium",
                     tab === key
                       ? "bg-foreground/15 text-foreground"
-                      : "bg-muted text-muted-foreground"
+                      : "bg-white/[0.08] text-muted-foreground"
                   )}
                 >
                   {count}
@@ -729,7 +729,7 @@ function DetailTabs({
                 <button
                   key={m.file_name}
                   onClick={() => setLightboxIndex(i)}
-                  className="overflow-hidden rounded border border-white/[0.12] bg-muted/20 text-left transition-colors hover:border-foreground/30"
+                  className="overflow-hidden rounded border border-white/[0.12] bg-white/[0.05] text-left transition-colors hover:border-foreground/30"
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
                     <img
@@ -796,7 +796,7 @@ function AgentHistoryDetail({
         </button>
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded bg-muted/30" />
+            <div key={i} className="h-8 animate-pulse rounded bg-white/[0.06]" />
           ))}
         </div>
       </div>
@@ -847,7 +847,7 @@ function AgentHistoryDetail({
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-[11px]">Branch</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+              <span className="rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                 {agent.worktreeBranch || agent.gitContext?.branch}
               </span>
             </div>

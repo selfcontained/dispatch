@@ -41,7 +41,7 @@ export function AgentTypeIcon({ type, className, eventType }: AgentTypeIconProps
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
-    : "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-white/[0.12] bg-muted/40 text-muted-foreground transition-colors duration-300";
+    : "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-white/[0.12] bg-white/[0.06] text-muted-foreground transition-colors duration-300";
 
   if (normalizedType === "opencode") {
     return (

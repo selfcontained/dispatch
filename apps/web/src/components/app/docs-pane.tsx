@@ -35,7 +35,7 @@ type SectionDef = {
 
 function Code({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-muted px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
+    <code className="rounded bg-white/[0.08] px-1.5 py-0.5 text-[0.85em] font-mono text-foreground">
       {children}
     </code>
   );
@@ -43,7 +43,7 @@ function Code({ children }: { children: React.ReactNode }) {
 
 function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-md border border-white/[0.12] bg-muted/60 px-4 py-3 text-sm leading-relaxed font-mono text-foreground">
+    <pre className="overflow-x-auto rounded-md border border-white/[0.12] bg-white/[0.06] px-4 py-3 text-sm leading-relaxed font-mono text-foreground">
       {children.trim()}
     </pre>
   );
@@ -627,7 +627,7 @@ export function DocsContent({
             onClick={() => setActiveSection(id)}
             className={cn(
               "flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
-              activeSection === id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              activeSection === id ? "bg-white/[0.06] text-foreground" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -642,7 +642,7 @@ export function DocsContent({
             <button
               key={id}
               onClick={() => setActiveSection(id)}
-              className="flex items-center gap-3 border-b border-white/[0.12] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
+              className="flex items-center gap-3 border-b border-white/[0.12] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-white/[0.06]"
             >
               <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
               {label}

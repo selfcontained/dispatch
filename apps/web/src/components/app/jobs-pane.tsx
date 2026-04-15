@@ -43,7 +43,7 @@ function statusClasses(status: JobRunStatus | null): string {
   if (status === "failed" || status === "timed_out" || status === "crashed") return "border-status-blocked/45 bg-status-blocked/15 text-status-blocked";
   if (status === "needs_input") return "border-status-waiting/45 bg-status-waiting/15 text-status-waiting";
   if (status === "started" || status === "running") return "border-status-working/45 bg-status-working/15 text-status-working";
-  return "border-white/[0.12] bg-muted/35 text-muted-foreground";
+  return "border-white/[0.12] bg-white/[0.08] text-muted-foreground";
 }
 
 function statusTextColor(status: JobRunStatus | null): string {
@@ -213,7 +213,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
                 ) : (
                   <div>
                     <button
-                      className="flex w-full items-center gap-2 border-b border-white/[0.12] px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
+                      className="flex w-full items-center gap-2 border-b border-white/[0.12] px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-white/[0.06] md:hidden"
                       onClick={() => navigate("/jobs/overview")}
                     >
                       <Activity className="h-3.5 w-3.5" />
@@ -225,8 +225,8 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
                       <div
                         key={job.id}
                         className={cn(
-                          "w-full cursor-pointer border-b border-r-4 border-white/[0.12] border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                          selectedJob?.id === job.id && "border-r-primary bg-muted/60"
+                          "w-full cursor-pointer border-b border-r-4 border-white/[0.12] border-r-transparent px-3 py-2 text-left transition-colors hover:bg-white/[0.06]",
+                          selectedJob?.id === job.id && "border-r-primary bg-white/[0.08]"
                         )}
                         onClick={() => selectJob(job)}
                       >
@@ -477,7 +477,7 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
               {dailyChartData.length > 0 && (
                 <div>
                   <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Daily Runs</h3>
-                  <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-muted/40 p-3">
+                  <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-white/[0.06] p-3">
                     <DailyRunsChart data={dailyChartData} />
                   </div>
                 </div>
@@ -495,11 +495,11 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
               <Clock className="h-3.5 w-3.5" />
               Upcoming
             </div>
-            <div className="divide-y divide-border rounded-md border border-white/[0.12] bg-muted/40">
+            <div className="divide-y divide-white/[0.12] rounded-md border border-white/[0.12] bg-white/[0.06]">
               {upcomingJobs.map((job) => (
                 <button
                   key={job.id}
-                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-white/[0.06]"
                   onClick={() => onSelectJob(job)}
                 >
                   <span className="font-medium text-foreground">{job.name}</span>
@@ -520,12 +520,12 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
               <Activity className="h-3.5 w-3.5" />
               Recent Activity
             </div>
-            <div className="divide-y divide-border rounded-md border border-white/[0.12] bg-muted/40">
+            <div className="divide-y divide-white/[0.12] rounded-md border border-white/[0.12] bg-white/[0.06]">
               {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).slice(0, 8).map((run) => {
                 return (
                   <button
                     key={run.id}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-white/[0.06]"
                     onClick={() => onSelectRun(run.jobId, run.id)}
                   >
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground">{run.jobName}</span>
@@ -617,7 +617,7 @@ function JobAvgDuration({ runs }: {
   return (
     <div>
       <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg Duration</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-muted/40 p-3 flex flex-col justify-center">
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-white/[0.06] p-3 flex flex-col justify-center">
         <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
         {perJob.jobs.map((job) => (
           <div key={job.name}>
@@ -625,7 +625,7 @@ function JobAvgDuration({ runs }: {
               <span className="truncate text-xs text-muted-foreground">{job.name}</span>
               <span className="text-xs font-medium tabular-nums text-foreground">{formatDuration(job.avg)}</span>
             </div>
-            <div className="flex h-2 overflow-hidden rounded-sm bg-muted/60">
+            <div className="flex h-2 overflow-hidden rounded-sm bg-white/[0.08]">
               <div className="bg-chart-1/70 transition-all rounded-sm" style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }} />
             </div>
           </div>
@@ -662,7 +662,7 @@ function RunHistoryGrid({ runs }: {
   return (
     <div>
       <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Run History</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-muted/40 p-3 flex flex-col justify-between">
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-white/[0.12] bg-white/[0.06] p-3 flex flex-col justify-between">
         <TooltipProvider delayDuration={80}>
           <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
             {perJob.map(({ name, runs: jobRuns }) => (
@@ -671,7 +671,7 @@ function RunHistoryGrid({ runs }: {
                 <div className="grid gap-[1px]" style={{ gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)` }}>
                   {Array.from({ length: MAX_RUN_CELLS }, (_, i) => {
                     const run = i < jobRuns.length ? jobRuns[i] : null;
-                    if (!run) return <div key={i} className="h-4 sm:h-3 bg-muted/30" />;
+                    if (!run) return <div key={i} className="h-4 sm:h-3 bg-white/[0.06]" />;
                     return (
                       <Tooltip key={i}>
                         <TooltipTrigger asChild>
@@ -729,7 +729,7 @@ function JobsNav({
       <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
               <Bot className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -745,7 +745,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
               <Activity className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -753,7 +753,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
               <Settings className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -776,7 +776,7 @@ function AddJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
         <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
           <DialogPrimitive.Title className="sr-only">Add job</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">Create a new recurring Dispatch job.</DialogPrimitive.Description>
@@ -824,8 +824,8 @@ function AddJobFlow({
 
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded-md border border-white/[0.12] bg-background/50 p-4">
-            <label className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 text-sm">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3 text-sm">
               <span>
                 <span className="block font-medium text-foreground">Enabled</span>
                 <span className="block text-xs text-muted-foreground">Run this job on its schedule after creating it.</span>
@@ -870,7 +870,7 @@ function AddJobFlow({
             </div>
           </div>
 
-          <div className="min-w-0 rounded-md border border-white/[0.12] bg-muted/20 p-4">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.05] p-4">
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground" htmlFor="job-prompt">Prompt</label>
               <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
@@ -880,11 +880,11 @@ function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
-          <div className="min-w-0 rounded-md border border-white/[0.12] bg-background/50 p-4">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
             <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setAdvancedOpen((current) => !current)}>
               <div>
                 <div className="text-sm font-medium">Advanced settings</div>
@@ -1125,7 +1125,7 @@ function JobWorktreeOption({
   onBranchNameChange: (value: string) => void;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 md:col-span-2">
+    <div className="space-y-2 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3 md:col-span-2">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
@@ -1164,7 +1164,7 @@ function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 md:col-span-2">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3 md:col-span-2">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -1199,7 +1199,7 @@ function SwitchToggle({
       onClick={() => onCheckedChange(!checked)}
       className={cn(
         "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
-        checked ? "bg-primary" : "bg-muted"
+        checked ? "bg-primary" : "bg-white/[0.08]"
       )}
     >
       <span
@@ -1261,10 +1261,10 @@ function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <div className="rounded-md border border-white/[0.12] bg-background/50 p-4">
+      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="text-sm font-medium">Job configuration</div>
         <p className="mt-1 text-xs text-muted-foreground">These values are used when the schedule or Run button starts this job.</p>
-        <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3 text-sm">
+        <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3 text-sm">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
             <span className="block text-xs text-muted-foreground">Run this job on its saved schedule.</span>
@@ -1399,7 +1399,7 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
         <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl p-5 shadow-xl outline-none">
           <DialogPrimitive.Title className="text-base font-semibold">Remove job?</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
@@ -1441,7 +1441,7 @@ function PromptTab({
 
   return (
     <div className="mt-4 flex h-full min-h-full flex-col">
-      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-white/[0.12] bg-background/50 p-4">
+      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="space-y-1">
           <label className="text-sm font-medium text-foreground" htmlFor={`prompt-${job.id}`}>Prompt</label>
           <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
@@ -1451,7 +1451,7 @@ function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
         {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt saved.</div> : null}

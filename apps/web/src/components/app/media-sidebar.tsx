@@ -8,6 +8,7 @@ import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { glassPanel } from "@/lib/glass";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
@@ -67,7 +68,7 @@ function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; 
         </div>
       </div>
       <div className="px-3 pb-3">
-        <div className="overflow-hidden rounded border border-border bg-black">
+        <div className="overflow-hidden rounded border border-white/[0.12] bg-black">
           <img
             src={streamUrl}
             alt="Live browser stream"
@@ -230,7 +231,7 @@ function MediaContent({
                 {isText || isDocument ? (
                   <button
                     className={cn(
-                      "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
+                      "block w-full overflow-hidden rounded border-2 bg-white/[0.06] p-3 text-left",
                       unseen ? "media-thumb-unseen" : "media-thumb-seen"
                     )}
                     onClick={() => openLightbox(file)}
@@ -238,7 +239,7 @@ function MediaContent({
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 flex-none text-muted-foreground" />
                       <span className="truncate text-xs font-medium text-foreground">{stripTimestamp(file.name)}</span>
-                      <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{fileExtension(file.name)}</span>
+                      <span className="ml-auto flex-none rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{fileExtension(file.name)}</span>
                     </div>
                   </button>
                 ) : /\.mp4$/i.test(file.name) ? (
@@ -304,7 +305,7 @@ export function MediaSidebarContent({
   }
 
   return (
-    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl text-foreground shadow-[-4px_0_24px_rgba(0,0,0,0.3),inset_1px_0_0_rgba(255,255,255,0.1)]", className)}>
+    <aside data-testid="media-sidebar" className={cn(`flex h-full min-h-0 w-full flex-col border-l ${glassPanel} text-foreground shadow-[-4px_0_24px_rgba(0,0,0,0.3),inset_1px_0_0_rgba(255,255,255,0.1)]`, className)}>
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">

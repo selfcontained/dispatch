@@ -132,11 +132,11 @@ export function DeleteAgentDialog({
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                   <span>
-                    Branch <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> has
+                    Branch <code className="rounded bg-white/[0.08] px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> has
                     commits not merged to origin.
                   </span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-white/[0.06] px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.changedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}
@@ -150,7 +150,7 @@ export function DeleteAgentDialog({
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                   <span>Worktree has uncommitted changes.</span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-white/[0.06] px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.uncommittedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}

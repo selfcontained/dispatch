@@ -100,7 +100,7 @@ function InstanceNameSettings(): JSX.Element {
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
           className={cn(
-            "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
+            "w-full max-w-sm rounded border bg-white/[0.04] px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
             saveError ? "border-destructive" : "border-white/[0.12] focus:border-primary/50"
           )}
         />
@@ -284,7 +284,7 @@ function AppearanceSettings({
                 "flex w-14 flex-col items-center gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
                 displayColor === c.id
                   ? "border-foreground bg-foreground/10"
-                  : "border-transparent hover:border-muted-foreground/40 hover:bg-muted/30"
+                  : "border-transparent hover:border-muted-foreground/40 hover:bg-white/[0.06]"
               )}
             >
               <img
@@ -450,7 +450,7 @@ export function SettingsPane({
                     className={cn(
                       "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
                       activeSection === id
-                        ? "bg-muted text-foreground"
+                        ? "bg-white/[0.06] text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
@@ -477,7 +477,7 @@ export function SettingsPane({
                   <button
                     key={id}
                     onClick={() => setActiveSection(id)}
-                    className="flex items-center gap-3 border-b border-white/[0.12] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
+                    className="flex items-center gap-3 border-b border-white/[0.12] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-white/[0.06]"
                   >
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     {label}

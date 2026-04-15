@@ -186,7 +186,7 @@ export function CreateAgentDialog({
                     }
                   }}
                   className={cn(
-                    "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                    "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm",
                     "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                   )}
                 >
@@ -194,7 +194,7 @@ export function CreateAgentDialog({
                   <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", typeDropdownOpen && "rotate-180")} />
                 </button>
                 {typeDropdownOpen ? (
-                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-background shadow-md">
+                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-white/[0.04] shadow-md">
                     <Command shouldFilter={false} ref={(el) => { if (el) requestAnimationFrame(() => el.focus()); }} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setTypeDropdownOpen(false); requestAnimationFrame(() => typeTriggerRef.current?.focus()); } }}>
                       <CommandList>
                         <CommandGroup>
@@ -243,7 +243,7 @@ export function CreateAgentDialog({
                 historyItemTestId="create-agent-cwd-history-option"
               />
 
-              <div className="space-y-2 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
+              <div className="space-y-2 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3">
                 <label className="flex cursor-pointer items-start gap-3">
                   <Checkbox
                     checked={createUseWorktree}
@@ -281,7 +281,7 @@ export function CreateAgentDialog({
                           }
                         }}
                         className={cn(
-                          "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 font-mono text-xs",
+                          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs",
                           "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                         )}
                       >
@@ -293,7 +293,7 @@ export function CreateAgentDialog({
                         )}
                       </button>
                       {branchDropdownOpen ? (
-                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-background shadow-md">
+                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-white/[0.04] shadow-md">
                           <Command
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
@@ -347,7 +347,7 @@ export function CreateAgentDialog({
                 ) : null}
               </div>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3">
                 <Checkbox
                   checked={createFullAccess}
                   onCheckedChange={() => setCreateFullAccess((current) => !current)}
@@ -362,7 +362,7 @@ export function CreateAgentDialog({
                 </span>
               </label>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-muted/20 px-3 py-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-white/[0.06] bg-white/[0.05] px-3 py-3">
                 <Checkbox
                   checked={createAutoReview}
                   onCheckedChange={() => setCreateAutoReview((current) => !current)}
@@ -414,7 +414,7 @@ export function CreateAgentDialog({
                 placeholder="Enter instructions for the agent..."
                 data-testid="create-agent-initial-prompt"
                 className={cn(
-                  "flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
+                  "flex min-h-[200px] w-full rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm",
                   "ring-offset-background placeholder:text-muted-foreground",
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   "resize-y"

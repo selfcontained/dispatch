@@ -434,7 +434,7 @@ export function ParentFeedbackPanel({
                                   className={cn(
                                     "flex w-full items-center gap-1.5 px-1 py-2 md:py-1 text-left text-[11px] transition-colors",
                                     "border-b-2",
-                                    isSelected ? "border-primary" : "border-transparent hover:bg-muted/40"
+                                    isSelected ? "border-primary" : "border-transparent hover:bg-white/[0.06]"
                                   )}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -466,7 +466,7 @@ export function ParentFeedbackPanel({
                           })}
                           {resolvedCount > 0 ? (
                             <button
-                              className="mt-1 rounded border border-white/[0.05] px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                              className="mt-1 rounded border border-white/[0.05] px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-white/[0.06] hover:text-muted-foreground transition-colors"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setShowResolvedAgents((prev) => {
