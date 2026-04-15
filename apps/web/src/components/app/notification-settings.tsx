@@ -47,6 +47,18 @@ export function NotificationSettings(): JSX.Element {
     getNotificationPermission()
   );
 
+  // Re-check permission when the user returns to this page (e.g. after
+  // changing settings in iOS Settings or browser site settings).
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        setBrowserPermission(getNotificationPermission());
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -182,6 +194,10 @@ export function NotificationSettings(): JSX.Element {
   }
 
   const notificationsSupported = typeof Notification !== "undefined";
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+    || ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   return (
     <div className="flex flex-col gap-8 overflow-y-auto p-6">
@@ -198,24 +214,27 @@ export function NotificationSettings(): JSX.Element {
         {!notificationsSupported ? (
           <p className="text-sm text-muted-foreground/70">
             Browser notifications are not supported in this browser.
-            On iOS/iPadOS, install Dispatch as a PWA (Add to Home Screen) to enable notifications.
+            {isIOS && !isStandalone
+              ? " On iOS/iPadOS, install Dispatch as a PWA (Add to Home Screen) to enable notifications."
+              : ""}
           </p>
         ) : (
           <div className="max-w-lg space-y-4">
             {/* Permission status + grant button */}
-            {browserPermission === "denied" ? (
-              <div className="rounded border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-                Notifications are blocked by your browser. To enable them, update the
-                notification permission for this site in your browser settings.
-              </div>
-            ) : browserPermission === "default" ? (
+            {browserPermission !== "granted" ? (
               <div className="flex items-center gap-3 rounded border border-border px-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-foreground">
-                    Permission required
+                    {browserPermission === "denied" ? "Notifications blocked" : "Permission required"}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Your browser needs permission to show notifications
+                    {browserPermission === "denied"
+                      ? isIOS
+                        ? "Open device Settings > Notifications > Dispatch to enable, or tap Allow to re-request"
+                        : "Update the notification permission in your browser settings, or tap Allow to re-request"
+                      : isIOS
+                        ? "Tap Allow, then confirm in the system prompt"
+                        : "Your browser needs permission to show notifications"}
                   </div>
                 </div>
                 <Button
