@@ -30,6 +30,8 @@ export type { NotifyInput, NotifyResult };
 const SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/";
 const SETTING_WEBHOOK_URL = "slack_webhook_url";
 const SETTING_NOTIFY_EVENTS = "slack_notify_events";
+const SETTING_WEB_NOTIFY_ENABLED = "web_notify_enabled";
+const SETTING_WEB_NOTIFY_EVENTS = "web_notify_events";
 
 /** Short-lived cache to avoid DB reads on every agent event. */
 const CACHE_TTL_MS = 10_000;
@@ -41,6 +43,8 @@ const NOTIFY_RATE_WINDOW_MS = 60_000;
 type CachedSettings = {
   webhookUrl: string | null;
   notifyEvents: NotifyEventType[];
+  webNotifyEnabled: boolean;
+  webNotifyEvents: NotifyEventType[];
   expiresAt: number;
 };
 
@@ -121,20 +125,89 @@ export class SlackNotifier {
   async getSettings(): Promise<{
     webhookUrl: string;
     notifyEvents: NotifyEventType[];
+    webNotifyEnabled: boolean;
+    webNotifyEvents: NotifyEventType[];
   }> {
-    const [webhookUrl, notifyEvents] = await Promise.all([
+    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] = await Promise.all([
       this.getWebhookUrl(),
       this.getNotifyEvents(),
+      this.getWebNotifyEnabled(),
+      this.getWebNotifyEvents(),
     ]);
-    return { webhookUrl: webhookUrl ?? "", notifyEvents };
+    return { webhookUrl: webhookUrl ?? "", notifyEvents, webNotifyEnabled, webNotifyEvents };
+  }
+
+  async getWebNotifyEnabled(): Promise<boolean> {
+    const raw = await getSetting(this.pool, SETTING_WEB_NOTIFY_ENABLED);
+    return raw === "true";
+  }
+
+  async setWebNotifyEnabled(enabled: boolean): Promise<void> {
+    await setSetting(this.pool, SETTING_WEB_NOTIFY_ENABLED, String(enabled));
+    this.invalidateCache();
+  }
+
+  async getWebNotifyEvents(): Promise<NotifyEventType[]> {
+    const raw = await getSetting(this.pool, SETTING_WEB_NOTIFY_EVENTS);
+    if (!raw) return [...NOTIFY_EVENT_TYPES];
+    try {
+      const parsed = JSON.parse(raw) as string[];
+      return parsed.filter((e): e is NotifyEventType =>
+        NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
+      );
+    } catch {
+      return [...NOTIFY_EVENT_TYPES];
+    }
+  }
+
+  async setWebNotifyEvents(events: string[]): Promise<void> {
+    const filtered = events.filter((e): e is NotifyEventType =>
+      NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
+    );
+    await setSetting(this.pool, SETTING_WEB_NOTIFY_EVENTS, JSON.stringify(filtered));
+    this.invalidateCache();
+  }
+
+  /**
+   * Check whether a web notification should be sent for this agent event.
+   * Returns the notification payload if web notifications are enabled and
+   * the event type is configured, or null if not applicable.
+   */
+  async shouldWebNotify(agent: AgentRecord): Promise<{
+    agentId: string;
+    agentName: string;
+    eventType: string;
+    message: string;
+  } | null> {
+    const event = agent.latestEvent;
+    if (!event) return null;
+    if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return null;
+
+    if (this.isFocused?.(agent.id)) return null;
+
+    const settings = await this.getCachedSettings();
+    if (!settings.webNotifyEnabled) return null;
+    if (!settings.webNotifyEvents.includes(event.type as NotifyEventType)) return null;
+
+    return {
+      agentId: agent.id,
+      agentName: agent.name || agent.id.slice(0, 8),
+      eventType: event.type,
+      message: event.message,
+    };
   }
 
   /**
    * Called on every agent event upsert. Uses a short-lived cache to avoid
    * hitting the DB on the hot path (most events are "working"/"idle" and
    * are filtered out before the cache is even checked).
+   *
+   * When `skipSlack` is true, the Slack message is suppressed (e.g. because
+   * a web notification was sent instead).
    */
-  async onAgentEvent(agent: AgentRecord): Promise<void> {
+  async onAgentEvent(agent: AgentRecord, skipSlack = false): Promise<void> {
+    if (skipSlack) return;
+
     const event = agent.latestEvent;
     if (!event) return;
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
@@ -280,15 +353,22 @@ export class SlackNotifier {
     this.notifyTimestamps.set(agentId, timestamps);
   }
 
-  private async getCachedSettings(): Promise<{ webhookUrl: string | null; notifyEvents: NotifyEventType[] }> {
+  private async getCachedSettings(): Promise<{
+    webhookUrl: string | null;
+    notifyEvents: NotifyEventType[];
+    webNotifyEnabled: boolean;
+    webNotifyEvents: NotifyEventType[];
+  }> {
     if (this.cachedSettings && Date.now() < this.cachedSettings.expiresAt) {
       return this.cachedSettings;
     }
-    const [webhookUrl, notifyEvents] = await Promise.all([
+    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] = await Promise.all([
       this.getWebhookUrl(),
       this.getNotifyEvents(),
+      this.getWebNotifyEnabled(),
+      this.getWebNotifyEvents(),
     ]);
-    this.cachedSettings = { webhookUrl, notifyEvents, expiresAt: Date.now() + CACHE_TTL_MS };
+    this.cachedSettings = { webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents, expiresAt: Date.now() + CACHE_TTL_MS };
     return this.cachedSettings;
   }
 

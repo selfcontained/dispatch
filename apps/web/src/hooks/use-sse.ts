@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type Agent, type AuthState } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
+import { showWebNotification } from "@/lib/web-notifications";
 
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
@@ -14,7 +15,8 @@ type UiEvent =
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
-  | { type: "job.changed" };
+  | { type: "job.changed" }
+  | { type: "notification"; agentId: string; agentName: string; eventType: string; message: string };
 
 export function useSSE(
   authState: AuthState,
@@ -106,6 +108,11 @@ export function useSSE(
 
         if (payload.type === "job.changed") {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          return;
+        }
+
+        if (payload.type === "notification") {
+          showWebNotification(payload);
           return;
         }
       } catch {}
