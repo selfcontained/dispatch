@@ -230,14 +230,17 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
   return (
     <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div>
-          <h1 id="jobs-page-title" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</h1>
-          <div className="text-[11px] text-muted-foreground">Recurring automations</div>
-        </div>
-        <div className="ml-auto">
-          <Button className="justify-start" variant="primary" size="sm" onClick={openAddJob} data-testid="add-job-button">
-            <Plus className="mr-2 h-4 w-4" />
-            Add job
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
+        <div className="ml-auto flex items-center">
+          <Button
+            size="sm"
+            variant="default"
+            className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+            onClick={openAddJob}
+            data-testid="add-job-button"
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            Create
           </Button>
         </div>
       </div>
