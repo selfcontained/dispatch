@@ -8,7 +8,7 @@ set -euo pipefail
 # Usage: bin/pack-release [--output <path>]
 #
 # The tarball includes:
-#   - Pre-built dist/ directories (server, web, shared)
+#   - Pre-built dist/ directories (server, web)
 #   - package.json files + lockfile (for native module install on host)
 #   - bin/ scripts (deploy, server management, launchd wrapper)
 #   - Database migrations (SQL, read from source at runtime)
@@ -48,7 +48,6 @@ OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-release.tar.gz}"
 missing=()
 [[ -d "$ROOT_DIR/apps/server/dist" ]]   || missing+=("apps/server/dist")
 [[ -d "$ROOT_DIR/apps/web/dist" ]]      || missing+=("apps/web/dist")
-[[ -d "$ROOT_DIR/packages/shared/dist" ]] || missing+=("packages/shared/dist")
 
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "error: missing build outputs — run 'pnpm run build' first:" >&2
@@ -68,11 +67,9 @@ trap 'rm -f "$MANIFEST"' EXIT
 cat > "$MANIFEST" <<'LIST'
 apps/server/dist
 apps/web/dist
-packages/shared/dist
 package.json
 apps/server/package.json
 apps/web/package.json
-packages/shared/package.json
 pnpm-lock.yaml
 pnpm-workspace.yaml
 .nvmrc

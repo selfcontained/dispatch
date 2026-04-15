@@ -10,8 +10,7 @@ const OUTPUT = `/tmp/dispatch-pack-release-test-${process.pid}.tar.gz`;
 
 const BUILDS_EXIST =
   existsSync(path.join(REPO_ROOT, "apps/server/dist")) &&
-  existsSync(path.join(REPO_ROOT, "apps/web/dist")) &&
-  existsSync(path.join(REPO_ROOT, "packages/shared/dist"));
+  existsSync(path.join(REPO_ROOT, "apps/web/dist"));
 
 function run(args = ""): string {
   return execSync(`${BIN} ${args}`, {
@@ -47,7 +46,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("apps/server/dist/"))).toBe(true);
     expect(files.some((f) => f.startsWith("apps/web/dist/"))).toBe(true);
-    expect(files.some((f) => f.startsWith("packages/shared/dist/"))).toBe(true);
   });
 
   it("includes package.json files for dependency install", () => {
@@ -55,7 +53,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files).toContain("package.json");
     expect(files).toContain("apps/server/package.json");
     expect(files).toContain("apps/web/package.json");
-    expect(files).toContain("packages/shared/package.json");
   });
 
   it("includes pnpm workspace config and lockfile", () => {
