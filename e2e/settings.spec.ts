@@ -4,6 +4,10 @@ import { loadApp, setEnabledAgentTypesViaAPI } from "./helpers";
 test.describe("Settings pane", () => {
   test.afterEach(async ({ request }) => {
     await setEnabledAgentTypesViaAPI(request, ["codex", "claude", "opencode"]);
+    await request.post("/api/v1/notifications/settings", {
+      headers: { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` },
+      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+    });
   });
 
   test("opens and closes the settings pane", async ({ page }) => {
