@@ -217,7 +217,7 @@ function AgentHistoryList({
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10 bg-white/[0.04] backdrop-blur-xl">
-            <tr className="border-b border-white/[0.08] text-left text-[11px] text-muted-foreground">
+            <tr className="border-b border-white/[0.12] text-left text-[11px] text-muted-foreground">
               <th
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"
                 onClick={() => toggleSort("name")}
@@ -531,7 +531,7 @@ function FeedbackItemRow({
       </button>
 
       {isExpanded ? (
-        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-white/[0.08] bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
+        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-white/[0.12] bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={severityInfo.variant}>{severityInfo.label}</Badge>
             {item.filePath ? (
@@ -681,7 +681,7 @@ function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <div className="flex items-center gap-1 border-b border-white/[0.08] pb-0">
+        <div className="flex items-center gap-1 border-b border-white/[0.12] pb-0">
           {tabs.map(({ key, label, count }) => (
             <button
               key={key}
@@ -729,7 +729,7 @@ function DetailTabs({
                 <button
                   key={m.file_name}
                   onClick={() => setLightboxIndex(i)}
-                  className="overflow-hidden rounded border border-white/[0.08] bg-muted/20 text-left transition-colors hover:border-foreground/30"
+                  className="overflow-hidden rounded border border-white/[0.12] bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
                     <img

@@ -178,7 +178,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
 
         {versionInfo && (
-          <div className="mt-3 grid gap-2 rounded border border-white/[0.08] p-3 text-sm">
+          <div className="mt-3 grid gap-2 rounded border border-white/[0.12] p-3 text-sm">
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">Release tag</span>
               <span className="font-mono">{versionInfo.releaseTag ?? "unreleased"}</span>
@@ -218,7 +218,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             ) : null}
           </button>
           {notesExpanded && (
-            <div className="mt-2 rounded border border-white/[0.08] p-3">
+            <div className="mt-2 rounded border border-white/[0.12] p-3">
               <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
                 {versionInfo.releaseNotes}
               </div>
@@ -227,7 +227,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         </div>
       )}
 
-      <div className="border-t border-white/[0.08]" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Release channel */}
       <div>
@@ -235,7 +235,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         <p className="mb-3 text-sm text-muted-foreground">
           Choose which releases this instance follows.
         </p>
-        <div className={cn("inline-flex rounded border border-white/[0.08]", channelSaving && "opacity-50 pointer-events-none")}>
+        <div className={cn("inline-flex rounded border border-white/[0.12]", channelSaving && "opacity-50 pointer-events-none")}>
           {(["stable", "latest"] as ReleaseChannel[]).map((ch) => (
             <button
               key={ch}
@@ -245,7 +245,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                 channel === ch
                   ? "bg-primary/15 text-foreground"
                   : "text-muted-foreground hover:text-foreground",
-                ch === "stable" && "rounded-l border-r border-white/[0.08]",
+                ch === "stable" && "rounded-l border-r border-white/[0.12]",
                 ch === "latest" && "rounded-r"
               )}
             >
@@ -260,7 +260,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         {!info && !infoLoading && (
           <button
             onClick={() => void handleCheckForUpdates()}
-            className="self-start rounded border border-white/[0.08] px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            className="self-start rounded border border-white/[0.12] px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
           >
             Check for updates
           </button>
@@ -330,7 +330,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
       </div>
 
-      <div className="border-t border-white/[0.08]" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Reload */}
       <div>
@@ -342,7 +342,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           <button
             onClick={handleReload}
             disabled={reloading}
-            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-white/[0.08] px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-white/[0.12] px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
             {reloading ? "Reloading..." : "Reload"}
@@ -351,7 +351,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             <DropdownMenuTrigger asChild>
               <button
                 disabled={reloading}
-                className="inline-flex items-center rounded-r border border-white/[0.08] px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+                className="inline-flex items-center rounded-r border border-white/[0.12] px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
               </button>
@@ -406,7 +406,7 @@ export function OperationTakeover({
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Left column — controls */}
-      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.08] p-4 md:p-6">
+      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6">
         <PhaseProgress
           job={job}
           phasesOrder={phasesOrder}
@@ -437,7 +437,7 @@ export function OperationTakeover({
             </div>
             <button
               onClick={onDismiss}
-              className="self-start rounded border border-white/[0.08] px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start rounded border border-white/[0.12] px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
             >
               Done
             </button>
@@ -452,7 +452,7 @@ export function OperationTakeover({
             </div>
             <button
               onClick={onDismiss}
-              className="self-start rounded border border-white/[0.08] px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start rounded border border-white/[0.12] px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
             >
               Dismiss
             </button>

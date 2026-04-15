@@ -69,7 +69,7 @@ export function AppHeader({
           >
             <PanelLeftOpen className="h-4 w-4" />
             {unseenMediaCount > 0 ? (
-              <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-white/[0.08] bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+              <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-white/[0.12] bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                 {unseenMediaCount}
               </span>
             ) : null}

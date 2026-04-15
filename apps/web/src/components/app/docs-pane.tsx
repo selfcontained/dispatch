@@ -43,7 +43,7 @@ function Code({ children }: { children: React.ReactNode }) {
 
 function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-md border border-white/[0.08] bg-muted/60 px-4 py-3 text-sm leading-relaxed font-mono text-foreground">
+    <pre className="overflow-x-auto rounded-md border border-white/[0.12] bg-muted/60 px-4 py-3 text-sm leading-relaxed font-mono text-foreground">
       {children.trim()}
     </pre>
   );
@@ -620,7 +620,7 @@ export function DocsContent({
 
   return (
     <div className="flex min-h-0 flex-1 items-stretch">
-      <nav className="hidden h-full w-56 shrink-0 flex-col self-stretch border-r border-white/[0.08] py-2 md:flex">
+      <nav className="hidden h-full w-56 shrink-0 flex-col self-stretch border-r border-white/[0.12] py-2 md:flex">
         {SECTIONS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -642,7 +642,7 @@ export function DocsContent({
             <button
               key={id}
               onClick={() => setActiveSection(id)}
-              className="flex items-center gap-3 border-b border-white/[0.08] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
+              className="flex items-center gap-3 border-b border-white/[0.12] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
             >
               <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
               {label}
@@ -655,7 +655,7 @@ export function DocsContent({
       <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", activeSection === null && "hidden md:block")}>
         <ScrollArea className="h-full">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
-            <div className="border-b border-white/[0.08] pb-5">
+            <div className="border-b border-white/[0.12] pb-5">
               <div className="flex items-center gap-2">
                 {activeSection !== null ? (
                   <button
@@ -690,13 +690,13 @@ export function DocsPane({ open, onClose, initialSection, onSectionChange }: Doc
         <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           data-testid="docs-pane"
-          className="fixed inset-0 z-[70] flex flex-col overflow-hidden border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 md:inset-4 md:rounded-sm"
+          className="fixed inset-0 z-[70] flex flex-col overflow-hidden border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 md:inset-4 md:rounded-sm"
         >
           <DialogPrimitive.Title className="sr-only">Dispatch Docs</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
             Product documentation for core Dispatch functionality
           </DialogPrimitive.Description>
-          <div className="flex h-12 shrink-0 items-center border-b border-white/[0.08] px-5">
+          <div className="flex h-12 shrink-0 items-center border-b border-white/[0.12] px-5">
             <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Docs</span>
             <DialogPrimitive.Close className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
               <X className="h-4 w-4" />

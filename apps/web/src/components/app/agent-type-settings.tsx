@@ -101,7 +101,7 @@ export function AgentTypeSettings({
             <label
               key={agentType}
               className={cn(
-                "flex items-center gap-3 rounded border border-white/[0.08] px-3 py-2.5 transition-colors",
+                "flex items-center gap-3 rounded border border-white/[0.12] px-3 py-2.5 transition-colors",
                 disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
               )}
             >

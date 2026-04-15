@@ -570,7 +570,7 @@ function DailyTokenChart({
                   </div>
                 ))}
                 {tokenEntries.length > 1 && (
-                  <div className="mt-1.5 flex items-center gap-2 border-t border-white/[0.08] pt-1.5">
+                  <div className="mt-1.5 flex items-center gap-2 border-t border-white/[0.12] pt-1.5">
                     <div className="h-2.5 w-2.5 shrink-0" />
                     <span className="flex-1 font-medium text-foreground">Total</span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
@@ -824,14 +824,14 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <DialogPrimitive.Title className="sr-only">Activity</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
             Agent activity and usage overview
           </DialogPrimitive.Description>
 
           {/* Header */}
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/[0.08] px-5">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/[0.12] px-5">
             <div className="flex items-center gap-1">
               {(["metrics", "history"] as const).map((t) => (
                 <button

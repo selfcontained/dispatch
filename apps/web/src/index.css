@@ -381,7 +381,7 @@ body {
   font-family: "JetBrains Mono", Menlo, monospace;
 }
 
-/* Glass atmosphere: subtle radial gradients that give translucent panels depth */
+/* Glass atmosphere: colorful gradient orbs that show through frosted panels */
 body::before {
   content: "";
   position: fixed;
@@ -389,12 +389,14 @@ body::before {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(ellipse at top center, hsl(var(--primary) / 0.15), transparent 50%),
-    radial-gradient(ellipse at bottom right, hsl(var(--status-done) / 0.10), transparent 45%),
-    radial-gradient(ellipse at 15% 75%, hsl(var(--primary) / 0.08), transparent 35%);
+    radial-gradient(circle at 30% 10%, hsl(var(--primary) / 0.25), transparent 40%),
+    radial-gradient(circle at 80% 20%, hsl(var(--status-done) / 0.18), transparent 35%),
+    radial-gradient(circle at 70% 80%, hsl(var(--primary) / 0.15), transparent 40%),
+    radial-gradient(circle at 15% 70%, hsl(var(--status-done) / 0.10), transparent 35%),
+    radial-gradient(circle at 50% 50%, hsl(var(--primary) / 0.04), transparent 60%);
 }
 
-/* Disable glass atmosphere on light theme (too subtle / wrong effect) */
+/* Disable glass atmosphere on light theme */
 html[data-theme="light"] body::before {
   display: none;
 }

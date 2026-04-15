@@ -50,7 +50,7 @@ function PersonaStatusIcon({ reviewStatus, verdict, className }: { reviewStatus?
     <span
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full border",
-        "border-white/[0.08] bg-muted/40 text-muted-foreground",
+        "border-white/[0.12] bg-muted/40 text-muted-foreground",
         className
       )}
     >

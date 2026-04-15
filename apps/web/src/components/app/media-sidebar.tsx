@@ -55,7 +55,7 @@ function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; 
   }, [selectedAgentId]);
 
   return (
-    <div className="border-b border-white/[0.08]">
+    <div className="border-b border-white/[0.12]">
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-blocked" />
         <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">Live Stream</span>
@@ -133,7 +133,7 @@ function MediaContent({
 
       {/* Upload button bar */}
       {selectedAgentId && onUploadFile ? (
-        <div className="border-b border-white/[0.08] px-3 py-2">
+        <div className="border-b border-white/[0.12] px-3 py-2">
           <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
@@ -205,7 +205,7 @@ function MediaContent({
                 key={mediaKey}
                 data-media-key={mediaKey}
                 className={cn(
-                  "border-b border-white/[0.08] px-3 py-3",
+                  "border-b border-white/[0.12] px-3 py-3",
                   isStream && "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
                   animating && "animate-media-in-slow"
                 )}
@@ -304,7 +304,7 @@ export function MediaSidebarContent({
   }
 
   return (
-    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l border-white/[0.1] bg-white/[0.05] backdrop-blur-2xl text-foreground shadow-[inset_1px_0_0_rgba(255,255,255,0.08)]", className)}>
+    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl text-foreground shadow-[-4px_0_24px_rgba(0,0,0,0.3),inset_1px_0_0_rgba(255,255,255,0.1)]", className)}>
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">

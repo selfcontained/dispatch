@@ -345,7 +345,7 @@ export function MediaLightbox({
       className="fixed inset-0 z-[120] grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] bg-black/90 p-2 sm:p-6"
       data-testid="media-lightbox"
     >
-      <div className="mx-auto flex w-full max-w-4xl items-center gap-3 overflow-hidden rounded-t-lg border border-b-0 border-white/[0.08] bg-surface px-3 py-2 sm:px-4 sm:py-2.5">
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-3 overflow-hidden rounded-t-lg border border-b-0 border-white/[0.12] bg-surface px-3 py-2 sm:px-4 sm:py-2.5">
         <span className="min-w-0 shrink truncate text-xs font-medium text-foreground sm:text-sm">{displayName}</span>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <MediaActions src={item.src} fileName={item.file.name} isText={isText} />
@@ -389,7 +389,7 @@ export function MediaLightbox({
       </div>
       <div
         className={cn(
-          "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-white/[0.08] touch-pinch-zoom",
+          "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-white/[0.12] touch-pinch-zoom",
           isDocument ? "bg-white" : isText ? "bg-[hsl(var(--log-stream-bg))]" : "bg-black"
         )}
       >
@@ -412,7 +412,7 @@ export function MediaLightbox({
           />
         )}
       </div>
-      <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-white/[0.08] bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
+      <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-white/[0.12] bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
         {item.caption ? <span className="min-w-0 truncate">{item.caption}</span> : null}
         {item.file.source ? <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{item.file.source === "user" ? "your upload" : item.file.source}</span> : null}
         <span className="ml-auto flex-none">{sizeLabel}</span>

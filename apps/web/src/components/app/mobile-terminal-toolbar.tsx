@@ -56,7 +56,7 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
 
   return (
     <>
-      <div className="border-t-2 border-white/[0.08] bg-surface px-2 py-2 md:hidden">
+      <div className="border-t-2 border-white/[0.12] bg-surface px-2 py-2 md:hidden">
         {/* Row 1: modifier + action keys + keyboard button */}
         <div className="flex justify-center gap-2">
           <Button
@@ -169,7 +169,7 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
       {/* Full-screen text input modal */}
       {inputOpen ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm">
-          <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/[0.12] px-4 py-3">
             <button
               className="text-sm text-muted-foreground"
               onClick={() => setInputOpen(false)}
@@ -187,12 +187,12 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
           <div className="flex-1 p-4">
             <textarea
               ref={inputRef}
-              className="h-full w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-full w-full resize-none rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Type command here..."
               autoCapitalize="off"
             />
           </div>
-          <div className="flex gap-3 border-t border-white/[0.08] px-4 py-3">
+          <div className="flex gap-3 border-t border-white/[0.12] px-4 py-3">
             <Button
               type="button"
               variant="default"

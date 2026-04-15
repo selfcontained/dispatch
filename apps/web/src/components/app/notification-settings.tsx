@@ -169,7 +169,7 @@ export function NotificationSettings(): JSX.Element {
           {EVENT_OPTIONS.map(({ id, label, description }) => (
             <label
               key={id}
-              className="flex cursor-pointer items-center gap-3 rounded border border-white/[0.08] px-3 py-2.5 transition-colors hover:bg-muted/50"
+              className="flex cursor-pointer items-center gap-3 rounded border border-white/[0.12] px-3 py-2.5 transition-colors hover:bg-muted/50"
             >
               <Checkbox
                 checked={notifyEvents.includes(id)}

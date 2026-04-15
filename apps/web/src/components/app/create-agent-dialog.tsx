@@ -194,7 +194,7 @@ export function CreateAgentDialog({
                   <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", typeDropdownOpen && "rotate-180")} />
                 </button>
                 {typeDropdownOpen ? (
-                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.08] bg-background shadow-md">
+                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-background shadow-md">
                     <Command shouldFilter={false} ref={(el) => { if (el) requestAnimationFrame(() => el.focus()); }} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setTypeDropdownOpen(false); requestAnimationFrame(() => typeTriggerRef.current?.focus()); } }}>
                       <CommandList>
                         <CommandGroup>
@@ -293,7 +293,7 @@ export function CreateAgentDialog({
                         )}
                       </button>
                       {branchDropdownOpen ? (
-                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.08] bg-background shadow-md">
+                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.12] bg-background shadow-md">
                           <Command
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {

@@ -190,7 +190,7 @@ export function PathInput({
           ) : null}
         </div>
         {dropdownOpen && sortedHistory.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.08] bg-background p-1 shadow-md">
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.12] bg-background p-1 shadow-md">
             <Command shouldFilter={false} onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();

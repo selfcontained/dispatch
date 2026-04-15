@@ -212,7 +212,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                   {info.unreleasedCount} unreleased {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
                   <span className="font-mono">main</span>
                 </div>
-                <div className="flex flex-col gap-0.5 rounded border border-white/[0.08] bg-muted/20 p-2">
+                <div className="flex flex-col gap-0.5 rounded border border-white/[0.12] bg-muted/20 p-2">
                   {info.commits.map((c) => (
                     <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
                       <span className="shrink-0 font-mono text-muted-foreground">{c.sha}</span>
@@ -263,7 +263,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
         </div>
       )}
 
-      <div className="border-t border-white/[0.08]" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Recent releases */}
       <div>
@@ -287,7 +287,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
             {releases.map((r) => (
               <div
                 key={r.tag}
-                className="flex items-center gap-3 rounded border border-white/[0.08] px-3 py-2.5"
+                className="flex items-center gap-3 rounded border border-white/[0.12] px-3 py-2.5"
               >
                 <span className="font-mono text-sm font-semibold text-foreground">{r.tag}</span>
                 <span className={cn(
