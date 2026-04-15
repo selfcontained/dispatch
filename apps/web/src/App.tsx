@@ -557,8 +557,11 @@ export function DashboardLayout(): JSX.Element {
 
     // When switching sections on mobile, auto-open the sidebar so the nav bar
     // and section content (agent list, job list, settings nav) are accessible.
+    // Activity is self-contained (tabs + content in main area), so skip auto-open.
     setMobileMediaOpen(false);
-    setMobileLeftOpen(true);
+    if (currentNavItem !== "activity") {
+      setMobileLeftOpen(true);
+    }
   }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
 
   useEffect(() => {
@@ -678,6 +681,9 @@ export function DashboardLayout(): JSX.Element {
               <div className="flex h-full min-h-0 flex-col">
                 <div className="mt-2 flex h-14 items-center border-b border-border px-3">
                   <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activity</div>
+                </div>
+                <div className="flex-1 px-3 py-4 text-sm text-muted-foreground">
+                  Metrics and session history are shown in the main area.
                 </div>
               </div>
             )}

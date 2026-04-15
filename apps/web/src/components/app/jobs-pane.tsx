@@ -225,7 +225,7 @@ export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, chi
 
 /** Job list content for the unified sidebar. */
 export function JobListContent(): JSX.Element {
-  const { jobs, isLoading, error, selectedJob, showDetailPane, actionErrorByJobId, selectJob, openAddJob, navigate } = useJobsContext();
+  const { jobs, isLoading, error, selectedJob, actionErrorByJobId, selectJob, openAddJob, navigate } = useJobsContext();
 
   return (
     <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
@@ -242,7 +242,7 @@ export function JobListContent(): JSX.Element {
         </div>
       </div>
 
-      <div data-testid="jobs-sidebar-scroll" className={cn("min-h-0 flex-1 overflow-y-auto", showDetailPane && "hidden md:block")}>
+      <div data-testid="jobs-sidebar-scroll" className="min-h-0 flex-1 overflow-y-auto">
         {error ? (
           <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{error instanceof Error ? error.message : "Failed to load jobs."}</div>
         ) : isLoading ? (
