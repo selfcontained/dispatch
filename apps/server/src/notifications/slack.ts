@@ -102,24 +102,11 @@ export class SlackNotifier {
   }
 
   async getNotifyEvents(): Promise<NotifyEventType[]> {
-    const raw = await getSetting(this.pool, SETTING_NOTIFY_EVENTS);
-    if (!raw) return [...NOTIFY_EVENT_TYPES];
-    try {
-      const parsed = JSON.parse(raw) as string[];
-      return parsed.filter((e): e is NotifyEventType =>
-        NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
-      );
-    } catch {
-      return [...NOTIFY_EVENT_TYPES];
-    }
+    return this.getEventSetting(SETTING_NOTIFY_EVENTS);
   }
 
   async setNotifyEvents(events: string[]): Promise<void> {
-    const filtered = events.filter((e): e is NotifyEventType =>
-      NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
-    );
-    await setSetting(this.pool, SETTING_NOTIFY_EVENTS, JSON.stringify(filtered));
-    this.invalidateCache();
+    return this.setEventSetting(SETTING_NOTIFY_EVENTS, events);
   }
 
   async getSettings(): Promise<{
@@ -148,24 +135,11 @@ export class SlackNotifier {
   }
 
   async getWebNotifyEvents(): Promise<NotifyEventType[]> {
-    const raw = await getSetting(this.pool, SETTING_WEB_NOTIFY_EVENTS);
-    if (!raw) return [...NOTIFY_EVENT_TYPES];
-    try {
-      const parsed = JSON.parse(raw) as string[];
-      return parsed.filter((e): e is NotifyEventType =>
-        NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
-      );
-    } catch {
-      return [...NOTIFY_EVENT_TYPES];
-    }
+    return this.getEventSetting(SETTING_WEB_NOTIFY_EVENTS);
   }
 
   async setWebNotifyEvents(events: string[]): Promise<void> {
-    const filtered = events.filter((e): e is NotifyEventType =>
-      NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
-    );
-    await setSetting(this.pool, SETTING_WEB_NOTIFY_EVENTS, JSON.stringify(filtered));
-    this.invalidateCache();
+    return this.setEventSetting(SETTING_WEB_NOTIFY_EVENTS, events);
   }
 
   /**
@@ -201,13 +175,8 @@ export class SlackNotifier {
    * Called on every agent event upsert. Uses a short-lived cache to avoid
    * hitting the DB on the hot path (most events are "working"/"idle" and
    * are filtered out before the cache is even checked).
-   *
-   * When `skipSlack` is true, the Slack message is suppressed (e.g. because
-   * a web notification was sent instead).
    */
-  async onAgentEvent(agent: AgentRecord, skipSlack = false): Promise<void> {
-    if (skipSlack) return;
-
+  async onAgentEvent(agent: AgentRecord): Promise<void> {
     const event = agent.latestEvent;
     if (!event) return;
     if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
@@ -351,6 +320,27 @@ export class SlackNotifier {
     const timestamps = this.notifyTimestamps.get(agentId) ?? [];
     timestamps.push(Date.now());
     this.notifyTimestamps.set(agentId, timestamps);
+  }
+
+  private async getEventSetting(key: string): Promise<NotifyEventType[]> {
+    const raw = await getSetting(this.pool, key);
+    if (!raw) return [...NOTIFY_EVENT_TYPES];
+    try {
+      const parsed = JSON.parse(raw) as string[];
+      return parsed.filter((e): e is NotifyEventType =>
+        NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
+      );
+    } catch {
+      return [...NOTIFY_EVENT_TYPES];
+    }
+  }
+
+  private async setEventSetting(key: string, events: string[]): Promise<void> {
+    const filtered = events.filter((e): e is NotifyEventType =>
+      NOTIFY_EVENT_TYPES.includes(e as NotifyEventType)
+    );
+    await setSetting(this.pool, key, JSON.stringify(filtered));
+    this.invalidateCache();
   }
 
   private async getCachedSettings(): Promise<{

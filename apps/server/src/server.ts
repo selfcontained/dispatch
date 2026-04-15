@@ -113,13 +113,13 @@ jobService.onRunStateChange((run) => {
 // When web notifications are enabled and an SSE client is connected, send a
 // notification event via SSE and skip Slack. Otherwise fall back to Slack.
 agentManager.onLatestEvent((agent) => {
-  const sendNotification = async (skipSlack: boolean) => {
+  const sendSlackNotification = async () => {
     if (!agent.name?.startsWith("job-")) {
-      await slackNotifier.onAgentEvent(agent, skipSlack);
+      await slackNotifier.onAgentEvent(agent);
       return;
     }
     const run = await jobService.getLatestRunForAgent(agent.id);
-    if (!run) await slackNotifier.onAgentEvent(agent, skipSlack);
+    if (!run) await slackNotifier.onAgentEvent(agent);
   };
 
   void (async () => {
@@ -132,9 +132,8 @@ agentManager.onLatestEvent((agent) => {
       const webPayload = await slackNotifier.shouldWebNotify(agent);
       if (webPayload && uiEventBroker.hasConnectedClient() && focusTracker.hasWebNotifyPermission()) {
         uiEventBroker.publish({ type: "notification", ...webPayload });
-        await sendNotification(/* skipSlack */ true);
       } else {
-        await sendNotification(/* skipSlack */ false);
+        await sendSlackNotification();
       }
     } catch (err) {
       app.log.warn({ err, agentId: agent.id }, "Agent notification failed");
