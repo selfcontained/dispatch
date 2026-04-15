@@ -33,7 +33,7 @@ export function AppHeader({
     <header
       data-testid="app-header"
       className={cn(
-        "relative flex min-h-14 min-w-0 items-center gap-2 border-b-2 border-b-border bg-surface px-3 py-2 pt-[env(safe-area-inset-top)]"
+        "relative flex min-h-14 min-w-0 items-center gap-2 border-b border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl px-3 py-2 pt-[env(safe-area-inset-top)]"
       )}
     >
       <div className="flex min-w-0 flex-1 items-center">

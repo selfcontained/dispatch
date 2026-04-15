@@ -56,7 +56,7 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
 
   return (
     <>
-      <div className="border-t-2 border-white/[0.12] bg-surface px-2 py-2 md:hidden">
+      <div className="border-t border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl px-2 py-2 md:hidden">
         {/* Row 1: modifier + action keys + keyboard button */}
         <div className="flex justify-center gap-2">
           <Button
@@ -168,7 +168,7 @@ export function MobileTerminalToolbar({ onSendInput, ctrlPendingRef }: MobileTer
 
       {/* Full-screen text input modal */}
       {inputOpen ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 backdrop-blur-xl">
           <div className="flex items-center justify-between border-b border-white/[0.12] px-4 py-3">
             <button
               className="text-sm text-muted-foreground"

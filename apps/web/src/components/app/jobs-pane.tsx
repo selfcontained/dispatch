@@ -22,6 +22,7 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { glassPanel } from "@/lib/glass";
 
 type JobsPaneProps = {
   open: boolean;
@@ -166,7 +167,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden text-foreground" aria-labelledby="jobs-page-title">
-            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.18] bg-white/[0.08] backdrop-blur-2xl md:w-[320px] md:shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.3),inset_-1px_0_0_rgba(255,255,255,0.1)]", showDetailPane && "hidden md:flex")}>
+            <aside data-testid="jobs-sidebar" className={cn(`flex h-full min-h-0 w-full flex-col overflow-hidden border-r ${glassPanel} md:w-[320px] md:shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.3)]`, showDetailPane && "hidden md:flex")}>
               <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-2.5">
                   <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -270,7 +271,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
               <div className="min-h-0 flex-1 overflow-hidden">
                 {selectedJob ? (
                   <div className="flex h-full min-h-0 flex-col">
-                    <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.12] bg-white/[0.04] backdrop-blur-xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                    <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.12] bg-white/[0.08] backdrop-blur-2xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -320,7 +321,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
                 ) : (
                   <div className="flex h-full min-h-0 flex-col">
                     {showOverview && (
-                      <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.12] bg-white/[0.04] backdrop-blur-xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                      <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.12] bg-white/[0.08] backdrop-blur-2xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
                         <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
                           <ArrowLeft className="h-4 w-4" />
                         </Button>
@@ -729,7 +730,7 @@ function JobsNav({
       <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
               <Bot className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -745,7 +746,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
               <Activity className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -753,7 +754,7 @@ function JobsNav({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
+            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
               <Settings className="h-5 w-5" />
             </button>
           </TooltipTrigger>
@@ -777,7 +778,7 @@ function AddJobDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.12] bg-white/[0.08] backdrop-blur-2xl shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
           <DialogPrimitive.Title className="sr-only">Add job</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">Create a new recurring Dispatch job.</DialogPrimitive.Description>
           <DialogPrimitive.Close asChild>
@@ -1400,7 +1401,7 @@ function RemoveJobDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl p-5 shadow-xl outline-none">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.12] bg-white/[0.08] backdrop-blur-2xl p-5 shadow-xl outline-none">
           <DialogPrimitive.Title className="text-base font-semibold">Remove job?</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
             Remove <span className="font-medium text-foreground">{job.name}</span> from this Dispatch instance? This removes its saved schedule and run history.
