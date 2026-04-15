@@ -224,7 +224,7 @@ export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, chi
 }
 
 /** Job list content for the unified sidebar. */
-export function JobListContent(): JSX.Element {
+export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }): JSX.Element {
   const { jobs, isLoading, error, selectedJob, actionErrorByJobId, selectJob, openAddJob, navigate } = useJobsContext();
 
   return (
@@ -258,7 +258,7 @@ export function JobListContent(): JSX.Element {
           <div>
             <button
               className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
-              onClick={() => navigate("/jobs/overview")}
+              onClick={() => { navigate("/jobs/overview"); onItemSelect?.(); }}
             >
               <Activity className="h-3.5 w-3.5" />
               <span>Overview</span>
@@ -272,7 +272,7 @@ export function JobListContent(): JSX.Element {
                     "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
                     selectedJob?.id === job.id && "border-r-primary bg-muted/60"
                   )}
-                  onClick={() => selectJob(job)}
+                  onClick={() => { selectJob(job); onItemSelect?.(); }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">

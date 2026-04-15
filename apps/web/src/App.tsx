@@ -593,8 +593,9 @@ export function DashboardLayout(): JSX.Element {
     if (section) {
       setSettingsActiveSection(section as Parameters<typeof setSettingsActiveSection>[0]);
       navigate(`/settings/${section}`, { replace: true });
+      if (isMobile) setMobileLeftOpen(false);
     }
-  }, [navigate, setSettingsActiveSection]);
+  }, [isMobile, navigate, setMobileLeftOpen, setSettingsActiveSection]);
 
   // ── Sidebar content helper for closing on mobile actions ────────────
   const mobileCloseAndAction = useCallback(<T extends unknown[]>(fn: (...args: T) => void) => {
@@ -666,7 +667,7 @@ export function DashboardLayout(): JSX.Element {
                 closeOnSessionAction={isMobile}
               />
             )}
-            {currentNavItem === "jobs" && <JobListContent />}
+            {currentNavItem === "jobs" && <JobListContent onItemSelect={isMobile ? () => setMobileLeftOpen(false) : undefined} />}
             {currentNavItem === "settings" && (
               <SettingsNavContent
                 activeSection={settingsActiveSection}
@@ -675,6 +676,7 @@ export function DashboardLayout(): JSX.Element {
                 onSectionChange={handleSettingsSectionChange}
                 onSubsectionChange={(subsection) => {
                   navigate(`/settings/help/${subsection}`, { replace: true });
+                  if (isMobile) setMobileLeftOpen(false);
                 }}
                 apiState={apiState}
                 dbState={dbState}
@@ -689,7 +691,7 @@ export function DashboardLayout(): JSX.Element {
                 <nav className="min-h-0 flex-1 overflow-y-auto py-2">
                   <button
                     type="button"
-                    onClick={() => navigate("/activity/metrics", { replace: true })}
+                    onClick={() => { if (isMobile) setMobileLeftOpen(false); navigate("/activity/metrics", { replace: true }); }}
                     className={cn(
                       "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
                       (activityTab ?? "metrics") === "metrics"
@@ -702,7 +704,7 @@ export function DashboardLayout(): JSX.Element {
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate("/activity/history", { replace: true })}
+                    onClick={() => { if (isMobile) setMobileLeftOpen(false); navigate("/activity/history", { replace: true }); }}
                     className={cn(
                       "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
                       activityTab === "history"
@@ -807,18 +809,25 @@ export function DashboardLayout(): JSX.Element {
             )}
 
             {/* Jobs view */}
-            {jobsOpen && <JobDetailPane />}
+            {jobsOpen && (
+              <div className={cn("min-h-0 min-w-0", !leftPanelOpen && "pt-14")}>
+                <JobDetailPane />
+              </div>
+            )}
 
             {/* Activity view */}
             {activityOpen && (
-              <ActivityPane
-                open={true}
-                initialTab={activityTab}
-              />
+              <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", !leftPanelOpen && "pt-14")}>
+                <ActivityPane
+                  open={true}
+                  initialTab={activityTab}
+                />
+              </div>
             )}
 
             {/* Settings view */}
             {settingsOpen && (
+              <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", !leftPanelOpen && "pt-14")}>
               <SettingsContent
                 activeSection={settingsActiveSection}
                 onLogout={handleLogout}
@@ -838,6 +847,7 @@ export function DashboardLayout(): JSX.Element {
                 }}
                 isAdmin={isAdmin}
               />
+              </div>
             )}
 
             {/* Feedback panel — agents view only */}
