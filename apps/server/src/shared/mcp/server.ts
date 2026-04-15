@@ -436,10 +436,14 @@ export class McpSessionManager {
   }
 
   /**
-   * Send a resource-updated notification to an agent's active MCP session.
-   * Returns true if the notification was sent, false if no active session exists.
+   * Send a notification to an agent's active MCP session.
+   * Sends both a standard `resources/updated` and a Claude-specific
+   * `notifications/claude/channel` so the notification is surfaced
+   * regardless of which mechanisms the client supports.
+   *
+   * Returns true if at least one notification was sent.
    */
-  async notify(agentId: string, uri: string): Promise<boolean> {
+  async notify(agentId: string, uri: string, message?: string): Promise<boolean> {
     const sessionId = this.agentSessions.get(agentId);
     if (!sessionId) {
       this.log?.(`MCP notify: no session for agent ${agentId}`);
@@ -449,14 +453,39 @@ export class McpSessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
 
+    let sent = false;
+
+    // Standard MCP resource notification
     try {
       await session.server.server.sendResourceUpdated({ uri });
-      this.log?.(`MCP notify: sent resources/updated to ${agentId}`);
-      return true;
-    } catch (err) {
-      this.log?.(`MCP notify: send failed for ${agentId}: ${err}`);
-      return false;
+      sent = true;
+    } catch {
+      // resources capability may not be available
     }
+
+    // Claude-specific channel notification — surfaced to the model at the next turn boundary
+    try {
+      const transport = session.transport as unknown as { send(msg: unknown): Promise<void> };
+      await transport.send({
+        jsonrpc: "2.0",
+        method: "notifications/claude/channel",
+        params: {
+          channel: "dispatch",
+          content: message ?? `Review completed. Call dispatch_get_feedback to retrieve the results.`,
+        },
+      });
+      sent = true;
+    } catch {
+      // Channel notification not supported or transport closed
+    }
+
+    if (sent) {
+      this.log?.(`MCP notify: sent to ${agentId}`);
+    } else {
+      this.log?.(`MCP notify: send failed for ${agentId}`);
+    }
+
+    return sent;
   }
 
   /**

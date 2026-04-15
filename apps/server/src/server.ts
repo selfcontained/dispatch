@@ -4321,7 +4321,9 @@ async function mcpCompleteReview(
 
   // Notify the parent agent's MCP session that reviews are ready
   const parentAgentId = review.parentAgentId;
-  mcpSessions.notify(parentAgentId, `dispatch://reviews/${parentAgentId}`).catch((err) => {
+  const persona = child?.persona ?? "persona";
+  const reviewMsg = `Persona review "${persona}" completed with verdict: ${input.verdict}. ${input.summary}. Call dispatch_get_feedback to retrieve detailed findings.`;
+  mcpSessions.notify(parentAgentId, `dispatch://reviews/${parentAgentId}`, reviewMsg).catch((err) => {
     app.log.warn({ err, parentAgentId }, "Failed to send MCP review notification");
   });
 }
