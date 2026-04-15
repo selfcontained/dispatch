@@ -1,5 +1,5 @@
 ## What's Changed
-* feat: add browser notifications with web/Slack channel switching by @selfcontained in https://github.com/selfcontained/dispatch/pull/332
+* Auto-save browser notification settings by @selfcontained in https://github.com/selfcontained/dispatch/pull/335
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.14.1...v0.15.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.15.0...v0.15.1
