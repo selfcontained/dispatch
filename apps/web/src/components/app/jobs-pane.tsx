@@ -224,9 +224,10 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
                           return (
                       <div
                         key={job.id}
+                        data-testid={`job-row-${job.id}`}
                         className={cn(
                           "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                          selectedJob?.id === job.id && "border-r-primary bg-muted/60"
+                          selectedJob?.id === job.id && "md:border-r-primary md:bg-muted/60"
                         )}
                         onClick={() => selectJob(job)}
                       >
