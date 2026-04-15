@@ -238,8 +238,8 @@ export function DashboardLayout(): JSX.Element {
 
   const uploadFile = useCallback(async (agentId: string, file: File) => {
     const form = new FormData();
-    form.append("file", file, file.name);
     form.append("source", "user");
+    form.append("file", file, file.name);
     const res = await fetch(`/api/v1/agents/${agentId}/media`, {
       method: "POST",
       credentials: "include",
