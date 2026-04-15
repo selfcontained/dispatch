@@ -124,9 +124,13 @@ agentManager.onLatestEvent((agent) => {
 
   void (async () => {
     try {
-      // Check if we should send a web notification instead of Slack
+      // Check if we should send a web notification instead of Slack.
+      // All three conditions must be met to skip Slack:
+      // 1. Web notifications are enabled and configured for this event type
+      // 2. An SSE client is connected (app is open)
+      // 3. The browser has notification permission granted (reported via focus heartbeat)
       const webPayload = await slackNotifier.shouldWebNotify(agent);
-      if (webPayload && uiEventBroker.hasConnectedClient()) {
+      if (webPayload && uiEventBroker.hasConnectedClient() && focusTracker.hasWebNotifyPermission()) {
         uiEventBroker.publish({ type: "notification", ...webPayload });
         await sendNotification(/* skipSlack */ true);
       } else {
@@ -2664,8 +2668,16 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/focus", async (request, reply) => {
-    const body = request.body as { agentId?: unknown };
+    const body = request.body as { agentId?: unknown; webNotifyPermission?: unknown };
     const agentId = body?.agentId;
+
+    // Track browser notification permission state from the client
+    if (typeof body?.webNotifyPermission === "string") {
+      const perm = body.webNotifyPermission;
+      if (perm === "granted" || perm === "denied" || perm === "default") {
+        focusTracker.setWebNotifyPermission(perm);
+      }
+    }
 
     if (agentId === null || agentId === undefined) {
       // User is no longer focused on any agent — clear all focus immediately
