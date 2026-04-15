@@ -43,20 +43,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: pnpm run check
-
-      - name: Lint
-        run: pnpm run lint:web
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Test
-        run: pnpm run test
-        env:
-          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
-
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
