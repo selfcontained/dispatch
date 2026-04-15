@@ -80,6 +80,7 @@ export function AgentCard({
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
+  const sidebarBaseBranch = agent.baseBranch ?? "main";
 
   return (
     <React.Fragment>
@@ -272,10 +273,10 @@ export function AgentCard({
                       <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
                       <div className="grid gap-1">
                         <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Branch</div>
-                        {agent.baseBranch ? (
+                        {agent.gitContext.branch ? (
                           <div className="grid gap-0">
                             <div className="text-muted-foreground">
-                              <FrontTruncatedValue value={agent.baseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${agent.baseBranch}`} />
+                              <FrontTruncatedValue value={sidebarBaseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${sidebarBaseBranch}`} />
                             </div>
                             <div className="flex items-center gap-1 pl-1">
                               <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">└</span>
