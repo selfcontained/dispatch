@@ -381,13 +381,15 @@ body {
   font-family: "JetBrains Mono", Menlo, monospace;
 }
 
-/* Glass atmosphere: colorful gradient orbs that show through frosted panels */
+/* Glass atmosphere: colorful gradient orbs that show through frosted panels.
+   z-index 9999 ensures it's visible through modals and slide-overs too;
+   pointer-events:none lets clicks pass through. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 9999;
   background:
     radial-gradient(circle at 30% 10%, hsl(var(--primary) / 0.25), transparent 40%),
     radial-gradient(circle at 80% 20%, hsl(var(--status-done) / 0.18), transparent 35%),
