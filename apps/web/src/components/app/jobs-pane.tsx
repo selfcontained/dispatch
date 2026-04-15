@@ -230,7 +230,7 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
   return (
     <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</h2>
         <div className="ml-auto flex items-center">
           <Button
             size="sm"
