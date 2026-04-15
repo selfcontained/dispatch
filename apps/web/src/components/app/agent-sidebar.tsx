@@ -20,7 +20,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import React from "react";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
-import { glassDivider, glassHover, glassPanel } from "@/lib/glass";
+import { glassDivider, glassHover } from "@/lib/glass";
+import { GlassSidebar } from "@/components/ui/glass-sidebar";
 
 type AgentSidebarSharedProps = {
   agents: Agent[];
@@ -124,7 +125,7 @@ export function AgentSidebarContent({
   );
 
   return (
-    <aside data-testid="agent-sidebar" className={cn(`flex h-full min-h-0 w-full flex-col border-r ${glassPanel} text-foreground shadow-[4px_0_24px_rgba(0,0,0,0.3)]`, className)}>
+    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col text-foreground", className)}>
       <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-2.5">
           <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -290,17 +291,25 @@ export function AgentSidebarContent({
 
 export function AgentSidebar({ leftOpen, setLeftOpen, ...props }: AgentSidebarProps): JSX.Element {
   return (
-    <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: leftOpen ? 320 : 0 }}
-    >
+    <GlassSidebar open={leftOpen} onOpenChange={setLeftOpen} side="left" width={320} label="Agent sidebar">
       <AgentSidebarContent
         {...props}
         onRequestClose={() => setLeftOpen(false)}
         closeOnSessionAction={false}
         closeButtonIcon="chevron"
-        className="w-[320px]"
       />
-    </div>
+    </GlassSidebar>
+  );
+}
+
+export function AgentSidebarMobile({ open, onOpenChange, ...props }: Omit<AgentSidebarProps, "leftOpen" | "setLeftOpen"> & { open: boolean; onOpenChange: (open: boolean) => void }): JSX.Element {
+  return (
+    <GlassSidebar open={open} onOpenChange={onOpenChange} side="left" mobile label="Agent sidebar">
+      <AgentSidebarContent
+        {...props}
+        onRequestClose={() => onOpenChange(false)}
+        closeOnSessionAction={true}
+      />
+    </GlassSidebar>
   );
 }

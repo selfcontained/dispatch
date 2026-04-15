@@ -8,7 +8,7 @@ import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { glassPanel } from "@/lib/glass";
+import { GlassSidebar } from "@/components/ui/glass-sidebar";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
@@ -305,7 +305,7 @@ export function MediaSidebarContent({
   }
 
   return (
-    <aside data-testid="media-sidebar" className={cn(`flex h-full min-h-0 w-full flex-col border-l ${glassPanel} text-foreground shadow-[-4px_0_24px_rgba(0,0,0,0.3),inset_1px_0_0_rgba(255,255,255,0.1)]`, className)}>
+    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col text-foreground", className)}>
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">
@@ -390,17 +390,24 @@ export function MediaSidebar({ mediaOpen, setMediaOpen, hasStream, ...props }: M
   }, [hasStream, setMediaOpen]);
 
   return (
-    <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: mediaOpen ? 360 : 0 }}
-    >
+    <GlassSidebar open={mediaOpen} onOpenChange={setMediaOpen} side="right" width={360} label="Media sidebar">
       <MediaSidebarContent
         {...props}
         hasStream={hasStream}
         onRequestClose={() => setMediaOpen(false)}
         closeButtonIcon="chevron"
-        className="w-[360px]"
       />
-    </div>
+    </GlassSidebar>
+  );
+}
+
+export function MediaSidebarMobile({ open, onOpenChange, ...props }: Omit<MediaSidebarProps, "mediaOpen" | "setMediaOpen"> & { open: boolean; onOpenChange: (open: boolean) => void }): JSX.Element {
+  return (
+    <GlassSidebar open={open} onOpenChange={onOpenChange} side="right" mobile label="Media sidebar">
+      <MediaSidebarContent
+        {...props}
+        onRequestClose={() => onOpenChange(false)}
+      />
+    </GlassSidebar>
   );
 }

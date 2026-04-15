@@ -4,7 +4,7 @@ import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom, autoReviewByCwdAtom } from "@/lib/store";
-import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
+import { AgentSidebar, AgentSidebarMobile } from "@/components/app/agent-sidebar";
 import { ActivityPane } from "@/components/app/activity-pane";
 import { JobsPane } from "@/components/app/jobs-pane";
 import { SettingsPane } from "@/components/app/settings-pane";
@@ -12,7 +12,7 @@ import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { MediaLightbox } from "@/components/app/media-lightbox";
-import { MediaSidebar, MediaSidebarContent } from "@/components/app/media-sidebar";
+import { MediaSidebar, MediaSidebarMobile } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import { type FeedbackDetailState, FeedbackDetailPanel, ReviewSummaryPanel } from "@/components/app/feedback-panel";
@@ -21,7 +21,6 @@ import {
   type AgentVisualState,
   type ServiceState,
 } from "@/components/app/types";
-import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
 import { cn } from "@/lib/utils";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
 import { api } from "@/lib/api";
@@ -772,74 +771,63 @@ export function DashboardLayout(): JSX.Element {
       </div>
 
       {isMobile && !jobsOpen ? (
-        <MobileSlidePanel
+        <AgentSidebarMobile
           open={mobileLeftOpen}
-          side="left"
-          label="Agent sidebar"
           onOpenChange={(open) => {
             if (open) setMobileMediaOpen(false);
             setMobileLeftOpen(open);
           }}
-        >
-          <AgentSidebarContent
-            agents={agents}
-            selectedAgentId={validatedSelectedAgentId}
-            expandedAgentId={expandedAgentId}
-            overflowAgentId={overflowAgentId}
-            onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
-            enabledAgentTypes={enabledAgentTypes}
-            lastUsedAgentType={lastUsedAgentType}
-            onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
-            onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
-            onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
-            setOverflowAgentId={setOverflowAgentId}
-            setDeleteTarget={setDeleteTarget}
-            setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
-            setStopTarget={setStopTarget}
-            setStopConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setStopConfirmOpen(open); }}
-            agentVisualState={agentVisualState}
-            borderForAgentState={borderForAgentState}
-            toggleAgentDetails={toggleAgentDetails}
-            isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={detachAndClearSelection}
-            attachToAgent={attachToAgent}
-            startAgent={startAgent}
-            sendTerminalInput={sendTerminalInput}
-            connectedAgentId={connectedAgentId}
-            closeOnSessionAction={true}
-            onRequestClose={() => setMobileLeftOpen(false)}
-            pulsingNavItem={pulsingNavItem}
-            triggerNavAnimation={triggerNavAnimation}
-          />
-        </MobileSlidePanel>
+          agents={agents}
+          selectedAgentId={validatedSelectedAgentId}
+          expandedAgentId={expandedAgentId}
+          overflowAgentId={overflowAgentId}
+          onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
+          enabledAgentTypes={enabledAgentTypes}
+          lastUsedAgentType={lastUsedAgentType}
+          onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
+          onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
+          onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
+          setOverflowAgentId={setOverflowAgentId}
+          setDeleteTarget={setDeleteTarget}
+          setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
+          setStopTarget={setStopTarget}
+          setStopConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setStopConfirmOpen(open); }}
+          agentVisualState={agentVisualState}
+          borderForAgentState={borderForAgentState}
+          toggleAgentDetails={toggleAgentDetails}
+          isFullAccessEnabled={isFullAccessEnabled}
+          detachTerminal={detachAndClearSelection}
+          attachToAgent={attachToAgent}
+          startAgent={startAgent}
+          sendTerminalInput={sendTerminalInput}
+          connectedAgentId={connectedAgentId}
+          onOpenFeedbackDetail={setFeedbackDetail}
+          feedbackDetailState={feedbackDetail}
+          pulsingNavItem={pulsingNavItem}
+          triggerNavAnimation={triggerNavAnimation}
+        />
       ) : null}
 
       {isMobile && !jobsOpen ? (
-        <MobileSlidePanel
+        <MediaSidebarMobile
           open={mobileMediaOpen}
-          side="right"
-          label="Media sidebar"
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
             setMobileMediaOpen(open);
           }}
-        >
-            <MediaSidebarContent
-              mediaFiles={mediaFiles}
-              selectedAgentId={focusedAgentId}
-              selectedAgentName={focusedAgent?.name ?? null}
-              selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
-              selectedAgentPins={focusedAgent?.pins ?? []}
-              animatingMediaKeys={animatingMediaKeys}
-              unseenMediaCount={unseenMediaCount}
-              mediaViewportRef={mediaViewportRef}
-              hasStream={focusedAgentHasStream}
-              streamUrl={focusedAgentStreamUrl}
-              openLightbox={openLightbox}
-              onRequestClose={() => setMobileMediaOpen(false)}
-              onUploadFile={uploadFile}
-            />
-        </MobileSlidePanel>
+          mediaFiles={mediaFiles}
+          selectedAgentId={focusedAgentId}
+          selectedAgentName={focusedAgent?.name ?? null}
+          selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
+          selectedAgentPins={focusedAgent?.pins ?? []}
+          animatingMediaKeys={animatingMediaKeys}
+          unseenMediaCount={unseenMediaCount}
+          mediaViewportRef={mediaViewportRef}
+          hasStream={focusedAgentHasStream}
+          streamUrl={focusedAgentStreamUrl}
+          openLightbox={openLightbox}
+          onUploadFile={uploadFile}
+        />
       ) : null}
 
       <CreateAgentDialog
