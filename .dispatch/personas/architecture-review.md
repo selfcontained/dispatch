@@ -20,7 +20,7 @@ Your job is to review code changes for architectural fit, abstraction quality, n
 - Is the abstraction level appropriate — not too early, not too late?
 - Are there near-duplicates that should be consolidated, or premature abstractions that should be inlined?
 - Do function/component signatures make sense? Are they easy to use correctly and hard to use incorrectly?
-- Is shared code actually shared, or forced into `@dispatch/shared` without real reuse?
+- Is shared code actually shared, or prematurely abstracted without real reuse?
 
 ### Naming & Readability
 - Do names accurately describe what things do?
