@@ -106,7 +106,7 @@ export function AgentSidebarContent({
     : enabledAgentTypes[0] ?? "codex";
 
   const navButtonClassName = (navItem: string, active = false): string => cn(
-    "rounded-md p-2 transition-colors hover:bg-muted/50 hover:text-foreground",
+    "rounded-lg p-2 transition-colors hover:bg-white/[0.06] hover:text-foreground",
     active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
   );
 
@@ -123,7 +123,7 @@ export function AgentSidebarContent({
   );
 
   return (
-    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
+    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r border-white/[0.1] bg-white/[0.03] backdrop-blur-2xl text-foreground shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]", className)}>
       <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-2.5">
           <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -142,13 +142,13 @@ export function AgentSidebarContent({
           </div>
         ) : null}
       </div>
-      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+      <div className="mt-2 flex h-14 items-center border-b border-white/[0.08] px-3">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
             <Button
               size="sm"
               variant="default"
-              className="rounded-r-none border-r-0 bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+              className="rounded-r-none border-r-0 bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
               onClick={() => onOpenCreateDialog(defaultCreateType)}
               data-testid="create-agent-button"
             >
@@ -160,7 +160,7 @@ export function AgentSidebarContent({
                 <Button
                   size="sm"
                   variant="default"
-                  className="rounded-l-none border-l border-border/80 bg-muted/35 px-1 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+                  className="rounded-l-none border-l border-white/[0.08] bg-white/[0.04] px-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
                   data-testid="create-agent-type-dropdown"
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
@@ -222,7 +222,7 @@ export function AgentSidebarContent({
         </TooltipProvider>
       </div>
       <TooltipProvider delayDuration={120}>
-        <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-around border-t border-white/[0.08] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <Tooltip>
             <TooltipTrigger asChild>
               <button

@@ -216,8 +216,8 @@ function AgentHistoryList({
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10 bg-card">
-            <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
+          <thead className="sticky top-0 z-10 bg-white/[0.04] backdrop-blur-xl">
+            <tr className="border-b border-white/[0.08] text-left text-[11px] text-muted-foreground">
               <th
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"
                 onClick={() => toggleSort("name")}
@@ -238,7 +238,7 @@ function AgentHistoryList({
           <tbody>
             {isLoading &&
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-border/50">
+                <tr key={i} className="border-b border-white/[0.08]/50">
                   <td className="px-3 py-2.5 sm:px-5" colSpan={5}>
                     <div className="h-4 w-full animate-pulse rounded bg-muted/30" />
                   </td>
@@ -251,7 +251,7 @@ function AgentHistoryList({
               return (
                 <Fragment key={agent.id}>
                   <tr
-                    className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30"
+                    className="cursor-pointer border-b border-white/[0.08]/50 transition-colors hover:bg-muted/30"
                     onClick={() => onSelect(agent.id)}
                   >
                     <td className="px-3 py-2.5 sm:px-5">
@@ -306,7 +306,7 @@ function AgentHistoryList({
                   {hasChildren && isExpanded && agent.children.map((child) => (
                     <tr
                       key={child.id}
-                      className="cursor-pointer border-b border-border/30 bg-muted/10 transition-colors hover:bg-muted/30"
+                      className="cursor-pointer border-b border-white/[0.08]/30 bg-muted/10 transition-colors hover:bg-muted/30"
                       onClick={() => onSelect(child.id)}
                     >
                       <td colSpan={3} className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5">
@@ -531,7 +531,7 @@ function FeedbackItemRow({
       </button>
 
       {isExpanded ? (
-        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-border bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
+        <div className="ml-4 mr-1 mb-2 overflow-hidden rounded-md border border-white/[0.08] bg-background px-3 py-2.5 text-xs shadow-sm space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={severityInfo.variant}>{severityInfo.label}</Badge>
             {item.filePath ? (
@@ -681,7 +681,7 @@ function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <div className="flex items-center gap-1 border-b border-border pb-0">
+        <div className="flex items-center gap-1 border-b border-white/[0.08] pb-0">
           {tabs.map(({ key, label, count }) => (
             <button
               key={key}
@@ -729,7 +729,7 @@ function DetailTabs({
                 <button
                   key={m.file_name}
                   onClick={() => setLightboxIndex(i)}
-                  className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
+                  className="overflow-hidden rounded border border-white/[0.08] bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
                     <img

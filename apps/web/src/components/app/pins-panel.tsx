@@ -220,7 +220,7 @@ function PinItem({ pin, workspaceRoot }: { pin: AgentPin; workspaceRoot: string 
   const isMulti = values.length > 1;
 
   return (
-    <div className="px-4 py-2.5 border-b border-border last:border-b-0" data-testid="pin-item" data-pin-label={pin.label}>
+    <div className="px-4 py-2.5 border-b border-white/[0.06] last:border-b-0" data-testid="pin-item" data-pin-label={pin.label}>
       <div className="flex items-center gap-1">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
           {pin.label}

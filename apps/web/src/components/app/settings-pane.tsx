@@ -101,7 +101,7 @@ function InstanceNameSettings(): JSX.Element {
           maxLength={100}
           className={cn(
             "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
-            saveError ? "border-destructive" : "border-border focus:border-primary/50"
+            saveError ? "border-destructive" : "border-white/[0.08] focus:border-primary/50"
           )}
         />
         {showSaved && !saveError ? (
@@ -179,7 +179,7 @@ function WorktreeLocationSettings(): JSX.Element {
               "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
               worktreeLocation === opt.value
                 ? "border-primary bg-primary/10"
-                : "border-border hover:border-muted-foreground/30"
+                : "border-white/[0.08] hover:border-muted-foreground/30"
             )}
           >
             <div className="min-w-0">
@@ -238,7 +238,7 @@ function AppearanceSettings({
                 "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
                 theme === t.id
                   ? "border-primary bg-primary/10"
-                  : "border-border hover:border-muted-foreground/30"
+                  : "border-white/[0.08] hover:border-muted-foreground/30"
               )}
             >
               <div className="mt-0.5 flex gap-1">
@@ -410,12 +410,12 @@ export function SettingsPane({
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-border bg-card text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <DialogPrimitive.Title className="sr-only">Settings</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">Dispatch settings and release manager</DialogPrimitive.Description>
 
           {/* Header */}
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-5">
+          <div className="flex h-12 shrink-0 items-center border-b border-white/[0.08] px-5">
             {/* Mobile back button when viewing a section */}
             {activeSection !== null && (
               <button
@@ -440,7 +440,7 @@ export function SettingsPane({
           {/* Body */}
           <div className="flex min-h-0 flex-1">
             {/* Desktop nav — always visible */}
-            <nav className="hidden w-48 shrink-0 flex-col border-r border-border py-2 md:flex">
+            <nav className="hidden w-48 shrink-0 flex-col border-r border-white/[0.08] py-2 md:flex">
               <div>
                 {sections.map(({ id, label, icon: Icon }) => (
                   <button
@@ -459,7 +459,7 @@ export function SettingsPane({
                   </button>
                 ))}
               </div>
-              <div className="mt-auto border-t border-border px-4 pb-3 pt-4">
+              <div className="mt-auto border-t border-white/[0.08] px-4 pb-3 pt-4">
                 <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                   System
                 </div>
@@ -477,14 +477,14 @@ export function SettingsPane({
                   <button
                     key={id}
                     onClick={() => setActiveSection(id)}
-                    className="flex items-center gap-3 border-b border-border px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
+                    className="flex items-center gap-3 border-b border-white/[0.08] px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
                   >
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     {label}
                     <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
                   </button>
                 ))}
-                <div className="mt-auto border-t border-border px-5 py-4">
+                <div className="mt-auto border-t border-white/[0.08] px-5 py-4">
                   <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                     System
                   </div>
@@ -511,10 +511,10 @@ export function SettingsPane({
                   <div className="p-4 md:p-6">
                     <InstanceNameSettings />
                   </div>
-                  <div className="border-t border-border">
+                  <div className="border-t border-white/[0.08]">
                     <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />
                   </div>
-                  <div className="border-t border-border">
+                  <div className="border-t border-white/[0.08]">
                     <SecuritySettings onLogout={onLogout} />
                   </div>
                 </div>

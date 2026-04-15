@@ -68,7 +68,7 @@ export function PersonaLauncher({
           <Button
             variant="ghost"
             disabled={disabled}
-            className="gap-1.5 rounded-r-none border border-border/60 border-r-0 bg-background/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            className="gap-1.5 rounded-r-none border border-white/[0.08]/60 border-r-0 bg-background/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             data-testid="launch-reviewer-button"
           >
             <AgentTypeIcon type={reviewAgentType} className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80" />
@@ -103,7 +103,7 @@ export function PersonaLauncher({
           <Button
             variant="ghost"
             disabled={disabled}
-            className="rounded-l-none border border-border/60 bg-background/50 px-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            className="rounded-l-none border border-white/[0.08]/60 bg-background/50 px-1 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             data-testid="launch-reviewer-type-dropdown"
           >
             <ChevronDown className="h-3.5 w-3.5" />

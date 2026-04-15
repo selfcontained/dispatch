@@ -466,7 +466,7 @@ export function ParentFeedbackPanel({
                           })}
                           {resolvedCount > 0 ? (
                             <button
-                              className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                              className="mt-1 rounded border border-white/[0.08]/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setShowResolvedAgents((prev) => {
@@ -571,7 +571,7 @@ export function ParentFeedbackPanel({
                 ) : null}
               </div>
 
-              <div className="shrink-0 pt-2 border-t border-border">
+              <div className="shrink-0 pt-2 border-t border-white/[0.08]">
                 <FeedbackActions
                   item={sheetItem}
                   isConnected={isConnected}
@@ -806,7 +806,7 @@ export function FeedbackDetailPanel({
       onKeyDown={(e) => {
         if (e.key === "Escape") { e.stopPropagation(); onClose(); }
       }}
-      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-6 py-4 outline-none"
     >
       {/* Header row with nav + close */}
       <div className="flex items-center justify-between shrink-0 mb-3">
@@ -875,7 +875,7 @@ export function FeedbackDetailPanel({
       </div>
 
       {/* Actions footer */}
-      <div className="shrink-0 pt-2 border-t border-border mt-2">
+      <div className="shrink-0 pt-2 border-t border-white/[0.08] mt-2">
         <FeedbackActions
           item={item}
           isConnected={isConnected}
@@ -918,7 +918,7 @@ export function ReviewSummaryPanel({
       onKeyDown={(e) => {
         if (e.key === "Escape") { e.stopPropagation(); onClose(); }
       }}
-      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-6 py-4 outline-none"
     >
       <div className="flex items-center justify-between shrink-0 mb-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">

@@ -87,7 +87,7 @@ export function AgentCard({
       <div
         data-testid={`agent-card-${agent.id}`}
         className={cn(
-          "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
+          "border-b border-r-4 border-white/[0.08] px-2 py-2 transition-colors duration-300",
           borderForAgentState(state),
           isSelected && "bg-muted/60",
           isStopped && "opacity-60"

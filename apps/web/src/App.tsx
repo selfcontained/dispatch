@@ -623,7 +623,7 @@ export function DashboardLayout(): JSX.Element {
         ) : null}
 
         <main
-          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
+          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r border-white/[0.08]")}
         >
           <div
             className={cn(

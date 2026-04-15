@@ -4,6 +4,7 @@ import { AuthContextProvider } from "@/contexts/auth-context";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/App";
 import { LoginRoute } from "@/components/app/login-page";
+import { DesignLab } from "@/components/app/design-lab";
 
 function RootLayout(): JSX.Element {
   const auth = useAuth();
@@ -43,6 +44,10 @@ export const router = createBrowserRouter([
             ],
           },
         ],
+      },
+      {
+        path: "/design-lab",
+        element: <DesignLab />,
       },
       {
         path: "*",

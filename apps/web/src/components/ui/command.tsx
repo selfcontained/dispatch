@@ -9,7 +9,7 @@ const Command = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive
     ref={ref}
-    className={cn("flex h-full w-full flex-col overflow-hidden rounded-md bg-background text-foreground", className)}
+    className={cn("flex h-full w-full flex-col overflow-hidden rounded-xl bg-white/[0.04] backdrop-blur-2xl text-foreground border border-white/[0.1]", className)}
     {...props}
   />
 ));
@@ -19,7 +19,7 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center border-b border-border px-2">
+  <div className="flex items-center border-b border-white/[0.08] px-2">
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
@@ -73,7 +73,7 @@ const CommandItem = React.forwardRef<
     ref={ref}
     className={cn(
       "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none",
-      "data-[selected=true]:bg-primary/20 data-[selected=true]:text-foreground",
+      "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground",
       "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
       className
     )}
