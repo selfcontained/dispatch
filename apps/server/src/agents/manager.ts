@@ -8,9 +8,9 @@ import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
-import { createGitWorktree, cleanupGitWorktree } from "@dispatch/shared/git/worktree.js";
-import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { loadRepoHooks } from "@dispatch/shared/mcp/repo-tools.js";
+import { createGitWorktree, cleanupGitWorktree } from "../shared/git/worktree.js";
+import { runCommand } from "../shared/lib/run-command.js";
+import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 
 type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";

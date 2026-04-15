@@ -60,8 +60,8 @@ import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
-import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { handleMcpRequest } from "@dispatch/shared/mcp/server.js";
+import { runCommand } from "./shared/lib/run-command.js";
+import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier, isValidSlackWebhookUrl, type NotifyInput, type NotifyResult } from "./notifications/slack.js";
@@ -4279,7 +4279,7 @@ async function mcpCompleteReview(
 
 async function mcpGetParentContext(
   parentAgentId: string
-): Promise<import("@dispatch/shared/mcp/server.js").ParentContextResult> {
+): Promise<import("./shared/mcp/server.js").ParentContextResult> {
   const parent = await agentManager.getAgent(parentAgentId);
   if (!parent) throw new Error("Parent agent not found.");
 
@@ -4444,7 +4444,7 @@ async function mcpLaunchPersona(
     const initialMessage = "Begin your review now. Follow your system prompt instructions.";
     setTimeout(async () => {
       try {
-        const { runCommand: run } = await import("@dispatch/shared/lib/run-command.js");
+        const { runCommand: run } = await import("./shared/lib/run-command.js");
         await run("tmux", ["send-keys", "-t", tmuxSession, "-l", initialMessage]);
         await run("tmux", ["send-keys", "-t", tmuxSession, "Enter"]);
       } catch {}

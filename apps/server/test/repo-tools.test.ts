@@ -4,12 +4,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "started", stderr: "" }))
 }));
 
-const { loadRepoTools, loadRepoHooks } = await import("@dispatch/shared/mcp/repo-tools.js");
-const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+const { loadRepoTools, loadRepoHooks } = await import("../src/shared/mcp/repo-tools.js");
+const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 const tempDirs: string[] = [];
 

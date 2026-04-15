@@ -297,7 +297,7 @@ cmd_up() {
   (
     cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" npx vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    DISPATCH_PORT="$DEV_API_PORT" pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 

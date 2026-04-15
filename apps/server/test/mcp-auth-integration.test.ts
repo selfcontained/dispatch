@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations, getTestDatabaseUrl } from "./db/setup.js";
 
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
