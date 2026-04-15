@@ -30,6 +30,7 @@ import {
 } from "@/components/app/media-lightbox";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
+import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
@@ -403,7 +404,8 @@ export function MediaSidebarContent({
     <aside
       data-testid="media-sidebar"
       className={cn(
-        "flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground",
+        "flex h-full min-h-0 w-full flex-col border-l border-white/[0.18] text-foreground",
+        glassPanel,
         className
       )}
     >

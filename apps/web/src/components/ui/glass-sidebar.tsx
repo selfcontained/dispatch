@@ -10,6 +10,7 @@
  */
 import { type ReactNode, useEffect } from "react";
 
+import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 type GlassSidebarProps = {
@@ -42,10 +43,6 @@ function DesktopSidebar({
   "open" | "side" | "width" | "className" | "children"
 >) {
   const borderSide = side === "left" ? "border-r" : "border-l";
-  const shadowSide =
-    side === "left"
-      ? "shadow-[4px_0_24px_rgba(0,0,0,0.3)]"
-      : "shadow-[-4px_0_24px_rgba(0,0,0,0.3)]";
 
   return (
     <div
@@ -54,7 +51,8 @@ function DesktopSidebar({
     >
       <div
         className={cn(
-          `flex h-full min-h-0 flex-col ${borderSide} border-border bg-card text-foreground ${shadowSide}`,
+          `flex h-full min-h-0 flex-col ${borderSide} text-foreground`,
+          glassPanel,
           className
         )}
         style={{ width }}
@@ -110,7 +108,8 @@ function MobileSidebar({
       >
         <div
           className={cn(
-            `flex h-full min-h-0 w-full flex-col bg-card text-foreground`,
+            `flex h-full min-h-0 w-full flex-col text-foreground`,
+            glassPanel,
             className
           )}
         >

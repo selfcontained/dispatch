@@ -231,7 +231,7 @@ export function PathInput({
           ) : null}
         </div>
         {dropdownOpen && sortedHistory.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-border bg-background p-1 shadow-md">
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-white/[0.08] backdrop-blur-2xl p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
             <Command
               shouldFilter={false}
               onKeyDown={(e) => {

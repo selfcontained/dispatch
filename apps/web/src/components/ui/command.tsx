@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
 
+import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const Command = React.forwardRef<
@@ -10,7 +11,8 @@ const Command = React.forwardRef<
   <CommandPrimitive
     ref={ref}
     className={cn(
-      "flex h-full w-full flex-col overflow-hidden rounded-md bg-background text-foreground",
+      "flex h-full w-full flex-col overflow-hidden rounded-md text-foreground",
+      glassOverlay,
       className
     )}
     {...props}

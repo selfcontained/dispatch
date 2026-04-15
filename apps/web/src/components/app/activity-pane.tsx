@@ -626,7 +626,7 @@ function DailyTokenChart({
               0
             );
             return (
-              <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-md">
+              <div className="rounded-lg border border-white/[0.2] bg-white/[0.08] backdrop-blur-2xl px-3 py-2 text-xs shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
                 <div className="mb-1.5 font-medium">{tooltipLabel}</div>
                 {payload.map((p) => (
                   <div

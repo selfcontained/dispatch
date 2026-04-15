@@ -256,7 +256,7 @@ function AgentHistoryList({
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10 bg-card">
+          <thead className="sticky top-0 z-10 bg-white/[0.04] backdrop-blur-xl">
             <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
               <th
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"

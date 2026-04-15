@@ -48,6 +48,7 @@ import {
   type AgentVisualState,
   type ServiceState,
 } from "@/components/app/types";
+import { DesignLab } from "@/components/app/design-lab";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { cn } from "@/lib/utils";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
@@ -151,6 +152,7 @@ export function DashboardLayout(): JSX.Element {
     ? (pathSegments[1] as "metrics" | "history" | undefined)
     : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
+  const designLabOpen = pathSegments[0] === "design-lab";
 
   useEffect(() => {
     if (!legacyDocsOpen) return;
@@ -670,6 +672,7 @@ export function DashboardLayout(): JSX.Element {
     if (location.pathname.startsWith("/jobs")) return "jobs";
     if (location.pathname.startsWith("/activity")) return "activity";
     if (location.pathname.startsWith("/settings")) return "settings";
+    if (location.pathname.startsWith("/design-lab")) return "design-lab";
     return "agents";
   })();
   const prevNavItemRef = useRef(currentNavItem);
@@ -760,7 +763,7 @@ export function DashboardLayout(): JSX.Element {
       onOpenAgent={attachToAgent}
       enabledAgentTypes={enabledAgentTypes}
     >
-      <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
+      <div className="h-full min-h-0 overflow-hidden text-foreground">
         <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
           {/* ── Unified sidebar (desktop: inline, mobile: slide-over) ─── */}
           <GlassSidebar
@@ -1056,6 +1059,13 @@ export function DashboardLayout(): JSX.Element {
                     }}
                     isAdmin={isAdmin}
                   />
+                </div>
+              )}
+
+              {/* Design Lab */}
+              {designLabOpen && (
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+                  <DesignLab />
                 </div>
               )}
 

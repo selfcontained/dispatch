@@ -40,6 +40,7 @@ export const router = createBrowserRouter([
               { path: "jobs/:jobId", element: <></> },
               { path: "jobs/:jobId/:section", element: <></> },
               { path: "jobs/:jobId/:section/:runId", element: <></> },
+              { path: "design-lab" },
             ],
           },
         ],
