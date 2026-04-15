@@ -304,7 +304,7 @@ export function MediaSidebarContent({
   }
 
   return (
-    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l border-white/[0.1] bg-white/[0.03] backdrop-blur-2xl text-foreground shadow-[inset_1px_0_0_rgba(255,255,255,0.06)]", className)}>
+    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l border-white/[0.1] bg-white/[0.05] backdrop-blur-2xl text-foreground shadow-[inset_1px_0_0_rgba(255,255,255,0.08)]", className)}>
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">

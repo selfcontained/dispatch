@@ -389,9 +389,9 @@ body::before {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(ellipse at top center, hsl(var(--primary) / 0.09), transparent 55%),
-    radial-gradient(ellipse at bottom right, hsl(var(--status-done) / 0.06), transparent 50%),
-    radial-gradient(ellipse at 20% 80%, hsl(var(--primary) / 0.04), transparent 40%);
+    radial-gradient(ellipse at top center, hsl(var(--primary) / 0.15), transparent 50%),
+    radial-gradient(ellipse at bottom right, hsl(var(--status-done) / 0.10), transparent 45%),
+    radial-gradient(ellipse at 15% 75%, hsl(var(--primary) / 0.08), transparent 35%);
 }
 
 /* Disable glass atmosphere on light theme (too subtle / wrong effect) */

@@ -166,7 +166,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden text-foreground" aria-labelledby="jobs-page-title">
-            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.1] bg-white/[0.03] backdrop-blur-2xl md:w-[320px] md:shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.06)]", showDetailPane && "hidden md:flex")}>
+            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.1] bg-white/[0.05] backdrop-blur-2xl md:w-[320px] md:shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.08)]", showDetailPane && "hidden md:flex")}>
               <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-2.5">
                   <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
