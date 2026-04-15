@@ -1,10 +1,9 @@
 ## What's Changed
-* docs: remove stale AUTH_TOKEN refs, fix server entrypoint path by @selfcontained in https://github.com/selfcontained/dispatch/pull/319
-* Move docs into settings help by @selfcontained in https://github.com/selfcontained/dispatch/pull/320
-* feat: user-to-agent file sharing via media sidebar upload (#CRU-107) by @selfcontained in https://github.com/selfcontained/dispatch/pull/321
-* feat: show base branch in agent sidebar branch display (#CRU-110) by @selfcontained in https://github.com/selfcontained/dispatch/pull/322
-* fix: add error handler to PG pool to prevent unhandled errors in tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/324
-* feat: Activity page daily view with hourly breakdowns (#CRU-108) by @selfcontained in https://github.com/selfcontained/dispatch/pull/323
+* Fallback sidebar base branch to main by @selfcontained in https://github.com/selfcontained/dispatch/pull/327
+* fix: send source field before file in upload FormData by @selfcontained in https://github.com/selfcontained/dispatch/pull/325
+* fix: dispatch-dev HMR and shared package build by @selfcontained in https://github.com/selfcontained/dispatch/pull/326
+* docs: add missing MCP tools and API endpoint by @selfcontained in https://github.com/selfcontained/dispatch/pull/328
+* fix: remove remaining packages/shared references by @selfcontained in https://github.com/selfcontained/dispatch/pull/329
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.13.0...v0.14.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.14.0...v0.14.1
