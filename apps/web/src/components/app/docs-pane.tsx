@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
-  ArrowLeft,
   Bell,
-  ChevronRight,
   GitBranch,
   Image,
   Monitor,
@@ -14,9 +12,8 @@ import {
 } from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
 
-type DocsSection = "agents" | "tools" | "worktrees" | "personas" | "events" | "media" | "notifications";
+export type DocsSection = "agents" | "tools" | "worktrees" | "personas" | "events" | "media" | "notifications";
 
 type DocsPaneProps = {
   open: boolean;
@@ -591,6 +588,9 @@ function isValidDocsSection(value: string | undefined): value is DocsSection {
   return value !== undefined && SECTIONS.some((s) => s.id === value);
 }
 
+/** Lightweight section metadata for sidebar nav (avoids importing heavy content JSX). */
+export const DOCS_SECTION_NAV = SECTIONS.map(({ id, label }) => ({ id, label }));
+
 type DocsContentProps = {
   initialSection?: string;
   onSectionChange?: (section: string | null) => void;
@@ -599,7 +599,7 @@ type DocsContentProps = {
 
 export function DocsContent({
   initialSection,
-  onSectionChange,
+  onSectionChange: _onSectionChange,
   title = "Docs",
 }: DocsContentProps): JSX.Element {
   const resolvedInitial = isValidDocsSection(initialSection) ? initialSection : null;
@@ -611,66 +611,19 @@ export function DocsContent({
     }
   }, [initialSection]);
 
-  const setActiveSection = useCallback((section: DocsSection | null) => {
-    setActiveSectionState(section);
-    onSectionChange?.(section);
-  }, [onSectionChange]);
-
   const active = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   return (
     <div className="flex min-h-0 flex-1 items-stretch">
-      <nav className="hidden h-full w-56 shrink-0 flex-col self-stretch border-r border-border py-2 md:flex">
-        {SECTIONS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveSection(id)}
-            className={cn(
-              "flex items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
-              activeSection === id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            {label}
-          </button>
-        ))}
-      </nav>
-
-      {activeSection === null ? (
-        <nav className="flex flex-1 flex-col md:hidden">
-          {SECTIONS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveSection(id)}
-              className="flex items-center gap-3 border-b border-border px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
-            >
-              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {label}
-              <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
-            </button>
-          ))}
-        </nav>
-      ) : null}
-
-      <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", activeSection === null && "hidden md:block")}>
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <ScrollArea className="h-full">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
             <div className="border-b border-border pb-5">
-              <div className="flex items-center gap-2">
-                {activeSection !== null ? (
-                  <button
-                    onClick={() => setActiveSection(null)}
-                    className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 md:hidden"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </button>
-                ) : null}
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                    {title}
-                  </div>
-                  <h2 className="text-2xl font-semibold tracking-tight">{active.title}</h2>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  {title}
                 </div>
+                <h2 className="text-2xl font-semibold tracking-tight">{active.title}</h2>
               </div>
             </div>
             <div className="grid gap-6">

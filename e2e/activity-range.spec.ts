@@ -81,7 +81,6 @@ test.describe("Active hours UI", () => {
     await loadApp(page);
 
     await page.getByTestId("activity-button").click();
-    await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
     await expect(page.getByText("Active hours")).toBeVisible();
     await expect(page.getByTestId("active-hours-cell-sample")).toBeVisible();
 

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { BarChart3, History, PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { feedbackDetailAtom, expandedAgentIdAtom, fullAccessByCwdAtom, baseBranchByCwdAtom, autoReviewByCwdAtom } from "@/lib/store";
-import { AgentSidebar, AgentSidebarContent } from "@/components/app/agent-sidebar";
+import { AgentListContent } from "@/components/app/agent-sidebar";
 import { ActivityPane } from "@/components/app/activity-pane";
-import { JobsPane } from "@/components/app/jobs-pane";
-import { SettingsPane } from "@/components/app/settings-pane";
+import { JobsProvider, JobListContent, JobDetailPane } from "@/components/app/jobs-pane";
+import { SettingsContent, SettingsNavContent, useSettingsState } from "@/components/app/settings-pane";
+import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
@@ -21,7 +22,7 @@ import {
   type AgentVisualState,
   type ServiceState,
 } from "@/components/app/types";
-import { MobileSlidePanel } from "@/components/ui/mobile-slide-panel";
+import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { cn } from "@/lib/utils";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
 import { api } from "@/lib/api";
@@ -113,10 +114,6 @@ export function DashboardLayout(): JSX.Element {
   const activityOpen = pathSegments[0] === "activity";
   const activityTab = activityOpen ? (pathSegments[1] as "metrics" | "history" | undefined) : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
-
-  const closeOverlay = useCallback(() => {
-    navigate("/");
-  }, [navigate]);
 
   useEffect(() => {
     if (!legacyDocsOpen) return;
@@ -556,10 +553,15 @@ export function DashboardLayout(): JSX.Element {
     prevNavItemRef.current = currentNavItem;
 
     if (!isMobile) return;
-    if (currentNavItem !== "agents" || previousNavItem === "agents") return;
+    if (currentNavItem === previousNavItem) return;
 
+    // When switching sections on mobile, auto-open the sidebar so the nav bar
+    // and section content (agent list, job list, settings nav) are accessible.
+    // Activity is self-contained (tabs + content in main area), so skip auto-open.
     setMobileMediaOpen(false);
-    setMobileLeftOpen(true);
+    if (currentNavItem !== "activity") {
+      setMobileLeftOpen(true);
+    }
   }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
 
   useEffect(() => {
@@ -576,59 +578,157 @@ export function DashboardLayout(): JSX.Element {
     setPendingNavPulse(navItem);
   }, [currentNavItem, setPulsingNavItem]);
 
-  // ── Navigation callbacks for overlay panes ────────────────────────────
-  const openSettings = useCallback(() => navigate("/settings"), [navigate]);
-  const openActivity = useCallback(() => navigate("/activity"), [navigate]);
-  const openJobs = useCallback(() => navigate("/jobs"), [navigate]);
+  // ── Navigation callbacks ────────────────────────────────────────────
+  const handleSidebarNavigate = useCallback((section: NavSection) => {
+    if (section === "agents") navigate("/");
+    else if (section === "jobs") navigate("/jobs");
+    else if (section === "activity") navigate("/activity");
+    else if (section === "settings") navigate("/settings");
+  }, [navigate]);
+
+  // ── Settings state ────────────────────────────────────────────────────
+  const { activeSection: settingsActiveSection, setActiveSectionState: setSettingsActiveSection, isAdmin, sections: settingsSections } = useSettingsState(settingsOpen, settingsSection);
+
+  const handleSettingsSectionChange = useCallback((section: string | null) => {
+    if (section) {
+      setSettingsActiveSection(section as Parameters<typeof setSettingsActiveSection>[0]);
+      navigate(`/settings/${section}`, { replace: true });
+      if (isMobile) setMobileLeftOpen(false);
+    }
+  }, [isMobile, navigate, setMobileLeftOpen, setSettingsActiveSection]);
+
+  // ── Sidebar content helper for closing on mobile actions ────────────
+  const mobileCloseAndAction = useCallback(<T extends unknown[]>(fn: (...args: T) => void) => {
+    return (...args: T) => {
+      if (isMobile) setMobileLeftOpen(false);
+      fn(...args);
+    };
+  }, [isMobile, setMobileLeftOpen]);
+
+  const isAgentsView = currentNavItem === "agents";
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
+    <JobsProvider open={jobsOpen} agents={agents} onOpenAgent={attachToAgent} enabledAgentTypes={enabledAgentTypes}>
     <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
       <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-        {!isMobile && !jobsOpen ? (
-          <div className="shrink-0">
-            <AgentSidebar
-              leftOpen={leftOpen}
-              agents={agents}
-              selectedAgentId={validatedSelectedAgentId}
-              expandedAgentId={expandedAgentId}
-              overflowAgentId={overflowAgentId}
-              setLeftOpen={setLeftOpen}
-              onOpenCreateDialog={openCreateDialog}
-              enabledAgentTypes={enabledAgentTypes}
-              lastUsedAgentType={lastUsedAgentType}
-              onOpenActivity={openActivity}
-              onOpenJobs={openJobs}
-              onOpenSettings={openSettings}
-              setOverflowAgentId={setOverflowAgentId}
-              setDeleteTarget={setDeleteTarget}
-              setDeleteConfirmOpen={setDeleteConfirmOpen}
-              setStopTarget={setStopTarget}
-              setStopConfirmOpen={setStopConfirmOpen}
-              agentVisualState={agentVisualState}
-              borderForAgentState={borderForAgentState}
-              toggleAgentDetails={toggleAgentDetails}
-              isFullAccessEnabled={isFullAccessEnabled}
-              detachTerminal={detachAndClearSelection}
-              attachToAgent={attachToAgent}
-              startAgent={startAgent}
-              sendTerminalInput={sendTerminalInput}
-              connectedAgentId={connectedAgentId}
-              onOpenFeedbackDetail={setFeedbackDetail}
-              feedbackDetailState={feedbackDetail}
-              pulsingNavItem={pulsingNavItem}
-              triggerNavAnimation={triggerNavAnimation}
-            />
-          </div>
-        ) : null}
+        {/* ── Unified sidebar (desktop: inline, mobile: slide-over) ─── */}
+        <GlassSidebar
+          open={isMobile ? mobileLeftOpen : leftOpen}
+          onOpenChange={(open) => {
+            if (isMobile) {
+              if (open) setMobileMediaOpen(false);
+              setMobileLeftOpen(open);
+            } else {
+              setLeftOpen(open);
+            }
+          }}
+          side="left"
+          width={320}
+          mobile={isMobile}
+          label="Navigation sidebar"
+        >
+          <SidebarShell
+            activeSection={currentNavItem as NavSection}
+            onNavigate={(section) => {
+              handleSidebarNavigate(section);
+            }}
+            onRequestClose={isMobile ? () => setMobileLeftOpen(false) : () => setLeftOpen(false)}
+            closeButtonIcon={isMobile ? "x" : "chevron"}
+            pulsingNavItem={pulsingNavItem}
+            triggerNavAnimation={triggerNavAnimation}
+          >
+            {currentNavItem === "agents" && (
+              <AgentListContent
+                agents={agents}
+                selectedAgentId={validatedSelectedAgentId}
+                expandedAgentId={expandedAgentId}
+                overflowAgentId={overflowAgentId}
+                onOpenCreateDialog={isMobile ? mobileCloseAndAction(openCreateDialog) : openCreateDialog}
+                enabledAgentTypes={enabledAgentTypes}
+                lastUsedAgentType={lastUsedAgentType}
+                setOverflowAgentId={setOverflowAgentId}
+                setDeleteTarget={setDeleteTarget}
+                setDeleteConfirmOpen={isMobile ? mobileCloseAndAction(setDeleteConfirmOpen) : setDeleteConfirmOpen}
+                setStopTarget={setStopTarget}
+                setStopConfirmOpen={isMobile ? mobileCloseAndAction(setStopConfirmOpen) : setStopConfirmOpen}
+                agentVisualState={agentVisualState}
+                borderForAgentState={borderForAgentState}
+                toggleAgentDetails={toggleAgentDetails}
+                isFullAccessEnabled={isFullAccessEnabled}
+                detachTerminal={detachAndClearSelection}
+                attachToAgent={attachToAgent}
+                startAgent={startAgent}
+                sendTerminalInput={sendTerminalInput}
+                connectedAgentId={connectedAgentId}
+                onOpenFeedbackDetail={setFeedbackDetail}
+                feedbackDetailState={feedbackDetail}
+                onRequestClose={isMobile ? () => setMobileLeftOpen(false) : undefined}
+                closeOnSessionAction={isMobile}
+              />
+            )}
+            {currentNavItem === "jobs" && <JobListContent onItemSelect={isMobile ? () => setMobileLeftOpen(false) : undefined} />}
+            {currentNavItem === "settings" && (
+              <SettingsNavContent
+                activeSection={settingsActiveSection}
+                activeSubsection={settingsSubsection}
+                sections={settingsSections}
+                onSectionChange={handleSettingsSectionChange}
+                onSubsectionChange={(subsection) => {
+                  navigate(`/settings/help/${subsection}`, { replace: true });
+                  if (isMobile) setMobileLeftOpen(false);
+                }}
+                apiState={apiState}
+                dbState={dbState}
+                serviceDotClass={serviceDotClass}
+              />
+            )}
+            {currentNavItem === "activity" && (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+                  <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activity</div>
+                </div>
+                <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+                  <button
+                    type="button"
+                    onClick={() => { if (isMobile) setMobileLeftOpen(false); navigate("/activity/metrics", { replace: true }); }}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                      (activityTab ?? "metrics") === "metrics"
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+                    Metrics
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (isMobile) setMobileLeftOpen(false); navigate("/activity/history", { replace: true }); }}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                      activityTab === "history"
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <History className="h-3.5 w-3.5 shrink-0" />
+                    History
+                  </button>
+                </nav>
+              </div>
+            )}
+          </SidebarShell>
+        </GlassSidebar>
 
+        {/* ── Main content area ──────────────────────────────────────── */}
         <main
-          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && "border-r-2 border-border")}
+          className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", mediaOpen && !isMobile && isAgentsView && "border-r-2 border-border")}
         >
           <div
             className={cn(
               "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
-              jobsOpen
+              !isAgentsView
                 ? "grid-rows-[minmax(0,1fr)]"
                 : isMobile
                 ? "grid-rows-[minmax(0,1fr)_auto]"
@@ -642,31 +742,24 @@ export function DashboardLayout(): JSX.Element {
               }
             }}
           >
-            {jobsOpen ? (
-              <JobsPane
-                open={true}
-                onClose={closeOverlay}
-                agents={agents}
-                onOpenAgent={attachToAgent}
-                enabledAgentTypes={enabledAgentTypes}
-                pulsingNavItem={pulsingNavItem}
-                triggerNavAnimation={triggerNavAnimation}
-              />
-            ) : (
+            {/* Open sidebar button — shown on all views when sidebar is collapsed */}
+            {!leftPanelOpen ? (
+              <div className="pointer-events-none absolute left-3 top-3 z-10">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="pointer-events-auto"
+                  onClick={() => handleSetLeftPanelOpen(true)}
+                  title="Open sidebar"
+                >
+                  <PanelRightOpen className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
+
+            {/* Agents view — terminal */}
+            {isAgentsView && (
               <div className="relative min-h-0 min-w-0 pb-14 pt-14">
-                {!leftPanelOpen ? (
-                  <div className="pointer-events-none absolute left-3 top-3 z-10">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="pointer-events-auto"
-                      onClick={() => handleSetLeftPanelOpen(true)}
-                      title="Open agent sidebar"
-                    >
-                      <PanelRightOpen className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : null}
                 {focusedAgent?.name ? (
                   <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
                     <div
@@ -715,7 +808,50 @@ export function DashboardLayout(): JSX.Element {
               </div>
             )}
 
-            {!isMobile && !jobsOpen ? (
+            {/* Jobs view */}
+            {jobsOpen && (
+              <div className={cn("min-h-0 min-w-0", !leftPanelOpen && "pt-14")}>
+                <JobDetailPane />
+              </div>
+            )}
+
+            {/* Activity view */}
+            {activityOpen && (
+              <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", !leftPanelOpen && "pt-14")}>
+                <ActivityPane
+                  open={true}
+                  initialTab={activityTab}
+                />
+              </div>
+            )}
+
+            {/* Settings view */}
+            {settingsOpen && (
+              <div className={cn("min-h-0 min-w-0 flex-1 overflow-hidden", !leftPanelOpen && "pt-14")}>
+              <SettingsContent
+                activeSection={settingsActiveSection}
+                onLogout={handleLogout}
+                theme={theme}
+                setTheme={setTheme}
+                iconColor={iconColor}
+                setIconColor={setIconColor}
+                isIconColorSaving={isIconColorSaving}
+                iconColorError={iconColorError}
+                clearIconColorError={clearIconColorError}
+                enabledAgentTypes={enabledAgentTypes}
+                onEnabledAgentTypesChange={setEnabledAgentTypes}
+                initialSubsection={settingsSubsection}
+                onSubsectionChange={(subsection) => {
+                  if (settingsSection !== "help") return;
+                  navigate(subsection ? `/settings/help/${subsection}` : "/settings/help", { replace: true });
+                }}
+                isAdmin={isAdmin}
+              />
+              </div>
+            )}
+
+            {/* Feedback panel — agents view only */}
+            {!isMobile && isAgentsView ? (
               <div className={cn("min-h-0 overflow-hidden transition-opacity duration-300", feedbackDetail ? "opacity-100" : "opacity-0")}>
                 {feedbackDetailRendered ? (
                   "summaryAgentId" in feedbackDetailRendered ? (
@@ -745,11 +881,12 @@ export function DashboardLayout(): JSX.Element {
               </div>
             ) : null}
 
-            {isMobile && !jobsOpen ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
+            {isMobile && isAgentsView ? <MobileTerminalToolbar onSendInput={sendTerminalInput} ctrlPendingRef={ctrlPendingRef} /> : null}
           </div>
         </main>
 
-        {!jobsOpen ? (
+        {/* ── Media sidebar (right, desktop only, agents view only) ── */}
+        {isAgentsView ? (
         <div className="hidden shrink-0 md:block">
           <MediaSidebar
             mediaOpen={mediaOpen && hasActiveAgent}
@@ -771,75 +908,34 @@ export function DashboardLayout(): JSX.Element {
         ) : null}
       </div>
 
-      {isMobile && !jobsOpen ? (
-        <MobileSlidePanel
-          open={mobileLeftOpen}
-          side="left"
-          label="Agent sidebar"
-          onOpenChange={(open) => {
-            if (open) setMobileMediaOpen(false);
-            setMobileLeftOpen(open);
-          }}
-        >
-          <AgentSidebarContent
-            agents={agents}
-            selectedAgentId={validatedSelectedAgentId}
-            expandedAgentId={expandedAgentId}
-            overflowAgentId={overflowAgentId}
-            onOpenCreateDialog={(type?: AgentType) => { setMobileLeftOpen(false); openCreateDialog(type); }}
-            enabledAgentTypes={enabledAgentTypes}
-            lastUsedAgentType={lastUsedAgentType}
-            onOpenActivity={() => { setMobileLeftOpen(false); openActivity(); }}
-            onOpenJobs={() => { setMobileLeftOpen(false); openJobs(); }}
-            onOpenSettings={() => { setMobileLeftOpen(false); openSettings(); }}
-            setOverflowAgentId={setOverflowAgentId}
-            setDeleteTarget={setDeleteTarget}
-            setDeleteConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setDeleteConfirmOpen(open); }}
-            setStopTarget={setStopTarget}
-            setStopConfirmOpen={(open) => { if (open) setMobileLeftOpen(false); setStopConfirmOpen(open); }}
-            agentVisualState={agentVisualState}
-            borderForAgentState={borderForAgentState}
-            toggleAgentDetails={toggleAgentDetails}
-            isFullAccessEnabled={isFullAccessEnabled}
-            detachTerminal={detachAndClearSelection}
-            attachToAgent={attachToAgent}
-            startAgent={startAgent}
-            sendTerminalInput={sendTerminalInput}
-            connectedAgentId={connectedAgentId}
-            closeOnSessionAction={true}
-            onRequestClose={() => setMobileLeftOpen(false)}
-            pulsingNavItem={pulsingNavItem}
-            triggerNavAnimation={triggerNavAnimation}
-          />
-        </MobileSlidePanel>
-      ) : null}
-
-      {isMobile && !jobsOpen ? (
-        <MobileSlidePanel
+      {/* ── Mobile media slide-over ──────────────────────────────────── */}
+      {isMobile && isAgentsView ? (
+        <GlassSidebar
           open={mobileMediaOpen}
-          side="right"
-          label="Media sidebar"
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
             setMobileMediaOpen(open);
           }}
+          side="right"
+          mobile={true}
+          label="Media sidebar"
         >
-            <MediaSidebarContent
-              mediaFiles={mediaFiles}
-              selectedAgentId={focusedAgentId}
-              selectedAgentName={focusedAgent?.name ?? null}
-              selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
-              selectedAgentPins={focusedAgent?.pins ?? []}
-              animatingMediaKeys={animatingMediaKeys}
-              unseenMediaCount={unseenMediaCount}
-              mediaViewportRef={mediaViewportRef}
-              hasStream={focusedAgentHasStream}
-              streamUrl={focusedAgentStreamUrl}
-              openLightbox={openLightbox}
-              onRequestClose={() => setMobileMediaOpen(false)}
-              onUploadFile={uploadFile}
-            />
-        </MobileSlidePanel>
+          <MediaSidebarContent
+            mediaFiles={mediaFiles}
+            selectedAgentId={focusedAgentId}
+            selectedAgentName={focusedAgent?.name ?? null}
+            selectedAgentWorkspaceRoot={focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null}
+            selectedAgentPins={focusedAgent?.pins ?? []}
+            animatingMediaKeys={animatingMediaKeys}
+            unseenMediaCount={unseenMediaCount}
+            mediaViewportRef={mediaViewportRef}
+            hasStream={focusedAgentHasStream}
+            streamUrl={focusedAgentStreamUrl}
+            openLightbox={openLightbox}
+            onRequestClose={() => setMobileMediaOpen(false)}
+            onUploadFile={uploadFile}
+          />
+        </GlassSidebar>
       ) : null}
 
       <CreateAgentDialog
@@ -886,39 +982,6 @@ export function DashboardLayout(): JSX.Element {
         onStop={stopAgent}
       />
 
-      {activityOpen ? (
-        <ActivityPane
-          open={true}
-          onClose={closeOverlay}
-          initialTab={activityTab}
-          onTabChange={(tab) => navigate(`/activity/${tab}`, { replace: true })}
-        />
-      ) : null}
-      <SettingsPane
-        open={settingsOpen}
-        onClose={closeOverlay}
-        onLogout={handleLogout}
-        theme={theme}
-        setTheme={setTheme}
-        iconColor={iconColor}
-        setIconColor={setIconColor}
-        isIconColorSaving={isIconColorSaving}
-        iconColorError={iconColorError}
-        clearIconColorError={clearIconColorError}
-        enabledAgentTypes={enabledAgentTypes}
-        onEnabledAgentTypesChange={setEnabledAgentTypes}
-        apiState={apiState}
-        dbState={dbState}
-        serviceDotClass={serviceDotClass}
-        initialSection={settingsSection}
-        initialSubsection={settingsSubsection}
-        onSectionChange={(section) => navigate(section ? `/settings/${section}` : "/settings", { replace: true })}
-        onSubsectionChange={(subsection) => {
-          if (settingsSection !== "help") return;
-          navigate(subsection ? `/settings/help/${subsection}` : "/settings/help", { replace: true });
-        }}
-      />
-
       <MediaLightbox
         item={lightboxItem}
         currentIndex={lightboxIndex}
@@ -930,6 +993,7 @@ export function DashboardLayout(): JSX.Element {
         {statusMessage}
       </div>
     </div>
+    </JobsProvider>
   );
 }
 
