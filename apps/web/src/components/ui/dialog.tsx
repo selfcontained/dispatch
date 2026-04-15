@@ -12,7 +12,7 @@ const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Overlay ref={ref} className={cn("fixed inset-0 z-[70] bg-black/50 backdrop-blur-md", className)} {...props} />
+  <DialogPrimitive.Overlay ref={ref} className={cn("fixed inset-0 z-[70] bg-black/65", className)} {...props} />
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
@@ -25,7 +25,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-[70] grid w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-2xl border border-white/[0.15] bg-white/[0.06] backdrop-blur-2xl p-4 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.12),0_0_40px_hsl(var(--primary)/0.06)]",
+        "fixed left-1/2 top-1/2 z-[70] grid w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 rounded-2xl border border-white/[0.08] bg-card p-4 shadow-[0_12px_48px_rgba(0,0,0,0.6),0_4px_16px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06),0_0_64px_hsl(var(--primary)/0.04)]",
         className
       )}
       {...props}

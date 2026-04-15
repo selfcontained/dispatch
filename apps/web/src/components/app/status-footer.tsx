@@ -15,7 +15,7 @@ export function StatusFooter({
   serviceDotClass
 }: StatusFooterProps): JSX.Element {
   return (
-    <footer data-testid="status-footer" className="flex h-11 items-center justify-end gap-8 border-t border-white/[0.08] bg-white/[0.02] backdrop-blur-xl px-3 pb-[env(safe-area-inset-bottom)] text-[10px] text-muted-foreground sm:text-xs">
+    <footer data-testid="status-footer" className="flex h-11 items-center justify-end gap-8 border-t border-white/[0.04] bg-surface px-3 pb-[env(safe-area-inset-bottom)] text-[10px] text-muted-foreground sm:text-xs shadow-[0_-2px_8px_rgba(0,0,0,0.15)]">
       <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
       <ServiceStatus
         icon={<Database className="h-3.5 w-3.5" />}

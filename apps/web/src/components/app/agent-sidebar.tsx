@@ -106,7 +106,7 @@ export function AgentSidebarContent({
     : enabledAgentTypes[0] ?? "codex";
 
   const navButtonClassName = (navItem: string, active = false): string => cn(
-    "rounded-lg p-2 transition-colors hover:bg-white/[0.06] hover:text-foreground",
+    "rounded-lg p-2 transition-all duration-150 hover:bg-muted/50 hover:text-foreground hover:shadow-[0_2px_8px_rgba(0,0,0,0.15)]",
     active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
   );
 
@@ -123,7 +123,7 @@ export function AgentSidebarContent({
   );
 
   return (
-    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r border-white/[0.1] bg-white/[0.05] backdrop-blur-2xl text-foreground shadow-[inset_-1px_0_0_rgba(255,255,255,0.08)]", className)}>
+    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r border-white/[0.04] bg-card text-foreground shadow-[4px_0_16px_rgba(0,0,0,0.3),inset_-1px_0_0_rgba(255,255,255,0.03)]", className)}>
       <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-2.5">
           <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -148,7 +148,7 @@ export function AgentSidebarContent({
             <Button
               size="sm"
               variant="default"
-              className="rounded-r-none border-r-0 bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+              className="rounded-r-none border-r-0 bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
               onClick={() => onOpenCreateDialog(defaultCreateType)}
               data-testid="create-agent-button"
             >
@@ -160,7 +160,7 @@ export function AgentSidebarContent({
                 <Button
                   size="sm"
                   variant="default"
-                  className="rounded-l-none border-l border-white/[0.08] bg-white/[0.04] px-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+                  className="rounded-l-none border-l border-white/[0.04] bg-muted/35 px-1 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
                   data-testid="create-agent-type-dropdown"
                 >
                   <ChevronDown className="h-3.5 w-3.5" />

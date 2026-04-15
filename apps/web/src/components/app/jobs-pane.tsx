@@ -166,7 +166,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
 
   return (
     <section className="flex h-full min-h-0 min-w-0 overflow-hidden text-foreground" aria-labelledby="jobs-page-title">
-            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.1] bg-white/[0.05] backdrop-blur-2xl md:w-[320px] md:shrink-0 shadow-[inset_-1px_0_0_rgba(255,255,255,0.08)]", showDetailPane && "hidden md:flex")}>
+            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-white/[0.04] bg-card md:w-[320px] md:shrink-0 shadow-[4px_0_16px_rgba(0,0,0,0.3),inset_-1px_0_0_rgba(255,255,255,0.03)]", showDetailPane && "hidden md:flex")}>
               <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-2.5">
                   <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
@@ -270,7 +270,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
               <div className="min-h-0 flex-1 overflow-hidden">
                 {selectedJob ? (
                   <div className="flex h-full min-h-0 flex-col">
-                    <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                    <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.08] bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -320,7 +320,7 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
                 ) : (
                   <div className="flex h-full min-h-0 flex-col">
                     {showOverview && (
-                      <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                      <div className="flex min-h-14 items-center gap-3 border-b border-white/[0.08] bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
                         <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
                           <ArrowLeft className="h-4 w-4" />
                         </Button>
@@ -777,7 +777,7 @@ function AddJobDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.08] bg-card shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
           <DialogPrimitive.Title className="sr-only">Add job</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">Create a new recurring Dispatch job.</DialogPrimitive.Description>
           <DialogPrimitive.Close asChild>
@@ -1400,7 +1400,7 @@ function RemoveJobDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl p-5 shadow-xl outline-none">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.08] bg-card p-5 shadow-xl outline-none">
           <DialogPrimitive.Title className="text-base font-semibold">Remove job?</DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
             Remove <span className="font-medium text-foreground">{job.name}</span> from this Dispatch instance? This removes its saved schedule and run history.

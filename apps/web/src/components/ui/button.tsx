@@ -9,10 +9,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "border border-white/[0.12] bg-white/[0.06] backdrop-blur-md text-foreground shadow-[0_1px_4px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-white/[0.1] hover:border-white/[0.18]",
-        primary: "bg-primary/80 backdrop-blur-md text-primary-foreground border border-white/[0.15] shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_20px_hsl(var(--primary)/0.25),inset_0_1px_0_rgba(255,255,255,0.15)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_32px_hsl(var(--primary)/0.35)] hover:bg-primary/90",
-        destructive: "bg-destructive/80 backdrop-blur-md text-destructive-foreground border border-white/[0.1] shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_16px_hsl(var(--destructive)/0.2)] hover:bg-destructive/90",
-        ghost: "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+        default: "border border-white/[0.06] bg-muted text-foreground shadow-[0_2px_6px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.35)] hover:-translate-y-px active:translate-y-0 active:shadow-[0_1px_2px_rgba(0,0,0,0.3)]",
+        primary: "bg-primary text-primary-foreground border border-white/[0.08] shadow-[0_2px_8px_rgba(0,0,0,0.3),0_0_16px_hsl(var(--primary)/0.15),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.35),0_0_24px_hsl(var(--primary)/0.25)] hover:-translate-y-px hover:bg-primary/90 active:translate-y-0",
+        destructive: "bg-destructive text-destructive-foreground border border-white/[0.06] shadow-[0_2px_8px_rgba(0,0,0,0.3),0_0_12px_hsl(var(--destructive)/0.15)] hover:bg-destructive/90",
+        ghost: "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
         "ghost-primary":
           "text-status-working hover:bg-status-working/15 hover:text-status-working",
         "ghost-info":

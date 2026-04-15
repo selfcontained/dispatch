@@ -551,7 +551,7 @@ function DailyTokenChart({
             const tokenEntries = payload.filter((p) => p.dataKey !== "agents_created");
             const total = tokenEntries.reduce((sum, p) => sum + (typeof p.value === "number" ? p.value : 0), 0);
             return (
-              <div className="rounded-lg border bg-white/[0.04] backdrop-blur-xl px-3 py-2 text-xs shadow-md">
+              <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-md">
                 <div className="mb-1.5 font-medium">{tooltipLabel}</div>
                 {payload.map((p) => (
                   <div key={String(p.dataKey)} className="flex items-center gap-2 py-0.5">
@@ -824,7 +824,7 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-white/[0.08] bg-card text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
           <DialogPrimitive.Title className="sr-only">Activity</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
             Agent activity and usage overview
