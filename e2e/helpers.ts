@@ -31,7 +31,13 @@ type AgentPinRecord = {
  */
 export async function createAgentViaAPI(
   request: APIRequestContext,
-  overrides: { name?: string; type?: string; cwd?: string; useWorktree?: boolean; worktreeBranch?: string } = {}
+  overrides: {
+    name?: string;
+    type?: string;
+    cwd?: string;
+    useWorktree?: boolean;
+    worktreeBranch?: string;
+  } = {}
 ): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
     headers: authHeaders(),
@@ -69,21 +75,36 @@ export async function createAgentViaAPI(
 export async function getWorktreeStatusViaAPI(
   request: APIRequestContext,
   agentId: string
-): Promise<{ hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null; changedFiles: string[] }> {
+): Promise<{
+  hasWorktree: boolean;
+  hasUnmergedCommits: boolean;
+  worktreePath: string | null;
+  branchName: string | null;
+  changedFiles: string[];
+}> {
   const res = await request.get(`${API}/agents/${agentId}/worktree-status`, {
     headers: authHeaders(),
   });
-  return (await res.json()) as { hasWorktree: boolean; hasUnmergedCommits: boolean; worktreePath: string | null; branchName: string | null; changedFiles: string[] };
+  return (await res.json()) as {
+    hasWorktree: boolean;
+    hasUnmergedCommits: boolean;
+    worktreePath: string | null;
+    branchName: string | null;
+    changedFiles: string[];
+  };
 }
 
 export async function setAgentLatestEventViaAPI(
   request: APIRequestContext,
   agentId: string,
-  event: { type: "working" | "blocked" | "waiting_user" | "done" | "idle"; message: string }
+  event: {
+    type: "working" | "blocked" | "waiting_user" | "done" | "idle";
+    message: string;
+  }
 ): Promise<void> {
   await request.post(`${API}/agents/${agentId}/latest-event`, {
     headers: authHeaders(),
-    data: event
+    data: event,
   });
 }
 
@@ -130,7 +151,10 @@ export async function uploadMediaViaAPI(
   }
 }
 
-export async function setAgentPinsViaDB(agentId: string, pins: AgentPinRecord[]): Promise<void> {
+export async function setAgentPinsViaDB(
+  agentId: string,
+  pins: AgentPinRecord[]
+): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL is required to seed agent pins.");
@@ -155,16 +179,23 @@ export async function deleteAgentViaAPI(
   agentId: string,
   cleanupWorktree: "auto" | "keep" | "force" = "force"
 ): Promise<void> {
-  await request.post(`${API}/agents/${agentId}/stop`, {
-    headers: authHeaders(),
-    data: { force: true },
-  }).catch(() => {});
-  await request.delete(`${API}/agents/${agentId}?force=true&cleanupWorktree=${cleanupWorktree}`, {
-    headers: authHeaders(),
-  });
+  await request
+    .post(`${API}/agents/${agentId}/stop`, {
+      headers: authHeaders(),
+      data: { force: true },
+    })
+    .catch(() => {});
+  await request.delete(
+    `${API}/agents/${agentId}?force=true&cleanupWorktree=${cleanupWorktree}`,
+    {
+      headers: authHeaders(),
+    }
+  );
   // Archive is async — poll until the agent is actually gone
   for (let i = 0; i < 50; i++) {
-    const res = await request.get(`${API}/agents/${agentId}`, { headers: authHeaders() });
+    const res = await request.get(`${API}/agents/${agentId}`, {
+      headers: authHeaders(),
+    });
     if (res.status() === 404) return;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -173,9 +204,13 @@ export async function deleteAgentViaAPI(
 /**
  * Delete all agents whose name starts with `e2e-agent-` to keep the dev DB clean.
  */
-export async function cleanupE2EAgents(request: APIRequestContext): Promise<void> {
+export async function cleanupE2EAgents(
+  request: APIRequestContext
+): Promise<void> {
   const res = await request.get(`${API}/agents`, { headers: authHeaders() });
-  const body = (await res.json()) as { agents?: Array<{ id: string; name: string }> };
+  const body = (await res.json()) as {
+    agents?: Array<{ id: string; name: string }>;
+  };
   if (!body.agents) return;
   for (const agent of body.agents) {
     if (agent.name.startsWith("e2e-agent-")) {
@@ -222,29 +257,42 @@ function buildDemoActivitySeed(now = new Date()): DemoSeedRow[] {
     const project = projects[projectIndex];
     const random = mulberry32(dayOffset * 97 + projectIndex * 131 + 17);
 
-    const activeAgents = weekend ? (random() > 0.58 ? 1 : 0) : (random() > 0.82 ? 3 : 2);
+    const activeAgents = weekend
+      ? random() > 0.58
+        ? 1
+        : 0
+      : random() > 0.82
+        ? 3
+        : 2;
     for (let agentIndex = 0; agentIndex < activeAgents; agentIndex += 1) {
-      const startHour =
-        weekend
-          ? 9 + Math.floor(random() * 6)
-          : 8 + Math.floor(random() * 3) + (agentIndex === 2 ? 1 : 0);
+      const startHour = weekend
+        ? 9 + Math.floor(random() * 6)
+        : 8 + Math.floor(random() * 3) + (agentIndex === 2 ? 1 : 0);
       const startMinute = Math.floor(random() * 40);
       const workingBlockMinutes = weekend
         ? 70 + Math.floor(random() * 80)
         : 105 + Math.floor(random() * 85);
-      const blockedMinutes = random() > (weekend ? 0.78 : 0.55) ? 0 : 10 + Math.floor(random() * 35);
-      const waitingMinutes = random() > (weekend ? 0.88 : 0.68) ? 0 : 8 + Math.floor(random() * 28);
-      const reviewBlockMinutes = weekend ? 20 + Math.floor(random() * 40) : 45 + Math.floor(random() * 55);
+      const blockedMinutes =
+        random() > (weekend ? 0.78 : 0.55) ? 0 : 10 + Math.floor(random() * 35);
+      const waitingMinutes =
+        random() > (weekend ? 0.88 : 0.68) ? 0 : 8 + Math.floor(random() * 28);
+      const reviewBlockMinutes = weekend
+        ? 20 + Math.floor(random() * 40)
+        : 45 + Math.floor(random() * 55);
       const agentId = `seed-active-hours-${projectIndex}-${agentIndex}`;
-      const agentName = weekend ? `Weekend ${agentIndex + 1}` : `Builder ${projectIndex + 1}-${agentIndex + 1}`;
+      const agentName = weekend
+        ? `Weekend ${agentIndex + 1}`
+        : `Builder ${projectIndex + 1}-${agentIndex + 1}`;
 
-      const workingAt = new Date(Date.UTC(
-        day.getUTCFullYear(),
-        day.getUTCMonth(),
-        day.getUTCDate(),
-        startHour,
-        startMinute,
-      ));
+      const workingAt = new Date(
+        Date.UTC(
+          day.getUTCFullYear(),
+          day.getUTCMonth(),
+          day.getUTCDate(),
+          startHour,
+          startMinute
+        )
+      );
       rows.push({
         agent_id: agentId,
         event_type: "working",
@@ -256,7 +304,9 @@ function buildDemoActivitySeed(now = new Date()): DemoSeedRow[] {
         project_dir: project.dir,
       });
 
-      let cursor = new Date(workingAt.getTime() + workingBlockMinutes * 60 * 1000);
+      let cursor = new Date(
+        workingAt.getTime() + workingBlockMinutes * 60 * 1000
+      );
       if (blockedMinutes > 0) {
         rows.push({
           agent_id: agentId,
@@ -369,15 +419,19 @@ export async function loadApp(page: Page): Promise<void> {
 
   await Promise.race([
     loginInput.waitFor({ state: "visible", timeout: 15_000 }).catch(() => null),
-    sidebar.waitFor({ state: "visible", timeout: 15_000 }).catch(() => null)
+    sidebar.waitFor({ state: "visible", timeout: 15_000 }).catch(() => null),
   ]);
 
   // If login page is showing, that's unexpected in e2e (fresh DB = no password).
   // But handle it gracefully just in case.
   if (await loginInput.isVisible().catch(() => false)) {
-    throw new Error("Unexpected login page in e2e test — DB should have no password set.");
+    throw new Error(
+      "Unexpected login page in e2e test — DB should have no password set."
+    );
   }
 
   await sidebar.waitFor({ state: "visible", timeout: 15_000 });
-  await page.getByTestId("terminal-pane").waitFor({ state: "visible", timeout: 10_000 });
+  await page
+    .getByTestId("terminal-pane")
+    .waitFor({ state: "visible", timeout: 10_000 });
 }

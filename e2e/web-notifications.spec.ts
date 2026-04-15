@@ -1,10 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { createAgentViaAPI, setAgentLatestEventViaAPI } from "./helpers";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 test.describe("Web notification settings API", () => {
-  test("GET /api/v1/notifications/settings returns web notification fields", async ({ request }) => {
+  test("GET /api/v1/notifications/settings returns web notification fields", async ({
+    request,
+  }) => {
     const res = await request.get("/api/v1/notifications/settings", {
       headers: authHeader,
     });
@@ -15,7 +19,9 @@ test.describe("Web notification settings API", () => {
     expect(Array.isArray(data.webNotifyEvents)).toBe(true);
   });
 
-  test("POST /api/v1/notifications/settings saves web notification settings", async ({ request }) => {
+  test("POST /api/v1/notifications/settings saves web notification settings", async ({
+    request,
+  }) => {
     // Enable web notifications with only "done" events
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -40,11 +46,16 @@ test.describe("Web notification settings API", () => {
     // Reset
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: false,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
   });
 
-  test("POST /api/v1/notifications/settings validates webNotifyEnabled type", async ({ request }) => {
+  test("POST /api/v1/notifications/settings validates webNotifyEnabled type", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEnabled: "yes" },
@@ -52,7 +63,9 @@ test.describe("Web notification settings API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/notifications/settings validates webNotifyEvents type", async ({ request }) => {
+  test("POST /api/v1/notifications/settings validates webNotifyEvents type", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEvents: "done" },
@@ -60,7 +73,9 @@ test.describe("Web notification settings API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/notifications/settings filters invalid event types", async ({ request }) => {
+  test("POST /api/v1/notifications/settings filters invalid event types", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEvents: ["done", "invalid_event", "blocked"] },
@@ -78,11 +93,16 @@ test.describe("Web notification settings API", () => {
 });
 
 test.describe("Web notification SSE events", () => {
-  test("web notification settings integrate with event pipeline", async ({ request }) => {
+  test("web notification settings integrate with event pipeline", async ({
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: true,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
 
     // Report browser permission as granted via focus heartbeat
@@ -113,7 +133,9 @@ test.describe("Web notification SSE events", () => {
     });
   });
 
-  test("web notification respects event type filtering", async ({ request }) => {
+  test("web notification respects event type filtering", async ({
+    request,
+  }) => {
     // Enable web notifications for "done" only
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -130,13 +152,18 @@ test.describe("Web notification SSE events", () => {
     // Clean up
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: false,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
   });
 });
 
 test.describe("Focus heartbeat includes notification permission", () => {
-  test("POST /api/v1/focus accepts webNotifyPermission field", async ({ request }) => {
+  test("POST /api/v1/focus accepts webNotifyPermission field", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/focus", {
       headers: authHeader,
       data: { agentId: null, webNotifyPermission: "granted" },
@@ -144,7 +171,9 @@ test.describe("Focus heartbeat includes notification permission", () => {
     expect(res.status()).toBe(204);
   });
 
-  test("POST /api/v1/focus accepts all valid permission values", async ({ request }) => {
+  test("POST /api/v1/focus accepts all valid permission values", async ({
+    request,
+  }) => {
     for (const perm of ["granted", "denied", "default"]) {
       const res = await request.post("/api/v1/focus", {
         headers: authHeader,
@@ -154,7 +183,9 @@ test.describe("Focus heartbeat includes notification permission", () => {
     }
   });
 
-  test("POST /api/v1/focus ignores invalid permission values", async ({ request }) => {
+  test("POST /api/v1/focus ignores invalid permission values", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/focus", {
       headers: authHeader,
       data: { agentId: null, webNotifyPermission: "invalid" },

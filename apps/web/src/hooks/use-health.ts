@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ServiceState } from "@/components/app/types";
 import { api } from "@/lib/api";
-import { recordHealthPollFire, recordHealthPollSkip } from "@/lib/energy-metrics";
+import {
+  recordHealthPollFire,
+  recordHealthPollSkip,
+} from "@/lib/energy-metrics";
 
 type HealthData = { apiState: ServiceState; dbState: ServiceState };
 
@@ -14,7 +17,9 @@ export function useHealth(enabled: boolean): HealthData {
         throw new Error("skipped — tab hidden");
       }
       recordHealthPollFire();
-      const health = await api<{ status: string; db: string }>("/api/v1/health");
+      const health = await api<{ status: string; db: string }>(
+        "/api/v1/health"
+      );
       return {
         apiState: health.status === "ok" ? "ok" : "down",
         dbState: health.db === "ok" ? "ok" : "down",

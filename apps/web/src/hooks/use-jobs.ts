@@ -2,7 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-export type JobRunStatus = "started" | "running" | "completed" | "failed" | "needs_input" | "timed_out" | "crashed";
+export type JobRunStatus =
+  | "started"
+  | "running"
+  | "completed"
+  | "failed"
+  | "needs_input"
+  | "timed_out"
+  | "crashed";
 export type JobAgentType = "claude" | "codex" | "opencode";
 export type JobRunTriggerSource = "manual" | "scheduled";
 
@@ -20,7 +27,11 @@ export type JobReport = {
     status: "success" | "skipped" | "error";
     summary?: string;
     errors?: Array<{ message: string; recoverable?: boolean; action?: string }>;
-    logs?: Array<{ level: "debug" | "info" | "warn" | "error"; message: string; timestamp: string }>;
+    logs?: Array<{
+      level: "debug" | "info" | "warn" | "error";
+      message: string;
+      timestamp: string;
+    }>;
   }>;
 };
 
@@ -99,11 +110,27 @@ export function useJobs(enabled = true) {
 }
 
 export function useJobHistory(job: Job | null) {
-  return useQuery<{ job: Omit<Job, "lastRunId" | "lastRunStatus" | "lastRunStartedAt" | "lastRunCompletedAt" | "lastRunDurationMs" | "lastRunReport" | "nextRun">; runs: JobRun[] }>({
+  return useQuery<{
+    job: Omit<
+      Job,
+      | "lastRunId"
+      | "lastRunStatus"
+      | "lastRunStartedAt"
+      | "lastRunCompletedAt"
+      | "lastRunDurationMs"
+      | "lastRunReport"
+      | "nextRun"
+    >;
+    runs: JobRun[];
+  }>({
     queryKey: ["jobs", job?.directory, job?.name, "history"],
     queryFn: () => {
       if (!job) throw new Error("Job is required.");
-      const params = new URLSearchParams({ name: job.name, directory: job.directory, limit: "50" });
+      const params = new URLSearchParams({
+        name: job.name,
+        directory: job.directory,
+        limit: "50",
+      });
       return api(`/api/v1/jobs/history?${params.toString()}`);
     },
     enabled: !!job,
@@ -119,7 +146,14 @@ export type JobStats = {
     avgDurationMs: number | null;
     daily: Array<{ day: string; completed: number; failed: number }>;
   };
-  recentRuns: Array<{ id: string; jobId: string; status: JobRunStatus; startedAt: string; durationMs: number | null; jobName: string }>;
+  recentRuns: Array<{
+    id: string;
+    jobId: string;
+    status: JobRunStatus;
+    startedAt: string;
+    durationMs: number | null;
+    jobName: string;
+  }>;
 };
 
 export function useJobStats(enabled = true) {
@@ -141,7 +175,11 @@ export function useJobActions() {
     mutationFn: (job: JobIdentity) =>
       api("/api/v1/jobs/run", {
         method: "POST",
-        body: JSON.stringify({ name: job.name, directory: job.directory, wait: false }),
+        body: JSON.stringify({
+          name: job.name,
+          directory: job.directory,
+          wait: false,
+        }),
       }),
     onSuccess: invalidateJobs,
   });

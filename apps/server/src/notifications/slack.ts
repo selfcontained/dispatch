@@ -12,13 +12,23 @@ type SlackBlock =
 const NOTIFY_EVENT_TYPES = ["done", "waiting_user", "blocked"] as const;
 type NotifyEventType = (typeof NOTIFY_EVENT_TYPES)[number];
 
-const EVENT_CONFIG: Record<NotifyEventType, { emoji: string; verb: string; color: string }> = {
+const EVENT_CONFIG: Record<
+  NotifyEventType,
+  { emoji: string; verb: string; color: string }
+> = {
   done: { emoji: "\u2705", verb: "finished", color: "#22c55e" },
-  waiting_user: { emoji: "\ud83d\udfe1", verb: "needs your input", color: "#f59e0b" },
+  waiting_user: {
+    emoji: "\ud83d\udfe1",
+    verb: "needs your input",
+    color: "#f59e0b",
+  },
   blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
 };
 
-const LEVEL_CONFIG: Record<NonNullable<NotifyInput["level"]>, { emoji: string; color: string }> = {
+const LEVEL_CONFIG: Record<
+  NonNullable<NotifyInput["level"]>,
+  { emoji: string; color: string }
+> = {
   info: { emoji: "\u2139\ufe0f", color: "#3b82f6" },
   success: { emoji: "\u2705", color: "#22c55e" },
   warning: { emoji: "\u26a0\ufe0f", color: "#f59e0b" },
@@ -55,7 +65,10 @@ type CachedSettings = {
 export function isValidSlackWebhookUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" && parsed.href.startsWith(SLACK_WEBHOOK_PREFIX);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.href.startsWith(SLACK_WEBHOOK_PREFIX)
+    );
   } catch {
     return false;
   }
@@ -94,7 +107,9 @@ export class SlackNotifier {
       await deleteSetting(this.pool, SETTING_WEBHOOK_URL);
     } else {
       if (!isValidSlackWebhookUrl(url)) {
-        throw new Error("Invalid webhook URL: must start with https://hooks.slack.com/");
+        throw new Error(
+          "Invalid webhook URL: must start with https://hooks.slack.com/"
+        );
       }
       await setSetting(this.pool, SETTING_WEBHOOK_URL, url);
     }
@@ -115,13 +130,19 @@ export class SlackNotifier {
     webNotifyEnabled: boolean;
     webNotifyEvents: NotifyEventType[];
   }> {
-    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] = await Promise.all([
-      this.getWebhookUrl(),
-      this.getNotifyEvents(),
-      this.getWebNotifyEnabled(),
-      this.getWebNotifyEvents(),
-    ]);
-    return { webhookUrl: webhookUrl ?? "", notifyEvents, webNotifyEnabled, webNotifyEvents };
+    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] =
+      await Promise.all([
+        this.getWebhookUrl(),
+        this.getNotifyEvents(),
+        this.getWebNotifyEnabled(),
+        this.getWebNotifyEvents(),
+      ]);
+    return {
+      webhookUrl: webhookUrl ?? "",
+      notifyEvents,
+      webNotifyEnabled,
+      webNotifyEvents,
+    };
   }
 
   async getWebNotifyEnabled(): Promise<boolean> {
@@ -155,13 +176,15 @@ export class SlackNotifier {
   } | null> {
     const event = agent.latestEvent;
     if (!event) return null;
-    if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return null;
+    if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType))
+      return null;
 
     if (this.isFocused?.(agent.id)) return null;
 
     const settings = await this.getCachedSettings();
     if (!settings.webNotifyEnabled) return null;
-    if (!settings.webNotifyEvents.includes(event.type as NotifyEventType)) return null;
+    if (!settings.webNotifyEvents.includes(event.type as NotifyEventType))
+      return null;
 
     return {
       agentId: agent.id,
@@ -183,24 +206,36 @@ export class SlackNotifier {
 
     try {
       if (this.isFocused?.(agent.id)) {
-        this.log.debug({ agentId: agent.id }, "Skipping notification — user is focused on agent");
+        this.log.debug(
+          { agentId: agent.id },
+          "Skipping notification — user is focused on agent"
+        );
         return;
       }
 
       const settings = await this.getCachedSettings();
       if (!settings.webhookUrl) return;
-      if (!settings.notifyEvents.includes(event.type as NotifyEventType)) return;
+      if (!settings.notifyEvents.includes(event.type as NotifyEventType))
+        return;
 
       const cfg = EVENT_CONFIG[event.type as NotifyEventType];
       await this.sendSlackMessage(settings.webhookUrl, agent, event, cfg);
     } catch (err) {
-      this.log.warn({ err, agentId: agent.id }, "Failed to send Slack notification");
+      this.log.warn(
+        { err, agentId: agent.id },
+        "Failed to send Slack notification"
+      );
     }
   }
 
-  async sendTestMessage(webhookUrl: string): Promise<{ ok: boolean; error?: string }> {
+  async sendTestMessage(
+    webhookUrl: string
+  ): Promise<{ ok: boolean; error?: string }> {
     if (!isValidSlackWebhookUrl(webhookUrl)) {
-      return { ok: false, error: "Invalid webhook URL: must start with https://hooks.slack.com/" };
+      return {
+        ok: false,
+        error: "Invalid webhook URL: must start with https://hooks.slack.com/",
+      };
     }
     try {
       const res = await this.postToSlack(webhookUrl, {
@@ -223,7 +258,10 @@ export class SlackNotifier {
       }
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "Unknown error" };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
     }
   }
 
@@ -231,15 +269,24 @@ export class SlackNotifier {
    * Agent-initiated notification via the dispatch_notify MCP tool.
    * Bypasses focus filtering by default (agents explicitly chose to notify).
    */
-  async sendNotification(agent: AgentRecord, input: NotifyInput): Promise<NotifyResult> {
+  async sendNotification(
+    agent: AgentRecord,
+    input: NotifyInput
+  ): Promise<NotifyResult> {
     // Rate limit check
     if (this.isRateLimited(agent.id)) {
-      return { sent: false, reason: "Rate limited — max 5 notifications per minute per agent." };
+      return {
+        sent: false,
+        reason: "Rate limited — max 5 notifications per minute per agent.",
+      };
     }
 
     // Respect focus if explicitly requested
     if (input.respectFocus && this.isFocused?.(agent.id)) {
-      return { sent: false, reason: "Notification suppressed — user is focused on this agent." };
+      return {
+        sent: false,
+        reason: "Notification suppressed — user is focused on this agent.",
+      };
     }
 
     const settings = await this.getCachedSettings();
@@ -255,7 +302,9 @@ export class SlackNotifier {
       // Sanitize agent-provided content to prevent broadcast mentions
       // (<!channel>, <!here>, <!everyone>). Regular mrkdwn links are allowed.
       const safeMessage = sanitizeSlackMrkdwn(input.message);
-      const safeTitle = input.title ? sanitizeSlackMrkdwn(input.title) : undefined;
+      const safeTitle = input.title
+        ? sanitizeSlackMrkdwn(input.title)
+        : undefined;
 
       const blocks: SlackBlock[] = [];
 
@@ -293,14 +342,23 @@ export class SlackNotifier {
 
       if (!res.ok) {
         const body = await res.text();
-        this.log.warn({ status: res.status, body }, "Slack webhook returned error for dispatch_notify");
+        this.log.warn(
+          { status: res.status, body },
+          "Slack webhook returned error for dispatch_notify"
+        );
         return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
       }
 
       return { sent: true };
     } catch (err) {
-      this.log.warn({ err, agentId: agent.id }, "Failed to send agent-initiated notification");
-      return { sent: false, reason: err instanceof Error ? err.message : "Unknown error" };
+      this.log.warn(
+        { err, agentId: agent.id },
+        "Failed to send agent-initiated notification"
+      );
+      return {
+        sent: false,
+        reason: err instanceof Error ? err.message : "Unknown error",
+      };
     }
   }
 
@@ -352,13 +410,20 @@ export class SlackNotifier {
     if (this.cachedSettings && Date.now() < this.cachedSettings.expiresAt) {
       return this.cachedSettings;
     }
-    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] = await Promise.all([
-      this.getWebhookUrl(),
-      this.getNotifyEvents(),
-      this.getWebNotifyEnabled(),
-      this.getWebNotifyEvents(),
-    ]);
-    this.cachedSettings = { webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents, expiresAt: Date.now() + CACHE_TTL_MS };
+    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] =
+      await Promise.all([
+        this.getWebhookUrl(),
+        this.getNotifyEvents(),
+        this.getWebNotifyEnabled(),
+        this.getWebNotifyEvents(),
+      ]);
+    this.cachedSettings = {
+      webhookUrl,
+      notifyEvents,
+      webNotifyEnabled,
+      webNotifyEvents,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
     return this.cachedSettings;
   }
 
@@ -366,7 +431,10 @@ export class SlackNotifier {
     this.cachedSettings = null;
   }
 
-  private async postToSlack(webhookUrl: string, payload: Record<string, unknown>): Promise<Response> {
+  private async postToSlack(
+    webhookUrl: string,
+    payload: Record<string, unknown>
+  ): Promise<Response> {
     return fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -384,7 +452,9 @@ export class SlackNotifier {
     const agentName = sanitizeSlackMrkdwn(agent.name || agent.id.slice(0, 8));
     const branch = agent.gitContext?.branch;
     const elapsed = this.formatElapsed(agent.createdAt);
-    const agentType = agent.type ? agent.type.charAt(0).toUpperCase() + agent.type.slice(1) : "Agent";
+    const agentType = agent.type
+      ? agent.type.charAt(0).toUpperCase() + agent.type.slice(1)
+      : "Agent";
 
     const blocks: SlackBlock[] = [
       {
@@ -415,7 +485,10 @@ export class SlackNotifier {
 
     if (!res.ok) {
       const body = await res.text();
-      this.log.warn({ status: res.status, body }, "Slack webhook returned error");
+      this.log.warn(
+        { status: res.status, body },
+        "Slack webhook returned error"
+      );
     }
   }
 
@@ -426,6 +499,8 @@ export class SlackNotifier {
     if (mins < 60) return `running ${mins}m`;
     const hours = Math.floor(mins / 60);
     const remainMins = mins % 60;
-    return remainMins > 0 ? `running ${hours}h ${remainMins}m` : `running ${hours}h`;
+    return remainMins > 0
+      ? `running ${hours}h ${remainMins}m`
+      : `running ${hours}h`;
   }
 }

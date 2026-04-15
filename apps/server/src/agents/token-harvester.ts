@@ -23,12 +23,17 @@ type SessionTokenSummary = {
   sessionEnd: string | null;
 };
 
-type HarvestAgent = Pick<AgentRecord, "id" | "type" | "cwd" | "worktreePath"> & {
+type HarvestAgent = Pick<
+  AgentRecord,
+  "id" | "type" | "cwd" | "worktreePath"
+> & {
   /** When set, only harvest this specific session file instead of all files in the project dir. */
   cliSessionId?: string;
 };
 
-type HarvestLogger = { warn: (obj: Record<string, unknown>, msg: string) => void };
+type HarvestLogger = {
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+};
 
 const UPSERT_SQL = `INSERT INTO agent_token_usage
   (agent_id, session_id, model, input_tokens, cache_creation_tokens, cache_read_tokens,
@@ -69,7 +74,9 @@ export async function discoverSessionFiles(dir: string): Promise<string[]> {
     .map((f) => path.join(dir, f));
 }
 
-async function parseClaudeSessionTokenUsage(filePath: string): Promise<SessionTokenSummary> {
+async function parseClaudeSessionTokenUsage(
+  filePath: string
+): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
   const totals = new Map<string, ModelTokenTotals>();
   let sessionStart: string | null = null;
@@ -104,7 +111,13 @@ async function parseClaudeSessionTokenUsage(filePath: string): Promise<SessionTo
 
     let bucket = totals.get(model);
     if (!bucket) {
-      bucket = { inputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens: 0, messageCount: 0 };
+      bucket = {
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        messageCount: 0,
+      };
       totals.set(model, bucket);
     }
 
@@ -131,7 +144,9 @@ async function harvestClaudeTokenUsage(
   // When the agent has a known CLI session ID, only harvest that specific file.
   // This ensures agents sharing the same cwd don't claim each other's sessions.
   if (agent.cliSessionId) {
-    files = files.filter((f) => path.basename(f, ".jsonl") === agent.cliSessionId);
+    files = files.filter(
+      (f) => path.basename(f, ".jsonl") === agent.cliSessionId
+    );
     if (files.length === 0) return;
   }
 
@@ -156,7 +171,10 @@ async function harvestClaudeTokenUsage(
         ]);
       }
     } catch (err) {
-      logger?.warn({ err, file }, "Failed to parse Claude session file for token usage");
+      logger?.warn(
+        { err, file },
+        "Failed to parse Claude session file for token usage"
+      );
     }
   }
 }
@@ -183,7 +201,9 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = await readdir(dir, { withFileTypes: true }) as import("node:fs").Dirent[];
+      entries = (await readdir(dir, {
+        withFileTypes: true,
+      })) as import("node:fs").Dirent[];
     } catch {
       return;
     }
@@ -209,7 +229,12 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
 async function parseCodexRolloutForAgent(
   filePath: string,
   agentId: string
-): Promise<{ usage: CodexTokenUsage; model: string; sessionStart: string | null; sessionEnd: string | null } | null> {
+): Promise<{
+  usage: CodexTokenUsage;
+  model: string;
+  sessionStart: string | null;
+  sessionEnd: string | null;
+} | null> {
   let matched = false;
   let lastUsage: CodexTokenUsage | null = null;
   let model = "unknown";
@@ -282,7 +307,8 @@ async function harvestCodexTokenUsage(
       const sessionId = path.basename(file, ".jsonl");
 
       // Normalize to additive model: cached_input_tokens is a subset of input_tokens
-      const nonCachedInput = usage.input_tokens - (usage.cached_input_tokens ?? 0);
+      const nonCachedInput =
+        usage.input_tokens - (usage.cached_input_tokens ?? 0);
       const cachedInput = usage.cached_input_tokens ?? 0;
 
       await pool.query(UPSERT_SQL, [
@@ -298,7 +324,10 @@ async function harvestCodexTokenUsage(
         sessionEnd,
       ]);
     } catch (err) {
-      logger?.warn({ err, file }, "Failed to parse Codex rollout for token usage");
+      logger?.warn(
+        { err, file },
+        "Failed to parse Codex rollout for token usage"
+      );
     }
   }
 }

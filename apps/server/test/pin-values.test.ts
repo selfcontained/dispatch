@@ -32,21 +32,25 @@ describe("splitPinValues", () => {
   });
 
   it("does not split pr pins", () => {
-    expect(splitPinValues("pr", "Review queue")).toEqual([
-      "Review queue",
-    ]);
+    expect(splitPinValues("pr", "Review queue")).toEqual(["Review queue"]);
   });
 
   it("does not split url pins", () => {
-    expect(splitPinValues("url", "http://127.0.0.1:59470/api/v1/agents?view=full&tab=pins")).toEqual([
-      "http://127.0.0.1:59470/api/v1/agents?view=full&tab=pins",
-    ]);
+    expect(
+      splitPinValues(
+        "url",
+        "http://127.0.0.1:59470/api/v1/agents?view=full&tab=pins"
+      )
+    ).toEqual(["http://127.0.0.1:59470/api/v1/agents?view=full&tab=pins"]);
   });
 
   it("does not split markdown pins", () => {
-    expect(splitPinValues("markdown", "**Status**\n- Ready\n- Branch: `feat/log-rotation`")).toEqual([
-      "**Status**\n- Ready\n- Branch: `feat/log-rotation`",
-    ]);
+    expect(
+      splitPinValues(
+        "markdown",
+        "**Status**\n- Ready\n- Branch: `feat/log-rotation`"
+      )
+    ).toEqual(["**Status**\n- Ready\n- Branch: `feat/log-rotation`"]);
   });
 
   it("preserves the original value when split delimiters produce no tokens", () => {

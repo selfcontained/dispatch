@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
 import { loadApp } from "./helpers";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 async function seedTokenUsage(
   rows: Array<{
@@ -36,9 +38,13 @@ async function seedTokenUsage(
           output_tokens = EXCLUDED.output_tokens,
           message_count = EXCLUDED.message_count`,
         [
-          row.agent_id, row.session_id, row.model,
-          row.input_tokens, row.cache_creation_tokens ?? 0,
-          row.cache_read_tokens ?? 0, row.output_tokens,
+          row.agent_id,
+          row.session_id,
+          row.model,
+          row.input_tokens,
+          row.cache_creation_tokens ?? 0,
+          row.cache_read_tokens ?? 0,
+          row.output_tokens,
           row.message_count ?? 1,
         ]
       );
@@ -52,27 +58,43 @@ async function seedTokenUsage(
 async function cleanupTokenUsage(agentIdPrefix: string): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   try {
-    await pool.query(`DELETE FROM agent_token_usage WHERE agent_id LIKE $1`, [`${agentIdPrefix}%`]);
-    await pool.query(`DELETE FROM agents WHERE id LIKE $1`, [`${agentIdPrefix}%`]);
+    await pool.query(`DELETE FROM agent_token_usage WHERE agent_id LIKE $1`, [
+      `${agentIdPrefix}%`,
+    ]);
+    await pool.query(`DELETE FROM agents WHERE id LIKE $1`, [
+      `${agentIdPrefix}%`,
+    ]);
   } finally {
     await pool.end();
   }
 }
 
-function activityParams(opts: { daysBack?: number; granularity?: string } = {}): string {
+function activityParams(
+  opts: { daysBack?: number; granularity?: string } = {}
+): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
-  const params = new URLSearchParams({ tz, granularity: opts.granularity ?? "day" });
+  const params = new URLSearchParams({
+    tz,
+    granularity: opts.granularity ?? "day",
+  });
   if (opts.daysBack !== undefined) {
-    params.set("start", new Date(now.getTime() - opts.daysBack * 86400000).toISOString());
+    params.set(
+      "start",
+      new Date(now.getTime() - opts.daysBack * 86400000).toISOString()
+    );
     params.set("end", now.toISOString());
   }
   return params.toString();
 }
 
 test.describe("Token usage API", () => {
-  test("GET /api/v1/activity/token-stats returns zeroes when empty", async ({ request }) => {
-    const res = await request.get("/api/v1/activity/token-stats", { headers: authHeader });
+  test("GET /api/v1/activity/token-stats returns zeroes when empty", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/v1/activity/token-stats", {
+      headers: authHeader,
+    });
     expect(res.ok()).toBeTruthy();
 
     const body = (await res.json()) as {
@@ -88,7 +110,9 @@ test.describe("Token usage API", () => {
     expect(body.total_sessions).toBe(0);
   });
 
-  test("GET /api/v1/activity/token-daily returns empty days array when no data", async ({ request }) => {
+  test("GET /api/v1/activity/token-daily returns empty days array when no data", async ({
+    request,
+  }) => {
     const res = await request.get(
       `/api/v1/activity/token-daily?${activityParams({ daysBack: 30, granularity: "day" })}`,
       { headers: authHeader }
@@ -101,8 +125,12 @@ test.describe("Token usage API", () => {
     expect(body.granularity).toBe("day");
   });
 
-  test("GET /api/v1/activity/token-by-project returns empty projects array when no data", async ({ request }) => {
-    const res = await request.get("/api/v1/activity/token-by-project", { headers: authHeader });
+  test("GET /api/v1/activity/token-by-project returns empty projects array when no data", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/v1/activity/token-by-project", {
+      headers: authHeader,
+    });
     expect(res.ok()).toBeTruthy();
 
     const body = (await res.json()) as { projects: unknown[] };
@@ -110,10 +138,15 @@ test.describe("Token usage API", () => {
     expect(body.projects.length).toBe(0);
   });
 
-  test("POST /api/v1/agents/:id/harvest-tokens returns 404 for unknown agent", async ({ request }) => {
-    const res = await request.post("/api/v1/agents/nonexistent-agent/harvest-tokens", {
-      headers: authHeader,
-    });
+  test("POST /api/v1/agents/:id/harvest-tokens returns 404 for unknown agent", async ({
+    request,
+  }) => {
+    const res = await request.post(
+      "/api/v1/agents/nonexistent-agent/harvest-tokens",
+      {
+        headers: authHeader,
+      }
+    );
     expect(res.status()).toBe(404);
   });
 
@@ -123,21 +156,27 @@ test.describe("Token usage API", () => {
       { headers: authHeader }
     );
     expect(daily7.ok()).toBeTruthy();
-    expect(((await daily7.json()) as { granularity: string }).granularity).toBe("day");
+    expect(((await daily7.json()) as { granularity: string }).granularity).toBe(
+      "day"
+    );
 
     const daily30 = await request.get(
       `/api/v1/activity/token-daily?${activityParams({ daysBack: 30, granularity: "day" })}`,
       { headers: authHeader }
     );
     expect(daily30.ok()).toBeTruthy();
-    expect(((await daily30.json()) as { granularity: string }).granularity).toBe("day");
+    expect(
+      ((await daily30.json()) as { granularity: string }).granularity
+    ).toBe("day");
 
     const dailyMonth = await request.get(
       `/api/v1/activity/token-daily?${activityParams({ granularity: "month" })}`,
       { headers: authHeader }
     );
     expect(dailyMonth.ok()).toBeTruthy();
-    expect(((await dailyMonth.json()) as { granularity: string }).granularity).toBe("month");
+    expect(
+      ((await dailyMonth.json()) as { granularity: string }).granularity
+    ).toBe("month");
 
     const totals = await request.get(
       `/api/v1/activity/token-stats?${activityParams({ granularity: "month" })}`,
@@ -160,7 +199,9 @@ test.describe("Token usage API", () => {
 });
 
 test.describe("Token usage UI", () => {
-  test("Activity pane scopes requests when time range changes", async ({ page }) => {
+  test("Activity pane scopes requests when time range changes", async ({
+    page,
+  }) => {
     const requests: string[] = [];
     await page.route("**/api/v1/activity/**", async (route) => {
       requests.push(route.request().url());
@@ -178,12 +219,19 @@ test.describe("Token usage UI", () => {
     await page.getByTestId("activity-range-select").click();
     await page.getByRole("option", { name: "This year" }).click();
 
-    await expect(page.getByTestId("activity-range-select")).toContainText("This year");
+    await expect(page.getByTestId("activity-range-select")).toContainText(
+      "This year"
+    );
 
     // After switching to "This year", requests should include tz and granularity params
-    await expect.poll(
-      () => requests.filter((url) => url.includes("tz=") && url.includes("granularity=")).length
-    ).toBeGreaterThanOrEqual(6);
+    await expect
+      .poll(
+        () =>
+          requests.filter(
+            (url) => url.includes("tz=") && url.includes("granularity=")
+          ).length
+      )
+      .toBeGreaterThanOrEqual(6);
 
     // Navigate back to agents to close activity
     await page.getByTestId("agents-button").click();
@@ -198,7 +246,9 @@ test.describe("Token stats with seeded data", () => {
     await cleanupTokenUsage(AGENT_PREFIX);
   });
 
-  test("token-stats returns correct totals for seeded data", async ({ request }) => {
+  test("token-stats returns correct totals for seeded data", async ({
+    request,
+  }) => {
     await seedTokenUsage([
       {
         agent_id: `${AGENT_PREFIX}a1`,
@@ -220,7 +270,9 @@ test.describe("Token stats with seeded data", () => {
       },
     ]);
 
-    const res = await request.get("/api/v1/activity/token-stats", { headers: authHeader });
+    const res = await request.get("/api/v1/activity/token-stats", {
+      headers: authHeader,
+    });
     expect(res.ok()).toBeTruthy();
 
     const body = await res.json();
@@ -232,14 +284,23 @@ test.describe("Token stats with seeded data", () => {
     expect(body.total_sessions).toBeGreaterThanOrEqual(2);
 
     // All values must be numbers, not strings (bigint parser check)
-    for (const key of ["total_input", "total_cache_creation", "total_cache_read", "total_output", "total_messages", "total_sessions"]) {
+    for (const key of [
+      "total_input",
+      "total_cache_creation",
+      "total_cache_read",
+      "total_output",
+      "total_messages",
+      "total_sessions",
+    ]) {
       expect(typeof body[key]).toBe("number");
     }
 
     await cleanupTokenUsage(AGENT_PREFIX);
   });
 
-  test("token-stats handles values exceeding int32 max without error", async ({ request }) => {
+  test("token-stats handles values exceeding int32 max without error", async ({
+    request,
+  }) => {
     // Insert rows that would overflow a 32-bit int when summed (~2.15B each)
     await seedTokenUsage([
       {
@@ -258,7 +319,9 @@ test.describe("Token stats with seeded data", () => {
       },
     ]);
 
-    const res = await request.get("/api/v1/activity/token-stats", { headers: authHeader });
+    const res = await request.get("/api/v1/activity/token-stats", {
+      headers: authHeader,
+    });
     expect(res.ok()).toBeTruthy();
 
     const body = await res.json();

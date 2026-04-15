@@ -1,13 +1,20 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { SlackNotifier, isValidSlackWebhookUrl } from "../src/notifications/slack.js";
+import {
+  SlackNotifier,
+  isValidSlackWebhookUrl,
+} from "../src/notifications/slack.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 
 // Stub the DB settings module so SlackNotifier never hits a real DB.
 vi.mock("../src/db/settings.js", () => ({
   getSetting: vi.fn((_pool: unknown, key: string) => {
-    if (key === "slack_webhook_url") return Promise.resolve("https://hooks.slack.com/test");
-    if (key === "slack_notify_events") return Promise.resolve(JSON.stringify(["done", "waiting_user", "blocked"]));
+    if (key === "slack_webhook_url")
+      return Promise.resolve("https://hooks.slack.com/test");
+    if (key === "slack_notify_events")
+      return Promise.resolve(
+        JSON.stringify(["done", "waiting_user", "blocked"])
+      );
     return Promise.resolve(null);
   }),
   setSetting: vi.fn(() => Promise.resolve()),
@@ -65,15 +72,27 @@ const mockLog = {
 
 describe("isValidSlackWebhookUrl", () => {
   it("accepts valid Slack webhook URLs", () => {
-    expect(isValidSlackWebhookUrl("https://hooks.slack.com/services/T00/B00/xxx")).toBe(true);
-    expect(isValidSlackWebhookUrl("https://hooks.slack.com/workflows/T00/B00/xxx")).toBe(true);
+    expect(
+      isValidSlackWebhookUrl("https://hooks.slack.com/services/T00/B00/xxx")
+    ).toBe(true);
+    expect(
+      isValidSlackWebhookUrl("https://hooks.slack.com/workflows/T00/B00/xxx")
+    ).toBe(true);
   });
 
   it("rejects non-Slack URLs", () => {
-    expect(isValidSlackWebhookUrl("https://evil.com/hooks.slack.com/")).toBe(false);
-    expect(isValidSlackWebhookUrl("http://hooks.slack.com/services/T00/B00/xxx")).toBe(false);
-    expect(isValidSlackWebhookUrl("https://hooks.slack.com.evil.com/foo")).toBe(false);
-    expect(isValidSlackWebhookUrl("https://169.254.169.254/latest/meta-data")).toBe(false);
+    expect(isValidSlackWebhookUrl("https://evil.com/hooks.slack.com/")).toBe(
+      false
+    );
+    expect(
+      isValidSlackWebhookUrl("http://hooks.slack.com/services/T00/B00/xxx")
+    ).toBe(false);
+    expect(isValidSlackWebhookUrl("https://hooks.slack.com.evil.com/foo")).toBe(
+      false
+    );
+    expect(
+      isValidSlackWebhookUrl("https://169.254.169.254/latest/meta-data")
+    ).toBe(false);
     expect(isValidSlackWebhookUrl("file:///etc/passwd")).toBe(false);
     expect(isValidSlackWebhookUrl("http://localhost:8080")).toBe(false);
     expect(isValidSlackWebhookUrl("not-a-url")).toBe(false);
@@ -84,7 +103,9 @@ describe("isValidSlackWebhookUrl", () => {
 describe("SlackNotifier webhook URL validation", () => {
   it("rejects invalid URLs in setWebhookUrl", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
-    await expect(notifier.setWebhookUrl("http://169.254.169.254/")).rejects.toThrow(
+    await expect(
+      notifier.setWebhookUrl("http://169.254.169.254/")
+    ).rejects.toThrow(
       "Invalid webhook URL: must start with https://hooks.slack.com/"
     );
   });
@@ -96,7 +117,9 @@ describe("SlackNotifier webhook URL validation", () => {
 
   it("rejects invalid URLs in sendTestMessage", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
-    const result = await notifier.sendTestMessage("http://internal-service:8080/");
+    const result = await notifier.sendTestMessage(
+      "http://internal-service:8080/"
+    );
     expect(result).toEqual({
       ok: false,
       error: "Invalid webhook URL: must start with https://hooks.slack.com/",
@@ -161,7 +184,12 @@ describe("SlackNotifier focus suppression", () => {
     // "working" is not in the notify list, so it exits early before the focus check
     await notifier.onAgentEvent(
       makeAgent({
-        latestEvent: { type: "working", message: "doing stuff", updatedAt: new Date().toISOString(), metadata: null },
+        latestEvent: {
+          type: "working",
+          message: "doing stuff",
+          updatedAt: new Date().toISOString(),
+          metadata: null,
+        },
       })
     );
 
@@ -178,14 +206,20 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
 
   it("sends a notification with default level", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
-    const result = await notifier.sendNotification(makeAgent(), { message: "Hello from agent" });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Hello from agent",
+    });
 
     expect(result).toEqual({ sent: true });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     expect(body.username).toBe("Dispatch");
     expect(body.attachments[0].color).toBe("#3b82f6"); // info blue
-    expect(body.attachments[0].blocks[0].text.text).toContain("Hello from agent");
+    expect(body.attachments[0].blocks[0].text.text).toContain(
+      "Hello from agent"
+    );
   });
 
   it("uses custom title and level", async () => {
@@ -197,7 +231,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     });
 
     expect(result).toEqual({ sent: true });
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     expect(body.attachments[0].color).toBe("#22c55e"); // success green
     expect(body.attachments[0].blocks[0].text.text).toContain("CI Report");
   });
@@ -206,7 +242,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     notifier.setFocusCheck(() => true); // agent is focused
 
-    const result = await notifier.sendNotification(makeAgent(), { message: "Important update" });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Important update",
+    });
 
     expect(result).toEqual({ sent: true });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -221,7 +259,10 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
       respectFocus: true,
     });
 
-    expect(result).toEqual({ sent: false, reason: "Notification suppressed — user is focused on this agent." });
+    expect(result).toEqual({
+      sent: false,
+      reason: "Notification suppressed — user is focused on this agent.",
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -231,9 +272,14 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     vi.mocked(getSetting).mockResolvedValueOnce(null); // notify events
 
     const notifier = new SlackNotifier(null as never, mockLog);
-    const result = await notifier.sendNotification(makeAgent(), { message: "test" });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "test",
+    });
 
-    expect(result).toEqual({ sent: false, reason: "No Slack webhook configured." });
+    expect(result).toEqual({
+      sent: false,
+      reason: "No Slack webhook configured.",
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -243,13 +289,20 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
 
     // Send 5 — should all succeed
     for (let i = 0; i < 5; i++) {
-      const result = await notifier.sendNotification(agent, { message: `msg ${i}` });
+      const result = await notifier.sendNotification(agent, {
+        message: `msg ${i}`,
+      });
       expect(result.sent).toBe(true);
     }
 
     // 6th should be rate limited
-    const result = await notifier.sendNotification(agent, { message: "one too many" });
-    expect(result).toEqual({ sent: false, reason: "Rate limited — max 5 notifications per minute per agent." });
+    const result = await notifier.sendNotification(agent, {
+      message: "one too many",
+    });
+    expect(result).toEqual({
+      sent: false,
+      reason: "Rate limited — max 5 notifications per minute per agent.",
+    });
     expect(fetchSpy).toHaveBeenCalledTimes(5);
   });
 
@@ -261,7 +314,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
 
     await notifier.sendNotification(agent, { message: "branch test" });
 
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     const contextText = body.attachments[0].blocks[1].elements[0].text;
     expect(contextText).toContain("feat/notify");
   });
@@ -273,7 +328,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
       title: "Alert <!everyone>",
     });
 
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     const messageText = body.attachments[0].blocks[0].text.text;
     expect(messageText).not.toContain("<!channel>");
     expect(messageText).not.toContain("<!here>");
@@ -288,7 +345,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
       message: "safe body",
     });
 
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     const sectionText = body.attachments[0].blocks[0].text.text;
     const contextText = body.attachments[0].blocks[1].elements[0].text;
     const fallback = body.attachments[0].fallback;
@@ -305,7 +364,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     await notifier.onAgentEvent(makeAgent({ name: "<!here>" }));
 
-    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
     const sectionText = body.attachments[0].blocks[0].text.text;
     const fallback = body.attachments[0].fallback;
 
@@ -318,7 +379,9 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
   it("cleans up expired rate limit entries from the map", async () => {
     const notifier = new SlackNotifier(null as never, mockLog);
     const agent = makeAgent();
-    const map = (notifier as unknown as { notifyTimestamps: Map<string, number[]> }).notifyTimestamps;
+    const map = (
+      notifier as unknown as { notifyTimestamps: Map<string, number[]> }
+    ).notifyTimestamps;
 
     // Seed with expired timestamps (>60s ago)
     map.set(agent.id, [Date.now() - 120_000]);
@@ -327,7 +390,10 @@ describe("SlackNotifier.sendNotification (dispatch_notify)", () => {
     // Trigger isRateLimited via sendNotification — expired entries get pruned,
     // and if empty the map entry is deleted entirely
     notifier.setFocusCheck(() => true);
-    await notifier.sendNotification(agent, { message: "trigger cleanup", respectFocus: true });
+    await notifier.sendNotification(agent, {
+      message: "trigger cleanup",
+      respectFocus: true,
+    });
 
     expect(map.has(agent.id)).toBe(false);
   });

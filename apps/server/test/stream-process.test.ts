@@ -52,7 +52,7 @@ function streamProcess(
   command: string,
   args: string[],
   options: { cwd?: string },
-  job: FakeJob,
+  job: FakeJob
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -125,8 +125,10 @@ async function main() {
 
   console.log(`\n=== Events emitted (${events.length}) ===`);
   for (const evt of events) {
-    if (evt.type === "log") console.log(`  log:     ${JSON.stringify(evt.line)}`);
-    else if (evt.type === "log.replace") console.log(`  replace: ${JSON.stringify(evt.line)}`);
+    if (evt.type === "log")
+      console.log(`  log:     ${JSON.stringify(evt.line)}`);
+    else if (evt.type === "log.replace")
+      console.log(`  replace: ${JSON.stringify(evt.line)}`);
     else if (evt.type === "log.rewind") console.log(`  rewind:  ${evt.count}`);
   }
 
@@ -137,16 +139,25 @@ async function main() {
   console.log("\n=== Assertions ===");
 
   // Should have exactly 2 rewinds (second and third render)
-  console.assert(rewinds.length === 2, `Expected 2 rewinds, got ${rewinds.length}`);
+  console.assert(
+    rewinds.length === 2,
+    `Expected 2 rewinds, got ${rewinds.length}`
+  );
   console.log(`✓ Rewind events: ${rewinds.length}`);
 
   // Final log should have ~9 lines (the last render), not 27 (3x9)
-  console.assert(finalLogCount <= 12, `Expected ≤12 final log lines, got ${finalLogCount}`);
+  console.assert(
+    finalLogCount <= 12,
+    `Expected ≤12 final log lines, got ${finalLogCount}`
+  );
   console.log(`✓ Final log lines: ${finalLogCount} (would be ~27 without fix)`);
 
   // Should NOT contain duplicate "Refreshing" lines
   const refreshLines = job.log.filter((l) => l.includes("Refreshing"));
-  console.assert(refreshLines.length <= 1, `Expected ≤1 Refreshing lines, got ${refreshLines.length}`);
+  console.assert(
+    refreshLines.length <= 1,
+    `Expected ≤1 Refreshing lines, got ${refreshLines.length}`
+  );
   console.log(`✓ Refreshing lines: ${refreshLines.length}`);
 
   // Final log should end with the completed state

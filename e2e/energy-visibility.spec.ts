@@ -41,7 +41,9 @@ async function simulateVisible(page: Page): Promise<void> {
  * Read energy metrics from localStorage. Going hidden triggers a save,
  * so call simulateHidden first if you need fresh data.
  */
-async function readMetrics(page: Page): Promise<Record<string, unknown> | null> {
+async function readMetrics(
+  page: Page
+): Promise<Record<string, unknown> | null> {
   return page.evaluate(() => {
     const raw = localStorage.getItem("dispatch:energyMetrics");
     return raw ? JSON.parse(raw) : null;
@@ -71,7 +73,9 @@ test.describe("Energy / visibility-aware pausing", () => {
 
     // Health poll should resume — check API status in Settings still shows ok
     await page.getByTestId("settings-button").click();
-    const apiStatus = page.getByTestId("sidebar-shell").getByTestId("service-status-api");
+    const apiStatus = page
+      .getByTestId("sidebar-shell")
+      .getByTestId("service-status-api");
     await expect(apiStatus).toContainText("ok", { timeout: 15_000 });
   });
 
@@ -125,7 +129,9 @@ test.describe("Energy / visibility-aware pausing", () => {
     const metrics = await readMetrics(page);
     expect(metrics).not.toBeNull();
     // At least 2 transitions recorded (hidden→visible cycle)
-    expect((metrics!.visibilityChanges as unknown[]).length).toBeGreaterThanOrEqual(2);
+    expect(
+      (metrics!.visibilityChanges as unknown[]).length
+    ).toBeGreaterThanOrEqual(2);
     expect(metrics!.totalHiddenMs).toBeGreaterThan(0);
   });
 

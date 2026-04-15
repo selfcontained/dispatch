@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Bell, BookOpenText, Database, Package, Server, Settings, Users } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Bell,
+  BookOpenText,
+  Database,
+  Package,
+  Server,
+  Settings,
+  Users,
+} from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
@@ -17,20 +26,45 @@ import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type SettingsSection = "general" | "agents" | "notifications" | "updates" | "help" | "releases";
+type SettingsSection =
+  | "general"
+  | "agents"
+  | "notifications"
+  | "updates"
+  | "help"
+  | "releases";
 
-const BASE_SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof ArrowDownToLine }> = [
+const BASE_SECTIONS: Array<{
+  id: SettingsSection;
+  label: string;
+  icon: typeof ArrowDownToLine;
+}> = [
   { id: "general", label: "General", icon: Settings },
   { id: "agents", label: "Agents", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
 ];
 
-const RELEASES_SECTION = { id: "releases" as SettingsSection, label: "Releases", icon: Package };
-const HELP_SECTION = { id: "help" as SettingsSection, label: "Help", icon: BookOpenText };
+const RELEASES_SECTION = {
+  id: "releases" as SettingsSection,
+  label: "Releases",
+  icon: Package,
+};
+const HELP_SECTION = {
+  id: "help" as SettingsSection,
+  label: "Help",
+  icon: BookOpenText,
+};
 
 function InstanceNameSettings(): JSX.Element {
-  const { instanceName, setInstanceName, isSaving, saveError, didSave, clearSaveState } = useInstanceName();
+  const {
+    instanceName,
+    setInstanceName,
+    isSaving,
+    saveError,
+    didSave,
+    clearSaveState,
+  } = useInstanceName();
   const [draft, setDraft] = useState(instanceName);
   const inputRef = useRef<HTMLInputElement>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,11 +109,15 @@ function InstanceNameSettings(): JSX.Element {
 
   return (
     <div>
-      <label htmlFor="instance-name" className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground">
+      <label
+        htmlFor="instance-name"
+        className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground"
+      >
         Instance name
       </label>
       <p className="mb-3 text-sm text-muted-foreground">
-        Give this Dispatch instance a name to distinguish it from others. Shown in the sidebar and browser tab.
+        Give this Dispatch instance a name to distinguish it from others. Shown
+        in the sidebar and browser tab.
       </p>
       <div className="flex items-center gap-2">
         <input
@@ -87,7 +125,10 @@ function InstanceNameSettings(): JSX.Element {
           ref={inputRef}
           type="text"
           value={draft}
-          onChange={(e) => { setDraft(e.target.value); if (saveError) clearSaveState(); }}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (saveError) clearSaveState();
+          }}
           onBlur={save}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -100,7 +141,9 @@ function InstanceNameSettings(): JSX.Element {
           maxLength={100}
           className={cn(
             "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
-            saveError ? "border-destructive" : "border-border focus:border-primary/50"
+            saveError
+              ? "border-destructive"
+              : "border-border focus:border-primary/50"
           )}
         />
         {showSaved && !saveError ? (
@@ -108,7 +151,9 @@ function InstanceNameSettings(): JSX.Element {
         ) : null}
       </div>
       {saveError ? (
-        <p className="mt-1.5 text-xs text-destructive">Failed to save. Please try again.</p>
+        <p className="mt-1.5 text-xs text-destructive">
+          Failed to save. Please try again.
+        </p>
       ) : null}
     </div>
   );
@@ -119,7 +164,8 @@ function InstanceNameSettings(): JSX.Element {
 type WorktreeLocation = "sibling" | "nested";
 
 function WorktreeLocationSettings(): JSX.Element {
-  const [worktreeLocation, setWorktreeLocation] = useState<WorktreeLocation>("sibling");
+  const [worktreeLocation, setWorktreeLocation] =
+    useState<WorktreeLocation>("sibling");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -129,17 +175,22 @@ function WorktreeLocationSettings(): JSX.Element {
         if (!cancelled) setWorktreeLocation(data.worktreeLocation);
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleChange = useCallback(async (value: WorktreeLocation) => {
     setWorktreeLocation(value);
     setSaving(true);
     try {
-      await api<{ worktreeLocation: WorktreeLocation }>("/api/v1/agents/settings", {
-        method: "POST",
-        body: JSON.stringify({ worktreeLocation: value }),
-      });
+      await api<{ worktreeLocation: WorktreeLocation }>(
+        "/api/v1/agents/settings",
+        {
+          method: "POST",
+          body: JSON.stringify({ worktreeLocation: value }),
+        }
+      );
     } catch {
       // revert on error
     } finally {
@@ -147,17 +198,23 @@ function WorktreeLocationSettings(): JSX.Element {
     }
   }, []);
 
-  const options: Array<{ value: WorktreeLocation; label: string; description: string }> = [
+  const options: Array<{
+    value: WorktreeLocation;
+    label: string;
+    description: string;
+  }> = [
     {
       value: "sibling",
       label: "Sibling directories",
-      description: "Worktrees are created next to the repo (e.g. ../repo-branch-name)"
+      description:
+        "Worktrees are created next to the repo (e.g. ../repo-branch-name)",
     },
     {
       value: "nested",
       label: "Inside .dispatch/worktrees",
-      description: "Worktrees are created inside the repo in .dispatch/worktrees/"
-    }
+      description:
+        "Worktrees are created inside the repo in .dispatch/worktrees/",
+    },
   ];
 
   return (
@@ -182,8 +239,12 @@ function WorktreeLocationSettings(): JSX.Element {
             )}
           >
             <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">{opt.label}</div>
-              <div className="text-xs text-muted-foreground">{opt.description}</div>
+              <div className="text-sm font-medium text-foreground">
+                {opt.label}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {opt.description}
+              </div>
             </div>
           </button>
         ))}
@@ -250,8 +311,12 @@ function AppearanceSettings({
                 ))}
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">{t.label}</div>
-                <div className="text-xs text-muted-foreground">{t.description}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t.label}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t.description}
+                </div>
               </div>
             </button>
           ))}
@@ -263,9 +328,17 @@ function AppearanceSettings({
           Icon Color
         </div>
         <p className="mb-3 text-sm text-muted-foreground">
-          Pick a color for the app icon to help distinguish multiple Dispatch installations.
+          Pick a color for the app icon to help distinguish multiple Dispatch
+          installations.
         </p>
-        <div className={cn("flex flex-wrap gap-2", isIconColorSaving && "pointer-events-none opacity-60")} role="radiogroup" aria-label="Icon color">
+        <div
+          className={cn(
+            "flex flex-wrap gap-2",
+            isIconColorSaving && "pointer-events-none opacity-60"
+          )}
+          role="radiogroup"
+          aria-label="Icon color"
+        >
           {ICON_COLOR_OPTIONS.map((c) => (
             <button
               key={c.id}
@@ -291,21 +364,33 @@ function AppearanceSettings({
                 alt=""
                 className="h-7 w-7 object-contain"
               />
-              <span className={cn(
-                "text-[10px] leading-none",
-                displayColor === c.id ? "text-foreground" : "text-muted-foreground"
-              )}>{c.label}</span>
+              <span
+                className={cn(
+                  "text-[10px] leading-none",
+                  displayColor === c.id
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+                )}
+              >
+                {c.label}
+              </span>
             </button>
           ))}
         </div>
         {iconColorError ? (
           <p className="mt-2 text-xs text-destructive">
             {iconColorError}{" "}
-            <button onClick={clearIconColorError} className="underline hover:no-underline">Dismiss</button>
+            <button
+              onClick={clearIconColorError}
+              className="underline hover:no-underline"
+            >
+              Dismiss
+            </button>
           </p>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground/70">
-            Changing the icon color will reload the page. PWA users may need to reinstall for launcher icons to update.
+            Changing the icon color will reload the page. PWA users may need to
+            reinstall for launcher icons to update.
           </p>
         )}
       </div>
@@ -313,10 +398,19 @@ function AppearanceSettings({
   );
 }
 
-const ALL_VALID_SECTIONS: SettingsSection[] = ["general", "agents", "notifications", "updates", "help", "releases"];
+const ALL_VALID_SECTIONS: SettingsSection[] = [
+  "general",
+  "agents",
+  "notifications",
+  "updates",
+  "help",
+  "releases",
+];
 
 function isValidSection(value: string | undefined): value is SettingsSection {
-  return value !== undefined && ALL_VALID_SECTIONS.includes(value as SettingsSection);
+  return (
+    value !== undefined && ALL_VALID_SECTIONS.includes(value as SettingsSection)
+  );
 }
 
 export type SettingsPaneProps = {
@@ -341,20 +435,29 @@ export type SettingsPaneProps = {
 };
 
 export function useSettingsState(open: boolean, initialSection?: string) {
-  const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
-  const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
+  const resolvedInitial = isValidSection(initialSection)
+    ? initialSection
+    : "general";
+  const [activeSection, setActiveSectionState] =
+    useState<SettingsSection | null>(resolvedInitial);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void api<{ isAdmin: boolean }>("/api/v1/release/admin-check")
-      .then((data) => { if (!cancelled) setIsAdmin(data.isAdmin); })
+      .then((data) => {
+        if (!cancelled) setIsAdmin(data.isAdmin);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
-  const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION] : [...BASE_SECTIONS, HELP_SECTION];
+  const sections = isAdmin
+    ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION]
+    : [...BASE_SECTIONS, HELP_SECTION];
 
   useEffect(() => {
     if (open && isValidSection(initialSection)) {
@@ -382,7 +485,11 @@ export function SettingsNavContent({
 }: {
   activeSection: SettingsSection | null;
   activeSubsection?: string;
-  sections: Array<{ id: SettingsSection; label: string; icon: typeof Settings }>;
+  sections: Array<{
+    id: SettingsSection;
+    label: string;
+    icon: typeof Settings;
+  }>;
   onSectionChange: (section: SettingsSection) => void;
   onSubsectionChange?: (subsection: string) => void;
   apiState: ServiceState;
@@ -392,7 +499,9 @@ export function SettingsNavContent({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Settings</div>
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Settings
+        </div>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto py-2">
         {sections.map(({ id, label, icon: Icon }) => (
@@ -438,8 +547,18 @@ export function SettingsNavContent({
           System
         </div>
         <div className="space-y-2 text-xs text-muted-foreground">
-          <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
-          <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
+          <ServiceStatus
+            icon={<Server className="h-3.5 w-3.5" />}
+            label="API"
+            value={apiState}
+            dotClass={serviceDotClass(apiState)}
+          />
+          <ServiceStatus
+            icon={<Database className="h-3.5 w-3.5" />}
+            label="DB"
+            value={dbState}
+            dotClass={serviceDotClass(dbState)}
+          />
         </div>
       </div>
     </div>
@@ -486,7 +605,7 @@ export function SettingsContent({
         key={activeSection}
         className={cn(
           "min-h-0 min-w-0 flex-1 overflow-y-auto",
-          activeSection === "help" && "flex overflow-hidden",
+          activeSection === "help" && "flex overflow-hidden"
         )}
       >
         {activeSection === "general" && (
@@ -495,7 +614,15 @@ export function SettingsContent({
               <InstanceNameSettings />
             </div>
             <div className="border-t border-border">
-              <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />
+              <AppearanceSettings
+                theme={theme}
+                setTheme={setTheme}
+                iconColor={iconColor}
+                setIconColor={setIconColor}
+                isIconColorSaving={isIconColorSaving}
+                iconColorError={iconColorError}
+                clearIconColorError={clearIconColorError}
+              />
             </div>
             <div className="border-t border-border">
               <SecuritySettings onLogout={onLogout} />
@@ -514,7 +641,9 @@ export function SettingsContent({
           </div>
         )}
         {activeSection === "notifications" && <NotificationSettings />}
-        {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
+        {activeSection === "updates" && (
+          <UpdatesSection stream={releaseStream} />
+        )}
         {activeSection === "help" && (
           <DocsContent
             title="Help & Docs"
@@ -522,7 +651,9 @@ export function SettingsContent({
             onSectionChange={onSubsectionChange}
           />
         )}
-        {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
+        {activeSection === "releases" && isAdmin && (
+          <ReleasesAdmin stream={releaseStream} />
+        )}
       </div>
     </div>
   );

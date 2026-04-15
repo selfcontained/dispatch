@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import { loadApp } from "./helpers";
 
 test.describe("Create agent dialog", () => {
-  test("defaults the working directory to a non-empty value", async ({ page }) => {
+  test("defaults the working directory to a non-empty value", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await page.getByTestId("create-agent-button").click();
@@ -31,7 +33,9 @@ test.describe("Create agent dialog", () => {
     // The dropdown options should be visible
     const claudeOption = page.getByRole("option", { name: "Claude" });
     await expect(claudeOption).toBeVisible({ timeout: 3_000 });
-    await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible({
+      timeout: 3_000,
+    });
 
     // Select "Claude"
     await claudeOption.click();
@@ -44,7 +48,9 @@ test.describe("Create agent dialog", () => {
     await expect(form).not.toBeVisible({ timeout: 3_000 });
   });
 
-  test("recent directories remain visible while typing a new path", async ({ page }) => {
+  test("recent directories remain visible while typing a new path", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem(
         "dispatch:cwdHistory",
@@ -62,8 +68,12 @@ test.describe("Create agent dialog", () => {
     await cwdInput.fill("/brand/new/path");
     const recentOptions = form.getByTestId("create-agent-cwd-history-option");
 
-    await expect(page.getByRole("option", { name: "/home/user/projects/myapp" })).toBeVisible();
-    await expect(page.getByRole("option", { name: "/tmp/existing-project" })).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "/home/user/projects/myapp" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: "/tmp/existing-project" })
+    ).toBeVisible();
     await expect(recentOptions).toHaveCount(2);
     await expect(cwdInput).toHaveValue("/brand/new/path");
   });

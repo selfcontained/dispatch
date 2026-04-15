@@ -16,7 +16,7 @@ export function Checkbox({
         "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
         "data-[state=unchecked]:border-border data-[state=unchecked]:bg-background",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        className,
+        className
       )}
     >
       <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">

@@ -55,7 +55,7 @@ function openSSEStream(baseURL: string): {
           }
         });
         res.on("error", reject);
-      },
+      }
     );
     req.on("error", reject);
   });
@@ -72,7 +72,7 @@ async function waitForEvents(
   events: Array<{ type: string }>,
   predicate: (e: { type: string }) => boolean,
   count: number,
-  timeoutMs = 5000,
+  timeoutMs = 5000
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -81,7 +81,7 @@ async function waitForEvents(
   }
   const matched = events.filter(predicate).length;
   throw new Error(
-    `Timed out waiting for ${count} matching events (got ${matched} in ${timeoutMs}ms). All events: ${JSON.stringify(events.map((e) => e.type))}`,
+    `Timed out waiting for ${count} matching events (got ${matched} in ${timeoutMs}ms). All events: ${JSON.stringify(events.map((e) => e.type))}`
   );
 }
 
@@ -97,7 +97,7 @@ test.describe("Jobs SSE events", () => {
       await sse.ready;
       // Clear snapshot from events count
       const baselineCount = sse.events.filter(
-        (e) => e.type === "job.changed",
+        (e) => e.type === "job.changed"
       ).length;
 
       // 1. Create a job → expect job.changed
@@ -116,7 +116,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 1,
+        baselineCount + 1
       );
 
       // 2. Update the job → expect another job.changed
@@ -133,7 +133,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 2,
+        baselineCount + 2
       );
 
       // 3. Enable the job → expect another job.changed
@@ -145,7 +145,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 3,
+        baselineCount + 3
       );
 
       // 4. Disable the job → expect another job.changed
@@ -157,7 +157,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 4,
+        baselineCount + 4
       );
 
       // 5. Delete the job → expect another job.changed
@@ -169,7 +169,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 5,
+        baselineCount + 5
       );
     } finally {
       sse.close();
@@ -201,7 +201,7 @@ test.describe("Jobs SSE events", () => {
     try {
       await sse.ready;
       const baselineCount = sse.events.filter(
-        (e) => e.type === "job.changed",
+        (e) => e.type === "job.changed"
       ).length;
 
       // Run the job (non-blocking)
@@ -215,7 +215,7 @@ test.describe("Jobs SSE events", () => {
       await waitForEvents(
         sse.events,
         (e) => e.type === "job.changed",
-        baselineCount + 2,
+        baselineCount + 2
       );
     } finally {
       sse.close();

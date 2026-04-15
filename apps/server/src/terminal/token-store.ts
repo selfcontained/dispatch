@@ -18,7 +18,7 @@ export class TerminalTokenStore {
     const token = randomUUID().replaceAll("-", "");
     this.records.set(token, {
       agentId,
-      expiresAtMs: Date.now() + this.ttlMs
+      expiresAtMs: Date.now() + this.ttlMs,
     });
     return token;
   }

@@ -57,7 +57,11 @@ describe("buildPersonaReviewDiff", () => {
       if (key === "symbolic-ref refs/remotes/origin/HEAD --short") {
         throw new Error("no origin head");
       }
-      if (key === "diff main...HEAD" || key === "diff HEAD" || key === "ls-files --others --exclude-standard") {
+      if (
+        key === "diff main...HEAD" ||
+        key === "diff HEAD" ||
+        key === "ls-files --others --exclude-standard"
+      ) {
         return { stdout: "" };
       }
       throw new Error(`Unexpected command: ${key}`);
@@ -65,7 +69,9 @@ describe("buildPersonaReviewDiff", () => {
 
     const result = await buildPersonaReviewDiff("/repo", runCommand);
 
-    expect(result).toContain('base branch detection failed; committed diff was generated against "main"');
+    expect(result).toContain(
+      'base branch detection failed; committed diff was generated against "main"'
+    );
   });
 
   it("returns a fallback when no changes are detected", async () => {
@@ -74,7 +80,11 @@ describe("buildPersonaReviewDiff", () => {
       if (key === "symbolic-ref refs/remotes/origin/HEAD --short") {
         return { stdout: "origin/main\n" };
       }
-      if (key === "diff main...HEAD" || key === "diff HEAD" || key === "ls-files --others --exclude-standard") {
+      if (
+        key === "diff main...HEAD" ||
+        key === "diff HEAD" ||
+        key === "ls-files --others --exclude-standard"
+      ) {
         return { stdout: "" };
       }
       throw new Error(`Unexpected command: ${key}`);

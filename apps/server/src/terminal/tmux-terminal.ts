@@ -10,9 +10,13 @@ export class TmuxTerminal {
   }
 
   async hasSession(): Promise<boolean> {
-    const result = await runCommand("tmux", ["has-session", "-t", this.sessionName], {
-      allowedExitCodes: [0, 1]
-    });
+    const result = await runCommand(
+      "tmux",
+      ["has-session", "-t", this.sessionName],
+      {
+        allowedExitCodes: [0, 1],
+      }
+    );
 
     return result.exitCode === 0;
   }
@@ -26,14 +30,20 @@ export class TmuxTerminal {
       "-S",
       `-${lines}`,
       "-E",
-      "-1"
+      "-1",
     ]);
 
     return result.stdout;
   }
 
   async sendCommand(commandLine: string): Promise<void> {
-    await runCommand("tmux", ["send-keys", "-t", this.sessionName, "-l", commandLine]);
+    await runCommand("tmux", [
+      "send-keys",
+      "-t",
+      this.sessionName,
+      "-l",
+      commandLine,
+    ]);
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
   }
 

@@ -38,19 +38,25 @@ export function useCopyText(): [boolean, (text: string) => void] {
     timerRef.current = window.setTimeout(() => setCopied(false), 2000);
   }, []);
 
-  const copyText = useCallback((text: string) => {
-    // Prefer Clipboard API — it works inside focus-trapped dialogs (sheets, modals)
-    // where execCommand fails because the hidden textarea can't receive focus.
-    if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(text).then(markCopied).catch(() => {
-        // Clipboard API rejected (e.g. non-secure context) — try execCommand
-        if (copyViaExecCommand(text)) markCopied();
-      });
-      return;
-    }
-    // No Clipboard API — fall back to execCommand (iOS Safari non-secure contexts)
-    if (copyViaExecCommand(text)) markCopied();
-  }, [markCopied]);
+  const copyText = useCallback(
+    (text: string) => {
+      // Prefer Clipboard API — it works inside focus-trapped dialogs (sheets, modals)
+      // where execCommand fails because the hidden textarea can't receive focus.
+      if (navigator.clipboard?.writeText) {
+        void navigator.clipboard
+          .writeText(text)
+          .then(markCopied)
+          .catch(() => {
+            // Clipboard API rejected (e.g. non-secure context) — try execCommand
+            if (copyViaExecCommand(text)) markCopied();
+          });
+        return;
+      }
+      // No Clipboard API — fall back to execCommand (iOS Safari non-secure contexts)
+      if (copyViaExecCommand(text)) markCopied();
+    },
+    [markCopied]
+  );
 
   return [copied, copyText];
 }

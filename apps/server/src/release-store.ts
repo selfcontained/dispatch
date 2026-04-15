@@ -31,5 +31,9 @@ export async function readReleaseStore(): Promise<ReleaseRecord | null> {
 
 export async function writeReleaseStore(record: ReleaseRecord): Promise<void> {
   await mkdir(path.dirname(RELEASE_STORE_PATH), { recursive: true });
-  await writeFile(RELEASE_STORE_PATH, JSON.stringify(record, null, 2) + "\n", "utf-8");
+  await writeFile(
+    RELEASE_STORE_PATH,
+    JSON.stringify(record, null, 2) + "\n",
+    "utf-8"
+  );
 }

@@ -36,14 +36,20 @@ export function PersonaLauncher({
   const { data: personas = [] } = useQuery<PersonaSummary[]>({
     queryKey: ["personas", cwd],
     queryFn: async () => {
-      const result = await api<{ personas: PersonaSummary[] }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
+      const result = await api<{ personas: PersonaSummary[] }>(
+        `/api/v1/personas?cwd=${encodeURIComponent(cwd)}`
+      );
       return result.personas;
     },
   });
 
   if (personas.length === 0) return null;
 
-  const reviewAgentType = agent.reviewAgentType ?? (agent.type === "claude" || agent.type === "opencode" ? agent.type : "codex");
+  const reviewAgentType =
+    agent.reviewAgentType ??
+    (agent.type === "claude" || agent.type === "opencode"
+      ? agent.type
+      : "codex");
 
   const launchPersona = (slug: string) => {
     if (!sendTerminalInput) return;
@@ -52,13 +58,20 @@ export function PersonaLauncher({
   };
 
   const updateReviewAgentType = async (nextType: AgentType): Promise<void> => {
-    const result = await api<{ agent: Agent }>(`/api/v1/agents/${agent.id}/review-agent-type`, {
-      method: "PATCH",
-      body: JSON.stringify({ reviewAgentType: nextType }),
-    });
-    queryClient.setQueryData<Agent[]>(["agents"], (old) => old?.map((item) => (
-      item.id === result.agent.id ? result.agent : item
-    )) ?? [result.agent]);
+    const result = await api<{ agent: Agent }>(
+      `/api/v1/agents/${agent.id}/review-agent-type`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ reviewAgentType: nextType }),
+      }
+    );
+    queryClient.setQueryData<Agent[]>(
+      ["agents"],
+      (old) =>
+        old?.map((item) =>
+          item.id === result.agent.id ? result.agent : item
+        ) ?? [result.agent]
+    );
   };
 
   return (
@@ -71,7 +84,10 @@ export function PersonaLauncher({
             className="gap-1.5 rounded-r-none border border-border/60 border-r-0 bg-background/50 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             data-testid="launch-reviewer-button"
           >
-            <AgentTypeIcon type={reviewAgentType} className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80" />
+            <AgentTypeIcon
+              type={reviewAgentType}
+              className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+            />
             Launch Reviewer
           </Button>
         </DropdownMenuTrigger>
@@ -79,16 +95,27 @@ export function PersonaLauncher({
           {personas.map((p, i) => {
             const colorVar = `var(--chart-${(i % 4) + 1})`;
             return (
-              <DropdownMenuItem key={p.slug} className="text-foreground" onClick={() => launchPersona(p.slug)}>
+              <DropdownMenuItem
+                key={p.slug}
+                className="text-foreground"
+                onClick={() => launchPersona(p.slug)}
+              >
                 <div className="flex items-start gap-2.5">
                   <div
                     className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
                     style={{ backgroundColor: `hsl(${colorVar})` }}
                   />
                   <div>
-                    <div className="text-sm font-medium" style={{ color: `hsl(${colorVar})` }}>{p.name}</div>
+                    <div
+                      className="text-sm font-medium"
+                      style={{ color: `hsl(${colorVar})` }}
+                    >
+                      {p.name}
+                    </div>
                     {p.description ? (
-                      <div className="text-xs text-muted-foreground">{p.description}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {p.description}
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -114,11 +141,15 @@ export function PersonaLauncher({
             <DropdownMenuItem
               key={agentType}
               className="text-foreground"
-              onClick={() => { void updateReviewAgentType(agentType); }}
+              onClick={() => {
+                void updateReviewAgentType(agentType);
+              }}
               data-testid={`launch-reviewer-type-${agentType}`}
             >
               <span className="flex items-center gap-3">
-                <Check className={`h-3.5 w-3.5 shrink-0 ${agentType === reviewAgentType ? "opacity-100" : "opacity-0"}`} />
+                <Check
+                  className={`h-3.5 w-3.5 shrink-0 ${agentType === reviewAgentType ? "opacity-100" : "opacity-0"}`}
+                />
                 <span>{AGENT_TYPE_LABELS[agentType]}</span>
               </span>
             </DropdownMenuItem>

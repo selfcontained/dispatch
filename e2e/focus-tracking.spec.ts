@@ -1,7 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createAgentViaAPI, loadApp } from "./helpers";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 test.describe("Focus tracking API", () => {
   test("POST /api/v1/focus accepts a valid agentId", async ({ request }) => {
@@ -21,7 +23,9 @@ test.describe("Focus tracking API", () => {
     expect(res.status()).toBe(204);
   });
 
-  test("POST /api/v1/focus rejects empty string agentId", async ({ request }) => {
+  test("POST /api/v1/focus rejects empty string agentId", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/focus", {
       headers: authHeader,
       data: { agentId: "" },
@@ -29,7 +33,9 @@ test.describe("Focus tracking API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/focus accepts missing agentId (treated as null)", async ({ request }) => {
+  test("POST /api/v1/focus accepts missing agentId (treated as null)", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/focus", {
       headers: authHeader,
       data: {},
@@ -84,7 +90,9 @@ test.describe("Focus tracking frontend", () => {
     // Set up route intercept BEFORE loading the app
     const focusRequests: Array<{ agentId: string | null }> = [];
     await page.route("**/api/v1/focus", async (route) => {
-      const postData = route.request().postDataJSON() as { agentId: string | null };
+      const postData = route.request().postDataJSON() as {
+        agentId: string | null;
+      };
       focusRequests.push(postData);
       await route.fulfill({ status: 204 });
     });
@@ -107,18 +115,25 @@ test.describe("Focus tracking frontend", () => {
     expect(focusRequest).toBeDefined();
   });
 
-  test("sends null focus when page becomes hidden", async ({ page, request }) => {
+  test("sends null focus when page becomes hidden", async ({
+    page,
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request);
 
     const focusRequests: Array<{ agentId: string | null }> = [];
     await page.route("**/api/v1/focus", async (route) => {
-      const postData = route.request().postDataJSON() as { agentId: string | null };
+      const postData = route.request().postDataJSON() as {
+        agentId: string | null;
+      };
       focusRequests.push(postData);
       await route.fulfill({ status: 204 });
     });
 
     await loadApp(page);
-    await page.evaluate(() => { document.hasFocus = () => true; });
+    await page.evaluate(() => {
+      document.hasFocus = () => true;
+    });
 
     // Select the agent to start focus tracking
     await page.getByText(agent.name).click();
@@ -146,13 +161,17 @@ test.describe("Focus tracking frontend", () => {
 
     const focusRequests: Array<{ agentId: string | null }> = [];
     await page.route("**/api/v1/focus", async (route) => {
-      const postData = route.request().postDataJSON() as { agentId: string | null };
+      const postData = route.request().postDataJSON() as {
+        agentId: string | null;
+      };
       focusRequests.push(postData);
       await route.fulfill({ status: 204 });
     });
 
     await loadApp(page);
-    await page.evaluate(() => { document.hasFocus = () => true; });
+    await page.evaluate(() => {
+      document.hasFocus = () => true;
+    });
     await page.getByText(agent.name).click();
     await page.waitForTimeout(1000);
 

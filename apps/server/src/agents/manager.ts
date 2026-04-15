@@ -1,5 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  copyFile,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -8,17 +19,44 @@ import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
-import { createGitWorktree, cleanupGitWorktree } from "../shared/git/worktree.js";
+import {
+  createGitWorktree,
+  cleanupGitWorktree,
+} from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 
-type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";
+type AgentStatus =
+  | "creating"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "archiving"
+  | "error"
+  | "unknown";
 type AgentType = "codex" | "claude" | "opencode";
-type AgentLatestEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
+type AgentLatestEventType =
+  | "working"
+  | "blocked"
+  | "waiting_user"
+  | "done"
+  | "idle";
 type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
-type ArchivePhase = "stopping" | "worktree-check" | "worktree-cleanup" | "finalizing" | null;
-type PinType = "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
+type ArchivePhase =
+  | "stopping"
+  | "worktree-check"
+  | "worktree-cleanup"
+  | "finalizing"
+  | null;
+type PinType =
+  | "string"
+  | "url"
+  | "port"
+  | "code"
+  | "pr"
+  | "filename"
+  | "markdown";
 
 export type AgentPin = {
   label: string;
@@ -82,10 +120,13 @@ export type AgentRecord = {
   updatedAt: string;
 };
 
-const CLI_BY_AGENT_TYPE: Record<AgentType, keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">> = {
+const CLI_BY_AGENT_TYPE: Record<
+  AgentType,
+  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">
+> = {
   codex: "codexBin",
   claude: "claudeBin",
-  opencode: "opencodeBin"
+  opencode: "opencodeBin",
 };
 
 type WorktreeLocation = "sibling" | "nested";
@@ -261,7 +302,13 @@ export type FeedbackSummaryResult = {
   groups: Array<{
     key: string;
     count: number;
-    bySeverity: { critical: number; high: number; medium: number; low: number; info: number };
+    bySeverity: {
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      info: number;
+    };
     topFindings: Array<{
       description: string;
       count: number;
@@ -300,7 +347,10 @@ export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
-  private readonly runtimeCwdCache = new Map<string, { value: string; expiresAt: number }>();
+  private readonly runtimeCwdCache = new Map<
+    string,
+    { value: string; expiresAt: number }
+  >();
   private readonly eventListeners: AgentEventListener[] = [];
   private lastTmuxInventoryAt = 0;
   private lastLogMaintenanceAt = 0;
@@ -317,12 +367,17 @@ export class AgentManager {
   }
 
   async listAgents(): Promise<AgentRecord[]> {
-    const result = await this.pool.query(`${this.baseAgentSelectSql()} ORDER BY created_at DESC`);
+    const result = await this.pool.query(
+      `${this.baseAgentSelectSql()} ORDER BY created_at DESC`
+    );
     return result.rows as AgentRecord[];
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
-    const result = await this.pool.query(`${this.baseAgentSelectSql()} AND id = $1`, [id]);
+    const result = await this.pool.query(
+      `${this.baseAgentSelectSql()} AND id = $1`,
+      [id]
+    );
     return (result.rows[0] as AgentRecord | undefined) ?? null;
   }
 
@@ -342,13 +397,17 @@ export class AgentManager {
 
   /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
-    await harvestTokenUsage(this.pool, {
-      id: agent.id,
-      type: agent.type,
-      cwd: agent.cwd,
-      worktreePath: agent.worktreePath,
-      cliSessionId: agent.cliSessionId ?? undefined,
-    }, this.logger);
+    await harvestTokenUsage(
+      this.pool,
+      {
+        id: agent.id,
+        type: agent.type,
+        cwd: agent.cwd,
+        worktreePath: agent.worktreePath,
+        cliSessionId: agent.cliSessionId ?? undefined,
+      },
+      this.logger
+    );
   }
 
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
@@ -372,18 +431,26 @@ export class AgentManager {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "");
-      worktreeBranchName = input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+      worktreeBranchName =
+        input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
-        worktreePathOverride = path.join(originalCwd, ".dispatch", "worktrees",
-          worktreeBranchName.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase());
+        worktreePathOverride = path.join(
+          originalCwd,
+          ".dispatch",
+          "worktrees",
+          worktreeBranchName
+            .replace(/[^a-z0-9]+/gi, "-")
+            .replace(/^-+|-+$/g, "")
+            .toLowerCase()
+        );
       }
     }
 
     // Auto-assign a CLI session ID for Claude agents so we can track which
     // session file belongs to this agent and resume it on restart.
-    const cliSessionId = input.cliSessionId
-      ?? (type === "claude" ? randomUUID() : null);
+    const cliSessionId =
+      input.cliSessionId ?? (type === "claude" ? randomUUID() : null);
 
     // Insert the agent record immediately so the API can return fast.
     // The setup script running in tmux will handle worktree/deps/etc.
@@ -393,9 +460,24 @@ export class AgentManager {
       INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, updated_at)
       VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
       `,
-      [id, name, type, originalCwd, tmuxSession, mediaDir, JSON.stringify(agentArgs), fullAccess, initialSetupPhase,
-        input.persona ?? null, input.parentAgentId ?? null, input.personaContext ?? null, input.reviewAgentType ?? null,
-        cliSessionId, input.autoReview ?? false, input.baseBranch ?? null]
+      [
+        id,
+        name,
+        type,
+        originalCwd,
+        tmuxSession,
+        mediaDir,
+        JSON.stringify(agentArgs),
+        fullAccess,
+        initialSetupPhase,
+        input.persona ?? null,
+        input.parentAgentId ?? null,
+        input.personaContext ?? null,
+        input.reviewAgentType ?? null,
+        cliSessionId,
+        input.autoReview ?? false,
+        input.baseBranch ?? null,
+      ]
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -416,10 +498,16 @@ export class AgentManager {
           worktreePath = result.worktreePath;
           worktreeBranch = result.branchName;
           effectiveCwd = result.worktreePath;
-          this.logger.info({ agentId: id, worktreePath, worktreeBranch }, "Created worktree for inert agent.");
+          this.logger.info(
+            { agentId: id, worktreePath, worktreeBranch },
+            "Created worktree for inert agent."
+          );
           await this.setupWorktree(originalCwd, worktreePath);
         } catch (error) {
-          this.logger.warn({ err: error, agentId: id }, "Worktree creation failed for inert agent.");
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Worktree creation failed for inert agent."
+          );
         }
       }
 
@@ -429,7 +517,7 @@ export class AgentManager {
       );
       await this.setSystemLatestEvent(id, {
         type: "working",
-        message: "Session started."
+        message: "Session started.",
       });
     } else {
       try {
@@ -445,7 +533,10 @@ export class AgentManager {
           cliSessionId ?? undefined,
           false,
           input.jobRunId,
-          this.shouldSuggestSessionRename(name, id, { persona: input.persona, jobRunId: input.jobRunId }),
+          this.shouldSuggestSessionRename(name, id, {
+            persona: input.persona,
+            jobRunId: input.jobRunId,
+          }),
           !input.persona && !input.jobRunId && (input.autoReview ?? false),
           input.initialPrompt
         );
@@ -471,20 +562,42 @@ export class AgentManager {
         await writeFile(setupScriptPath, setupScript, { mode: 0o755 });
 
         // Start tmux running the setup script — the frontend can connect immediately
-        await runCommand("tmux", ["new-session", "-d", "-s", tmuxSession, "-c", originalCwd, `bash ${setupScriptPath}`]);
-        await runCommand("tmux", ["set-option", "-t", tmuxSession, "status", "off"], {
-          allowedExitCodes: [0, 1]
-        });
-        await runCommand("tmux", ["set-option", "-t", tmuxSession, "allow-passthrough", "on"], {
-          allowedExitCodes: [0, 1]
-        });
-        await runCommand("tmux", ["set-option", "-as", "terminal-features", "xterm-256color:sync"], {
-          allowedExitCodes: [0, 1]
-        });
+        await runCommand("tmux", [
+          "new-session",
+          "-d",
+          "-s",
+          tmuxSession,
+          "-c",
+          originalCwd,
+          `bash ${setupScriptPath}`,
+        ]);
+        await runCommand(
+          "tmux",
+          ["set-option", "-t", tmuxSession, "status", "off"],
+          {
+            allowedExitCodes: [0, 1],
+          }
+        );
+        await runCommand(
+          "tmux",
+          ["set-option", "-t", tmuxSession, "allow-passthrough", "on"],
+          {
+            allowedExitCodes: [0, 1],
+          }
+        );
+        await runCommand(
+          "tmux",
+          ["set-option", "-as", "terminal-features", "xterm-256color:sync"],
+          {
+            allowedExitCodes: [0, 1],
+          }
+        );
 
         if (!(await this.hasAgentSession(tmuxSession))) {
           const detail = await this.readSetupLogTail(id);
-          throw new Error(`tmux session exited immediately after launch${detail}`);
+          throw new Error(
+            `tmux session exited immediately after launch${detail}`
+          );
         }
       } catch (error) {
         const message = this.errorMessage(error);
@@ -493,7 +606,7 @@ export class AgentManager {
         await this.setSystemLatestEvent(id, {
           type: "blocked",
           message: `Failed to create agent: ${message}`,
-          metadata: { source: "system", phase: "create" }
+          metadata: { source: "system", phase: "create" },
         });
         throw new AgentError(`Failed to create agent: ${message}`, 500);
       }
@@ -506,11 +619,14 @@ export class AgentManager {
    * Called by the setup script (via API) to report phase transitions and completion.
    * Updates worktree info and transitions the agent to 'running' when setup is done.
    */
-  async completeSetup(id: string, result: {
-    effectiveCwd: string;
-    worktreePath: string | null;
-    worktreeBranch: string | null;
-  }): Promise<AgentRecord> {
+  async completeSetup(
+    id: string,
+    result: {
+      effectiveCwd: string;
+      worktreePath: string | null;
+      worktreeBranch: string | null;
+    }
+  ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     if (agent.status !== "creating") {
       throw new AgentError("Agent is not in creating state.", 409);
@@ -532,7 +648,7 @@ export class AgentManager {
 
     await this.setSystemLatestEvent(id, {
       type: "working",
-      message: "Session started."
+      message: "Session started.",
     });
 
     // Clean up setup script
@@ -546,7 +662,10 @@ export class AgentManager {
     await this.setSetupPhase(id, phase);
   }
 
-  async updateReviewAgentType(id: string, reviewAgentType: AgentType | null): Promise<void> {
+  async updateReviewAgentType(
+    id: string,
+    reviewAgentType: AgentType | null
+  ): Promise<void> {
     const result = await this.pool.query(
       `UPDATE agents SET review_agent_type = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
       [id, reviewAgentType]
@@ -558,14 +677,15 @@ export class AgentManager {
 
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
-    const tmuxSession = agent.tmuxSession ?? this.toSessionName(agent.id, agent.name);
+    const tmuxSession =
+      agent.tmuxSession ?? this.toSessionName(agent.id, agent.name);
     const hasSession = await this.hasAgentSession(tmuxSession);
 
     if (hasSession) {
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "working",
-        message: "Session attached to existing tmux session."
+        message: "Session attached to existing tmux session.",
       });
       return (await this.getAgent(id)) as AgentRecord;
     }
@@ -608,7 +728,7 @@ export class AgentManager {
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "working",
-        message: shouldResume ? "Session resumed." : "Session started."
+        message: shouldResume ? "Session resumed." : "Session started.",
       });
     } catch (error) {
       const message = this.errorMessage(error);
@@ -616,7 +736,7 @@ export class AgentManager {
       await this.setSystemLatestEvent(id, {
         type: "blocked",
         message: `Failed to start agent: ${message}`,
-        metadata: { source: "system", phase: "start" }
+        metadata: { source: "system", phase: "start" },
       });
       throw new AgentError(`Failed to start agent: ${message}`, 500);
     }
@@ -637,20 +757,32 @@ export class AgentManager {
     if (this.config.agentRuntime === "inert") {
       return {
         mode: "inert",
-        message: "Agent is running in inert mode. No tmux session or CLI process is attached in this environment."
+        message:
+          "Agent is running in inert mode. No tmux session or CLI process is attached in this environment.",
       };
     }
 
     const hasSession = await this.hasAgentSession(agent.tmuxSession);
     if (!hasSession) {
-      await this.setAgentStatus(id, "stopped", "Agent tmux session is no longer running.", agent.tmuxSession);
-      throw new AgentError("Agent session is not available. Start the agent again.", 409);
+      await this.setAgentStatus(
+        id,
+        "stopped",
+        "Agent tmux session is no longer running.",
+        agent.tmuxSession
+      );
+      throw new AgentError(
+        "Agent session is not available. Start the agent again.",
+        409
+      );
     }
 
     return { mode: "tmux", sessionName: agent.tmuxSession };
   }
 
-  async stopAgent(id: string, input: StopAgentInput = {}): Promise<AgentRecord> {
+  async stopAgent(
+    id: string,
+    input: StopAgentInput = {}
+  ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     const tmuxSession = agent.tmuxSession;
     const force = input.force ?? false;
@@ -663,7 +795,10 @@ export class AgentManager {
 
     // Run repo-defined stop hook (best-effort, non-blocking)
     await this.runLifecycleHook("stop", agent).catch((err) =>
-      this.logger.warn({ err, agentId: id }, "Stop hook failed; continuing shutdown")
+      this.logger.warn(
+        { err, agentId: id },
+        "Stop hook failed; continuing shutdown"
+      )
     );
 
     try {
@@ -674,7 +809,7 @@ export class AgentManager {
       await this.setAgentStatus(id, "stopped", null, tmuxSession ?? undefined);
       await this.setSystemLatestEvent(id, {
         type: "idle",
-        message: "Session stopped."
+        message: "Session stopped.",
       });
 
       // Harvest token usage from session logs (fire-and-forget)
@@ -687,7 +822,7 @@ export class AgentManager {
       await this.setSystemLatestEvent(id, {
         type: "blocked",
         message: `Failed to stop agent: ${message}`,
-        metadata: { source: "system", phase: "stop" }
+        metadata: { source: "system", phase: "stop" },
       });
       throw new AgentError(`Failed to stop agent: ${message}`, 500);
     }
@@ -699,7 +834,10 @@ export class AgentManager {
    * Fast, synchronous first phase of archival: validates state and marks agent as archiving.
    * Returns the updated agent record for SSE broadcast.
    */
-  async beginArchive(id: string, cleanupWorktree: WorktreeCleanupMode = "auto"): Promise<AgentRecord> {
+  async beginArchive(
+    id: string,
+    cleanupWorktree: WorktreeCleanupMode = "auto"
+  ): Promise<AgentRecord> {
     // Atomic transition: only one caller can move out of non-archiving state.
     // This prevents TOCTOU races when concurrent DELETE requests hit the same agent.
     const result = await this.pool.query(
@@ -745,16 +883,28 @@ export class AgentManager {
       const t = Date.now();
       try {
         await this.runLifecycleHook("stop", agent).catch((err) =>
-          this.logger.warn({ err, agentId: id }, "Stop hook failed during archive; continuing")
+          this.logger.warn(
+            { err, agentId: id },
+            "Stop hook failed during archive; continuing"
+          )
         );
-        if (agent.tmuxSession && (await this.hasAgentSession(agent.tmuxSession))) {
+        if (
+          agent.tmuxSession &&
+          (await this.hasAgentSession(agent.tmuxSession))
+        ) {
           await this.stopAgentSession(agent.tmuxSession, true);
         }
         this.harvestAgentTokens(agent).catch((err) =>
-          this.logger.warn({ err, agentId: id }, "Token harvest failed during archive")
+          this.logger.warn(
+            { err, agentId: id },
+            "Token harvest failed during archive"
+          )
         );
       } catch (err) {
-        this.logger.warn({ err, agentId: id }, "Stop during archive failed; continuing");
+        this.logger.warn(
+          { err, agentId: id },
+          "Stop during archive failed; continuing"
+        );
       }
       durations.stop = Date.now() - t;
 
@@ -778,12 +928,19 @@ export class AgentManager {
               this.getUnmergedChanges(agent.worktreePath),
               this.getUncommittedChanges(agent.worktreePath),
             ]);
-            const hasChanges = unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
+            const hasChanges =
+              unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
             shouldCleanup = !hasChanges;
             if (hasChanges) {
               const reasons: string[] = [];
-              if (unmerged.hasUnmergedCommits) reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
-              if (uncommitted.hasUncommittedChanges) reasons.push(`${uncommitted.uncommittedFiles.length} uncommitted file(s)`);
+              if (unmerged.hasUnmergedCommits)
+                reasons.push(
+                  `${unmerged.changedFiles.length} unmerged file(s)`
+                );
+              if (uncommitted.hasUncommittedChanges)
+                reasons.push(
+                  `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
+                );
               preserveReason = reasons.join(", ");
             }
           } else if (!shouldCleanup && cleanupWorktree === "keep") {
@@ -799,18 +956,29 @@ export class AgentManager {
             await cleanupGitWorktree({
               cwd: agent.worktreePath,
               deleteBranch: true,
-              force: true
+              force: true,
             });
             durations.worktreeCleanup = Date.now() - tCleanup;
-            this.logger.info({ agentId: id, worktreePath: agent.worktreePath }, "Cleaned up agent worktree.");
+            this.logger.info(
+              { agentId: id, worktreePath: agent.worktreePath },
+              "Cleaned up agent worktree."
+            );
           } else {
             this.logger.info(
-              { agentId: id, worktreePath: agent.worktreePath, cleanupWorktree, preserveReason },
+              {
+                agentId: id,
+                worktreePath: agent.worktreePath,
+                cleanupWorktree,
+                preserveReason,
+              },
               `Preserved agent worktree: ${preserveReason}.`
             );
           }
         } catch (error) {
-          this.logger.warn({ err: error, agentId: id }, "Worktree cleanup failed; leaving on disk.");
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Worktree cleanup failed; leaving on disk."
+          );
         }
       }
 
@@ -825,9 +993,14 @@ export class AgentManager {
            FROM agents WHERE id = $1`,
           [id]
         )
-        .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
+        .catch((err) =>
+          this.logger.warn({ err }, "Failed to insert delete event")
+        );
 
-      await this.pool.query("UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1", [id]);
+      await this.pool.query(
+        "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
+        [id]
+      );
       durations.db = Date.now() - tDb;
 
       // Cascade: archive child agents (persona agents spawned by this parent)
@@ -840,7 +1013,10 @@ export class AgentManager {
         try {
           await this.deleteAgentDirect(child.id, true, cleanupWorktree);
         } catch (err) {
-          this.logger.warn({ err, childId: child.id, parentId: id }, "Failed to cascade-delete child agent");
+          this.logger.warn(
+            { err, childId: child.id, parentId: id },
+            "Failed to cascade-delete child agent"
+          );
         }
       }
       if (children.rows.length > 0) {
@@ -848,17 +1024,28 @@ export class AgentManager {
       }
 
       durations.total = Date.now() - deleteStart;
-      const parts = Object.entries(durations).map(([k, v]) => `${k}=${v}ms`).join(", ");
-      this.logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
+      const parts = Object.entries(durations)
+        .map(([k, v]) => `${k}=${v}ms`)
+        .join(", ");
+      this.logger.info(
+        { agentId: id, durations },
+        `Archive durations: ${parts}`
+      );
 
       const deletedIds = [id, ...children.rows.map((r) => r.id)];
       callbacks.onComplete(deletedIds);
     } catch (error) {
       this.logger.error({ err: error, agentId: id }, "Archive failed");
       try {
-        await this.setAgentStatus(id, "error", error instanceof Error ? error.message : "Archive failed");
+        await this.setAgentStatus(
+          id,
+          "error",
+          error instanceof Error ? error.message : "Archive failed"
+        );
         await this.setArchivePhase(id, null);
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
       callbacks.onError(error);
     }
   }
@@ -866,14 +1053,23 @@ export class AgentManager {
   /**
    * Synchronous delete for child/cascade agents (no worktree, fast).
    */
-  private async deleteAgentDirect(id: string, force = false, cleanupWorktree: WorktreeCleanupMode = "auto"): Promise<void> {
+  private async deleteAgentDirect(
+    id: string,
+    force = false,
+    cleanupWorktree: WorktreeCleanupMode = "auto"
+  ): Promise<void> {
     const deleteStart = Date.now();
     const durations: Record<string, number> = {};
     const agent = await this.getRequiredAgent(id);
-    const sessionExists = agent.tmuxSession ? await this.hasAgentSession(agent.tmuxSession) : false;
+    const sessionExists = agent.tmuxSession
+      ? await this.hasAgentSession(agent.tmuxSession)
+      : false;
 
     if (agent.status === "running" && sessionExists && !force) {
-      throw new AgentError("Agent is running. Stop it first or use force delete.", 409);
+      throw new AgentError(
+        "Agent is running. Stop it first or use force delete.",
+        409
+      );
     }
 
     if (agent.status !== "stopped") {
@@ -881,7 +1077,10 @@ export class AgentManager {
       try {
         await this.stopAgent(id, { force: true });
       } catch (err) {
-        this.logger.warn({ err, agentId: id }, "Stop during delete failed; continuing with deletion");
+        this.logger.warn(
+          { err, agentId: id },
+          "Stop during delete failed; continuing with deletion"
+        );
       }
       durations.stop = Date.now() - t;
     }
@@ -894,9 +1093,14 @@ export class AgentManager {
          FROM agents WHERE id = $1`,
         [id]
       )
-      .catch((err) => this.logger.warn({ err }, "Failed to insert delete event"));
+      .catch((err) =>
+        this.logger.warn({ err }, "Failed to insert delete event")
+      );
 
-    await this.pool.query("UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1", [id]);
+    await this.pool.query(
+      "UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+      [id]
+    );
     durations.db = Date.now() - tDb;
 
     // Cascade to any children (recursive to handle multi-level nesting)
@@ -908,12 +1112,17 @@ export class AgentManager {
       try {
         await this.deleteAgentDirect(child.id, true, cleanupWorktree);
       } catch (err) {
-        this.logger.warn({ err, childId: child.id, parentId: id }, "Failed to cascade-delete child agent");
+        this.logger.warn(
+          { err, childId: child.id, parentId: id },
+          "Failed to cascade-delete child agent"
+        );
       }
     }
 
     durations.total = Date.now() - deleteStart;
-    const parts = Object.entries(durations).map(([k, v]) => `${k}=${v}ms`).join(", ");
+    const parts = Object.entries(durations)
+      .map(([k, v]) => `${k}=${v}ms`)
+      .join(", ");
     this.logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
   }
 
@@ -921,7 +1130,15 @@ export class AgentManager {
     const agent = await this.getRequiredAgent(id);
 
     if (!agent.worktreePath) {
-      return { hasWorktree: false, hasUnmergedCommits: false, hasUncommittedChanges: false, worktreePath: null, branchName: null, changedFiles: [], uncommittedFiles: [] };
+      return {
+        hasWorktree: false,
+        hasUnmergedCommits: false,
+        hasUncommittedChanges: false,
+        worktreePath: null,
+        branchName: null,
+        changedFiles: [],
+        uncommittedFiles: [],
+      };
     }
 
     let branchName: string | null = null;
@@ -932,10 +1149,14 @@ export class AgentManager {
 
     try {
       const branchResult = await runCommand(
-        "git", ["-C", agent.worktreePath, "symbolic-ref", "--short", "-q", "HEAD"],
+        "git",
+        ["-C", agent.worktreePath, "symbolic-ref", "--short", "-q", "HEAD"],
         { allowedExitCodes: [0, 1] }
       );
-      branchName = branchResult.exitCode === 0 && branchResult.stdout ? branchResult.stdout : null;
+      branchName =
+        branchResult.exitCode === 0 && branchResult.stdout
+          ? branchResult.stdout
+          : null;
       const [unmerged, uncommitted] = await Promise.all([
         this.getUnmergedChanges(agent.worktreePath),
         this.getUncommittedChanges(agent.worktreePath),
@@ -955,14 +1176,20 @@ export class AgentManager {
       worktreePath: agent.worktreePath,
       branchName,
       changedFiles,
-      uncommittedFiles
+      uncommittedFiles,
     };
   }
 
-  async upsertLatestEvent(id: string, input: AgentLatestEventInput): Promise<AgentRecord> {
+  async upsertLatestEvent(
+    id: string,
+    input: AgentLatestEventInput
+  ): Promise<AgentRecord> {
     const message = input.message.trim();
     if (!message) {
-      throw new AgentError("Latest event message must be a non-empty string.", 400);
+      throw new AgentError(
+        "Latest event message must be a non-empty string.",
+        400
+      );
     }
 
     const result = await this.pool.query(
@@ -990,7 +1217,9 @@ export class AgentManager {
          FROM agents WHERE id = $1`,
         [id, input.type, message, JSON.stringify(input.metadata ?? {})]
       )
-      .catch((err) => this.logger.warn({ err }, "Failed to insert agent event history"));
+      .catch((err) =>
+        this.logger.warn({ err }, "Failed to insert agent event history")
+      );
 
     // Agent could be soft-deleted between the UPDATE and this SELECT in rare races.
     // Guard against null to prevent downstream crashes (e.g. in event listeners).
@@ -1063,12 +1292,21 @@ export class AgentManager {
 
     const reconciled: AgentRecord[] = [];
 
-    for (const row of result.rows as Array<{ id: string; tmuxSession: string | null; status: string; updatedAt: string }>) {
+    for (const row of result.rows as Array<{
+      id: string;
+      tmuxSession: string | null;
+      status: string;
+      updatedAt: string;
+    }>) {
       // Archiving agents are handled separately — only resume if stuck for > 30s
       if (row.status === "archiving") {
-        const stuckSeconds = (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
+        const stuckSeconds =
+          (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
         if (stuckSeconds > 30) {
-          this.logger.info({ id: row.id, stuckSeconds }, "Found agent stuck in archiving state — will be resumed");
+          this.logger.info(
+            { id: row.id, stuckSeconds },
+            "Found agent stuck in archiving state — will be resumed"
+          );
           const agent = await this.getAgent(row.id);
           if (agent) {
             reconciled.push(agent);
@@ -1077,38 +1315,61 @@ export class AgentManager {
         continue;
       }
 
-      const exists = row.tmuxSession ? await this.hasAgentSession(row.tmuxSession) : false;
+      const exists = row.tmuxSession
+        ? await this.hasAgentSession(row.tmuxSession)
+        : false;
 
       if (!exists) {
-        const exitInfo = this.config.agentRuntime === "tmux" && row.tmuxSession
-          ? await this.readExitFile(row.tmuxSession)
-          : null;
+        const exitInfo =
+          this.config.agentRuntime === "tmux" && row.tmuxSession
+            ? await this.readExitFile(row.tmuxSession)
+            : null;
         if (this.config.agentRuntime === "tmux" && row.tmuxSession) {
           await this.captureMissingSessionIncident({
             agentId: row.id,
             tmuxSession: row.tmuxSession,
             status: row.status,
             updatedAt: row.updatedAt,
-            exitInfo
+            exitInfo,
           });
         }
         if (exitInfo !== null) {
-          this.logger.info({ id: row.id, exitCode: exitInfo }, "Agent process exited with code %d", exitInfo);
+          this.logger.info(
+            { id: row.id, exitCode: exitInfo },
+            "Agent process exited with code %d",
+            exitInfo
+          );
         }
         const setupLogTail = await this.readSetupLogTail(row.id);
         const errorDetail = setupLogTail || null;
-        const launchFailed = row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
+        const launchFailed =
+          row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
         const nextStatus: AgentStatus = launchFailed ? "error" : "stopped";
         const baseMessage = launchFailed
-          ? (row.status === "creating"
-            ? (exitInfo !== null ? `Launch failed with exit code ${exitInfo}.` : "Launch failed before the session became ready.")
-            : (exitInfo !== null ? `Session exited with code ${exitInfo}.` : "Session ended unexpectedly."))
+          ? row.status === "creating"
+            ? exitInfo !== null
+              ? `Launch failed with exit code ${exitInfo}.`
+              : "Launch failed before the session became ready."
+            : exitInfo !== null
+              ? `Session exited with code ${exitInfo}.`
+              : "Session ended unexpectedly."
           : "Session ended normally.";
-        await this.setAgentStatus(row.id, nextStatus, errorDetail, row.tmuxSession ?? undefined);
+        await this.setAgentStatus(
+          row.id,
+          nextStatus,
+          errorDetail,
+          row.tmuxSession ?? undefined
+        );
         await this.setSystemLatestEvent(row.id, {
           type: launchFailed ? "blocked" : "idle",
-          message: setupLogTail ? `${baseMessage}\n${setupLogTail}` : baseMessage,
-          metadata: { source: "system", ...(exitInfo !== null ? { exitCode: exitInfo } : {}), launchFailed }
+          message: setupLogTail
+            ? `${baseMessage}\n${setupLogTail}`
+            : baseMessage,
+          metadata: {
+            source: "system",
+            ...(exitInfo !== null ? { exitCode: exitInfo } : {}),
+            launchFailed,
+          },
         });
         const agent = await this.getAgent(row.id);
         if (agent) {
@@ -1116,14 +1377,24 @@ export class AgentManager {
         }
       } else if (row.status === "stopping") {
         const STUCK_STOPPING_TIMEOUT_S = 60;
-        const stuckSeconds = (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
+        const stuckSeconds =
+          (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
         if (stuckSeconds > STUCK_STOPPING_TIMEOUT_S) {
-          this.logger.warn({ id: row.id, stuckSeconds }, "Agent stuck in stopping state, reverting to running");
-          await this.setAgentStatus(row.id, "running", null, row.tmuxSession ?? undefined);
+          this.logger.warn(
+            { id: row.id, stuckSeconds },
+            "Agent stuck in stopping state, reverting to running"
+          );
+          await this.setAgentStatus(
+            row.id,
+            "running",
+            null,
+            row.tmuxSession ?? undefined
+          );
           await this.setSystemLatestEvent(row.id, {
             type: "working",
-            message: "Stop timed out — agent reverted to running. Try force stop.",
-            metadata: { source: "system" }
+            message:
+              "Stop timed out — agent reverted to running. Try force stop.",
+            metadata: { source: "system" },
           });
           const agent = await this.getAgent(row.id);
           if (agent) {
@@ -1141,9 +1412,13 @@ export class AgentManager {
 
     let stdout: string | undefined;
     try {
-      const result = await runCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], {
-        allowedExitCodes: [0, 1]
-      });
+      const result = await runCommand(
+        "tmux",
+        ["list-sessions", "-F", "#{session_name}:#{session_created}"],
+        {
+          allowedExitCodes: [0, 1],
+        }
+      );
       stdout = result.stdout;
     } catch {
       // tmux not running or no sessions
@@ -1190,7 +1465,10 @@ export class AgentManager {
 
       // Agent in terminal state — session is definitely orphaned
       if (status === "stopped" || status === "error") {
-        this.logger.info({ session: session.name, agentId, status }, "Killing orphaned tmux session (agent in terminal state)");
+        this.logger.info(
+          { session: session.name, agentId, status },
+          "Killing orphaned tmux session (agent in terminal state)"
+        );
         toKill.push(session.name);
         continue;
       }
@@ -1199,12 +1477,17 @@ export class AgentManager {
       // server instance using the same tmux namespace. Only clean up
       // sessions that *this* database definitively knows about.
       if (!status) {
-        this.logger.debug({ session: session.name, agentId }, "Ignoring tmux session with no matching DB record");
+        this.logger.debug(
+          { session: session.name, agentId },
+          "Ignoring tmux session with no matching DB record"
+        );
       }
     }
 
     await Promise.all(
-      toKill.map((name) => runCommand("tmux", ["kill-session", "-t", name]).catch(() => {}))
+      toKill.map((name) =>
+        runCommand("tmux", ["kill-session", "-t", name]).catch(() => {})
+      )
     );
   }
 
@@ -1214,7 +1497,10 @@ export class AgentManager {
 
   private async maybeCaptureTmuxInventory(): Promise<void> {
     const now = Date.now();
-    if (now - this.lastTmuxInventoryAt < AgentManager.TMUX_INVENTORY_INTERVAL_MS) {
+    if (
+      now - this.lastTmuxInventoryAt <
+      AgentManager.TMUX_INVENTORY_INTERVAL_MS
+    ) {
       return;
     }
     this.lastTmuxInventoryAt = now;
@@ -1226,13 +1512,22 @@ export class AgentManager {
         source: "reconcile",
         tmux: {
           serverPid: await this.detectTmuxServerPid(),
-          sessions: await this.captureCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], [0, 1]),
+          sessions: await this.captureCommand(
+            "tmux",
+            ["list-sessions", "-F", "#{session_name}:#{session_created}"],
+            [0, 1]
+          ),
           panes: await this.captureCommand(
             "tmux",
-            ["list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}"],
+            [
+              "list-panes",
+              "-a",
+              "-F",
+              "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
+            ],
             [0, 1]
-          )
-        }
+          ),
+        },
       };
       await appendFile(
         path.join(this.diagnosticsRoot(), "tmux-inventory.jsonl"),
@@ -1261,79 +1556,140 @@ export class AgentManager {
         agent: input,
         tmux: {
           serverPid: await this.detectTmuxServerPid(),
-          sessions: await this.captureCommand("tmux", ["list-sessions", "-F", "#{session_name}:#{session_created}"], [0, 1]),
+          sessions: await this.captureCommand(
+            "tmux",
+            ["list-sessions", "-F", "#{session_name}:#{session_created}"],
+            [0, 1]
+          ),
           panes: await this.captureCommand(
             "tmux",
-            ["list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}"],
+            [
+              "list-panes",
+              "-a",
+              "-F",
+              "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
+            ],
             [0, 1]
-          )
+          ),
         },
-        processes: await this.captureCommand("ps", ["-axo", "pid,ppid,pgid,user,command"], [0]),
+        processes: await this.captureCommand(
+          "ps",
+          ["-axo", "pid,ppid,pgid,user,command"],
+          [0]
+        ),
         launchctl: await this.captureCommand(
           "launchctl",
           ["print", `gui/${process.getuid?.() ?? -1}/com.dispatch.server`],
           [0, 113]
-        )
+        ),
       };
       const fileName = `${safeTs}-missing-session-${input.agentId}.json`;
-      await writeFile(path.join(this.diagnosticsRoot(), fileName), JSON.stringify(payload, null, 2), "utf-8");
+      await writeFile(
+        path.join(this.diagnosticsRoot(), fileName),
+        JSON.stringify(payload, null, 2),
+        "utf-8"
+      );
     } catch (error) {
-      this.logger.warn({ err: error, agentId: input.agentId }, "Failed to capture missing tmux session incident.");
+      this.logger.warn(
+        { err: error, agentId: input.agentId },
+        "Failed to capture missing tmux session incident."
+      );
     }
   }
 
   private async maybeMaintenanceLogs(): Promise<void> {
     const now = Date.now();
-    if (now - this.lastLogMaintenanceAt < AgentManager.LOG_MAINTENANCE_INTERVAL_MS) {
+    if (
+      now - this.lastLogMaintenanceAt <
+      AgentManager.LOG_MAINTENANCE_INTERVAL_MS
+    ) {
       return;
     }
     this.lastLogMaintenanceAt = now;
 
     try {
       // Rotate tmux-inventory.jsonl (keep 1 backup)
-      const inventoryPath = path.join(this.diagnosticsRoot(), "tmux-inventory.jsonl");
+      const inventoryPath = path.join(
+        this.diagnosticsRoot(),
+        "tmux-inventory.jsonl"
+      );
       await this.rotateFile(inventoryPath, 1);
 
       // Rotate dispatch.log via copytruncate (keep 3 backups)
-      const serverLogPath = path.join(os.homedir(), ".dispatch", "logs", "dispatch.log");
+      const serverLogPath = path.join(
+        os.homedir(),
+        ".dispatch",
+        "logs",
+        "dispatch.log"
+      );
       await this.copyTruncateFile(serverLogPath, 3);
 
       // Delete old diagnostics JSON files (> 7 days)
-      await this.deleteOldFiles(this.diagnosticsRoot(), /\.json$/, AgentManager.DIAGNOSTICS_MAX_AGE_MS);
+      await this.deleteOldFiles(
+        this.diagnosticsRoot(),
+        /\.json$/,
+        AgentManager.DIAGNOSTICS_MAX_AGE_MS
+      );
 
       // Delete old rotated logs (inventory backups > 7 days, server log backups > 14 days)
-      await this.deleteOldFiles(this.diagnosticsRoot(), /tmux-inventory\.jsonl\.\d+$/, AgentManager.DIAGNOSTICS_MAX_AGE_MS);
-      await this.deleteOldFiles(path.join(os.homedir(), ".dispatch", "logs"), /dispatch\.log\.\d+$/, AgentManager.SERVER_LOG_MAX_AGE_MS);
+      await this.deleteOldFiles(
+        this.diagnosticsRoot(),
+        /tmux-inventory\.jsonl\.\d+$/,
+        AgentManager.DIAGNOSTICS_MAX_AGE_MS
+      );
+      await this.deleteOldFiles(
+        path.join(os.homedir(), ".dispatch", "logs"),
+        /dispatch\.log\.\d+$/,
+        AgentManager.SERVER_LOG_MAX_AGE_MS
+      );
     } catch (error) {
       this.logger.warn({ err: error }, "Log maintenance failed.");
     }
   }
 
   /** Rotate by renaming: file -> file.1, file.1 -> file.2, etc. */
-  private async rotateFile(filePath: string, maxBackups: number): Promise<void> {
+  private async rotateFile(
+    filePath: string,
+    maxBackups: number
+  ): Promise<void> {
     try {
       const s = await stat(filePath);
       if (s.size < AgentManager.MAX_LOG_SIZE_BYTES) return;
-    } catch { return; } // file doesn't exist
+    } catch {
+      return;
+    } // file doesn't exist
 
     // Shift existing backups
     for (let i = maxBackups; i >= 1; i--) {
       const src = i === 1 ? filePath : `${filePath}.${i - 1}`;
       const dst = `${filePath}.${i}`;
-      try { await rename(src, dst); } catch { /* missing, skip */ }
+      try {
+        await rename(src, dst);
+      } catch {
+        /* missing, skip */
+      }
     }
   }
 
   /** Copy then truncate in-place (preserves open file descriptors like launchd's). */
-  private async copyTruncateFile(filePath: string, maxBackups: number): Promise<void> {
+  private async copyTruncateFile(
+    filePath: string,
+    maxBackups: number
+  ): Promise<void> {
     try {
       const s = await stat(filePath);
       if (s.size < AgentManager.MAX_LOG_SIZE_BYTES) return;
-    } catch { return; }
+    } catch {
+      return;
+    }
 
     // Shift existing backups
     for (let i = maxBackups; i >= 2; i--) {
-      try { await rename(`${filePath}.${i - 1}`, `${filePath}.${i}`); } catch { /* missing */ }
+      try {
+        await rename(`${filePath}.${i - 1}`, `${filePath}.${i}`);
+      } catch {
+        /* missing */
+      }
     }
 
     // Copy current to .1, then truncate in place.
@@ -1348,9 +1704,17 @@ export class AgentManager {
   }
 
   /** Delete files matching a pattern that are older than maxAgeMs. */
-  private async deleteOldFiles(dir: string, pattern: RegExp, maxAgeMs: number): Promise<void> {
+  private async deleteOldFiles(
+    dir: string,
+    pattern: RegExp,
+    maxAgeMs: number
+  ): Promise<void> {
     let entries: string[];
-    try { entries = await readdir(dir); } catch { return; }
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return;
+    }
 
     const now = Date.now();
     for (const entry of entries) {
@@ -1361,12 +1725,18 @@ export class AgentManager {
         if (now - s.mtimeMs > maxAgeMs) {
           await unlink(filePath);
         }
-      } catch { /* already gone or inaccessible */ }
+      } catch {
+        /* already gone or inaccessible */
+      }
     }
   }
 
   private async detectTmuxServerPid(): Promise<number | null> {
-    const processes = await this.captureCommand("ps", ["-axo", "pid=,comm="], [0]);
+    const processes = await this.captureCommand(
+      "ps",
+      ["-axo", "pid=,comm="],
+      [0]
+    );
     if (processes.exitCode !== 0) {
       return null;
     }
@@ -1393,7 +1763,7 @@ export class AgentManager {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: this.errorMessage(error)
+        stderr: this.errorMessage(error),
       };
     }
   }
@@ -1422,20 +1792,30 @@ export class AgentManager {
       // (claude, codex, opencode) may cd internally without updating the shell.
       const agentCwd = await this.resolveAgentProcessCwd(session);
       if (agentCwd) {
-        this.runtimeCwdCache.set(cacheKey, { value: agentCwd, expiresAt: now + 10_000 });
+        this.runtimeCwdCache.set(cacheKey, {
+          value: agentCwd,
+          expiresAt: now + 10_000,
+        });
         return agentCwd;
       }
 
       // Fall back to tmux pane_current_path (the shell's CWD).
-      const result = await runCommand("tmux", ["display-message", "-p", "-t", session, "#{pane_current_path}"], {
-        allowedExitCodes: [0, 1],
-        timeoutMs: 800
-      });
+      const result = await runCommand(
+        "tmux",
+        ["display-message", "-p", "-t", session, "#{pane_current_path}"],
+        {
+          allowedExitCodes: [0, 1],
+          timeoutMs: 800,
+        }
+      );
       const cwd = result.stdout.trim();
       if (result.exitCode !== 0 || !cwd) {
         return fallback;
       }
-      this.runtimeCwdCache.set(cacheKey, { value: cwd, expiresAt: now + 10_000 });
+      this.runtimeCwdCache.set(cacheKey, {
+        value: cwd,
+        expiresAt: now + 10_000,
+      });
       return cwd;
     } catch {
       return fallback;
@@ -1447,11 +1827,14 @@ export class AgentManager {
    * inside a tmux pane. The CLI process may have cd'd into a worktree
    * internally, which tmux's pane_current_path won't reflect.
    */
-  private async resolveAgentProcessCwd(session: string): Promise<string | null> {
+  private async resolveAgentProcessCwd(
+    session: string
+  ): Promise<string | null> {
     try {
       // Get the PID of the tmux pane's shell process.
       const pidResult = await runCommand(
-        "tmux", ["display-message", "-p", "-t", session, "#{pane_pid}"],
+        "tmux",
+        ["display-message", "-p", "-t", session, "#{pane_pid}"],
         { allowedExitCodes: [0, 1], timeoutMs: 800 }
       );
       const panePid = pidResult.stdout.trim();
@@ -1461,12 +1844,15 @@ export class AgentManager {
       }
 
       // Find the agent CLI child process (claude, codex, or opencode).
-      const childrenResult = await runCommand(
-        "pgrep", ["-P", panePid],
-        { allowedExitCodes: [0, 1], timeoutMs: 800 }
-      );
+      const childrenResult = await runCommand("pgrep", ["-P", panePid], {
+        allowedExitCodes: [0, 1],
+        timeoutMs: 800,
+      });
       if (childrenResult.exitCode !== 0 || !childrenResult.stdout.trim()) {
-        this.logger.debug({ session, panePid }, "resolveAgentProcessCwd: no children");
+        this.logger.debug(
+          { session, panePid },
+          "resolveAgentProcessCwd: no children"
+        );
         return null;
       }
 
@@ -1475,30 +1861,42 @@ export class AgentManager {
 
       for (const pid of childPids) {
         const commResult = await runCommand(
-          "ps", ["-o", "comm=", "-p", pid.trim()],
+          "ps",
+          ["-o", "comm=", "-p", pid.trim()],
           { allowedExitCodes: [0, 1], timeoutMs: 800 }
         );
         const comm = commResult.stdout.trim();
         // Match agent CLI binaries by basename.
         const basename = comm.split("/").pop() ?? "";
-        if (basename === "claude" || basename === "codex" || basename === "opencode") {
+        if (
+          basename === "claude" ||
+          basename === "codex" ||
+          basename === "opencode"
+        ) {
           agentPid = pid.trim();
           break;
         }
       }
 
       if (!agentPid) {
-        this.logger.debug({ session, panePid }, "resolveAgentProcessCwd: no agent CLI among children");
+        this.logger.debug(
+          { session, panePid },
+          "resolveAgentProcessCwd: no agent CLI among children"
+        );
         return null;
       }
 
       // Read the process's CWD via lsof (works on macOS and Linux).
       const lsofResult = await runCommand(
-        "lsof", ["-a", "-p", agentPid, "-d", "cwd", "-Fn"],
+        "lsof",
+        ["-a", "-p", agentPid, "-d", "cwd", "-Fn"],
         { allowedExitCodes: [0, 1], timeoutMs: 800 }
       );
       if (lsofResult.exitCode !== 0 || !lsofResult.stdout) {
-        this.logger.debug({ session, agentPid }, "resolveAgentProcessCwd: lsof failed");
+        this.logger.debug(
+          { session, agentPid },
+          "resolveAgentProcessCwd: lsof failed"
+        );
         return null;
       }
 
@@ -1506,7 +1904,10 @@ export class AgentManager {
       for (const line of lsofResult.stdout.split("\n")) {
         if (line.startsWith("n/")) {
           const cwd = line.slice(1);
-          this.logger.debug({ session, agentPid, cwd }, "resolveAgentProcessCwd: resolved");
+          this.logger.debug(
+            { session, agentPid, cwd },
+            "resolveAgentProcessCwd: resolved"
+          );
           return cwd;
         }
       }
@@ -1552,21 +1953,41 @@ export class AgentManager {
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
     const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
     const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
-    await runCommand("tmux", ["new-session", "-d", "-s", sessionName, "-c", cwd, wrappedCommand]);
-    await runCommand("tmux", ["set-option", "-t", sessionName, "status", "off"], {
-      allowedExitCodes: [0, 1]
-    });
+    await runCommand("tmux", [
+      "new-session",
+      "-d",
+      "-s",
+      sessionName,
+      "-c",
+      cwd,
+      wrappedCommand,
+    ]);
+    await runCommand(
+      "tmux",
+      ["set-option", "-t", sessionName, "status", "off"],
+      {
+        allowedExitCodes: [0, 1],
+      }
+    );
     // Allow DCS passthrough so agent CLIs that wrap escape sequences
     // (e.g. synchronized output) can reach the outer terminal directly.
-    await runCommand("tmux", ["set-option", "-t", sessionName, "allow-passthrough", "on"], {
-      allowedExitCodes: [0, 1]
-    });
+    await runCommand(
+      "tmux",
+      ["set-option", "-t", sessionName, "allow-passthrough", "on"],
+      {
+        allowedExitCodes: [0, 1],
+      }
+    );
     // Advertise synchronized output support so tmux wraps frame rendering
     // in DEC 2026 sequences, reducing terminal flashing.  Set once per session
     // start (not per WebSocket attach) to avoid unbounded array growth.
-    await runCommand("tmux", ["set-option", "-as", "terminal-features", "xterm-256color:sync"], {
-      allowedExitCodes: [0, 1]
-    });
+    await runCommand(
+      "tmux",
+      ["set-option", "-as", "terminal-features", "xterm-256color:sync"],
+      {
+        allowedExitCodes: [0, 1],
+      }
+    );
 
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
@@ -1591,13 +2012,20 @@ export class AgentManager {
       return sessionName.trim().length > 0;
     }
 
-    const result = await runCommand("tmux", ["has-session", "-t", sessionName], {
-      allowedExitCodes: [0, 1]
-    });
+    const result = await runCommand(
+      "tmux",
+      ["has-session", "-t", sessionName],
+      {
+        allowedExitCodes: [0, 1],
+      }
+    );
     return result.exitCode === 0;
   }
 
-  private async stopAgentSession(sessionName: string, force: boolean): Promise<void> {
+  private async stopAgentSession(
+    sessionName: string,
+    force: boolean
+  ): Promise<void> {
     if (this.config.agentRuntime === "inert") {
       return;
     }
@@ -1612,9 +2040,10 @@ export class AgentManager {
     }
   }
 
-
-
-  private async runLifecycleHook(hookName: "stop", agent: AgentRecord): Promise<void> {
+  private async runLifecycleHook(
+    hookName: "stop",
+    agent: AgentRecord
+  ): Promise<void> {
     const repoRoot = agent.worktreePath ?? agent.cwd;
     if (!repoRoot) return;
 
@@ -1623,7 +2052,10 @@ export class AgentManager {
     if (!hook) return;
 
     const [command, ...args] = hook.command;
-    this.logger.info({ agentId: agent.id, hook: hookName, command: hook.command }, "Running lifecycle hook");
+    this.logger.info(
+      { agentId: agent.id, hook: hookName, command: hook.command },
+      "Running lifecycle hook"
+    );
 
     const result = await runCommand(command, args, {
       cwd: repoRoot,
@@ -1635,7 +2067,12 @@ export class AgentManager {
 
     if (result.exitCode !== 0) {
       this.logger.warn(
-        { agentId: agent.id, hook: hookName, exitCode: result.exitCode, stderr: result.stderr },
+        {
+          agentId: agent.id,
+          hook: hookName,
+          exitCode: result.exitCode,
+          stderr: result.stderr,
+        },
         "Lifecycle hook exited with non-zero code"
       );
     }
@@ -1676,7 +2113,9 @@ export class AgentManager {
           ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas and launch 1 relevant reviewer via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
           : "");
 
-    const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
+    const userLocalBin = process.env.HOME
+      ? path.join(process.env.HOME, ".local/bin")
+      : null;
     const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
       (entry): entry is string => typeof entry === "string" && entry.length > 0
     );
@@ -1690,13 +2129,15 @@ export class AgentManager {
       `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
       // Pin the Bash tool's cwd to the project root (worktree) after every command.
       // Prevents cwd drift back to the original repo root during long conversations.
-      `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`
+      `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`,
     ];
 
     // Forward the clipboard display to agent sessions so CLI tools can read
     // images pasted via the browser clipboard (xclip needs a DISPLAY).
     if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
-      envPrefixParts.push(`DISPATCH_COPY_DISPLAY=${this.shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`);
+      envPrefixParts.push(
+        `DISPATCH_COPY_DISPLAY=${this.shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`
+      );
     }
 
     // When TLS is enabled with a CA cert, tell agent CLI tools to trust it
@@ -1725,7 +2166,7 @@ export class AgentManager {
             codesearch: { "*": "allow" },
             lsp: { "*": "allow" },
             skill: { "*": "allow" },
-            external_directory: { "*": "allow" }
+            external_directory: { "*": "allow" },
           })
         )}`
       );
@@ -1738,20 +2179,23 @@ export class AgentManager {
       ? createJobMcpToken(this.config.authToken, jobRunId, agentId)
       : createAgentMcpToken(this.config.authToken, agentId);
     const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
-    const { passthroughArgs, appendedSystemPrompt } = this.normalizeAgentArgsForType(type, args);
+    const { passthroughArgs, appendedSystemPrompt } =
+      this.normalizeAgentArgsForType(type, args);
 
     if (type === "claude") {
-      const mcpConfig = this.shellEscape(JSON.stringify({
-        mcpServers: {
-          dispatch: {
-            type: "http",
-            url: dispatchMcpUrl,
-            headers: {
-              Authorization: `Bearer ${dispatchMcpToken}`
-            }
-          }
-        }
-      }));
+      const mcpConfig = this.shellEscape(
+        JSON.stringify({
+          mcpServers: {
+            dispatch: {
+              type: "http",
+              url: dispatchMcpUrl,
+              headers: {
+                Authorization: `Bearer ${dispatchMcpToken}`,
+              },
+            },
+          },
+        })
+      );
       const mcpFlag = `--mcp-config ${mcpConfig}`;
       // Elevate guidance to system prompt so it persists through long conversations
       // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
@@ -1760,9 +2204,13 @@ export class AgentManager {
       // Session tracking: --resume continues an existing session, --session-id starts
       // a new one with a known ID for token attribution and future resume.
       const sessionFlag = cliSessionId
-        ? (resume ? `--resume ${this.shellEscape(cliSessionId)}` : `--session-id ${this.shellEscape(cliSessionId)}`)
+        ? resume
+          ? `--resume ${this.shellEscape(cliSessionId)}`
+          : `--session-id ${this.shellEscape(cliSessionId)}`
         : "";
-      const flags = [mcpFlag, systemFlag, sessionFlag].filter(Boolean).join(" ");
+      const flags = [mcpFlag, systemFlag, sessionFlag]
+        .filter(Boolean)
+        .join(" ");
       // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
       const allArgs = initialPrompt ? [...args, initialPrompt] : args;
       if (allArgs.length === 0) {
@@ -1773,41 +2221,62 @@ export class AgentManager {
     }
 
     if (type === "opencode") {
-      const promptParts = [launchGuidance, appendedSystemPrompt, initialPrompt].filter(Boolean);
+      const promptParts = [
+        launchGuidance,
+        appendedSystemPrompt,
+        initialPrompt,
+      ].filter(Boolean);
       const startupPrompt = promptParts.join("\n\n");
       const promptFlag = `--prompt ${this.shellEscape(startupPrompt)}`;
-      const sessionFlag = (resume && cliSessionId) ? `--session ${this.shellEscape(cliSessionId)}` : "";
+      const sessionFlag =
+        resume && cliSessionId
+          ? `--session ${this.shellEscape(cliSessionId)}`
+          : "";
       const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
       if (passthroughArgs.length === 0) {
         return `${envPrefix} ${this.shellEscape(cliBin)} ${flagParts}`;
       }
-      const escaped = passthroughArgs.map((arg) => this.shellEscape(arg)).join(" ");
+      const escaped = passthroughArgs
+        .map((arg) => this.shellEscape(arg))
+        .join(" ");
       return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${flagParts}`;
     }
 
     // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
     const codexMcpFlags = [
       "-c",
-      this.shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`),
+      this.shellEscape(
+        `mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`
+      ),
       "-c",
-      this.shellEscape(`mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`)
+      this.shellEscape(
+        `mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`
+      ),
     ].join(" ");
     const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(dispatchMcpToken)}`;
     // Codex resume: `codex resume <sessionId>` with MCP flags
     if (resume && cliSessionId) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
     }
-    const codexPromptParts = [launchGuidance, appendedSystemPrompt, initialPrompt].filter(Boolean);
+    const codexPromptParts = [
+      launchGuidance,
+      appendedSystemPrompt,
+      initialPrompt,
+    ].filter(Boolean);
     const startupPrompt = codexPromptParts.join("\n\n");
     if (passthroughArgs.length === 0) {
       return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(startupPrompt)}`;
     }
-    const escaped = passthroughArgs.map((arg) => this.shellEscape(arg)).join(" ");
+    const escaped = passthroughArgs
+      .map((arg) => this.shellEscape(arg))
+      .join(" ");
     return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(startupPrompt)}`;
   }
 
   private dispatchMcpUrl(agentId: string, jobRunId?: string): string {
-    const path = jobRunId ? `/api/mcp/jobs/${jobRunId}/${agentId}` : `/api/mcp/${agentId}`;
+    const path = jobRunId
+      ? `/api/mcp/jobs/${jobRunId}/${agentId}`
+      : `/api/mcp/${agentId}`;
     return `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}${path}`;
   }
 
@@ -1828,7 +2297,10 @@ export class AgentManager {
 
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
-      if (arg === "--append-system-prompt" && typeof args[index + 1] === "string") {
+      if (
+        arg === "--append-system-prompt" &&
+        typeof args[index + 1] === "string"
+      ) {
         appendedSystemPrompt = args[index + 1] ?? null;
         index += 1;
         continue;
@@ -1843,7 +2315,7 @@ export class AgentManager {
     const cwd = rawCwd.startsWith("~/")
       ? path.join(process.env.HOME ?? "/", rawCwd.slice(2))
       : rawCwd === "~"
-        ? process.env.HOME ?? "/"
+        ? (process.env.HOME ?? "/")
         : rawCwd;
 
     if (!path.isAbsolute(cwd)) {
@@ -1852,7 +2324,10 @@ export class AgentManager {
 
     const directory = await stat(cwd).catch(() => null);
     if (!directory || !directory.isDirectory()) {
-      throw new AgentError("Working directory does not exist or is not a directory.", 400);
+      throw new AgentError(
+        "Working directory does not exist or is not a directory.",
+        400
+      );
     }
 
     return cwd;
@@ -1887,7 +2362,10 @@ export class AgentManager {
     );
 
     if (result.rowCount !== 1) {
-      this.logger.warn({ id, status }, "Agent status update skipped because row was missing.");
+      this.logger.warn(
+        { id, status },
+        "Agent status update skipped because row was missing."
+      );
     }
   }
 
@@ -1916,7 +2394,10 @@ export class AgentManager {
   ): Promise<PersonaReviewRecord> {
     const VALID_STATUSES = ["reviewing"];
     if (!VALID_STATUSES.includes(input.status)) {
-      throw new AgentError(`Invalid review status "${input.status}". Must be one of: ${VALID_STATUSES.join(", ")}`, 400);
+      throw new AgentError(
+        `Invalid review status "${input.status}". Must be one of: ${VALID_STATUSES.join(", ")}`,
+        400
+      );
     }
     const result = await this.pool.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
@@ -1928,17 +2409,26 @@ export class AgentManager {
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [agentId, input.status, input.message ?? null]
     );
-    if (result.rowCount === 0) throw new AgentError("No persona review found for agent.", 404);
+    if (result.rowCount === 0)
+      throw new AgentError("No persona review found for agent.", 404);
     return result.rows[0]!;
   }
 
   async completePersonaReview(
     agentId: string,
-    input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+    input: {
+      verdict: string;
+      summary: string;
+      filesReviewed?: string[];
+      message?: string;
+    }
   ): Promise<PersonaReviewRecord> {
     const VALID_VERDICTS = ["approve", "request_changes"];
     if (!VALID_VERDICTS.includes(input.verdict)) {
-      throw new AgentError(`verdict must be one of: ${VALID_VERDICTS.join(", ")}`, 400);
+      throw new AgentError(
+        `verdict must be one of: ${VALID_VERDICTS.join(", ")}`,
+        400
+      );
     }
     if (input.summary.length > 10_000) {
       throw new AgentError("summary exceeds 10,000 character limit.", 400);
@@ -1952,7 +2442,10 @@ export class AgentManager {
       }
       for (const filePath of input.filesReviewed) {
         if (filePath.length > 500) {
-          throw new AgentError("Individual file path in filesReviewed exceeds 500 character limit.", 400);
+          throw new AgentError(
+            "Individual file path in filesReviewed exceeds 500 character limit.",
+            400
+          );
         }
       }
     }
@@ -1965,9 +2458,16 @@ export class AgentManager {
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [agentId, input.verdict, input.summary, JSON.stringify(input.filesReviewed ?? []), input.message ?? null]
+      [
+        agentId,
+        input.verdict,
+        input.summary,
+        JSON.stringify(input.filesReviewed ?? []),
+        input.message ?? null,
+      ]
     );
-    if (result.rowCount === 0) throw new AgentError("No persona review found for agent.", 404);
+    if (result.rowCount === 0)
+      throw new AgentError("No persona review found for agent.", 404);
     return result.rows[0]!;
   }
 
@@ -1983,7 +2483,9 @@ export class AgentManager {
     return result.rows[0] ?? null;
   }
 
-  async getPersonaReviewsByParent(parentAgentId: string): Promise<PersonaReviewRecord[]> {
+  async getPersonaReviewsByParent(
+    parentAgentId: string
+  ): Promise<PersonaReviewRecord[]> {
     const result = await this.pool.query<PersonaReviewRecord>(
       `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
               persona, status, message, verdict, summary,
@@ -1996,7 +2498,9 @@ export class AgentManager {
     return result.rows;
   }
 
-  async listRecentPersonaReviews(sinceDays: number): Promise<PersonaReviewRecord[]> {
+  async listRecentPersonaReviews(
+    sinceDays: number
+  ): Promise<PersonaReviewRecord[]> {
     const result = await this.pool.query<PersonaReviewRecord>(
       `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
               persona, status, message, verdict, summary,
@@ -2010,7 +2514,9 @@ export class AgentManager {
     return result.rows;
   }
 
-  async listRecentFeedback(sinceDays: number): Promise<Array<FeedbackRecord & { persona: string }>> {
+  async listRecentFeedback(
+    sinceDays: number
+  ): Promise<Array<FeedbackRecord & { persona: string }>> {
     const result = await this.pool.query<FeedbackRecord & { persona: string }>(
       `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
               f.line_number AS "lineNumber", f.description, f.suggestion,
@@ -2048,15 +2554,22 @@ export class AgentManager {
     const agentParams: unknown[] = [rangeStart, rangeEnd];
     if (params.project) {
       agentParams.push(params.project);
-      agentConditions.push(`COALESCE(git_context->>'repoRoot', cwd) = $${agentParams.length}`);
+      agentConditions.push(
+        `COALESCE(git_context->>'repoRoot', cwd) = $${agentParams.length}`
+      );
     }
     const agentWhere = `WHERE ${agentConditions.join(" AND ")}`;
 
     // Run all three queries in parallel
-    const [workingTimeResult, sessionResult, agentMetaResult] = await Promise.all([
-      // Query 1: Working time per agent per project via SQL window functions
-      this.pool.query<{ agentId: string; projectDir: string; totalWorkingMs: string }>(
-        `WITH boundary AS (
+    const [workingTimeResult, sessionResult, agentMetaResult] =
+      await Promise.all([
+        // Query 1: Working time per agent per project via SQL window functions
+        this.pool.query<{
+          agentId: string;
+          projectDir: string;
+          totalWorkingMs: string;
+        }>(
+          `WITH boundary AS (
           SELECT DISTINCT ON (ae.agent_id)
             ae.agent_id, ae.event_type,
             $1::timestamptz AS effective_at,
@@ -2096,15 +2609,19 @@ export class AgentManager {
         FROM with_next
         WHERE project_dir IS NOT NULL ${wtProjectFilter}
         GROUP BY agent_id, project_dir`,
-        wtParams
-      ),
+          wtParams
+        ),
 
-      // Query 2: Session counts and outcomes by project
-      this.pool.query<{
-        projectDir: string; sessionCount: string; doneCount: string;
-        idleCount: string; blockedCount: string; errorCount: string;
-      }>(
-        `SELECT
+        // Query 2: Session counts and outcomes by project
+        this.pool.query<{
+          projectDir: string;
+          sessionCount: string;
+          doneCount: string;
+          idleCount: string;
+          blockedCount: string;
+          errorCount: string;
+        }>(
+          `SELECT
           COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
           COUNT(*)::int AS "sessionCount",
           COUNT(*) FILTER (WHERE latest_event_type = 'done')::int AS "doneCount",
@@ -2114,33 +2631,45 @@ export class AgentManager {
         FROM agents
         ${agentWhere}
         GROUP BY COALESCE(git_context->>'repoRoot', cwd)`,
-        agentParams
-      ),
+          agentParams
+        ),
 
-      // Query 3: Agent metadata for top agents list
-      this.pool.query<{
-        id: string; name: string; projectDir: string;
-        latestEventType: string | null; latestEventMessage: string | null;
-      }>(
-        `SELECT id, name,
+        // Query 3: Agent metadata for top agents list
+        this.pool.query<{
+          id: string;
+          name: string;
+          projectDir: string;
+          latestEventType: string | null;
+          latestEventMessage: string | null;
+        }>(
+          `SELECT id, name,
           COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
           latest_event_type AS "latestEventType",
           latest_event_message AS "latestEventMessage"
         FROM agents
         ${agentWhere}`,
-        agentParams
-      ),
-    ]);
+          agentParams
+        ),
+      ]);
 
     // Aggregate working time by project and by agent
-    const projectWorkingTime = new Map<string, { totalWorkingMs: number; agents: Set<string> }>();
-    const workingTimeByAgent = new Map<string, { project: string; totalWorkingMs: number }>();
+    const projectWorkingTime = new Map<
+      string,
+      { totalWorkingMs: number; agents: Set<string> }
+    >();
+    const workingTimeByAgent = new Map<
+      string,
+      { project: string; totalWorkingMs: number }
+    >();
 
     for (const row of workingTimeResult.rows) {
       const ms = Number(row.totalWorkingMs);
 
       // Per-project aggregation
-      const proj = projectWorkingTime.get(row.projectDir) ?? { totalWorkingMs: 0, agents: new Set() };
+      const proj = projectWorkingTime.get(row.projectDir) ?? {
+        totalWorkingMs: 0,
+        agents: new Set(),
+      };
       proj.totalWorkingMs += ms;
       proj.agents.add(row.agentId);
       projectWorkingTime.set(row.projectDir, proj);
@@ -2150,15 +2679,23 @@ export class AgentManager {
       if (agent) {
         agent.totalWorkingMs += ms;
       } else {
-        workingTimeByAgent.set(row.agentId, { project: row.projectDir, totalWorkingMs: ms });
+        workingTimeByAgent.set(row.agentId, {
+          project: row.projectDir,
+          totalWorkingMs: ms,
+        });
       }
     }
 
     // Index session data by project
-    const sessionsByProject = new Map(sessionResult.rows.map((r) => [r.projectDir, r]));
+    const sessionsByProject = new Map(
+      sessionResult.rows.map((r) => [r.projectDir, r])
+    );
 
     // Merge project-level data
-    const allProjectDirs = new Set([...projectWorkingTime.keys(), ...sessionsByProject.keys()]);
+    const allProjectDirs = new Set([
+      ...projectWorkingTime.keys(),
+      ...sessionsByProject.keys(),
+    ]);
     const projects = [...allProjectDirs]
       .map((dir) => {
         const working = projectWorkingTime.get(dir);
@@ -2218,10 +2755,7 @@ export class AgentManager {
     includeReviews: boolean;
     includeChildren: boolean;
   }): Promise<AgentHistoryResult> {
-    const conditions: string[] = [
-      "created_at >= $1",
-      "created_at <= $2",
-    ];
+    const conditions: string[] = ["created_at >= $1", "created_at <= $2"];
     const queryParams: unknown[] = [params.start, params.end];
 
     if (!params.includeChildren) {
@@ -2229,7 +2763,9 @@ export class AgentManager {
     }
     if (params.project) {
       queryParams.push(params.project);
-      conditions.push(`COALESCE(git_context->>'repoRoot', cwd) = $${queryParams.length}`);
+      conditions.push(
+        `COALESCE(git_context->>'repoRoot', cwd) = $${queryParams.length}`
+      );
     }
 
     const whereClause = `WHERE ${conditions.join(" AND ")}`;
@@ -2241,12 +2777,19 @@ export class AgentManager {
         queryParams
       ),
       this.pool.query<{
-        id: string; name: string; type: string; status: string;
-        projectDir: string; createdAt: string;
-        latestEventType: string | null; latestEventMessage: string | null;
-        pins: AgentPin[]; gitContext: AgentGitContext | null;
+        id: string;
+        name: string;
+        type: string;
+        status: string;
+        projectDir: string;
+        createdAt: string;
+        latestEventType: string | null;
+        latestEventMessage: string | null;
+        pins: AgentPin[];
+        gitContext: AgentGitContext | null;
         worktreeBranch: string | null;
-        persona: string | null; parentAgentId: string | null;
+        persona: string | null;
+        parentAgentId: string | null;
       }>(
         `SELECT id, name, type, status,
           COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
@@ -2276,10 +2819,14 @@ export class AgentManager {
     // Fetch related data in parallel
     const [eventsRows, feedbackRows, reviewsRows] = await Promise.all([
       params.includeEvents && agentIds.length > 0
-        ? this.pool.query<{
-            agentId: string; type: string; message: string; createdAt: string;
-          }>(
-            `SELECT agent_id AS "agentId", event_type AS type, message,
+        ? this.pool
+            .query<{
+              agentId: string;
+              type: string;
+              message: string;
+              createdAt: string;
+            }>(
+              `SELECT agent_id AS "agentId", event_type AS type, message,
                     created_at AS "createdAt"
              FROM (
                SELECT *, ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY created_at ASC) AS rn
@@ -2288,72 +2835,112 @@ export class AgentManager {
              ) ranked
              WHERE rn <= 200
              ORDER BY agent_id, created_at ASC`,
-            [agentIds]
-          ).then((r) => r.rows)
+              [agentIds]
+            )
+            .then((r) => r.rows)
         : [],
       params.includeFeedback && parentAgentIds.length > 0
-        ? this.pool.query<{
-            parentAgentId: string; id: number; persona: string; severity: string;
-            description: string; filePath: string | null; suggestion: string | null;
-            status: string;
-          }>(
-            `SELECT a.parent_agent_id AS "parentAgentId",
+        ? this.pool
+            .query<{
+              parentAgentId: string;
+              id: number;
+              persona: string;
+              severity: string;
+              description: string;
+              filePath: string | null;
+              suggestion: string | null;
+              status: string;
+            }>(
+              `SELECT a.parent_agent_id AS "parentAgentId",
                     f.id, a.persona, f.severity, f.description,
                     f.file_path AS "filePath", f.suggestion, f.status
              FROM agent_feedback f
              JOIN agents a ON a.id = f.agent_id
              WHERE a.parent_agent_id = ANY($1)
              ORDER BY f.created_at ASC`,
-            [parentAgentIds]
-          ).then((r) => r.rows)
+              [parentAgentIds]
+            )
+            .then((r) => r.rows)
         : [],
       params.includeReviews && parentAgentIds.length > 0
-        ? this.pool.query<{
-            parentAgentId: string; persona: string; status: string;
-            verdict: string | null; summary: string | null;
-            filesReviewed: string[] | null;
-          }>(
-            `SELECT parent_agent_id AS "parentAgentId", persona, status,
+        ? this.pool
+            .query<{
+              parentAgentId: string;
+              persona: string;
+              status: string;
+              verdict: string | null;
+              summary: string | null;
+              filesReviewed: string[] | null;
+            }>(
+              `SELECT parent_agent_id AS "parentAgentId", persona, status,
                     verdict, summary, files_reviewed AS "filesReviewed"
              FROM persona_reviews
              WHERE parent_agent_id = ANY($1)
              ORDER BY created_at ASC`,
-            [parentAgentIds]
-          ).then((r) => r.rows)
+              [parentAgentIds]
+            )
+            .then((r) => r.rows)
         : [],
     ]);
 
     // Group related data by agent ID
-    const eventsByAgent = new Map<string, Array<{ type: string; message: string; createdAt: string }>>();
+    const eventsByAgent = new Map<
+      string,
+      Array<{ type: string; message: string; createdAt: string }>
+    >();
     for (const row of eventsRows) {
       const list = eventsByAgent.get(row.agentId) ?? [];
-      list.push({ type: row.type, message: row.message, createdAt: row.createdAt });
+      list.push({
+        type: row.type,
+        message: row.message,
+        createdAt: row.createdAt,
+      });
       eventsByAgent.set(row.agentId, list);
     }
 
-    const feedbackByParent = new Map<string, Array<{
-      id: number; persona: string; severity: string; description: string;
-      filePath: string | null; suggestion: string | null; status: string;
-    }>>();
+    const feedbackByParent = new Map<
+      string,
+      Array<{
+        id: number;
+        persona: string;
+        severity: string;
+        description: string;
+        filePath: string | null;
+        suggestion: string | null;
+        status: string;
+      }>
+    >();
     for (const row of feedbackRows) {
       const list = feedbackByParent.get(row.parentAgentId) ?? [];
       list.push({
-        id: row.id, persona: row.persona, severity: row.severity,
-        description: row.description, filePath: row.filePath,
-        suggestion: row.suggestion, status: row.status,
+        id: row.id,
+        persona: row.persona,
+        severity: row.severity,
+        description: row.description,
+        filePath: row.filePath,
+        suggestion: row.suggestion,
+        status: row.status,
       });
       feedbackByParent.set(row.parentAgentId, list);
     }
 
-    const reviewsByParent = new Map<string, Array<{
-      persona: string; status: string; verdict: string | null;
-      summary: string | null; filesReviewed: string[] | null;
-    }>>();
+    const reviewsByParent = new Map<
+      string,
+      Array<{
+        persona: string;
+        status: string;
+        verdict: string | null;
+        summary: string | null;
+        filesReviewed: string[] | null;
+      }>
+    >();
     for (const row of reviewsRows) {
       const list = reviewsByParent.get(row.parentAgentId) ?? [];
       list.push({
-        persona: row.persona, status: row.status,
-        verdict: row.verdict, summary: row.summary,
+        persona: row.persona,
+        status: row.status,
+        verdict: row.verdict,
+        summary: row.summary,
         filesReviewed: row.filesReviewed,
       });
       reviewsByParent.set(row.parentAgentId, list);
@@ -2368,13 +2955,26 @@ export class AgentManager {
       createdAt: a.createdAt,
       latestEventType: a.latestEventType,
       latestEventMessage: a.latestEventMessage,
-      pins: (a.pins ?? []).map((p) => ({ label: p.label, value: p.value, type: p.type })),
+      pins: (a.pins ?? []).map((p) => ({
+        label: p.label,
+        value: p.value,
+        type: p.type,
+      })),
       git: a.gitContext
-        ? { branch: a.gitContext.branch ?? null, worktreeBranch: a.worktreeBranch }
+        ? {
+            branch: a.gitContext.branch ?? null,
+            worktreeBranch: a.worktreeBranch,
+          }
         : null,
-      ...(params.includeEvents ? { events: eventsByAgent.get(a.id) ?? [] } : {}),
-      ...(params.includeFeedback ? { feedback: feedbackByParent.get(a.id) ?? [] } : {}),
-      ...(params.includeReviews ? { reviews: reviewsByParent.get(a.id) ?? [] } : {}),
+      ...(params.includeEvents
+        ? { events: eventsByAgent.get(a.id) ?? [] }
+        : {}),
+      ...(params.includeFeedback
+        ? { feedback: feedbackByParent.get(a.id) ?? [] }
+        : {}),
+      ...(params.includeReviews
+        ? { reviews: reviewsByParent.get(a.id) ?? [] }
+        : {}),
     }));
 
     return { agents, total, hasMore: params.offset + params.limit < total };
@@ -2410,8 +3010,12 @@ export class AgentManager {
     // Fetch feedback rows and verdict aggregates in parallel
     const [feedbackResult, verdictResult] = await Promise.all([
       this.pool.query<{
-        persona: string; severity: string; description: string;
-        filePath: string | null; status: string; projectRoot: string;
+        persona: string;
+        severity: string;
+        description: string;
+        filePath: string | null;
+        status: string;
+        projectRoot: string;
       }>(
         `SELECT a.persona, f.severity, f.description,
                 f.file_path AS "filePath", f.status,
@@ -2424,7 +3028,11 @@ export class AgentManager {
         feedbackParams
       ),
 
-      this.pool.query<{ total: string; approved: string; changesRequested: string }>(
+      this.pool.query<{
+        total: string;
+        approved: string;
+        changesRequested: string;
+      }>(
         `SELECT
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE pr.verdict = 'approve')::int AS approved,
@@ -2442,8 +3050,10 @@ export class AgentManager {
     const bySeverity = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     const byStatus = { open: 0, fixed: 0, ignored: 0, dismissed: 0 };
     for (const row of rows) {
-      if (row.severity in bySeverity) bySeverity[row.severity as keyof typeof bySeverity]++;
-      if (row.status in byStatus) byStatus[row.status as keyof typeof byStatus]++;
+      if (row.severity in bySeverity)
+        bySeverity[row.severity as keyof typeof bySeverity]++;
+      if (row.status in byStatus)
+        byStatus[row.status as keyof typeof byStatus]++;
     }
 
     // Group by requested dimension
@@ -2463,9 +3073,10 @@ export class AgentManager {
             break;
           }
           const root = row.projectRoot;
-          const relative = root && row.filePath.startsWith(root)
-            ? row.filePath.slice(root.length + 1)
-            : row.filePath;
+          const relative =
+            root && row.filePath.startsWith(root)
+              ? row.filePath.slice(root.length + 1)
+              : row.filePath;
           // Extract directory (drop the filename)
           const lastSlash = relative.lastIndexOf("/");
           key = lastSlash > 0 ? relative.slice(0, lastSlash) : ".";
@@ -2481,10 +3092,14 @@ export class AgentManager {
     const groups = [...groupMap.entries()]
       .map(([key, items]) => {
         const groupSev = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-        const descCounts = new Map<string, { count: number; severity: string; filePath: string | null }>();
+        const descCounts = new Map<
+          string,
+          { count: number; severity: string; filePath: string | null }
+        >();
 
         for (const item of items) {
-          if (item.severity in groupSev) groupSev[item.severity as keyof typeof groupSev]++;
+          if (item.severity in groupSev)
+            groupSev[item.severity as keyof typeof groupSev]++;
           const existing = descCounts.get(item.description);
           if (existing) {
             existing.count++;
@@ -2529,8 +3144,20 @@ export class AgentManager {
 
   // --- Media ---
 
-  async listMedia(agentId: string): Promise<Array<{ fileName: string; description: string | null; source: string; createdAt: string }>> {
-    const result = await this.pool.query<{ fileName: string; description: string | null; source: string; createdAt: string }>(
+  async listMedia(agentId: string): Promise<
+    Array<{
+      fileName: string;
+      description: string | null;
+      source: string;
+      createdAt: string;
+    }>
+  > {
+    const result = await this.pool.query<{
+      fileName: string;
+      description: string | null;
+      source: string;
+      createdAt: string;
+    }>(
       `SELECT file_name AS "fileName", description, source, created_at AS "createdAt"
        FROM media WHERE agent_id = $1 ORDER BY created_at`,
       [agentId]
@@ -2589,7 +3216,13 @@ export class AgentManager {
     parentAgentId: string,
     persona?: string,
     limit = 100
-  ): Promise<{ personas: Array<{ persona: string; agentId: string; feedback: FeedbackRecord[] }> }> {
+  ): Promise<{
+    personas: Array<{
+      persona: string;
+      agentId: string;
+      feedback: FeedbackRecord[];
+    }>;
+  }> {
     const params: unknown[] = [parentAgentId];
     let whereClause = "WHERE a.parent_agent_id = $1";
     if (persona) {
@@ -2609,11 +3242,18 @@ export class AgentManager {
       params
     );
 
-    const grouped = new Map<string, { persona: string; agentId: string; feedback: FeedbackRecord[] }>();
+    const grouped = new Map<
+      string,
+      { persona: string; agentId: string; feedback: FeedbackRecord[] }
+    >();
     for (const row of result.rows) {
       const key = row.agentId;
       if (!grouped.has(key)) {
-        grouped.set(key, { persona: row.persona, agentId: row.agentId, feedback: [] });
+        grouped.set(key, {
+          persona: row.persona,
+          agentId: row.agentId,
+          feedback: [],
+        });
       }
       const { persona: _p, ...feedbackRecord } = row;
       grouped.get(key)!.feedback.push(feedbackRecord);
@@ -2769,13 +3409,18 @@ export class AgentManager {
       const log = await readFile(logPath, "utf-8");
       const tail = log.trim().split("\n").slice(-20).join("\n");
       if (tail) return `\n\nSetup log (last 20 lines):\n${tail}`;
-    } catch { /* no log file */ }
+    } catch {
+      /* no log file */
+    }
     return "";
   }
 
   private async readExitFile(sessionName: string): Promise<number | null> {
     try {
-      const content = await readFile(`/tmp/dispatch_${sessionName}.exit`, "utf-8");
+      const content = await readFile(
+        `/tmp/dispatch_${sessionName}.exit`,
+        "utf-8"
+      );
       const match = content.trim().match(/^EXIT:(\d+)$/);
       return match ? Number(match[1]) : null;
     } catch {
@@ -2794,7 +3439,10 @@ export class AgentManager {
     );
   }
 
-  private async setArchivePhase(id: string, phase: ArchivePhase): Promise<void> {
+  private async setArchivePhase(
+    id: string,
+    phase: ArchivePhase
+  ): Promise<void> {
     await this.pool.query(
       `UPDATE agents SET archive_phase = $2, updated_at = NOW() WHERE id = $1`,
       [id, phase]
@@ -2837,7 +3485,11 @@ export class AgentManager {
       `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
 
     // Helper function for the completion callback
-    const curlComplete = (cwdVar: string, worktreePathVar: string, worktreeBranchVar: string) =>
+    const curlComplete = (
+      cwdVar: string,
+      worktreePathVar: string,
+      worktreeBranchVar: string
+    ) =>
       `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/complete" ` +
       `-H "Content-Type: application/json" ` +
       `-H "Authorization: Bearer ${authToken}" ` +
@@ -2881,13 +3533,11 @@ export class AgentManager {
         `# --- Worktree creation ---`,
         `phase "Creating git worktree"`,
         `info "Branch: ${worktreeBranchName}"`,
-        ``,
+        ``
       );
 
       // Determine worktree path arg
-      const wtPathArg = worktreePathOverride
-        ? `"${worktreePathOverride}"`
-        : "";
+      const wtPathArg = worktreePathOverride ? `"${worktreePathOverride}"` : "";
 
       // We need to compute the worktree path. Use git worktree add directly.
       const effectiveBaseBranch = params.baseBranch || "main";
@@ -2906,13 +3556,11 @@ export class AgentManager {
         `  git -C "$REPO_ROOT" rev-parse --verify "$BASE_REF" > /dev/null 2>&1 || {`,
         `    BASE_REF="${effectiveBaseBranch}"`,
         `  }`,
-        ``,
+        ``
       );
 
       if (worktreePathOverride) {
-        lines.push(
-          `  WT_PATH="${worktreePathOverride}"`,
-        );
+        lines.push(`  WT_PATH="${worktreePathOverride}"`);
       } else {
         // Default sibling path: <repoRoot>/../<basename>-<slugified-branch>
         const sluggedBranch = worktreeBranchName
@@ -2921,7 +3569,7 @@ export class AgentManager {
           .toLowerCase();
         lines.push(
           `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
-          `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`,
+          `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`
         );
       }
 
@@ -2970,7 +3618,7 @@ export class AgentManager {
         `    warn "Worktree creation failed — using original directory"`,
         `  fi`,
         `fi`,
-        ``,
+        ``
       );
     }
 
@@ -2982,8 +3630,8 @@ export class AgentManager {
       ``,
       `# Notify server that setup is complete`,
       `cd "$EFFECTIVE_CWD"`,
-      `${curlComplete('$EFFECTIVE_CWD', '$WORKTREE_PATH', '$WORKTREE_BRANCH')}`,
-      ``,
+      `${curlComplete("$EFFECTIVE_CWD", "$WORKTREE_PATH", "$WORKTREE_BRANCH")}`,
+      ``
     );
 
     // Opencode: write opencode.json with the Dispatch MCP server config.
@@ -3003,13 +3651,13 @@ export class AgentManager {
         `MCP_ENTRY=${this.shellEscape(mcpEntry)}`,
         `node --input-type=module -e 'import { readFileSync, renameSync, writeFileSync } from "node:fs"; const [configPath, mcpEntryJson] = process.argv.slice(1); const mcpEntry = JSON.parse(mcpEntryJson); let cfg = {}; try { cfg = JSON.parse(readFileSync(configPath, "utf8")); } catch (error) { if (error?.code !== "ENOENT") throw error; } cfg.mcp = { ...(cfg.mcp ?? {}), dispatch: mcpEntry }; const tmpPath = \`\${configPath}.tmp-\${process.pid}\`; writeFileSync(tmpPath, JSON.stringify(cfg, null, 2) + "\\n"); renameSync(tmpPath, configPath);' "$OPENCODE_CFG" "$MCP_ENTRY"`,
         `ok "Configured dispatch MCP in opencode.json"`,
-        ``,
+        ``
       );
     }
 
     lines.push(
       `# exec replaces this shell with the agent CLI — seamless transition`,
-      `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`,
+      `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`
     );
 
     return lines.join("\n") + "\n";
@@ -3020,21 +3668,30 @@ export class AgentManager {
     return value.replaceAll("'", "'\\''");
   }
 
-  private async setSystemLatestEvent(id: string, input: AgentLatestEventInput): Promise<void> {
+  private async setSystemLatestEvent(
+    id: string,
+    input: AgentLatestEventInput
+  ): Promise<void> {
     try {
       await this.upsertLatestEvent(id, {
         ...input,
         metadata: {
           ...(input.metadata ?? {}),
-          source: "system"
-        }
+          source: "system",
+        },
       });
     } catch (error) {
-      this.logger.warn({ err: error, id, eventType: input.type }, "Failed to upsert system latest event.");
+      this.logger.warn(
+        { err: error, id, eventType: input.type },
+        "Failed to upsert system latest event."
+      );
     }
   }
 
-  private async setupWorktree(originalCwd: string, worktreePath: string): Promise<void> {
+  private async setupWorktree(
+    originalCwd: string,
+    worktreePath: string
+  ): Promise<void> {
     // Copy .env if it exists
     const envSource = path.join(originalCwd, ".env");
     const envDest = path.join(worktreePath, ".env");
@@ -3050,19 +3707,31 @@ export class AgentManager {
       ["pnpm-lock.yaml", "pnpm", ["install"]],
       ["yarn.lock", "yarn", ["install"]],
       ["package-lock.json", "npm", ["install"]],
-      ["bun.lockb", "bun", ["install"]]
+      ["bun.lockb", "bun", ["install"]],
     ];
 
     for (const [lockfile, bin, args] of lockfileMap) {
       const lockPath = path.join(worktreePath, lockfile);
       const exists = await stat(lockPath).catch(() => null);
       if (exists) {
-        this.logger.info({ worktreePath, packageManager: bin }, "Installing dependencies in worktree.");
+        this.logger.info(
+          { worktreePath, packageManager: bin },
+          "Installing dependencies in worktree."
+        );
         try {
-          await runCommand(bin, args, { cwd: worktreePath, timeoutMs: 120_000 });
-          this.logger.info({ worktreePath, packageManager: bin }, "Dependency install complete.");
+          await runCommand(bin, args, {
+            cwd: worktreePath,
+            timeoutMs: 120_000,
+          });
+          this.logger.info(
+            { worktreePath, packageManager: bin },
+            "Dependency install complete."
+          );
         } catch (error) {
-          this.logger.warn({ err: error, worktreePath, packageManager: bin }, "Dependency install failed.");
+          this.logger.warn(
+            { err: error, worktreePath, packageManager: bin },
+            "Dependency install failed."
+          );
         }
         break;
       }
@@ -3077,14 +3746,17 @@ export class AgentManager {
     return unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
   }
 
-  private async getUnmergedChanges(worktreePath: string): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
+  private async getUnmergedChanges(
+    worktreePath: string
+  ): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
     try {
       // Discover the upstream tracking branch (set at worktree creation time).
       // Falls back to origin/main for older worktrees that don't have one.
       let upstreamRef: string | null = null;
       try {
         const upstream = await runCommand(
-          "git", ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
+          "git",
+          ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
           { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
         );
         if (upstream.exitCode === 0 && upstream.stdout) {
@@ -3100,14 +3772,18 @@ export class AgentManager {
         : "main";
 
       await runCommand(
-        "git", ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
+        "git",
+        ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
         { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
       );
 
       // Resolve the base ref: prefer upstream, fall back to origin/main → main
-      const baseRef = (upstreamRef ? await this.resolveRef(worktreePath, upstreamRef) : null)
-        ?? await this.resolveRef(worktreePath, "origin/main")
-        ?? await this.resolveRef(worktreePath, "main");
+      const baseRef =
+        (upstreamRef
+          ? await this.resolveRef(worktreePath, upstreamRef)
+          : null) ??
+        (await this.resolveRef(worktreePath, "origin/main")) ??
+        (await this.resolveRef(worktreePath, "main"));
       if (!baseRef) {
         return { hasUnmergedCommits: false, changedFiles: [] };
       }
@@ -3116,13 +3792,15 @@ export class AgentManager {
       // identical to main's tree, everything on this branch is already in main
       // (handles squash-merges, rebases, and main moving forward with releases).
       const mergeTree = await runCommand(
-        "git", ["-C", worktreePath, "merge-tree", "--write-tree", baseRef, "HEAD"],
+        "git",
+        ["-C", worktreePath, "merge-tree", "--write-tree", baseRef, "HEAD"],
         { allowedExitCodes: [0, 1], timeoutMs: 10_000 }
       );
       // merge-tree outputs the tree hash on the first line (exit 1 = conflicts)
       const resultTree = mergeTree.stdout.trim().split("\n")[0];
       const mainTree = await runCommand(
-        "git", ["-C", worktreePath, "rev-parse", `${baseRef}^{tree}`],
+        "git",
+        ["-C", worktreePath, "rev-parse", `${baseRef}^{tree}`],
         { allowedExitCodes: [0], timeoutMs: 5_000 }
       );
 
@@ -3132,7 +3810,15 @@ export class AgentManager {
 
       // Trees differ — find which files the branch would actually change
       const fileDiff = await runCommand(
-        "git", ["-C", worktreePath, "diff", "--name-only", mainTree.stdout.trim(), resultTree],
+        "git",
+        [
+          "-C",
+          worktreePath,
+          "diff",
+          "--name-only",
+          mainTree.stdout.trim(),
+          resultTree,
+        ],
         { allowedExitCodes: [0], timeoutMs: 10_000 }
       );
       const changedFiles = fileDiff.stdout.trim().split("\n").filter(Boolean);
@@ -3143,24 +3829,34 @@ export class AgentManager {
     }
   }
 
-  private async getUncommittedChanges(worktreePath: string): Promise<{ hasUncommittedChanges: boolean; uncommittedFiles: string[] }> {
+  private async getUncommittedChanges(
+    worktreePath: string
+  ): Promise<{ hasUncommittedChanges: boolean; uncommittedFiles: string[] }> {
     try {
       // Detect staged + unstaged modifications and untracked files
       const status = await runCommand(
-        "git", ["-C", worktreePath, "status", "--porcelain"],
+        "git",
+        ["-C", worktreePath, "status", "--porcelain"],
         { allowedExitCodes: [0], timeoutMs: 10_000 }
       );
       const uncommittedFiles = status.stdout.trim().split("\n").filter(Boolean);
 
-      return { hasUncommittedChanges: uncommittedFiles.length > 0, uncommittedFiles };
+      return {
+        hasUncommittedChanges: uncommittedFiles.length > 0,
+        uncommittedFiles,
+      };
     } catch {
       return { hasUncommittedChanges: false, uncommittedFiles: [] };
     }
   }
 
-  private async resolveRef(worktreePath: string, ref: string): Promise<string | null> {
+  private async resolveRef(
+    worktreePath: string,
+    ref: string
+  ): Promise<string | null> {
     const result = await runCommand(
-      "git", ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
+      "git",
+      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
     return result.exitCode === 0 && result.stdout.trim() ? ref : null;

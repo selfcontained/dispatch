@@ -1,17 +1,39 @@
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, ExternalLink, FileText, Loader2, MonitorPlay, X, Image, File as FileIcon, Video, Upload, User } from "lucide-react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Check,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Loader2,
+  MonitorPlay,
+  X,
+  Image,
+  File as FileIcon,
+  Video,
+  Upload,
+  User,
+} from "lucide-react";
 import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { mediaSidebarTabAtom } from "@/lib/store";
-import { MediaActions, isTextFile, stripTimestamp } from "@/components/app/media-lightbox";
+import {
+  MediaActions,
+  isTextFile,
+  stripTimestamp,
+} from "@/components/app/media-lightbox";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
-
 
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -44,8 +66,13 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   className?: string;
 };
 
-
-function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; selectedAgentId: string }): JSX.Element {
+function LiveStreamSection({
+  streamUrl,
+  selectedAgentId,
+}: {
+  streamUrl: string;
+  selectedAgentId: string;
+}): JSX.Element {
   const popOut = useCallback(() => {
     window.open(
       `/api/v1/agents/${selectedAgentId}/stream/viewer`,
@@ -58,9 +85,16 @@ function LiveStreamSection({ streamUrl, selectedAgentId }: { streamUrl: string; 
     <div className="border-b-2 border-border">
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-blocked" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">Live Stream</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">
+          Live Stream
+        </span>
         <div className="ml-auto">
-          <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={popOut}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 gap-1 px-2 text-xs"
+            onClick={popOut}
+          >
             <ExternalLink className="h-3 w-3" />
             Pop out
           </Button>
@@ -88,7 +122,17 @@ function MediaContent({
   hasStream,
   streamUrl,
   onUploadFile,
-}: Pick<MediaSidebarSharedProps, "mediaFiles" | "selectedAgentId" | "animatingMediaKeys" | "mediaViewportRef" | "openLightbox" | "hasStream" | "streamUrl" | "onUploadFile">): JSX.Element {
+}: Pick<
+  MediaSidebarSharedProps,
+  | "mediaFiles"
+  | "selectedAgentId"
+  | "animatingMediaKeys"
+  | "mediaViewportRef"
+  | "openLightbox"
+  | "hasStream"
+  | "streamUrl"
+  | "onUploadFile"
+>): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -105,7 +149,8 @@ function MediaContent({
       try {
         await onUploadFile(selectedAgentId, file);
         setUploadSuccess(true);
-        if (successTimerRef.current) window.clearTimeout(successTimerRef.current);
+        if (successTimerRef.current)
+          window.clearTimeout(successTimerRef.current);
         successTimerRef.current = window.setTimeout(() => {
           setUploadSuccess(false);
           successTimerRef.current = null;
@@ -128,7 +173,10 @@ function MediaContent({
   return (
     <>
       {hasStream && streamUrl && selectedAgentId ? (
-        <LiveStreamSection streamUrl={streamUrl} selectedAgentId={selectedAgentId} />
+        <LiveStreamSection
+          streamUrl={streamUrl}
+          selectedAgentId={selectedAgentId}
+        />
       ) : null}
 
       {/* Upload button bar */}
@@ -149,15 +197,29 @@ function MediaContent({
               disabled={uploading}
               onClick={triggerFilePicker}
             >
-              {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : uploadSuccess ? <Check className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
-              {uploading ? "Uploading…" : uploadSuccess ? "Shared" : "Share file"}
+              {uploading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : uploadSuccess ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <Upload className="h-3 w-3" />
+              )}
+              {uploading
+                ? "Uploading…"
+                : uploadSuccess
+                  ? "Shared"
+                  : "Share file"}
             </Button>
             {uploadError ? (
-              <span className="truncate text-xs text-destructive">{uploadError}</span>
+              <span className="truncate text-xs text-destructive">
+                {uploadError}
+              </span>
             ) : null}
           </div>
           {uploadSuccess ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">Tell the agent about the file so it knows to look.</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Tell the agent about the file so it knows to look.
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -179,12 +241,18 @@ function MediaContent({
                 {selectedAgentId ? (
                   <>
                     No media yet.{" "}
-                    <button className="underline hover:text-foreground" onClick={triggerFilePicker}>
+                    <button
+                      className="underline hover:text-foreground"
+                      onClick={triggerFilePicker}
+                    >
                       Share a file
                     </button>{" "}
-                    or wait for agents to share screenshots, videos and documents.
+                    or wait for agents to share screenshots, videos and
+                    documents.
                   </>
-                ) : "Focus an agent to view media."}
+                ) : (
+                  "Focus an agent to view media."
+                )}
               </div>
             </div>
           </div>
@@ -206,15 +274,20 @@ function MediaContent({
                 data-media-key={mediaKey}
                 className={cn(
                   "border-b-2 border-border px-3 py-3",
-                  isStream && "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
+                  isStream &&
+                    "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
                   animating && "animate-media-in-slow"
                 )}
               >
                 {isStream ? (
                   <div className="mb-2 flex items-center gap-1.5">
                     <MonitorPlay className="h-3.5 w-3.5 text-status-blocked" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">Stream recording</span>
-                    <span className="ml-auto text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">
+                      Stream recording
+                    </span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {new Date(file.updatedAt).toLocaleString()}
+                    </span>
                   </div>
                 ) : (
                   <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -237,16 +310,29 @@ function MediaContent({
                   >
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 flex-none text-muted-foreground" />
-                      <span className="truncate text-xs font-medium text-foreground">{stripTimestamp(file.name)}</span>
-                      <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{fileExtension(file.name)}</span>
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {stripTimestamp(file.name)}
+                      </span>
+                      <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {fileExtension(file.name)}
+                      </span>
                     </div>
                   </button>
                 ) : /\.mp4$/i.test(file.name) ? (
-                  <div className={cn(
-                    "block w-full overflow-hidden border-2 bg-black/60",
-                    unseen ? "media-thumb-unseen" : "media-thumb-seen"
-                  )}>
-                    <video src={cacheBustUrl} controls muted playsInline preload="metadata" className="max-h-[260px] w-full object-contain" />
+                  <div
+                    className={cn(
+                      "block w-full overflow-hidden border-2 bg-black/60",
+                      unseen ? "media-thumb-unseen" : "media-thumb-seen"
+                    )}
+                  >
+                    <video
+                      src={cacheBustUrl}
+                      controls
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="max-h-[260px] w-full object-contain"
+                    />
                   </div>
                 ) : (
                   <button
@@ -256,14 +342,24 @@ function MediaContent({
                     )}
                     onClick={() => openLightbox(file)}
                   >
-                    <img src={cacheBustUrl} alt={file.description || ""} className="max-h-[260px] w-full object-contain" />
+                    <img
+                      src={cacheBustUrl}
+                      alt={file.description || ""}
+                      className="max-h-[260px] w-full object-contain"
+                    />
                   </button>
                 )}
                 <div className="mt-2 text-xs text-muted-foreground">
                   {file.description ? <div>{file.description}</div> : null}
-                  <div className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}>
+                  <div
+                    className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}
+                  >
                     <span>{Math.max(1, Math.round(file.size / 1024))} KB</span>
-                    <MediaActions src={cacheBustUrl} fileName={file.name} isText={isText} />
+                    <MediaActions
+                      src={cacheBustUrl}
+                      fileName={file.name}
+                      isText={isText}
+                    />
                   </div>
                 </div>
               </article>
@@ -290,7 +386,7 @@ export function MediaSidebarContent({
   closeButtonIcon = "x",
   className,
   unseenMediaCount,
-  onUploadFile
+  onUploadFile,
 }: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
   const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
   const prevAgentIdRef = useRef(selectedAgentId);
@@ -304,7 +400,13 @@ export function MediaSidebarContent({
   }
 
   return (
-    <aside data-testid="media-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground", className)}>
+    <aside
+      data-testid="media-sidebar"
+      className={cn(
+        "flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground",
+        className
+      )}
+    >
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
         <div className="flex flex-1">
@@ -349,22 +451,42 @@ export function MediaSidebarContent({
         </div>
         {onRequestClose ? (
           <div className="px-2">
-            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close sidebar" className="h-7 w-7">
-              {closeButtonIcon === "chevron" ? <ChevronRight className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onRequestClose}
+              title="Close sidebar"
+              className="h-7 w-7"
+            >
+              {closeButtonIcon === "chevron" ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <X className="h-4 w-4" />
+              )}
             </Button>
           </div>
         ) : null}
       </div>
 
       {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
-      <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "pins" && "hidden")}>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeTab !== "pins" && "hidden"
+        )}
+      >
         <PinsPanel
           pins={selectedAgentPins}
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
         />
       </div>
-      <div className={cn("flex min-h-0 flex-1 flex-col", activeTab !== "media" && "hidden")}>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeTab !== "media" && "hidden"
+        )}
+      >
         <MediaContent
           mediaFiles={mediaFiles}
           selectedAgentId={selectedAgentId}
@@ -380,7 +502,12 @@ export function MediaSidebarContent({
   );
 }
 
-export function MediaSidebar({ mediaOpen, setMediaOpen, hasStream, ...props }: MediaSidebarProps): JSX.Element {
+export function MediaSidebar({
+  mediaOpen,
+  setMediaOpen,
+  hasStream,
+  ...props
+}: MediaSidebarProps): JSX.Element {
   // Auto-open the sidebar when a stream starts so the user doesn't miss it
   useEffect(() => {
     if (hasStream) {

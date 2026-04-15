@@ -138,7 +138,9 @@ export function useHistoryProjects() {
   return useQuery<string[]>({
     queryKey: ["history", "projects"],
     queryFn: async () => {
-      const payload = await api<{ projects: string[] }>("/api/v1/history/projects");
+      const payload = await api<{ projects: string[] }>(
+        "/api/v1/history/projects"
+      );
       return payload.projects;
     },
     ...HISTORY_QUERY_OPTIONS,
@@ -149,7 +151,9 @@ export function useHistoryAgents(filters: HistoryFilters) {
   return useQuery<HistoryAgentsResponse>({
     queryKey: ["history", "agents", filters],
     queryFn: () =>
-      api<HistoryAgentsResponse>(`/api/v1/history/agents?${buildParams(filters)}`),
+      api<HistoryAgentsResponse>(
+        `/api/v1/history/agents?${buildParams(filters)}`
+      ),
     ...HISTORY_QUERY_OPTIONS,
   });
 }

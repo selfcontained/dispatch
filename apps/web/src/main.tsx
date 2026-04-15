@@ -14,7 +14,8 @@ import "./index.css";
 const isIPad =
   navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent);
 const isStandalone =
-  "standalone" in navigator && (navigator as Record<string, unknown>).standalone === true;
+  "standalone" in navigator &&
+  (navigator as Record<string, unknown>).standalone === true;
 if (isIPad && isStandalone) {
   document.documentElement.classList.add("ipad-pwa");
 }
@@ -37,9 +38,11 @@ if (import.meta.env.PROD) {
     immediate: true,
     onRegisteredSW(_swUrl, registration) {
       if (registration) {
-        setInterval(() => { void registration.update(); }, intervalMS);
+        setInterval(() => {
+          void registration.update();
+        }, intervalMS);
       }
-    }
+    },
   });
 } else if ("serviceWorker" in navigator) {
   void navigator.serviceWorker.getRegistrations().then((registrations) => {

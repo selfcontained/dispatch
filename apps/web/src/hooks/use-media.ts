@@ -1,21 +1,37 @@
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type MediaFile } from "@/components/app/types";
 import { api } from "@/lib/api";
 
-export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean) {
+export function useMedia(
+  selectedAgentId: string | null,
+  mediaPanelOpen: boolean
+) {
   const queryClient = useQueryClient();
 
-  const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(new Set());
+  const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(
+    new Set()
+  );
   const [lightboxMediaKey, setLightboxMediaKey] = useState<string | null>(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
 
-  const { data: mediaFiles = [], refetch: refetchMedia } = useQuery<MediaFile[]>({
+  const { data: mediaFiles = [], refetch: refetchMedia } = useQuery<
+    MediaFile[]
+  >({
     queryKey: ["media", selectedAgentId],
     queryFn: async () => {
-      const payload = await api<{ files: MediaFile[] }>(`/api/v1/agents/${selectedAgentId}/media`);
+      const payload = await api<{ files: MediaFile[] }>(
+        `/api/v1/agents/${selectedAgentId}/media`
+      );
       return payload.files ?? [];
     },
     enabled: !!selectedAgentId,
@@ -104,8 +120,13 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
             const mediaKey = (entry.target as HTMLElement).dataset.mediaKey;
             if (mediaKey) {
               // Check if already seen in current cache data
-              const cached = queryClient.getQueryData<MediaFile[]>(["media", selected]);
-              const file = cached?.find((f) => `${f.name}:${f.updatedAt}` === mediaKey);
+              const cached = queryClient.getQueryData<MediaFile[]>([
+                "media",
+                selected,
+              ]);
+              const file = cached?.find(
+                (f) => `${f.name}:${f.updatedAt}` === mediaKey
+              );
               if (file && !file.seen) {
                 newlySeen.push(mediaKey);
               }
@@ -132,7 +153,13 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     return () => {
       observer.disconnect();
     };
-  }, [markSeenInCache, mediaFiles, mediaPanelOpen, queryClient, selectedAgentId]);
+  }, [
+    markSeenInCache,
+    mediaFiles,
+    mediaPanelOpen,
+    queryClient,
+    selectedAgentId,
+  ]);
 
   const unseenMediaCount = useMemo(() => {
     return mediaFiles.filter((file) => !file.seen).length;
@@ -143,12 +170,13 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
   }, []);
 
   const lightboxItems = useMemo(
-    () => mediaFiles.map((file) => ({
-      key: `${file.name}:${file.updatedAt}`,
-      src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
-      caption: file.description || "",
-      file,
-    })),
+    () =>
+      mediaFiles.map((file) => ({
+        key: `${file.name}:${file.updatedAt}`,
+        src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
+        caption: file.description || "",
+        file,
+      })),
     [mediaFiles]
   );
 
@@ -185,26 +213,29 @@ export function useMedia(selectedAgentId: string | null, mediaPanelOpen: boolean
     [queryClient, selectedAgentId]
   );
 
-  return useMemo(() => ({
-    mediaFiles,
-    animatingMediaKeys,
-    unseenMediaCount,
-    lightboxIndex,
-    lightboxItem,
-    setLightboxIndex,
-    openLightbox,
-    mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
-    refreshMedia,
-    markSeenInCache,
-  }), [
-    mediaFiles,
-    animatingMediaKeys,
-    unseenMediaCount,
-    lightboxIndex,
-    lightboxItem,
-    setLightboxIndex,
-    openLightbox,
-    refreshMedia,
-    markSeenInCache,
-  ]);
+  return useMemo(
+    () => ({
+      mediaFiles,
+      animatingMediaKeys,
+      unseenMediaCount,
+      lightboxIndex,
+      lightboxItem,
+      setLightboxIndex,
+      openLightbox,
+      mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
+      refreshMedia,
+      markSeenInCache,
+    }),
+    [
+      mediaFiles,
+      animatingMediaKeys,
+      unseenMediaCount,
+      lightboxIndex,
+      lightboxItem,
+      setLightboxIndex,
+      openLightbox,
+      refreshMedia,
+      markSeenInCache,
+    ]
+  );
 }

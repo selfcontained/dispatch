@@ -13,18 +13,22 @@
 ## State Transitions
 
 1. Create
+
 - `creating -> running`
 - `creating -> error` on launch failure
 
 2. Stop
+
 - `running -> stopping -> stopped`
 - `running -> error` if stop command fails and process remains inconsistent
 
 3. Delete
+
 - `running|stopped -> archiving -> (soft deleted)` via archive phases: `stopping` → `worktree-check` → `worktree-cleanup` → `finalizing`
 - Returns HTTP 202 immediately; cleanup runs in the background
 
 4. Restart backend reconciliation
+
 - `unknown -> running` if tmux session exists
 - `unknown -> stopped` if session absent
 
@@ -81,8 +85,10 @@ tmux kill-session -t <sessionName>
 1. Load agents from DB where status in (`running`, `creating`, `unknown`).
 2. Query tmux sessions.
 3. For each agent:
+
 - session exists -> set `running`
 - session missing -> set `stopped` and clear transient pid/runtime fields
+
 4. Validate simulator reservation consistency.
 
 ## Idempotency Rules

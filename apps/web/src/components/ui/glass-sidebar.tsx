@@ -31,11 +31,21 @@ type GlassSidebarProps = {
 };
 
 /** Desktop: inline collapsible panel that animates width */
-function DesktopSidebar({ open, side, width = 320, className, children }: Pick<GlassSidebarProps, "open" | "side" | "width" | "className" | "children">) {
+function DesktopSidebar({
+  open,
+  side,
+  width = 320,
+  className,
+  children,
+}: Pick<
+  GlassSidebarProps,
+  "open" | "side" | "width" | "className" | "children"
+>) {
   const borderSide = side === "left" ? "border-r" : "border-l";
-  const shadowSide = side === "left"
-    ? "shadow-[4px_0_24px_rgba(0,0,0,0.3)]"
-    : "shadow-[-4px_0_24px_rgba(0,0,0,0.3)]";
+  const shadowSide =
+    side === "left"
+      ? "shadow-[4px_0_24px_rgba(0,0,0,0.3)]"
+      : "shadow-[-4px_0_24px_rgba(0,0,0,0.3)]";
 
   return (
     <div
@@ -56,7 +66,14 @@ function DesktopSidebar({ open, side, width = 320, className, children }: Pick<G
 }
 
 /** Mobile: full-screen slide-over with backdrop */
-function MobileSidebar({ open, onOpenChange, side, label, className, children }: Omit<GlassSidebarProps, "width" | "mobile">) {
+function MobileSidebar({
+  open,
+  onOpenChange,
+  side,
+  label,
+  className,
+  children,
+}: Omit<GlassSidebarProps, "width" | "mobile">) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {

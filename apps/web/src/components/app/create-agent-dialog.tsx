@@ -1,17 +1,48 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, GitBranch, Loader2, ChevronLeft } from "lucide-react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Check,
+  ChevronDown,
+  GitBranch,
+  Loader2,
+  ChevronLeft,
+} from "lucide-react";
 
 import { PathInput } from "@/components/app/path-input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandLoading } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandLoading,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-function useClickOutside(ref: React.RefObject<HTMLElement | null>, isOpen: boolean, onClose: () => void): void {
+function useClickOutside(
+  ref: React.RefObject<HTMLElement | null>,
+  isOpen: boolean,
+  onClose: () => void
+): void {
   useEffect(() => {
     if (!isOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -42,9 +73,15 @@ type CreateAgentDialogProps = {
   setCreateName: (name: string) => void;
   setCreateType: (value: AgentType) => void;
   setCreateCwd: (cwd: string) => void;
-  setCreateFullAccess: (value: boolean | ((current: boolean) => boolean)) => void;
-  setCreateAutoReview: (value: boolean | ((current: boolean) => boolean)) => void;
-  setCreateUseWorktree: (value: boolean | ((current: boolean) => boolean)) => void;
+  setCreateFullAccess: (
+    value: boolean | ((current: boolean) => boolean)
+  ) => void;
+  setCreateAutoReview: (
+    value: boolean | ((current: boolean) => boolean)
+  ) => void;
+  setCreateUseWorktree: (
+    value: boolean | ((current: boolean) => boolean)
+  ) => void;
   setCreateWorktreeBranch: (value: string) => void;
   setCreateBaseBranch: (value: string) => void;
   setInitialPrompt: (value: string) => void;
@@ -77,9 +114,8 @@ export function CreateAgentDialog({
   setCreateBaseBranch,
   setInitialPrompt,
   onSubmit,
-  onRemoveCwdHistory
+  onRemoveCwdHistory,
 }: CreateAgentDialogProps): JSX.Element {
-
   // --- Step state: "config" is the main form, "prompt" is the initial prompt textarea ---
   const [step, setStep] = useState<"config" | "prompt">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -109,11 +145,16 @@ export function CreateAgentDialog({
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchesFetchedForCwd, setBranchesFetchedForCwd] = useState<string | null>(null);
+  const [branchesFetchedForCwd, setBranchesFetchedForCwd] = useState<
+    string | null
+  >(null);
   const branchCmdRef = useRef<HTMLDivElement>(null);
   const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const branchInputRef = useRef<HTMLInputElement>(null);
-  const closeBranchDropdown = useCallback(() => setBranchDropdownOpen(false), []);
+  const closeBranchDropdown = useCallback(
+    () => setBranchDropdownOpen(false),
+    []
+  );
   useClickOutside(branchCmdRef, branchDropdownOpen, closeBranchDropdown);
 
   const fetchBranches = useCallback(async () => {
@@ -122,7 +163,9 @@ export function CreateAgentDialog({
     setBranchesLoading(true);
     setRemoteBranches([]);
     try {
-      const result = await api<{ branches: string[] }>(`/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`);
+      const result = await api<{ branches: string[] }>(
+        `/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`
+      );
       setRemoteBranches(result.branches);
       // If the pre-selected branch doesn't exist in the fetched list, fall back to the first available branch
       if (!result.branches.includes(createBaseBranch)) {
@@ -145,7 +188,10 @@ export function CreateAgentDialog({
   }, [fetchBranches, branchesFetchedForCwd, createCwd]);
 
   const allBranches = useMemo(
-    () => remoteBranches.includes("main") ? remoteBranches : ["main", ...remoteBranches],
+    () =>
+      remoteBranches.includes("main")
+        ? remoteBranches
+        : ["main", ...remoteBranches],
     [remoteBranches]
   );
 
@@ -166,10 +212,16 @@ export function CreateAgentDialog({
           <>
             <DialogHeader>
               <DialogTitle>Create Agent</DialogTitle>
-              <DialogDescription>Name, type, and working directory for a new agent session.</DialogDescription>
+              <DialogDescription>
+                Name, type, and working directory for a new agent session.
+              </DialogDescription>
             </DialogHeader>
 
-            <form data-testid="create-agent-form" className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
+            <form
+              data-testid="create-agent-form"
+              className="space-y-3"
+              onSubmit={(event) => void onSubmit(event)}
+            >
               <div className="relative space-y-1" ref={typeCmdRef}>
                 <label className="text-sm text-muted-foreground">Type</label>
                 <button
@@ -180,7 +232,11 @@ export function CreateAgentDialog({
                   aria-expanded={typeDropdownOpen}
                   onClick={() => setTypeDropdownOpen((prev) => !prev)}
                   onKeyDown={(e) => {
-                    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+                    if (
+                      e.key === "ArrowDown" ||
+                      e.key === "Enter" ||
+                      e.key === " "
+                    ) {
                       e.preventDefault();
                       if (!typeDropdownOpen) setTypeDropdownOpen(true);
                     }
@@ -191,11 +247,30 @@ export function CreateAgentDialog({
                   )}
                 >
                   {AGENT_TYPE_LABELS[createType]}
-                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", typeDropdownOpen && "rotate-180")} />
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground transition-transform",
+                      typeDropdownOpen && "rotate-180"
+                    )}
+                  />
                 </button>
                 {typeDropdownOpen ? (
                   <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-border bg-background shadow-md">
-                    <Command shouldFilter={false} ref={(el) => { if (el) requestAnimationFrame(() => el.focus()); }} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setTypeDropdownOpen(false); requestAnimationFrame(() => typeTriggerRef.current?.focus()); } }}>
+                    <Command
+                      shouldFilter={false}
+                      ref={(el) => {
+                        if (el) requestAnimationFrame(() => el.focus());
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setTypeDropdownOpen(false);
+                          requestAnimationFrame(() =>
+                            typeTriggerRef.current?.focus()
+                          );
+                        }
+                      }}
+                    >
                       <CommandList>
                         <CommandGroup>
                           {enabledAgentTypes.map((agentType) => (
@@ -205,10 +280,19 @@ export function CreateAgentDialog({
                               onSelect={() => {
                                 setCreateType(agentType);
                                 setTypeDropdownOpen(false);
-                                requestAnimationFrame(() => typeTriggerRef.current?.focus());
+                                requestAnimationFrame(() =>
+                                  typeTriggerRef.current?.focus()
+                                );
                               }}
                             >
-                              <Check className={cn("mr-2 h-3 w-3 shrink-0", agentType === createType ? "opacity-100" : "opacity-0")} />
+                              <Check
+                                className={cn(
+                                  "mr-2 h-3 w-3 shrink-0",
+                                  agentType === createType
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                )}
+                              />
                               {AGENT_TYPE_LABELS[agentType]}
                             </CommandItem>
                           ))}
@@ -229,7 +313,8 @@ export function CreateAgentDialog({
                   data-testid="create-agent-name"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Leave blank and the agent will set its own name based on the task.
+                  Leave blank and the agent will set its own name based on the
+                  task.
                 </p>
               </div>
 
@@ -247,7 +332,9 @@ export function CreateAgentDialog({
                 <label className="flex cursor-pointer items-start gap-3">
                   <Checkbox
                     checked={createUseWorktree}
-                    onCheckedChange={() => setCreateUseWorktree((current) => !current)}
+                    onCheckedChange={() =>
+                      setCreateUseWorktree((current) => !current)
+                    }
                     className="mt-0.5"
                     title="Toggle git worktree"
                     data-testid="create-agent-worktree"
@@ -265,7 +352,9 @@ export function CreateAgentDialog({
                 {createUseWorktree ? (
                   <div className="ml-8 w-[calc(100%-2rem)] space-y-2">
                     <div className="relative" ref={branchCmdRef}>
-                      <label className="mb-1 block text-xs text-muted-foreground">Base branch</label>
+                      <label className="mb-1 block text-xs text-muted-foreground">
+                        Base branch
+                      </label>
                       <button
                         ref={branchTriggerRef}
                         type="button"
@@ -273,9 +362,17 @@ export function CreateAgentDialog({
                         tabIndex={0}
                         aria-expanded={branchDropdownOpen}
                         data-testid="create-agent-base-branch"
-                        onClick={() => branchDropdownOpen ? setBranchDropdownOpen(false) : openBranchDropdown()}
+                        onClick={() =>
+                          branchDropdownOpen
+                            ? setBranchDropdownOpen(false)
+                            : openBranchDropdown()
+                        }
                         onKeyDown={(e) => {
-                          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+                          if (
+                            e.key === "ArrowDown" ||
+                            e.key === "Enter" ||
+                            e.key === " "
+                          ) {
                             e.preventDefault();
                             if (!branchDropdownOpen) openBranchDropdown();
                           }
@@ -289,7 +386,12 @@ export function CreateAgentDialog({
                         {branchesLoading ? (
                           <Loader2 className="ml-2 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
                         ) : (
-                          <ChevronDown className={cn("ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform", branchDropdownOpen && "rotate-180")} />
+                          <ChevronDown
+                            className={cn(
+                              "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                              branchDropdownOpen && "rotate-180"
+                            )}
+                          />
                         )}
                       </button>
                       {branchDropdownOpen ? (
@@ -299,11 +401,17 @@ export function CreateAgentDialog({
                               if (e.key === "Escape") {
                                 e.preventDefault();
                                 setBranchDropdownOpen(false);
-                                requestAnimationFrame(() => branchTriggerRef.current?.focus());
+                                requestAnimationFrame(() =>
+                                  branchTriggerRef.current?.focus()
+                                );
                               }
                             }}
                           >
-                            <CommandInput ref={branchInputRef} placeholder="Search branches..." className="font-mono text-xs" />
+                            <CommandInput
+                              ref={branchInputRef}
+                              placeholder="Search branches..."
+                              className="font-mono text-xs"
+                            />
                             <CommandList>
                               {branchesLoading ? (
                                 <CommandLoading>
@@ -324,10 +432,19 @@ export function CreateAgentDialog({
                                     onSelect={() => {
                                       setCreateBaseBranch(branch);
                                       setBranchDropdownOpen(false);
-                                      requestAnimationFrame(() => branchTriggerRef.current?.focus());
+                                      requestAnimationFrame(() =>
+                                        branchTriggerRef.current?.focus()
+                                      );
                                     }}
                                   >
-                                    <Check className={cn("mr-2 h-3 w-3 shrink-0", branch === createBaseBranch ? "opacity-100" : "opacity-0")} />
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-3 w-3 shrink-0",
+                                        branch === createBaseBranch
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
                                     {branch}
                                   </CommandItem>
                                 ))}
@@ -339,7 +456,9 @@ export function CreateAgentDialog({
                     </div>
                     <Input
                       value={createWorktreeBranch}
-                      onChange={(event) => setCreateWorktreeBranch(event.target.value)}
+                      onChange={(event) =>
+                        setCreateWorktreeBranch(event.target.value)
+                      }
                       placeholder="branch name (auto-generated if empty)"
                       data-testid="create-agent-worktree-branch"
                     />
@@ -350,14 +469,19 @@ export function CreateAgentDialog({
               <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                 <Checkbox
                   checked={createFullAccess}
-                  onCheckedChange={() => setCreateFullAccess((current) => !current)}
+                  onCheckedChange={() =>
+                    setCreateFullAccess((current) => !current)
+                  }
                   className="mt-0.5"
                   title="Toggle full access"
                 />
                 <span className="space-y-1">
-                  <span className="block text-sm font-medium text-foreground">Start in full access mode</span>
+                  <span className="block text-sm font-medium text-foreground">
+                    Start in full access mode
+                  </span>
                   <span className="block text-xs text-muted-foreground">
-                    Starts the selected agent with its most permissive supported execution mode.
+                    Starts the selected agent with its most permissive supported
+                    execution mode.
                   </span>
                 </span>
               </label>
@@ -365,21 +489,32 @@ export function CreateAgentDialog({
               <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                 <Checkbox
                   checked={createAutoReview}
-                  onCheckedChange={() => setCreateAutoReview((current) => !current)}
+                  onCheckedChange={() =>
+                    setCreateAutoReview((current) => !current)
+                  }
                   className="mt-0.5"
                   title="Toggle autonomous review"
                   data-testid="create-agent-auto-review"
                 />
                 <span className="space-y-1">
-                  <span className="block text-sm font-medium text-foreground">Autonomous Review</span>
+                  <span className="block text-sm font-medium text-foreground">
+                    Autonomous Review
+                  </span>
                   <span className="block text-xs text-muted-foreground">
-                    Agent will launch one review agent and address feedback before completing.
+                    Agent will launch one review agent and address feedback
+                    before completing.
                   </span>
                 </span>
               </label>
 
               <div className="flex justify-end gap-2 pt-1">
-                <Button type="button" variant="ghost" tabIndex={0} onClick={() => setOpen(false)} data-testid="create-agent-cancel">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  tabIndex={0}
+                  onClick={() => setOpen(false)}
+                  data-testid="create-agent-cancel"
+                >
                   Cancel
                 </Button>
                 <Button
@@ -392,8 +527,16 @@ export function CreateAgentDialog({
                 >
                   Create with prompt
                 </Button>
-                <Button type="submit" variant="primary" tabIndex={0} disabled={creating} data-testid="create-agent-submit">
-                  {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  tabIndex={0}
+                  disabled={creating}
+                  data-testid="create-agent-submit"
+                >
+                  {creating ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : null}
                   Create
                 </Button>
               </div>
@@ -403,10 +546,16 @@ export function CreateAgentDialog({
           <>
             <DialogHeader>
               <DialogTitle>Initial Prompt</DialogTitle>
-              <DialogDescription>This prompt will be sent as the agent's first message.</DialogDescription>
+              <DialogDescription>
+                This prompt will be sent as the agent's first message.
+              </DialogDescription>
             </DialogHeader>
 
-            <form data-testid="create-agent-prompt-form" className="space-y-3" onSubmit={(event) => void onSubmit(event)}>
+            <form
+              data-testid="create-agent-prompt-form"
+              className="space-y-3"
+              onSubmit={(event) => void onSubmit(event)}
+            >
               <textarea
                 ref={promptTextareaRef}
                 value={initialPrompt}
@@ -433,11 +582,24 @@ export function CreateAgentDialog({
                   Back
                 </Button>
                 <div className="flex gap-2">
-                  <Button type="button" variant="ghost" tabIndex={0} onClick={() => setOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    tabIndex={0}
+                    onClick={() => setOpen(false)}
+                  >
                     Cancel
                   </Button>
-                  <Button type="submit" variant="primary" tabIndex={0} disabled={creating} data-testid="create-agent-prompt-submit">
-                    {creating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    tabIndex={0}
+                    disabled={creating}
+                    data-testid="create-agent-prompt-submit"
+                  >
+                    {creating ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : null}
                     Create
                   </Button>
                 </div>

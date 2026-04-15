@@ -44,18 +44,18 @@ a finding with appropriate severity, file path, and suggestion.
 
 ### Frontmatter Fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Display name shown in the UI |
-| `description` | Yes | Short description of the persona's purpose |
-| `feedbackFormat` | No | Hint for feedback structure (default: `findings`) |
+| Field            | Required | Description                                       |
+| ---------------- | -------- | ------------------------------------------------- |
+| `name`           | Yes      | Display name shown in the UI                      |
+| `description`    | Yes      | Short description of the persona's purpose        |
+| `feedbackFormat` | No       | Hint for feedback structure (default: `findings`) |
 
 ### Template Placeholders
 
-| Placeholder | Replaced With |
-|-------------|---------------|
-| `{{context}}` | The context briefing provided by the caller |
-| `{{diff}}` | Git diff of the current branch vs the base branch |
+| Placeholder   | Replaced With                                     |
+| ------------- | ------------------------------------------------- |
+| `{{context}}` | The context briefing provided by the caller       |
+| `{{diff}}`    | Git diff of the current branch vs the base branch |
 
 ## Feedback System
 
@@ -76,26 +76,26 @@ Agents submit findings via the `dispatch_feedback` MCP tool:
 
 ### Feedback Fields
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `severity` | No | `critical`, `high`, `medium`, `low`, or `info` (default: `info`) |
-| `filePath` | No | File path relative to repo root |
-| `lineNumber` | No | Line number in the file |
-| `description` | Yes | What was found — the issue or observation |
-| `suggestion` | No | Suggested fix or action |
-| `mediaRef` | No | Filename of previously shared media to attach |
+| Field         | Required | Description                                                      |
+| ------------- | -------- | ---------------------------------------------------------------- |
+| `severity`    | No       | `critical`, `high`, `medium`, `low`, or `info` (default: `info`) |
+| `filePath`    | No       | File path relative to repo root                                  |
+| `lineNumber`  | No       | Line number in the file                                          |
+| `description` | Yes      | What was found — the issue or observation                        |
+| `suggestion`  | No       | Suggested fix or action                                          |
+| `mediaRef`    | No       | Filename of previously shared media to attach                    |
 
 ### Feedback Status
 
 Each finding has a status that can be updated from the UI:
 
-| Status | Meaning |
-|--------|---------|
-| `open` | New finding, not yet reviewed |
-| `fixed` | Issue has been addressed |
+| Status      | Meaning                            |
+| ----------- | ---------------------------------- |
+| `open`      | New finding, not yet reviewed      |
+| `fixed`     | Issue has been addressed           |
 | `dismissed` | Finding was reviewed and dismissed |
-| `forwarded` | Sent to another agent or process |
-| `ignored` | Intentionally not addressing |
+| `forwarded` | Sent to another agent or process   |
+| `ignored`   | Intentionally not addressing       |
 
 ### Viewing Feedback
 
@@ -105,8 +105,8 @@ Each finding has a status that can be updated from the UI:
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/personas` | List available personas (requires `cwd` query param) |
-| GET | `/api/v1/agents/:id/feedback` | Get feedback for an agent (`scope=children` for child feedback) |
-| PATCH | `/api/v1/agents/:id/feedback/:feedbackId` | Update feedback status |
+| Method | Path                                      | Description                                                     |
+| ------ | ----------------------------------------- | --------------------------------------------------------------- |
+| GET    | `/api/v1/personas`                        | List available personas (requires `cwd` query param)            |
+| GET    | `/api/v1/agents/:id/feedback`             | Get feedback for an agent (`scope=children` for child feedback) |
+| PATCH  | `/api/v1/agents/:id/feedback/:feedbackId` | Update feedback status                                          |

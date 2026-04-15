@@ -3,7 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { AGENT_TYPES, AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPES,
+  AGENT_TYPE_LABELS,
+  type AgentType,
+} from "@/lib/agent-types";
 
 type AgentTypeSettingsResponse = {
   enabledAgentTypes: AgentType[];
@@ -38,7 +42,11 @@ export function AgentTypeSettings({
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load agent type settings.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load agent type settings."
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -62,17 +70,24 @@ export function AgentTypeSettings({
       onChange(next);
 
       try {
-        const data = await api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types", {
-          method: "POST",
-          body: JSON.stringify({ enabledAgentTypes: next }),
-        });
+        const data = await api<AgentTypeSettingsResponse>(
+          "/api/v1/app/settings/agent-types",
+          {
+            method: "POST",
+            body: JSON.stringify({ enabledAgentTypes: next }),
+          }
+        );
         setAgentTypes(data.enabledAgentTypes);
         onChange(data.enabledAgentTypes);
       } catch (err) {
         // Revert on failure
         setAgentTypes(agentTypes);
         onChange(agentTypes);
-        setError(err instanceof Error ? err.message : "Failed to save agent type settings.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to save agent type settings."
+        );
       }
     },
     [agentTypes, onChange]
@@ -89,7 +104,8 @@ export function AgentTypeSettings({
           Available agent types
         </div>
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-          Choose which agent runtimes can be created from the app. Disabled types are removed from the create-agent dialog.
+          Choose which agent runtimes can be created from the app. Disabled
+          types are removed from the create-agent dialog.
         </p>
       </div>
 
@@ -102,7 +118,9 @@ export function AgentTypeSettings({
               key={agentType}
               className={cn(
                 "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
-                disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-muted/50",
+                disabled
+                  ? "cursor-not-allowed opacity-60"
+                  : "cursor-pointer hover:bg-muted/50"
               )}
             >
               <Checkbox
@@ -112,9 +130,13 @@ export function AgentTypeSettings({
                 data-testid={`agent-type-toggle-${agentType}`}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">{AGENT_TYPE_LABELS[agentType]}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {AGENT_TYPE_LABELS[agentType]}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  {disabled ? "At least one agent type must stay enabled." : "Available in the create-agent dialog."}
+                  {disabled
+                    ? "At least one agent type must stay enabled."
+                    : "Available in the create-agent dialog."}
                 </div>
               </div>
             </label>

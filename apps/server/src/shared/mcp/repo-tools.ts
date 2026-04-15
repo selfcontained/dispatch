@@ -9,13 +9,11 @@ const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
 const REPO_TOOL_PREFIX = "repo_";
 const BUILTIN_TOOL_NAMES = new Set([
-
   "create_pr",
-
 
   "get_pr_status",
   "dispatch_event",
-  "dispatch_share"
+  "dispatch_share",
 ]);
 
 type RepoToolFile = {
@@ -64,11 +62,19 @@ export type RepoToolDefinition = {
   description: string;
   params?: RepoToolParam[];
   scope?: RepoToolScope[];
-  run: (context: { agentId: string; repoRoot: string; params?: Record<string, unknown> }) => Promise<RepoToolResult>;
+  run: (context: {
+    agentId: string;
+    repoRoot: string;
+    params?: Record<string, unknown>;
+  }) => Promise<RepoToolResult>;
 };
 
-export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinition[]> {
-  const config = await readRepoToolFile(path.join(repoRoot, REPO_TOOL_MANIFEST_PATH));
+export async function loadRepoTools(
+  repoRoot: string
+): Promise<RepoToolDefinition[]> {
+  const config = await readRepoToolFile(
+    path.join(repoRoot, REPO_TOOL_MANIFEST_PATH)
+  );
   const rawTools = Array.isArray(config?.tools) ? config.tools : [];
 
   return rawTools.map((rawTool, index) => {
@@ -89,7 +95,11 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
             if (value === undefined || value === null) continue;
             if (param.type === "boolean" && value === true) {
               args.push(param.flag);
-            } else if (param.type === "string" && typeof value === "string" && value) {
+            } else if (
+              param.type === "string" &&
+              typeof value === "string" &&
+              value
+            ) {
               args.push(param.flag, value);
             }
           }
@@ -102,7 +112,7 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           },
           // Allow all exit codes — the agent decides how to handle failures.
           // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).
-          allowedExitCodes: Array.from({ length: 256 }, (_, i) => i)
+          allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),
         });
 
         return {
@@ -112,14 +122,17 @@ export async function loadRepoTools(repoRoot: string): Promise<RepoToolDefinitio
           exitCode: result.exitCode,
           stdout: result.stdout,
           stderr: result.stderr,
-          message: result.stdout || `Ran ${prefixedName} in ${currentRepoRoot}.`
+          message:
+            result.stdout || `Ran ${prefixedName} in ${currentRepoRoot}.`,
         };
-      }
+      },
     };
   });
 }
 
-async function readRepoToolFile(filePath: string): Promise<RepoToolFile | null> {
+async function readRepoToolFile(
+  filePath: string
+): Promise<RepoToolFile | null> {
   try {
     return JSON.parse(await readFile(filePath, "utf8")) as RepoToolFile;
   } catch {
@@ -134,10 +147,13 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
 
   const rawTool = value as Record<string, unknown>;
   const rawName = typeof rawTool.name === "string" ? rawTool.name.trim() : "";
-  const description = typeof rawTool.description === "string" ? rawTool.description.trim() : "";
-  const command = Array.isArray(rawTool.command) && rawTool.command.every((part) => typeof part === "string")
-    ? rawTool.command.map((part) => part.trim()).filter(Boolean)
-    : [];
+  const description =
+    typeof rawTool.description === "string" ? rawTool.description.trim() : "";
+  const command =
+    Array.isArray(rawTool.command) &&
+    rawTool.command.every((part) => typeof part === "string")
+      ? rawTool.command.map((part) => part.trim()).filter(Boolean)
+      : [];
 
   if (!rawName) {
     throw new Error(`Repo tool at index ${index} must have a non-empty name.`);
@@ -146,13 +162,17 @@ function parseRepoTool(value: unknown, index: number): RepoToolConfig {
   const name = rawName.replaceAll(".", "_");
   const prefixedName = `${REPO_TOOL_PREFIX}${name}`;
   if (BUILTIN_TOOL_NAMES.has(prefixedName)) {
-    throw new Error(`Repo tool "${name}" collides with a built-in Dispatch MCP tool when prefixed as "${prefixedName}".`);
+    throw new Error(
+      `Repo tool "${name}" collides with a built-in Dispatch MCP tool when prefixed as "${prefixedName}".`
+    );
   }
   if (!description) {
     throw new Error(`Repo tool "${name}" must include a description.`);
   }
   if (command.length === 0) {
-    throw new Error(`Repo tool "${name}" must include a non-empty command array.`);
+    throw new Error(
+      `Repo tool "${name}" must include a non-empty command array.`
+    );
   }
 
   const params = parseRepoToolParams(rawTool.params);
@@ -178,7 +198,11 @@ export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
   }
 
   const config = await readRepoToolFile(manifestPath);
-  if (!config?.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+  if (
+    !config?.hooks ||
+    typeof config.hooks !== "object" ||
+    Array.isArray(config.hooks)
+  ) {
     const empty = {};
     hooksCache.set(manifestPath, { mtime, hooks: empty });
     return empty;
@@ -200,15 +224,18 @@ function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {
     throw new Error(`Invalid hook definition for "${name}".`);
   }
   const raw = value as Record<string, unknown>;
-  const command = Array.isArray(raw.command) && raw.command.every((part) => typeof part === "string")
-    ? raw.command.map((part) => (part as string).trim()).filter(Boolean)
-    : [];
+  const command =
+    Array.isArray(raw.command) &&
+    raw.command.every((part) => typeof part === "string")
+      ? raw.command.map((part) => (part as string).trim()).filter(Boolean)
+      : [];
 
   if (command.length === 0) {
     throw new Error(`Hook "${name}" must include a non-empty command array.`);
   }
 
-  const description = typeof raw.description === "string" ? raw.description.trim() : undefined;
+  const description =
+    typeof raw.description === "string" ? raw.description.trim() : undefined;
 
   return { command, ...(description ? { description } : {}) };
 }
@@ -237,10 +264,13 @@ function parseRepoToolParams(raw: unknown): RepoToolParam[] | undefined {
     const name = typeof p.name === "string" ? p.name.trim() : "";
     const type = p.type === "string" || p.type === "boolean" ? p.type : "";
     const flag = typeof p.flag === "string" ? p.flag.trim() : "";
-    const description = typeof p.description === "string" ? p.description.trim() : "";
+    const description =
+      typeof p.description === "string" ? p.description.trim() : "";
 
     if (!name || !type || !flag) {
-      throw new Error(`Param at index ${i} must have name, type (string|boolean), and flag.`);
+      throw new Error(
+        `Param at index ${i} must have name, type (string|boolean), and flag.`
+      );
     }
     return { name, type, flag, description };
   });

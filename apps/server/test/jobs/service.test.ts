@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "../db/setup.js";
@@ -32,7 +40,15 @@ const mockConfig = {
   port: 6767,
 } as import("../../src/config.js").AppConfig;
 
-function makeJob(store: JobStore, overrides: { name: string; directory: string; prompt?: string | null; schedule?: string | null }) {
+function makeJob(
+  store: JobStore,
+  overrides: {
+    name: string;
+    directory: string;
+    prompt?: string | null;
+    schedule?: string | null;
+  }
+) {
   return store.createJob({
     name: overrides.name,
     directory: overrides.directory,
@@ -78,7 +94,12 @@ beforeEach(async () => {
 describe("JobService", () => {
   describe("onRunStateChange callbacks", () => {
     it("fires callbacks and handles errors in individual callbacks", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
 
       const events: string[] = [];
       service.onRunStateChange((run) => {
@@ -92,7 +113,10 @@ describe("JobService", () => {
       });
 
       const store = new JobStore(pool);
-      const job = await makeJob(store, { name: "cb-test", directory: "/tmp/test-cb" });
+      const job = await makeJob(store, {
+        name: "cb-test",
+        directory: "/tmp/test-cb",
+      });
 
       // Create a real agent record to satisfy FK constraint
       const agentId = `agt_cb_${Date.now()}`;
@@ -125,7 +149,12 @@ describe("JobService", () => {
 
   describe("scheduler lifecycle", () => {
     it("starts and stops schedulers for enabled jobs", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       const store = new JobStore(pool);
 
       const job = await makeJob(store, {
@@ -143,7 +172,12 @@ describe("JobService", () => {
     });
 
     it("startSchedulers is safe to call with no jobs", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       await service.startSchedulers();
       service.stopAllSchedulers();
     });
@@ -151,7 +185,12 @@ describe("JobService", () => {
 
   describe("reconcileActiveRuns", () => {
     it("starts monitors for active runs without crashing", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       await service.reconcileActiveRuns();
       service.stopAllSchedulers();
     });
@@ -159,7 +198,12 @@ describe("JobService", () => {
 
   describe("listJobs with nextRun", () => {
     it("includes nextRun for enabled jobs with schedule", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       const store = new JobStore(pool);
 
       const job = await makeJob(store, {
@@ -179,7 +223,12 @@ describe("JobService", () => {
     });
 
     it("nextRun is null for disabled jobs", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       const store = new JobStore(pool);
 
       const job = await makeJob(store, {
@@ -200,7 +249,12 @@ describe("JobService", () => {
 
   describe("error paths", () => {
     it("runJob throws when job has no prompt", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       const store = new JobStore(pool);
 
       const job = await makeJob(store, {
@@ -216,9 +270,13 @@ describe("JobService", () => {
       service.stopAllSchedulers();
     });
 
-
     it("removeJob throws when job has active run", async () => {
-      const service = new JobService(pool, mockAgentManager, mockLog, mockConfig);
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
       const store = new JobStore(pool);
 
       const job = await makeJob(store, {
@@ -229,7 +287,10 @@ describe("JobService", () => {
       await store.createRun(job.id, makeRunConfig("active-run-test"));
 
       await expect(
-        service.removeJob({ name: "active-run-test", directory: "/tmp/test-activerun" })
+        service.removeJob({
+          name: "active-run-test",
+          directory: "/tmp/test-activerun",
+        })
       ).rejects.toThrow("has active run");
 
       service.stopAllSchedulers();

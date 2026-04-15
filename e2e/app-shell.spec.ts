@@ -6,7 +6,9 @@ test.describe("App shell", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("renders the main layout without dedicated header or footer chrome", async ({ page }) => {
+  test("renders the main layout without dedicated header or footer chrome", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
@@ -15,7 +17,9 @@ test.describe("App shell", () => {
     await expect(page.getByTestId("app-header")).toHaveCount(0);
   });
 
-  test("shows the empty-state prompt when no agent is selected", async ({ page }) => {
+  test("shows the empty-state prompt when no agent is selected", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
@@ -45,7 +49,9 @@ test.describe("App shell", () => {
   test("sidebar shows the Dispatch logo", async ({ page }) => {
     await loadApp(page);
 
-    const title = page.getByTestId("sidebar-shell").getByText("Dispatch", { exact: true });
+    const title = page
+      .getByTestId("sidebar-shell")
+      .getByText("Dispatch", { exact: true });
     await expect(title).toBeVisible();
   });
 });

@@ -25,7 +25,11 @@ describe("github pr services", () => {
         case `-C ${repoRoot} push --set-upstream origin feature/pr-tools`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `pr create --base main --head feature/pr-tools --fill`:
-          return { exitCode: 0, stdout: "https://github.com/selfcontained/dispatch/pull/99", stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: "https://github.com/selfcontained/dispatch/pull/99",
+            stderr: "",
+          };
         case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
           return {
             exitCode: 0,
@@ -41,21 +45,26 @@ describe("github pr services", () => {
               autoMergeRequest: null,
               headRefName: "feature/pr-tools",
               baseRefName: "main",
-              statusCheckRollup: []
+              statusCheckRollup: [],
             }),
-            stderr: ""
+            stderr: "",
           };
         default:
           throw new Error(`Unexpected command: ${key}`);
       }
     });
 
-    const result = await createPr({
-      cwd: repoRoot,
-      fillFromCommits: true
-    }, runner);
+    const result = await createPr(
+      {
+        cwd: repoRoot,
+        fillFromCommits: true,
+      },
+      runner
+    );
 
-    expect(result.url).toBe("https://github.com/selfcontained/dispatch/pull/99");
+    expect(result.url).toBe(
+      "https://github.com/selfcontained/dispatch/pull/99"
+    );
     expect(result.branchName).toBe("feature/pr-tools");
     expect(result.prNumber).toBe(99);
   });
@@ -74,11 +83,19 @@ describe("github pr services", () => {
         case `-C ${repoRoot} rev-list --count origin/feature/foo..HEAD`:
           return { exitCode: 0, stdout: "1", stderr: "" };
         case `-C ${repoRoot} rev-parse --abbrev-ref --symbolic-full-name @{upstream}`:
-          return { exitCode: 0, stdout: "origin/fix/bug-on-feature", stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: "origin/fix/bug-on-feature",
+            stderr: "",
+          };
         case `-C ${repoRoot} push origin fix/bug-on-feature`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `pr create --base feature/foo --head fix/bug-on-feature --fill`:
-          return { exitCode: 0, stdout: "https://github.com/selfcontained/dispatch/pull/100", stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: "https://github.com/selfcontained/dispatch/pull/100",
+            stderr: "",
+          };
         case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
           return {
             exitCode: 0,
@@ -94,22 +111,27 @@ describe("github pr services", () => {
               autoMergeRequest: null,
               headRefName: "fix/bug-on-feature",
               baseRefName: "feature/foo",
-              statusCheckRollup: []
+              statusCheckRollup: [],
             }),
-            stderr: ""
+            stderr: "",
           };
         default:
           throw new Error(`Unexpected command: ${key}`);
       }
     });
 
-    const result = await createPr({
-      cwd: repoRoot,
-      baseBranch: "feature/foo",
-      fillFromCommits: true
-    }, runner);
+    const result = await createPr(
+      {
+        cwd: repoRoot,
+        baseBranch: "feature/foo",
+        fillFromCommits: true,
+      },
+      runner
+    );
 
-    expect(result.url).toBe("https://github.com/selfcontained/dispatch/pull/100");
+    expect(result.url).toBe(
+      "https://github.com/selfcontained/dispatch/pull/100"
+    );
     expect(result.baseBranch).toBe("feature/foo");
     expect(result.branchName).toBe("fix/bug-on-feature");
   });
@@ -136,7 +158,9 @@ describe("github pr services", () => {
       }
     });
 
-    await expect(createPr({ cwd: repoRoot }, runner)).rejects.toBeInstanceOf(GitHubPrError);
+    await expect(createPr({ cwd: repoRoot }, runner)).rejects.toBeInstanceOf(
+      GitHubPrError
+    );
   });
 
   it("reports PR status details", async () => {
@@ -162,10 +186,10 @@ describe("github pr services", () => {
               headRefName: "feature/pr-tools",
               baseRefName: "main",
               statusCheckRollup: [
-                { context: "ci", status: "COMPLETED", conclusion: "SUCCESS" }
-              ]
+                { context: "ci", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
             }),
-            stderr: ""
+            stderr: "",
           };
         default:
           throw new Error(`Unexpected command: ${key}`);
@@ -174,7 +198,8 @@ describe("github pr services", () => {
 
     const result = await getPrStatus({ cwd: repoRoot, prNumber: 99 }, runner);
     expect(result.number).toBe(99);
-    expect(result.statusSummary).toEqual([{ name: "ci", status: "COMPLETED", conclusion: "SUCCESS" }]);
+    expect(result.statusSummary).toEqual([
+      { name: "ci", status: "COMPLETED", conclusion: "SUCCESS" },
+    ]);
   });
-
 });
