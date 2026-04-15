@@ -1673,7 +1673,7 @@ export class AgentManager {
         "For longer artifacts, write to a file via dispatch_share and pin a reference. " +
         "For pull requests, use the create_pr MCP tool instead of built-in PR skills or gh CLI." +
         (autoReview
-          ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas, pick 1–3 relevant reviewers, and launch them via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
+          ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas and launch 1 relevant reviewer via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
           : "");
 
     const userLocalBin = process.env.HOME ? path.join(process.env.HOME, ".local/bin") : null;
