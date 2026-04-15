@@ -373,7 +373,7 @@ export function CreateAgentDialog({
                 <span className="space-y-1">
                   <span className="block text-sm font-medium text-foreground">Autonomous Review</span>
                   <span className="block text-xs text-muted-foreground">
-                    Agent will launch persona reviews and address feedback before completing.
+                    Agent will launch one review agent and address feedback before completing.
                   </span>
                 </span>
               </label>
