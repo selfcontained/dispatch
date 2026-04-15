@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, ArrowLeft, Bot, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Activity, AlarmClock, ArrowLeft, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Plus, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { PathInput } from "@/components/app/path-input";
@@ -18,21 +18,53 @@ import { type AddJobConfig, type Job, type JobRun, type JobRunStatus, useJobActi
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
 import { StatCard } from "@/components/app/stat-card";
 import { formatRelativeTime } from "@/lib/format";
-import { useIconColor } from "@/hooks/use-icon-color";
-import { useInstanceName } from "@/hooks/use-instance-name";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type JobsPaneProps = {
   open: boolean;
-  onClose: () => void;
   agents: Agent[];
   onOpenAgent: (agent: Agent) => Promise<void>;
   enabledAgentTypes: AgentType[];
-  footer?: React.ReactNode;
-  pulsingNavItem?: string | null;
-  triggerNavAnimation?: (navItem: string) => void;
 };
+
+type JobsContextValue = {
+  jobs: Job[];
+  isLoading: boolean;
+  error: unknown;
+  selectedJob: Job | null;
+  showOverview: boolean;
+  showDetailPane: boolean;
+  tab: DetailTab;
+  history: { data?: { runs: JobRun[] }; isLoading: boolean };
+  activeRunAgent: Agent | null;
+  jobStats: { data?: import("@/hooks/use-jobs").JobStats | null; isLoading: boolean };
+  routeRunId: string | undefined;
+  selectJob: (job: Job) => void;
+  openAddJob: () => void;
+  actionErrorByJobId: Record<string, string>;
+  navigate: ReturnType<typeof useNavigate>;
+  agents: Agent[];
+  onOpenAgent: (agent: Agent) => Promise<void>;
+  enabledAgentTypes: AgentType[];
+  addJob: ReturnType<typeof useJobActions>["addJob"];
+  runNow: ReturnType<typeof useJobActions>["runNow"];
+  setEnabled: ReturnType<typeof useJobActions>["setEnabled"];
+  updateJob: ReturnType<typeof useJobActions>["updateJob"];
+  removeJob: ReturnType<typeof useJobActions>["removeJob"];
+  isAddingJob: boolean;
+  setIsAddingJob: (open: boolean) => void;
+  justAddedJobId: string | null;
+  setJustAddedJobId: (id: string | null) => void;
+};
+
+const JobsContext = createContext<JobsContextValue | null>(null);
+
+function useJobsContext(): JobsContextValue {
+  const ctx = useContext(JobsContext);
+  if (!ctx) throw new Error("useJobsContext must be used within JobsProvider");
+  return ctx;
+}
 
 type DetailTab = "configure" | "prompt" | "history";
 
@@ -134,15 +166,14 @@ function useActiveRun(job: Job | null, agents: Agent[]) {
   }, [agents, job]);
 }
 
-export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer, pulsingNavItem, triggerNavAnimation }: JobsPaneProps): JSX.Element {
+/** Provider that manages all job state. Wrap around both JobListContent and JobDetailPane. */
+export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, children }: JobsPaneProps & { children: React.ReactNode }): JSX.Element {
   const navigate = useNavigate();
   const { jobId: routeJobId, section: routeSection, runId: routeRunId } = useParams();
-  const { iconColor } = useIconColor();
-  const { instanceName } = useInstanceName();
   const { data: jobs = [], isLoading, error } = useJobs(open);
   const { addJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
   const [isAddingJob, setIsAddingJob] = useState(false);
-  const [actionErrorByJobId, _setActionErrorByJobId] = useState<Record<string, string>>({});
+  const [actionErrorByJobId] = useState<Record<string, string>>({});
   const [justAddedJobId, setJustAddedJobId] = useState<string | null>(null);
   const showOverview = routeJobId === "overview";
   const selectedJob = showOverview ? null : (jobs.find((job) => job.id === routeJobId) ?? null);
@@ -164,185 +195,19 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
 
   const showDetailPane = !!selectedJob || showOverview;
 
+  const ctx: JobsContextValue = {
+    jobs, isLoading, error, selectedJob, showOverview, showDetailPane, tab,
+    history, activeRunAgent, jobStats, routeRunId,
+    selectJob, openAddJob, actionErrorByJobId, navigate,
+    agents, onOpenAgent, enabledAgentTypes,
+    addJob, runNow, setEnabled, updateJob, removeJob,
+    isAddingJob, setIsAddingJob, justAddedJobId, setJustAddedJobId,
+  };
+
   return (
-    <section className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background text-foreground" aria-labelledby="jobs-page-title">
-            <aside data-testid="jobs-sidebar" className={cn("flex h-full min-h-0 w-full flex-col overflow-hidden border-r-2 border-border bg-card md:w-[320px] md:shrink-0", showDetailPane && "hidden md:flex")}>
-              <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
-                <div className="flex items-center gap-2.5">
-                  <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
-                  <div className="flex min-w-0 flex-col justify-center">
-                    <div className="text-sm font-bold uppercase tracking-widest text-foreground">Dispatch</div>
-                    {instanceName ? (
-                      <div title={instanceName} className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-                <div>
-                  <h1 id="jobs-page-title" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</h1>
-                  <div className="text-[11px] text-muted-foreground">Recurring automations</div>
-                </div>
-                <div className="ml-auto">
-                <Button
-                  className="justify-start"
-                  variant="primary"
-                  size="sm"
-                  onClick={openAddJob}
-                  data-testid="add-job-button"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add job
-                </Button>
-                </div>
-              </div>
-
-              <div data-testid="jobs-sidebar-scroll" className="min-h-0 flex-1 overflow-y-auto">
-                {error ? (
-                  <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{error instanceof Error ? error.message : "Failed to load jobs."}</div>
-                ) : isLoading ? (
-                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...</div>
-                ) : jobs.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground">
-                    <div className="rounded-md border border-dashed border-border p-4">
-                      <div className="font-medium text-foreground">No jobs added yet.</div>
-                      <div className="mt-1 text-xs">Added jobs will appear here with schedule, status, and run controls.</div>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <button
-                      className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
-                      onClick={() => navigate("/jobs/overview")}
-                    >
-                      <Activity className="h-3.5 w-3.5" />
-                      <span>Overview</span>
-                    </button>
-                    {jobs.map((job) => {
-                      const actionError = actionErrorByJobId[job.id];
-                          return (
-                      <div
-                        key={job.id}
-                        className={cn(
-                          "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                          selectedJob?.id === job.id && "border-r-primary bg-muted/60"
-                        )}
-                        onClick={() => selectJob(job)}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-semibold leading-5">{job.name}</div>
-                            <div className="truncate font-mono text-[11px] text-muted-foreground" title={job.directory}>{shortPath(job.directory)}</div>
-                          </div>
-                          <Badge className={statusClasses(job.lastRunStatus)}>
-                            <span className="mr-1 hidden sm:inline-flex">{statusIcon(job.lastRunStatus)}</span>
-                            {job.lastRunStatus ?? "new"}
-                          </Badge>
-                        </div>
-                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                          <Clock className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{job.schedule ? `Cron: ${job.schedule}` : "No schedule"}</span>
-                          <span className="shrink-0 text-muted-foreground/70">•</span>
-                          <span className="shrink-0">{job.enabled ? "enabled" : "disabled"}</span>
-                        </div>
-                        {actionError ? (
-                          <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
-                            {actionError}
-                          </div>
-                        ) : null}
-                      </div>
-                    );})}
-                  </div>
-                )}
-              </div>
-              <JobsNav
-                onOpenAgents={() => navigate("/")}
-                onOpenActivity={() => navigate("/activity")}
-                onOpenJobs={() => navigate("/jobs")}
-                onOpenSettings={() => navigate("/settings")}
-                pulsingNavItem={pulsingNavItem}
-                triggerNavAnimation={triggerNavAnimation}
-              />
-            </aside>
-
-            <div className={cn("flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background", showDetailPane ? "flex" : "hidden md:flex")}>
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {selectedJob ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setJustAddedJobId(null);
-                          navigate("/jobs");
-                        }}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                      </Button>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{selectedJob.name}</div>
-                        <div className="text-xs text-muted-foreground">Job detail</div>
-                      </div>
-                    </div>
-                  <JobDetail
-                    className="min-h-0 flex-1"
-                    job={selectedJob}
-                    tab={tab}
-                    onTabChange={(nextTab) => {
-                      navigate(`/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`);
-                    }}
-                    history={history.data?.runs ?? []}
-                    historyLoading={history.isLoading}
-                    selectedRunId={routeRunId ?? null}
-                    onSelectRun={(runId) => {
-                      navigate(runId ? `/jobs/${selectedJob.id}/history/${runId}` : `/jobs/${selectedJob.id}/history`);
-                    }}
-                    activeRunAgent={activeRunAgent}
-                    onOpenAgent={onOpenAgent}
-                    onRunNow={async (job) => { await runNow.mutateAsync(job); }}
-                    onSetEnabled={async (job, enabled) => { await setEnabled.mutateAsync({ job, enabled }); }}
-                    enabledAgentTypes={enabledAgentTypes}
-                    onUpdateJob={async (job) => {
-                      await updateJob.mutateAsync(job);
-                    }}
-                    onRemoveJob={async (job) => {
-                      await removeJob.mutateAsync(job);
-                      navigate("/jobs");
-                    }}
-                    isUpdating={updateJob.isPending}
-                    isRemoving={removeJob.isPending}
-                    justAdded={justAddedJobId === selectedJob.id}
-                    onDismissAdded={() => setJustAddedJobId(null)}
-                  />
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-0 flex-col">
-                    {showOverview && (
-                      <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
-                        <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
-                          <ArrowLeft className="h-4 w-4" />
-                        </Button>
-                        <div className="text-sm font-semibold">Overview</div>
-                      </div>
-                    )}
-                    <JobsOverview
-                      jobs={jobs}
-                      stats={jobStats.data ?? null}
-                      statsLoading={jobStats.isLoading}
-                      onSelectJob={selectJob}
-                      onSelectRun={(jobId, runId) => navigate(`/jobs/${jobId}/history/${runId}`)}
-                    />
-                  </div>
-                )}
-              </div>
-              {footer}
-            </div>
-      <AddJobDialog
-        open={isAddingJob}
-        onOpenChange={setIsAddingJob}
-      >
+    <JobsContext.Provider value={ctx}>
+      {children}
+      <AddJobDialog open={isAddingJob} onOpenChange={setIsAddingJob}>
         <AddJobFlow
           onAddJob={async (job) => {
             const added = await addJob.mutateAsync(job);
@@ -354,7 +219,171 @@ export function JobsPane({ open, agents, onOpenAgent, enabledAgentTypes, footer,
           enabledAgentTypes={enabledAgentTypes}
         />
       </AddJobDialog>
-    </section>
+    </JobsContext.Provider>
+  );
+}
+
+/** Job list content for the unified sidebar. */
+export function JobListContent(): JSX.Element {
+  const { jobs, isLoading, error, selectedJob, showDetailPane, actionErrorByJobId, selectJob, openAddJob, navigate } = useJobsContext();
+
+  return (
+    <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
+      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+        <div>
+          <h1 id="jobs-page-title" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</h1>
+          <div className="text-[11px] text-muted-foreground">Recurring automations</div>
+        </div>
+        <div className="ml-auto">
+          <Button className="justify-start" variant="primary" size="sm" onClick={openAddJob} data-testid="add-job-button">
+            <Plus className="mr-2 h-4 w-4" />
+            Add job
+          </Button>
+        </div>
+      </div>
+
+      <div data-testid="jobs-sidebar-scroll" className={cn("min-h-0 flex-1 overflow-y-auto", showDetailPane && "hidden md:block")}>
+        {error ? (
+          <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{error instanceof Error ? error.message : "Failed to load jobs."}</div>
+        ) : isLoading ? (
+          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...</div>
+        ) : jobs.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            <div className="rounded-md border border-dashed border-border p-4">
+              <div className="font-medium text-foreground">No jobs added yet.</div>
+              <div className="mt-1 text-xs">Added jobs will appear here with schedule, status, and run controls.</div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <button
+              className="flex w-full items-center gap-2 border-b border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40 md:hidden"
+              onClick={() => navigate("/jobs/overview")}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span>Overview</span>
+            </button>
+            {jobs.map((job) => {
+              const actionError = actionErrorByJobId[job.id];
+              return (
+                <div
+                  key={job.id}
+                  className={cn(
+                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
+                    selectedJob?.id === job.id && "border-r-primary bg-muted/60"
+                  )}
+                  onClick={() => selectJob(job)}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold leading-5">{job.name}</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground" title={job.directory}>{shortPath(job.directory)}</div>
+                    </div>
+                    <Badge className={statusClasses(job.lastRunStatus)}>
+                      <span className="mr-1 hidden sm:inline-flex">{statusIcon(job.lastRunStatus)}</span>
+                      {job.lastRunStatus ?? "new"}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{job.schedule ? `Cron: ${job.schedule}` : "No schedule"}</span>
+                    <span className="shrink-0 text-muted-foreground/70">•</span>
+                    <span className="shrink-0">{job.enabled ? "enabled" : "disabled"}</span>
+                  </div>
+                  {actionError ? (
+                    <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
+                      {actionError}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Job detail pane for the main content area. */
+export function JobDetailPane(): JSX.Element {
+  const {
+    jobs, selectedJob, showOverview, tab, history, activeRunAgent, jobStats,
+    routeRunId, navigate, onOpenAgent, enabledAgentTypes,
+    runNow, setEnabled, updateJob, removeJob, justAddedJobId, setJustAddedJobId, selectJob,
+  } = useJobsContext();
+
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {selectedJob ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setJustAddedJobId(null);
+                  navigate("/jobs");
+                }}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">{selectedJob.name}</div>
+                <div className="text-xs text-muted-foreground">Job detail</div>
+              </div>
+            </div>
+            <JobDetail
+              className="min-h-0 flex-1"
+              job={selectedJob}
+              tab={tab}
+              onTabChange={(nextTab) => {
+                navigate(`/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`);
+              }}
+              history={history.data?.runs ?? []}
+              historyLoading={history.isLoading}
+              selectedRunId={routeRunId ?? null}
+              onSelectRun={(runId) => {
+                navigate(runId ? `/jobs/${selectedJob.id}/history/${runId}` : `/jobs/${selectedJob.id}/history`);
+              }}
+              activeRunAgent={activeRunAgent}
+              onOpenAgent={onOpenAgent}
+              onRunNow={async (job) => { await runNow.mutateAsync(job); }}
+              onSetEnabled={async (job, enabled) => { await setEnabled.mutateAsync({ job, enabled }); }}
+              enabledAgentTypes={enabledAgentTypes}
+              onUpdateJob={async (job) => { await updateJob.mutateAsync(job); }}
+              onRemoveJob={async (job) => {
+                await removeJob.mutateAsync(job);
+                navigate("/jobs");
+              }}
+              isUpdating={updateJob.isPending}
+              isRemoving={removeJob.isPending}
+              justAdded={justAddedJobId === selectedJob.id}
+              onDismissAdded={() => setJustAddedJobId(null)}
+            />
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col">
+            {showOverview && (
+              <div className="flex min-h-14 items-center gap-3 border-b border-border bg-card px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                <Button variant="ghost" size="icon" aria-label="Back to jobs" onClick={() => navigate("/jobs")}>
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div className="text-sm font-semibold">Overview</div>
+              </div>
+            )}
+            <JobsOverview
+              jobs={jobs}
+              stats={jobStats.data ?? null}
+              statsLoading={jobStats.isLoading}
+              onSelectJob={selectJob}
+              onSelectRun={(jobId, runId) => navigate(`/jobs/${jobId}/history/${runId}`)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -700,67 +729,6 @@ function RunHistoryGrid({ runs }: {
         </div>
       </div>
     </div>
-  );
-}
-
-function JobsNav({
-  onOpenAgents,
-  onOpenActivity,
-  onOpenJobs,
-  onOpenSettings,
-  pulsingNavItem,
-  triggerNavAnimation,
-}: {
-  onOpenAgents: () => void;
-  onOpenActivity: () => void;
-  onOpenJobs: () => void;
-  onOpenSettings: () => void;
-  pulsingNavItem?: string | null;
-  triggerNavAnimation?: (navItem: string) => void;
-}) {
-  const triggerNavAnimationForKey = (event: React.KeyboardEvent<HTMLButtonElement>, navItem: string): void => {
-    if (event.key === "Enter" || event.key === " ") {
-      triggerNavAnimation?.(navItem);
-    }
-  };
-
-  return (
-    <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("agents")} onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")} onClick={onOpenAgents} aria-label="Agents" data-testid="agents-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}>
-              <Bot className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Agents</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("jobs")} onKeyDown={(event) => triggerNavAnimationForKey(event, "jobs")} onClick={onOpenJobs} aria-label="Jobs" data-testid="jobs-button" className={cn("rounded-md p-2 text-primary transition-colors hover:text-primary/80", pulsingNavItem === "jobs" && "animate-sidebar-nav-pulse")}>
-              <AlarmClock className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Jobs</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("activity")} onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")} onClick={onOpenActivity} data-testid="activity-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}>
-              <Activity className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Activity</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button onPointerDown={() => triggerNavAnimation?.("settings")} onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")} onClick={onOpenSettings} data-testid="settings-button" className={cn("rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground", pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}>
-              <Settings className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Settings</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
   );
 }
 

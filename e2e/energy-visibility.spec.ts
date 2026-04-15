@@ -71,7 +71,7 @@ test.describe("Energy / visibility-aware pausing", () => {
 
     // Health poll should resume — check API status in Settings still shows ok
     await page.getByTestId("settings-button").click();
-    const apiStatus = page.getByRole("dialog", { name: "Settings" }).getByTestId("service-status-api");
+    const apiStatus = page.getByTestId("sidebar-shell").getByTestId("service-status-api");
     await expect(apiStatus).toContainText("ok", { timeout: 15_000 });
   });
 

@@ -1,14 +1,6 @@
 import {
-  Activity,
-  Bot,
   ChevronDown,
-  ChevronLeft,
-  AlarmClock,
-  Settings,
-  X
 } from "lucide-react";
-import { useIconColor } from "@/hooks/use-icon-color";
-import { useInstanceName } from "@/hooks/use-instance-name";
 
 import { AgentCard } from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -16,12 +8,11 @@ import { type FeedbackDetailState } from "@/components/app/feedback-panel";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import React from "react";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
-import { cn } from "@/lib/utils";
 
-type AgentSidebarSharedProps = {
+export type AgentListContentProps = {
   agents: Agent[];
   selectedAgentId: string | null;
   expandedAgentId: string | null;
@@ -29,9 +20,6 @@ type AgentSidebarSharedProps = {
   onOpenCreateDialog: (type?: AgentType) => void;
   enabledAgentTypes: AgentType[];
   lastUsedAgentType: AgentType | null;
-  onOpenActivity: () => void;
-  onOpenJobs: () => void;
-  onOpenSettings: () => void;
   setOverflowAgentId: (value: string | null | ((current: string | null) => string | null)) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
@@ -48,23 +36,11 @@ type AgentSidebarSharedProps = {
   connectedAgentId?: string | null;
   onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
   feedbackDetailState?: FeedbackDetailState;
-  pulsingNavItem?: string | null;
-  triggerNavAnimation?: (navItem: string) => void;
-};
-
-type AgentSidebarProps = AgentSidebarSharedProps & {
-  leftOpen: boolean;
-  setLeftOpen: (open: boolean) => void;
-};
-
-type AgentSidebarContentProps = AgentSidebarSharedProps & {
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
-  closeButtonIcon?: "chevron" | "x";
-  className?: string;
 };
 
-export function AgentSidebarContent({
+export function AgentListContent({
   agents,
   selectedAgentId,
   expandedAgentId,
@@ -72,9 +48,6 @@ export function AgentSidebarContent({
   onOpenCreateDialog,
   enabledAgentTypes,
   lastUsedAgentType,
-  onOpenActivity,
-  onOpenJobs,
-  onOpenSettings,
   setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
   setDeleteConfirmOpen,
@@ -91,57 +64,15 @@ export function AgentSidebarContent({
   connectedAgentId,
   onOpenFeedbackDetail,
   feedbackDetailState,
-  pulsingNavItem,
-  triggerNavAnimation,
   onRequestClose,
   closeOnSessionAction = false,
-  closeButtonIcon = "x",
-  className
-}: AgentSidebarContentProps): JSX.Element {
-  const { iconColor } = useIconColor();
-  const { instanceName } = useInstanceName();
-
+}: AgentListContentProps): JSX.Element {
   const defaultCreateType: AgentType = lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
     ? lastUsedAgentType
     : enabledAgentTypes[0] ?? "codex";
 
-  const navButtonClassName = (navItem: string, active = false): string => cn(
-    "rounded-md p-2 transition-colors hover:bg-muted/50 hover:text-foreground",
-    active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
-  );
-
-  const triggerNavAnimationForKey = (event: React.KeyboardEvent<HTMLButtonElement>, navItem: string): void => {
-    if (event.key === "Enter" || event.key === " ") {
-      triggerNavAnimation?.(navItem);
-    }
-  };
-
-  const renderNavIcon = (icon: JSX.Element): JSX.Element => (
-    <span className="flex items-center justify-center">
-      {icon}
-    </span>
-  );
-
   return (
-    <aside data-testid="agent-sidebar" className={cn("flex h-full min-h-0 w-full flex-col border-r-2 border-border bg-card text-foreground", className)}>
-      <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
-        <div className="flex items-center gap-2.5">
-          <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
-          <div className="flex min-w-0 flex-col justify-center">
-            <div className="text-sm font-bold uppercase tracking-widest text-foreground">Dispatch</div>
-            {instanceName ? (
-              <div title={instanceName} className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
-            ) : null}
-          </div>
-        </div>
-        {onRequestClose ? (
-          <div className="ml-auto">
-            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close sidebar">
-              {closeButtonIcon === "chevron" ? <ChevronLeft className="h-4 w-4" /> : <X className="h-4 w-4" />}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+    <div data-testid="agent-sidebar" className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
         <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Agents</div>
         <div className="ml-auto flex items-center">
@@ -221,85 +152,6 @@ export function AgentSidebarContent({
           )}
         </TooltipProvider>
       </div>
-      <TooltipProvider delayDuration={120}>
-        <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.("agents")}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, "agents")}
-                onClick={() => undefined}
-                aria-label="Agents"
-                data-testid="agents-button"
-                className={cn(navButtonClassName("agents", true), pulsingNavItem === "agents" && "animate-sidebar-nav-pulse")}
-              >
-                {renderNavIcon(<Bot className="h-5 w-5" />)}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Agents</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.("jobs")}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, "jobs")}
-                onClick={onOpenJobs}
-                aria-label="Jobs"
-                data-testid="jobs-button"
-                className={cn(navButtonClassName("jobs"), pulsingNavItem === "jobs" && "animate-sidebar-nav-pulse")}
-              >
-                {renderNavIcon(<AlarmClock className="h-5 w-5" />)}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Jobs</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.("activity")}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, "activity")}
-                onClick={onOpenActivity}
-                data-testid="activity-button"
-                className={cn(navButtonClassName("activity"), pulsingNavItem === "activity" && "animate-sidebar-nav-pulse")}
-              >
-                {renderNavIcon(<Activity className="h-5 w-5" />)}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Activity</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.("settings")}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, "settings")}
-                onClick={onOpenSettings}
-                data-testid="settings-button"
-                className={cn(navButtonClassName("settings"), pulsingNavItem === "settings" && "animate-sidebar-nav-pulse")}
-              >
-                {renderNavIcon(<Settings className="h-5 w-5" />)}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Settings</TooltipContent>
-          </Tooltip>
-        </div>
-      </TooltipProvider>
-    </aside>
-  );
-}
-
-export function AgentSidebar({ leftOpen, setLeftOpen, ...props }: AgentSidebarProps): JSX.Element {
-  return (
-    <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: leftOpen ? 320 : 0 }}
-    >
-      <AgentSidebarContent
-        {...props}
-        onRequestClose={() => setLeftOpen(false)}
-        closeOnSessionAction={false}
-        closeButtonIcon="chevron"
-        className="w-[320px]"
-      />
     </div>
   );
 }

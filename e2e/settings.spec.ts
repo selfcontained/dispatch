@@ -12,15 +12,16 @@ test.describe("Settings pane", () => {
     // Click the Settings button in the sidebar footer
     await page.getByTestId("settings-button").click();
 
-    // Settings overlay should appear with a "Settings" heading and "General" nav item
-    await expect(page.getByText("Settings").first()).toBeVisible({ timeout: 3_000 });
-    const generalNav = page.getByRole("navigation").getByText("General");
+    // Settings nav should appear in the sidebar with "General" nav item
+    const sidebar = page.getByTestId("sidebar-shell");
+    await expect(sidebar.getByText("Settings").first()).toBeVisible({ timeout: 3_000 });
+    const generalNav = sidebar.getByText("General");
     await expect(generalNav).toBeVisible();
 
-    // Close it via the X button (sr-only "Close")
-    await page.getByRole("button", { name: "Close" }).click();
+    // Navigate back to agents to close settings
+    await page.getByTestId("agents-button").click();
 
-    // The General nav item should no longer be visible (pane is closed)
+    // Settings nav should no longer be visible (back to agents view)
     await expect(generalNav).not.toBeVisible({ timeout: 3_000 });
   });
 
@@ -28,7 +29,7 @@ test.describe("Settings pane", () => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByRole("navigation").getByText("Updates", { exact: true }).click();
+    await page.getByTestId("sidebar-shell").getByText("Updates", { exact: true }).click();
 
     // Version info is displayed in the Updates section
     await expect(page.getByText("Current version")).toBeVisible();
@@ -40,15 +41,15 @@ test.describe("Settings pane", () => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByRole("navigation").getByText("Agents", { exact: true }).click();
+    await page.getByTestId("sidebar-shell").getByText("Agents", { exact: true }).click();
 
     const claudeToggle = page.getByTestId("agent-type-toggle-claude");
     await expect(claudeToggle).toBeChecked();
     await claudeToggle.uncheck();
     await expect(claudeToggle).not.toBeChecked();
 
-    // Auto-saves — close settings and verify
-    await page.getByRole("button", { name: "Close" }).click();
+    // Navigate back to agents to close settings
+    await page.getByTestId("agents-button").click();
 
     await page.getByTestId("create-agent-button").click();
     const form = page.getByTestId("create-agent-form");

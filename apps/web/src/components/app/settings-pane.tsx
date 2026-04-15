@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ArrowDownToLine, ArrowLeft, Bell, BookOpenText, ChevronRight, Database, Package, Server, Settings, Users, X } from "lucide-react";
+import { ArrowDownToLine, Bell, BookOpenText, Database, Package, Server, Settings, Users } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { DocsContent } from "@/components/app/docs-pane";
@@ -320,9 +319,8 @@ function isValidSection(value: string | undefined): value is SettingsSection {
   return value !== undefined && ALL_VALID_SECTIONS.includes(value as SettingsSection);
 }
 
-type SettingsPaneProps = {
+export type SettingsPaneProps = {
   open: boolean;
-  onClose: () => void;
   onLogout: () => void;
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
@@ -342,34 +340,11 @@ type SettingsPaneProps = {
   onSubsectionChange?: (subsection: string | null) => void;
 };
 
-export function SettingsPane({
-  open,
-  onClose,
-  onLogout,
-  theme,
-  setTheme,
-  iconColor,
-  setIconColor,
-  isIconColorSaving,
-  iconColorError,
-  clearIconColorError,
-  enabledAgentTypes,
-  onEnabledAgentTypesChange,
-  apiState,
-  dbState,
-  serviceDotClass,
-  initialSection,
-  initialSubsection,
-  onSectionChange,
-  onSubsectionChange,
-}: SettingsPaneProps): JSX.Element {
+export function useSettingsState(open: boolean, initialSection?: string) {
   const resolvedInitial = isValidSection(initialSection) ? initialSection : "general";
   const [activeSection, setActiveSectionState] = useState<SettingsSection | null>(resolvedInitial);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const releaseStream = useReleaseStream();
-
-  // Check admin status on mount
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -381,10 +356,8 @@ export function SettingsPane({
 
   const sections = isAdmin ? [...BASE_SECTIONS, RELEASES_SECTION, HELP_SECTION] : [...BASE_SECTIONS, HELP_SECTION];
 
-  // Sync from URL when initialSection changes (e.g. navigating directly to /settings/appearance)
   useEffect(() => {
     if (open && isValidSection(initialSection)) {
-      // Don't navigate to releases if not admin
       if (initialSection === "releases" && !isAdmin) {
         setActiveSectionState("general");
       } else {
@@ -393,157 +366,139 @@ export function SettingsPane({
     }
   }, [open, initialSection, isAdmin]);
 
-  const setActiveSection = useCallback((section: SettingsSection | null) => {
-    setActiveSectionState(section);
-    onSectionChange?.(section);
-  }, [onSectionChange]);
+  return { activeSection, setActiveSectionState, isAdmin, sections };
+}
+
+/** Settings nav for the sidebar. */
+export function SettingsNavContent({
+  activeSection,
+  sections,
+  onSectionChange,
+  apiState,
+  dbState,
+  serviceDotClass,
+}: {
+  activeSection: SettingsSection | null;
+  sections: Array<{ id: SettingsSection; label: string; icon: typeof Settings }>;
+  onSectionChange: (section: SettingsSection) => void;
+  apiState: ServiceState;
+  dbState: ServiceState;
+  serviceDotClass: (state: ServiceState) => string;
+}): JSX.Element {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Settings</div>
+      </div>
+      <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+        {sections.map(({ id, label, icon: Icon }) => (
+          <button
+            type="button"
+            key={id}
+            onClick={() => onSectionChange(id)}
+            className={cn(
+              "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+              activeSection === id
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {label}
+          </button>
+        ))}
+      </nav>
+      <div className="border-t border-border px-4 pb-3 pt-4">
+        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+          System
+        </div>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
+          <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Settings content for the main content area. */
+export function SettingsContent({
+  activeSection,
+  onLogout,
+  theme,
+  setTheme,
+  iconColor,
+  setIconColor,
+  isIconColorSaving,
+  iconColorError,
+  clearIconColorError,
+  enabledAgentTypes,
+  onEnabledAgentTypesChange,
+  initialSubsection,
+  onSubsectionChange,
+  isAdmin,
+}: {
+  activeSection: SettingsSection | null;
+  onLogout: () => void;
+  theme: ThemeId;
+  setTheme: (id: ThemeId) => void;
+  iconColor: IconColorId;
+  setIconColor: (id: IconColorId) => void;
+  isIconColorSaving: boolean;
+  iconColorError: string | null;
+  clearIconColorError: () => void;
+  enabledAgentTypes: AgentType[];
+  onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
+  initialSubsection?: string;
+  onSubsectionChange?: (subsection: string | null) => void;
+  isAdmin: boolean;
+}): JSX.Element {
+  const releaseStream = useReleaseStream();
 
   return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) {
-          onClose();
-          setActiveSectionState("general");
-        }
-      }}
-    >
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-border bg-card text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
-          <DialogPrimitive.Title className="sr-only">Settings</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">Dispatch settings and release manager</DialogPrimitive.Description>
-
-          {/* Header */}
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-5">
-            {/* Mobile back button when viewing a section */}
-            {activeSection !== null && (
-              <button
-                onClick={() => setActiveSection(null)}
-                className="mr-2 rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 md:hidden"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-            )}
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              {activeSection !== null ? (
-                <span className="md:hidden">{sections.find((s) => s.id === activeSection)?.label ?? "Settings"}</span>
-              ) : null}
-              <span className={activeSection !== null ? "hidden md:inline" : ""}>Settings</span>
-            </span>
-            <DialogPrimitive.Close className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
-              <X className="h-4 w-4" />
-              <span className="sr-only">Close</span>
-            </DialogPrimitive.Close>
-          </div>
-
-          {/* Body */}
-          <div className="flex min-h-0 flex-1">
-            {/* Desktop nav — always visible */}
-            <nav className="hidden w-48 shrink-0 flex-col border-r border-border py-2 md:flex">
-              <div>
-                {sections.map(({ id, label, icon: Icon }) => (
-                  <button
-                    type="button"
-                    key={id}
-                    onClick={() => setActiveSection(id)}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
-                      activeSection === id
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-auto border-t border-border px-4 pb-3 pt-4">
-                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  System
-                </div>
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
-                  <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
-                </div>
-              </div>
-            </nav>
-
-            {/* Mobile nav — section list, shown when no section selected */}
-            {activeSection === null && (
-              <nav className="flex flex-1 flex-col md:hidden">
-                {sections.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => setActiveSection(id)}
-                    className="flex items-center gap-3 border-b border-border px-5 py-3.5 text-sm text-foreground transition-colors active:bg-muted"
-                  >
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {label}
-                    <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
-                  </button>
-                ))}
-                <div className="mt-auto border-t border-border px-5 py-4">
-                  <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                    System
-                  </div>
-                  <div className="space-y-3 text-xs text-muted-foreground">
-                    <ServiceStatus icon={<Server className="h-3.5 w-3.5" />} label="API" value={apiState} dotClass={serviceDotClass(apiState)} />
-                    <ServiceStatus icon={<Database className="h-3.5 w-3.5" />} label="DB" value={dbState} dotClass={serviceDotClass(dbState)} />
-                  </div>
-                </div>
-              </nav>
-            )}
-
-            {/* Content */}
-            <div
-              key={activeSection}
-              className={cn(
-                "min-h-0 min-w-0 flex-1 overflow-y-auto",
-                activeSection === "help" && "flex",
-                activeSection === "help" && "overflow-hidden",
-                activeSection === null && "hidden md:block"
-              )}
-            >
-              {activeSection === "general" && (
-                <div className="flex flex-col">
-                  <div className="p-4 md:p-6">
-                    <InstanceNameSettings />
-                  </div>
-                  <div className="border-t border-border">
-                    <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />
-                  </div>
-                  <div className="border-t border-border">
-                    <SecuritySettings onLogout={onLogout} />
-                  </div>
-                </div>
-              )}
-              {activeSection === "agents" && (
-                <div className="flex flex-col">
-                  <AgentTypeSettings
-                    enabledAgentTypes={enabledAgentTypes}
-                    onChange={onEnabledAgentTypesChange}
-                  />
-                  <div className="px-6 pb-6">
-                    <WorktreeLocationSettings />
-                  </div>
-                </div>
-              )}
-              {activeSection === "notifications" && <NotificationSettings />}
-              {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
-              {activeSection === "help" && (
-                <DocsContent
-                  title="Help & Docs"
-                  initialSection={initialSubsection}
-                  onSectionChange={onSubsectionChange}
-                />
-              )}
-              {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div
+        key={activeSection}
+        className={cn(
+          "min-h-0 min-w-0 flex-1 overflow-y-auto",
+          activeSection === "help" && "flex overflow-hidden",
+        )}
+      >
+        {activeSection === "general" && (
+          <div className="flex flex-col">
+            <div className="p-4 md:p-6">
+              <InstanceNameSettings />
+            </div>
+            <div className="border-t border-border">
+              <AppearanceSettings theme={theme} setTheme={setTheme} iconColor={iconColor} setIconColor={setIconColor} isIconColorSaving={isIconColorSaving} iconColorError={iconColorError} clearIconColorError={clearIconColorError} />
+            </div>
+            <div className="border-t border-border">
+              <SecuritySettings onLogout={onLogout} />
             </div>
           </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        )}
+        {activeSection === "agents" && (
+          <div className="flex flex-col">
+            <AgentTypeSettings
+              enabledAgentTypes={enabledAgentTypes}
+              onChange={onEnabledAgentTypesChange}
+            />
+            <div className="px-6 pb-6">
+              <WorktreeLocationSettings />
+            </div>
+          </div>
+        )}
+        {activeSection === "notifications" && <NotificationSettings />}
+        {activeSection === "updates" && <UpdatesSection stream={releaseStream} />}
+        {activeSection === "help" && (
+          <DocsContent
+            title="Help & Docs"
+            initialSection={initialSubsection}
+            onSectionChange={onSubsectionChange}
+          />
+        )}
+        {activeSection === "releases" && isAdmin && <ReleasesAdmin stream={releaseStream} />}
+      </div>
+    </div>
   );
 }

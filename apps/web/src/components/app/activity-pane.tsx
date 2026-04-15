@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { CalendarIcon, X } from "lucide-react";
+import { CalendarIcon } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -59,10 +58,11 @@ import {
   type WorkingTimeByProject,
 } from "@/hooks/use-activity";
 
+type ActivityTab = "metrics" | "history";
+
 type ActivityPaneProps = {
   open: boolean;
-  onClose: () => void;
-  initialTab?: "metrics" | "history";
+  initialTab?: ActivityTab;
   onTabChange?: (tab: string) => void;
 };
 
@@ -773,9 +773,76 @@ function DatePickerPopover({
 
 // ── Main pane ───────────────────────────────────────────────────────
 
-type ActivityTab = "metrics" | "history";
+/** Activity sidebar nav content — tab picker for Metrics/History. */
+export function ActivityNavContent({
+  tab,
+  onTabChange,
+  range,
+  onRangeChange,
+  dailyDate,
+  onDailyDateChange,
+}: {
+  tab: ActivityTab;
+  onTabChange: (tab: ActivityTab) => void;
+  range: ActivityRange;
+  onRangeChange: (range: ActivityRange) => void;
+  dailyDate: string;
+  onDailyDateChange: (date: string) => void;
+}): JSX.Element {
+  const isDaily = range === "daily";
 
-export function ActivityPane({ open, onClose, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activity</div>
+      </div>
+      <div className="flex flex-col gap-3 px-3 py-3">
+        <div className="flex items-center gap-1">
+          {(["metrics", "history"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => onTabChange(t)}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                tab === t
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t === "metrics" ? "Metrics" : "History"}
+            </button>
+          ))}
+        </div>
+        {tab === "metrics" && (
+          <div className="flex flex-col gap-2">
+            {isDaily && (
+              <DatePickerPopover dailyDate={dailyDate} onDateChange={onDailyDateChange} />
+            )}
+            <Select value={range} onValueChange={(value) => onRangeChange(value as ActivityRange)}>
+              <SelectTrigger
+                className="h-8 bg-muted/30 text-xs"
+                data-testid="activity-range-select"
+                aria-label="Activity time range"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ACTIVITY_RANGES.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {rangeLabel(option)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Activity content for the main content area. */
+export function ActivityPane({ open, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
   const [dailyDate, setDailyDate] = useState<string>(() => {
     const d = new Date();
@@ -816,231 +883,132 @@ export function ActivityPane({ open, onClose, initialTab, onTabChange }: Activit
   const hasActiveHourData = activeHours?.some((cell) => cell.count > 0) ?? false;
 
   return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) onClose();
-      }}
-    >
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed inset-0 md:inset-4 z-[70] flex flex-col overflow-hidden rounded-none md:rounded-sm border border-border bg-card text-foreground shadow-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
-          <DialogPrimitive.Title className="sr-only">Activity</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">
-            Agent activity and usage overview
-          </DialogPrimitive.Description>
-
-          {/* Header */}
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
-            <div className="flex items-center gap-1">
-              {(["metrics", "history"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={cn(
-                    "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                    tab === t
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {t === "metrics" ? "Metrics" : "History"}
-                </button>
-              ))}
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              {tab === "metrics" && (
-                <>
-                  {isDaily && (
-                    <DatePickerPopover dailyDate={dailyDate} onDateChange={setDailyDate} />
-                  )}
-                  <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
-                    <SelectTrigger
-                      className="h-8 w-[132px] bg-muted/30 text-xs"
-                      data-testid="activity-range-select"
-                      aria-label="Activity time range"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ACTIVITY_RANGES.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {rangeLabel(option)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      {/* Header with tabs + range selector */}
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
+        <div className="flex items-center gap-1">
+          {(["metrics", "history"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                tab === t
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               )}
-            </div>
-            <DialogPrimitive.Close className="rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
-              <X className="h-4 w-4" />
-              <span className="sr-only">Close</span>
-            </DialogPrimitive.Close>
-          </div>
+            >
+              {t === "metrics" ? "Metrics" : "History"}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {tab === "metrics" && (
+            <>
+              {isDaily && (
+                <DatePickerPopover dailyDate={dailyDate} onDateChange={setDailyDate} />
+              )}
+              <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+                <SelectTrigger
+                  className="h-8 w-[132px] bg-muted/30 text-xs"
+                  data-testid="activity-range-select"
+                  aria-label="Activity time range"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_RANGES.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {rangeLabel(option)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </>
+          )}
+        </div>
+      </div>
 
-          {/* History tab */}
-          {tab === "history" && (
-            <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
-              <AgentHistoryTab range={range} onRangeChange={setRange} />
-            </ScrollArea>
+      {/* History tab */}
+      {tab === "history" && (
+        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
+          <AgentHistoryTab range={range} onRangeChange={setRange} />
+        </ScrollArea>
+      )}
+
+      {/* Metrics tab body */}
+      {tab === "metrics" && <ScrollArea className="flex-1">
+        <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+          {hasTokenData && tokenStats && (
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              <StatCard label="Total tokens" value={formatTokenCount(totalTokens)} sub={`${formatTokenCount(tokenStats.total_output)} output`} />
+              <StatCard label="Cache hit rate" value={`${cacheHitRate(tokenStats)}%`} sub="of input from cache" />
+              <StatCard label="Avg tokens / session" value={tokenStats.total_sessions > 0 ? formatTokenCount(Math.round(totalTokens / tokenStats.total_sessions)) : "—"} />
+              <StatCard label="Sessions" value={tokenStats.total_sessions} sub={`${tokenStats.total_messages} messages`} />
+              {agentsCreated && agentsCreated.total > 0 && <StatCard label="Agents created" value={agentsCreated.total} />}
+            </div>
           )}
 
-          {/* Metrics tab body */}
-          {tab === "metrics" && <ScrollArea className="flex-1">
-            <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
-              {/* Token usage stats */}
-              {hasTokenData && tokenStats && (
-                <div className="flex flex-wrap gap-2 sm:gap-3">
-                  <StatCard
-                    label="Total tokens"
-                    value={formatTokenCount(totalTokens)}
-                    sub={`${formatTokenCount(tokenStats.total_output)} output`}
-                  />
-                  <StatCard
-                    label="Cache hit rate"
-                    value={`${cacheHitRate(tokenStats)}%`}
-                    sub="of input from cache"
-                  />
-                  <StatCard
-                    label="Avg tokens / session"
-                    value={
-                      tokenStats.total_sessions > 0
-                        ? formatTokenCount(Math.round(totalTokens / tokenStats.total_sessions))
-                        : "—"
-                    }
-                  />
-                  <StatCard
-                    label="Sessions"
-                    value={tokenStats.total_sessions}
-                    sub={`${tokenStats.total_messages} messages`}
-                  />
-                  {agentsCreated && agentsCreated.total > 0 && (
-                    <StatCard
-                      label="Agents created"
-                      value={agentsCreated.total}
-                    />
-                  )}
-                </div>
+          {tokenDaily && tokenDaily.days.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-sm font-medium text-foreground">
+                Token usage ({isDaily ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : rangeLabel(range).toLowerCase()})
+              </h2>
+              <DailyTokenChart data={tokenDaily.days} granularity={tokenDaily.granularity} agentsCreatedData={agentsCreated?.days} dailyDate={dailyDateParam} />
+            </div>
+          )}
+
+          {hasTokenData && (tokenByModel?.length || tokenByProject?.length) ? (
+            <div className="grid gap-6 sm:grid-cols-2">
+              {tokenByModel && tokenByModel.length > 0 && (
+                <div><h2 className="mb-3 text-sm font-medium text-foreground">Tokens by model</h2><ModelBreakdown data={tokenByModel} /></div>
               )}
-
-              {/* Daily token chart + agents created line */}
-              {tokenDaily && tokenDaily.days.length > 0 && (
-                <div>
-                  <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Token usage ({isDaily
-                      ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                      : rangeLabel(range).toLowerCase()})
-                  </h2>
-                  <DailyTokenChart
-                    data={tokenDaily.days}
-                    granularity={tokenDaily.granularity}
-                    agentsCreatedData={agentsCreated?.days}
-                    dailyDate={dailyDateParam}
-                  />
-                </div>
-              )}
-
-              {/* Model & project breakdowns side by side */}
-              {hasTokenData && (tokenByModel?.length || tokenByProject?.length) ? (
-                <div className="grid gap-6 sm:grid-cols-2">
-                  {tokenByModel && tokenByModel.length > 0 && (
-                    <div>
-                      <h2 className="mb-3 text-sm font-medium text-foreground">
-                        Tokens by model
-                      </h2>
-                      <ModelBreakdown data={tokenByModel} />
-                    </div>
-                  )}
-                  {tokenByProject && tokenByProject.length > 0 && (
-                    <div>
-                      <h2 className="mb-3 text-sm font-medium text-foreground">
-                        By project
-                      </h2>
-                      <ProjectBreakdown data={tokenByProject} workingTime={workingTimeByProject} />
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              {/* Yearly activity heatmap */}
-              <div>
-                <h2 className="mb-3 text-sm font-medium text-foreground">
-                  Activity this year
-                </h2>
-                {heatmapData ? (
-                  <Heatmap data={heatmapData} />
-                ) : (
-                  <div className="h-24 animate-pulse rounded-md bg-muted/30" />
-                )}
-              </div>
-
-              {/* Active hours */}
-              {activeHours && activeHours.length > 0 && hasActiveHourData && (
-                <div className="min-w-0">
-                  <h2 className="mb-1 text-sm font-medium text-foreground">
-                    Active hours
-                  </h2>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    {isDaily
-                      ? "Active-state events by weekday and hour for the selected day."
-                      : range === "7d"
-                        ? "Active-state events by weekday and hour for the last 7 days."
-                        : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
-                  </p>
-                  <ActiveHoursGrid data={activeHours} range={range} />
-                </div>
-              )}
-
-              {/* Status summary cards */}
-              {stats && hasData && (
-                <div className="flex flex-wrap gap-2 sm:gap-3">
-                  <StatCard
-                    label="Total working time"
-                    value={formatDuration(stats.totalWorkingMs)}
-                  />
-                  <StatCard
-                    label="Avg blocked time"
-                    value={formatDuration(stats.avgBlockedMs)}
-                  />
-                  <StatCard
-                    label="Avg waiting time"
-                    value={formatDuration(stats.avgWaitingMs)}
-                  />
-                  <StatCard
-                    label="Busiest day"
-                    value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"}
-                    sub={stats.busiestDayCount > 0 ? `${stats.busiestDayCount} events` : undefined}
-                  />
-                </div>
-              )}
-
-              {/* Daily status bar chart */}
-              {dailyStatus && dailyStatus.days.length > 0 && (
-                <div>
-                  <h2 className="mb-3 text-sm font-medium text-foreground">
-                    Status breakdown ({isDaily
-                      ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                      : rangeLabel(range).toLowerCase()})
-                  </h2>
-                  <DailyStackedBarChart
-                    data={dailyStatus.days}
-                    granularity={dailyStatus.granularity}
-                    dailyDate={dailyDateParam}
-                  />
-                </div>
-              )}
-
-              {/* Empty state */}
-              {stats && !hasData && (!heatmapData || heatmapData.length === 0) && !hasTokenData && (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  No activity yet. Stats will appear here as agents run.
-                </div>
+              {tokenByProject && tokenByProject.length > 0 && (
+                <div><h2 className="mb-3 text-sm font-medium text-foreground">By project</h2><ProjectBreakdown data={tokenByProject} workingTime={workingTimeByProject} /></div>
               )}
             </div>
-          </ScrollArea>}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+          ) : null}
+
+          <div>
+            <h2 className="mb-3 text-sm font-medium text-foreground">Activity this year</h2>
+            {heatmapData ? <Heatmap data={heatmapData} /> : <div className="h-24 animate-pulse rounded-md bg-muted/30" />}
+          </div>
+
+          {activeHours && activeHours.length > 0 && hasActiveHourData && (
+            <div className="min-w-0">
+              <h2 className="mb-1 text-sm font-medium text-foreground">Active hours</h2>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {isDaily ? "Active-state events by weekday and hour for the selected day." : range === "7d" ? "Active-state events by weekday and hour for the last 7 days." : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
+              </p>
+              <ActiveHoursGrid data={activeHours} range={range} />
+            </div>
+          )}
+
+          {stats && hasData && (
+            <div className="flex flex-wrap gap-2 sm:gap-3">
+              <StatCard label="Total working time" value={formatDuration(stats.totalWorkingMs)} />
+              <StatCard label="Avg blocked time" value={formatDuration(stats.avgBlockedMs)} />
+              <StatCard label="Avg waiting time" value={formatDuration(stats.avgWaitingMs)} />
+              <StatCard label="Busiest day" value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"} sub={stats.busiestDayCount > 0 ? `${stats.busiestDayCount} events` : undefined} />
+            </div>
+          )}
+
+          {dailyStatus && dailyStatus.days.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-sm font-medium text-foreground">
+                Status breakdown ({isDaily ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : rangeLabel(range).toLowerCase()})
+              </h2>
+              <DailyStackedBarChart data={dailyStatus.days} granularity={dailyStatus.granularity} dailyDate={dailyDateParam} />
+            </div>
+          )}
+
+          {stats && !hasData && (!heatmapData || heatmapData.length === 0) && !hasTokenData && (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              No activity yet. Stats will appear here as agents run.
+            </div>
+          )}
+        </div>
+      </ScrollArea>}
+    </div>
   );
 }

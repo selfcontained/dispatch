@@ -171,7 +171,6 @@ test.describe("Token usage UI", () => {
 
     // Open the activity pane
     await page.getByTestId("activity-button").click();
-    await expect(page.getByRole("dialog", { name: "Activity" })).toBeVisible();
 
     // Heatmap should render
     await expect(page.getByText("Activity this year")).toBeVisible();
@@ -186,9 +185,9 @@ test.describe("Token usage UI", () => {
       () => requests.filter((url) => url.includes("tz=") && url.includes("granularity=")).length
     ).toBeGreaterThanOrEqual(6);
 
-    // Close dialog
-    await page.getByRole("button", { name: "Close" }).click();
-    await expect(page.getByRole("dialog", { name: "Activity" })).not.toBeVisible();
+    // Navigate back to agents to close activity
+    await page.getByTestId("agents-button").click();
+    await expect(page.getByText("Activity this year")).not.toBeVisible();
   });
 });
 
