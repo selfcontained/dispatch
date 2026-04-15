@@ -4279,7 +4279,7 @@ async function mcpCompleteReview(
 
 async function mcpGetParentContext(
   parentAgentId: string
-): Promise<import("@dispatch/shared/mcp/server.js").ParentContextResult> {
+): Promise<import("./shared/mcp/server.js").ParentContextResult> {
   const parent = await agentManager.getAgent(parentAgentId);
   if (!parent) throw new Error("Parent agent not found.");
 
@@ -4444,7 +4444,7 @@ async function mcpLaunchPersona(
     const initialMessage = "Begin your review now. Follow your system prompt instructions.";
     setTimeout(async () => {
       try {
-        const { runCommand: run } = await import("@dispatch/shared/lib/run-command.js");
+        const { runCommand: run } = await import("./shared/lib/run-command.js");
         await run("tmux", ["send-keys", "-t", tmuxSession, "-l", initialMessage]);
         await run("tmux", ["send-keys", "-t", tmuxSession, "Enter"]);
       } catch {}

@@ -10,7 +10,7 @@ import type { Pool } from "pg";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Mock runCommand so AgentManager never touches tmux
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async (_cmd: string, args: string[]) => {
     // "has-session" check: pretend session exists after creation
     if (args[0] === "has-session") {
@@ -80,7 +80,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM agents");
 
-  const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+  const { runCommand } = await import("../src/shared/lib/run-command.js");
   vi.mocked(runCommand).mockImplementation(async (_cmd: string, args: string[]) => {
     if (args[0] === "has-session") {
       return { exitCode: 0, stdout: "", stderr: "" };
@@ -194,7 +194,7 @@ describe("AgentManager", () => {
     });
 
     it("should create inert agents without invoking tmux", async () => {
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } = await import("../src/shared/lib/run-command.js");
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       vi.mocked(runCommand).mockClear();
 
@@ -698,7 +698,7 @@ describe("AgentManager", () => {
     });
 
     it("should stop inert agents without invoking tmux", async () => {
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } = await import("../src/shared/lib/run-command.js");
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       const agent = await inertManager.createAgent({ cwd: "/tmp" });
       vi.mocked(runCommand).mockClear();
@@ -720,7 +720,7 @@ describe("AgentManager", () => {
       });
 
       // Now make tmux report no session
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } = await import("../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -749,7 +749,7 @@ describe("AgentManager", () => {
       await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:2");
       await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "error: unexpected argument '--append-system-prompt' found\n");
 
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } = await import("../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -787,7 +787,7 @@ describe("AgentManager", () => {
       await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:0");
       await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "warning: previous command printed an error banner\n");
 
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } = await import("../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -822,7 +822,7 @@ describe("AgentManager", () => {
       try {
         const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
 
-        const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+        const { runCommand } = await import("../src/shared/lib/run-command.js");
         const mockRunCommand = vi.mocked(runCommand);
         mockRunCommand.mockClear();
         mockRunCommand.mockImplementation(async (_cmd, args) => {

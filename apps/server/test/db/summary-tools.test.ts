@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Mock runCommand so AgentManager never touches tmux
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
