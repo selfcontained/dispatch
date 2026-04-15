@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -63,7 +63,6 @@ type ActivityTab = "metrics" | "history";
 type ActivityPaneProps = {
   open: boolean;
   initialTab?: ActivityTab;
-  onTabChange?: (tab: string) => void;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -773,76 +772,8 @@ function DatePickerPopover({
 
 // ── Main pane ───────────────────────────────────────────────────────
 
-/** Activity sidebar nav content — tab picker for Metrics/History. */
-export function ActivityNavContent({
-  tab,
-  onTabChange,
-  range,
-  onRangeChange,
-  dailyDate,
-  onDailyDateChange,
-}: {
-  tab: ActivityTab;
-  onTabChange: (tab: ActivityTab) => void;
-  range: ActivityRange;
-  onRangeChange: (range: ActivityRange) => void;
-  dailyDate: string;
-  onDailyDateChange: (date: string) => void;
-}): JSX.Element {
-  const isDaily = range === "daily";
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Activity</div>
-      </div>
-      <div className="flex flex-col gap-3 px-3 py-3">
-        <div className="flex items-center gap-1">
-          {(["metrics", "history"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => onTabChange(t)}
-              className={cn(
-                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                tab === t
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {t === "metrics" ? "Metrics" : "History"}
-            </button>
-          ))}
-        </div>
-        {tab === "metrics" && (
-          <div className="flex flex-col gap-2">
-            {isDaily && (
-              <DatePickerPopover dailyDate={dailyDate} onDateChange={onDailyDateChange} />
-            )}
-            <Select value={range} onValueChange={(value) => onRangeChange(value as ActivityRange)}>
-              <SelectTrigger
-                className="h-8 bg-muted/30 text-xs"
-                data-testid="activity-range-select"
-                aria-label="Activity time range"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ACTIVITY_RANGES.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {rangeLabel(option)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** Activity content for the main content area. */
-export function ActivityPane({ open, initialTab, onTabChange }: ActivityPaneProps): JSX.Element {
+export function ActivityPane({ open, initialTab }: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
   const [dailyDate, setDailyDate] = useState<string>(() => {
     const d = new Date();
@@ -855,11 +786,6 @@ export function ActivityPane({ open, initialTab, onTabChange }: ActivityPaneProp
       setTabState(initialTab);
     }
   }, [open, initialTab]);
-
-  const setTab = useCallback((newTab: ActivityTab) => {
-    setTabState(newTab);
-    onTabChange?.(newTab);
-  }, [onTabChange]);
 
   const isDaily = range === "daily";
   const dailyDateParam = isDaily ? dailyDate : undefined;
@@ -884,24 +810,8 @@ export function ActivityPane({ open, initialTab, onTabChange }: ActivityPaneProp
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {/* Header with tabs + range selector */}
+      {/* Header with range selector */}
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
-        <div className="flex items-center gap-1">
-          {(["metrics", "history"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                tab === t
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {t === "metrics" ? "Metrics" : "History"}
-            </button>
-          ))}
-        </div>
         <div className="ml-auto flex items-center gap-2">
           {tab === "metrics" && (
             <>
