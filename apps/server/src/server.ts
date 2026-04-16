@@ -189,7 +189,7 @@ agentManager.onLatestEvent((agent) => {
           pendingWebNotifications.delete(notificationId);
           app.log.debug(
             { notificationId, agentId: agent.id },
-            "Web notification not acked — falling back to Slack",
+            "Web notification not acked — falling back to Slack"
           );
           void sendSlackNotification();
         }, WEB_NOTIFY_ACK_TIMEOUT_MS);
@@ -3218,7 +3218,7 @@ async function registerRoutes() {
     const found = ackWebNotification(body.notificationId);
     app.log.debug(
       { notificationId: body.notificationId, found },
-      "Web notification ack received",
+      "Web notification ack received"
     );
     return reply.code(204).send();
   });

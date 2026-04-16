@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import http from "http";
-import { createAgentViaAPI, setAgentLatestEventViaAPI, loadApp } from "./helpers";
+import {
+  createAgentViaAPI,
+  setAgentLatestEventViaAPI,
+  loadApp,
+} from "./helpers";
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 const authHeader = { Authorization: `Bearer ${AUTH_TOKEN}` };
@@ -47,7 +51,7 @@ function openSSEStream(baseURL: string): {
           }
         });
         res.on("error", reject);
-      },
+      }
     );
     req.on("error", reject);
   });
@@ -60,7 +64,7 @@ async function waitForEvents(
   events: SSEEvent[],
   predicate: (e: SSEEvent) => boolean,
   count: number,
-  timeoutMs = 5000,
+  timeoutMs = 5000
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -69,7 +73,7 @@ async function waitForEvents(
   }
   const matched = events.filter(predicate).length;
   throw new Error(
-    `Timed out waiting for ${count} matching events (got ${matched} in ${timeoutMs}ms).`,
+    `Timed out waiting for ${count} matching events (got ${matched} in ${timeoutMs}ms).`
   );
 }
 
@@ -281,7 +285,7 @@ test.describe("Web notification SSE delivery and ack flow", () => {
         sse.events,
         (e) => e.type === "notification",
         1,
-        5000,
+        5000
       );
 
       const notification = sse.events.find((e) => e.type === "notification");
@@ -326,7 +330,7 @@ test.describe("Web notification SSE delivery and ack flow", () => {
         sse.events,
         (e) => e.type === "notification",
         1,
-        5000,
+        5000
       );
 
       const notification = sse.events.find((e) => e.type === "notification");
@@ -342,12 +346,17 @@ test.describe("Web notification SSE delivery and ack flow", () => {
       sse.close();
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 
-  test("no notification SSE event for unconfigured event types", async ({ request }) => {
+  test("no notification SSE event for unconfigured event types", async ({
+    request,
+  }) => {
     // Enable web notifications for "done" only
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -375,12 +384,17 @@ test.describe("Web notification SSE delivery and ack flow", () => {
       sse.close();
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 
-  test("no notification SSE event when web notifications are disabled", async ({ request }) => {
+  test("no notification SSE event when web notifications are disabled", async ({
+    request,
+  }) => {
     // Ensure web notifications are disabled
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -406,7 +420,9 @@ test.describe("Web notification SSE delivery and ack flow", () => {
     }
   });
 
-  test("focused agent does not trigger notification SSE event", async ({ request }) => {
+  test("focused agent does not trigger notification SSE event", async ({
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -444,14 +460,20 @@ test.describe("Web notification SSE delivery and ack flow", () => {
       });
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 });
 
 test.describe("Browser notification ack flow (mocked Notification API)", () => {
-  test("client acks when Notification permission is granted", async ({ page, request }) => {
+  test("client acks when Notification permission is granted", async ({
+    page,
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -459,27 +481,39 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
     });
 
     // Mock the Notification API with permission "granted"
-    const notifications: Array<{ title: string; body: string; tag: string }> = [];
+    const notifications: Array<{ title: string; body: string; tag: string }> =
+      [];
     await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).Notification = class MockNotification {
-        static permission = "granted";
-        static requestPermission = async () => "granted" as NotificationPermission;
-        constructor(title: string, options?: { body?: string; tag?: string; icon?: string }) {
-          (window as unknown as Record<string, unknown[]>).__mockNotifications ??= [];
-          (window as unknown as Record<string, unknown[]>).__mockNotifications.push({
-            title,
-            body: options?.body ?? "",
-            tag: options?.tag ?? "",
-          });
-        }
-      };
+      (window as unknown as Record<string, unknown>).Notification =
+        class MockNotification {
+          static permission = "granted";
+          static requestPermission = async () =>
+            "granted" as NotificationPermission;
+          constructor(
+            title: string,
+            options?: { body?: string; tag?: string; icon?: string }
+          ) {
+            (
+              window as unknown as Record<string, unknown[]>
+            ).__mockNotifications ??= [];
+            (
+              window as unknown as Record<string, unknown[]>
+            ).__mockNotifications.push({
+              title,
+              body: options?.body ?? "",
+              tag: options?.tag ?? "",
+            });
+          }
+        };
       (window as unknown as Record<string, unknown[]>).__mockNotifications = [];
     });
 
     // Intercept ack requests
     const ackRequests: Array<{ notificationId: string }> = [];
     await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as { notificationId: string };
+      const postData = route.request().postDataJSON() as {
+        notificationId: string;
+      };
       ackRequests.push(postData);
       await route.continue();
     });
@@ -499,7 +533,8 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
 
       // Verify a Notification was created in the browser
       const mockNotifications = await page.evaluate(
-        () => (window as unknown as Record<string, unknown[]>).__mockNotifications
+        () =>
+          (window as unknown as Record<string, unknown[]>).__mockNotifications
       );
       expect(mockNotifications.length).toBeGreaterThanOrEqual(1);
       const notif = mockNotifications[0] as { title: string; body: string };
@@ -512,12 +547,18 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
     } finally {
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 
-  test("client does not ack when Notification permission is denied", async ({ page, request }) => {
+  test("client does not ack when Notification permission is denied", async ({
+    page,
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -526,20 +567,24 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
 
     // Mock the Notification API with permission "denied"
     await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).Notification = class MockNotification {
-        static permission = "denied";
-        static requestPermission = async () => "denied" as NotificationPermission;
-        constructor() {
-          // Should never be called when permission is denied
-          throw new Error("Notification created with denied permission");
-        }
-      };
+      (window as unknown as Record<string, unknown>).Notification =
+        class MockNotification {
+          static permission = "denied";
+          static requestPermission = async () =>
+            "denied" as NotificationPermission;
+          constructor() {
+            // Should never be called when permission is denied
+            throw new Error("Notification created with denied permission");
+          }
+        };
     });
 
     // Intercept ack requests
     const ackRequests: Array<{ notificationId: string }> = [];
     await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as { notificationId: string };
+      const postData = route.request().postDataJSON() as {
+        notificationId: string;
+      };
       ackRequests.push(postData);
       await route.continue();
     });
@@ -562,12 +607,18 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
     } finally {
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 
-  test("client does not ack when Notification API is unavailable", async ({ page, request }) => {
+  test("client does not ack when Notification API is unavailable", async ({
+    page,
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -582,7 +633,9 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
     // Intercept ack requests
     const ackRequests: Array<{ notificationId: string }> = [];
     await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as { notificationId: string };
+      const postData = route.request().postDataJSON() as {
+        notificationId: string;
+      };
       ackRequests.push(postData);
       await route.continue();
     });
@@ -603,7 +656,10 @@ test.describe("Browser notification ack flow (mocked Notification API)", () => {
     } finally {
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
