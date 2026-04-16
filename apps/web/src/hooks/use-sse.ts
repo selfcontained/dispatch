@@ -18,6 +18,7 @@ type UiEvent =
   | { type: "job.changed" }
   | {
       type: "notification";
+      notificationId: string;
       agentId: string;
       agentName: string;
       eventType: string;
@@ -124,7 +125,16 @@ export function useSSE(
         }
 
         if (payload.type === "notification") {
-          showWebNotification(payload);
+          const shown = showWebNotification(payload);
+          if (shown) {
+            void fetch("/api/v1/notifications/ack", {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ notificationId: payload.notificationId }),
+              keepalive: true,
+            }).catch(() => {});
+          }
           return;
         }
       } catch {}

@@ -144,8 +144,21 @@ jobService.onRunStateChange((run) => {
 });
 // Suppress agent-level Slack notifications for job agents (job notifier handles those).
 // Job agents are named "job-*" — skip the DB lookup for regular agents.
-// When web notifications are enabled and an SSE client is connected, send a
-// notification event via SSE and skip Slack. Otherwise fall back to Slack.
+// When web notifications are enabled and an SSE client is connected, broadcast
+// a notification via SSE and wait for an ack from any client. If no ack arrives
+// within the timeout, fall back to Slack.
+const WEB_NOTIFY_ACK_TIMEOUT_MS = 3_000;
+const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
+
+/** Called by the ack endpoint when a client confirms delivery. */
+function ackWebNotification(notificationId: string): boolean {
+  const timer = pendingWebNotifications.get(notificationId);
+  if (!timer) return false;
+  clearTimeout(timer);
+  pendingWebNotifications.delete(notificationId);
+  return true;
+}
+
 agentManager.onLatestEvent((agent) => {
   const sendSlackNotification = async () => {
     if (!agent.name?.startsWith("job-")) {
@@ -158,18 +171,30 @@ agentManager.onLatestEvent((agent) => {
 
   void (async () => {
     try {
-      // Check if we should send a web notification instead of Slack.
-      // All three conditions must be met to skip Slack:
-      // 1. Web notifications are enabled and configured for this event type
-      // 2. An SSE client is connected (app is open)
-      // 3. The browser has notification permission granted (reported via focus heartbeat)
+      // Check if we should attempt a web notification.
+      // Conditions: web notifications enabled, event type configured, agent not focused.
       const webPayload = await slackNotifier.shouldWebNotify(agent);
-      if (
-        webPayload &&
-        uiEventBroker.hasConnectedClient() &&
-        focusTracker.hasWebNotifyPermission()
-      ) {
-        uiEventBroker.publish({ type: "notification", ...webPayload });
+      if (webPayload && uiEventBroker.hasConnectedClient()) {
+        // Broadcast notification via SSE with a unique ID.
+        // If any client acks within the timeout, Slack is suppressed.
+        // Otherwise fall back to Slack.
+        const notificationId = randomUUID();
+        uiEventBroker.publish({
+          type: "notification",
+          notificationId,
+          ...webPayload,
+        });
+
+        const fallbackTimer = setTimeout(() => {
+          pendingWebNotifications.delete(notificationId);
+          app.log.debug(
+            { notificationId, agentId: agent.id },
+            "Web notification not acked — falling back to Slack"
+          );
+          void sendSlackNotification();
+        }, WEB_NOTIFY_ACK_TIMEOUT_MS);
+
+        pendingWebNotifications.set(notificationId, fallbackTimer);
       } else {
         await sendSlackNotification();
       }
@@ -247,6 +272,7 @@ type UiEvent =
   | { type: "job.changed" }
   | {
       type: "notification";
+      notificationId: string;
       agentId: string;
       agentName: string;
       eventType: string;
@@ -3182,20 +3208,24 @@ async function registerRoutes() {
     });
   });
 
-  app.post("/api/v1/focus", async (request, reply) => {
-    const body = request.body as {
-      agentId?: unknown;
-      webNotifyPermission?: unknown;
-    };
-    const agentId = body?.agentId;
-
-    // Track browser notification permission state from the client
-    if (typeof body?.webNotifyPermission === "string") {
-      const perm = body.webNotifyPermission;
-      if (perm === "granted" || perm === "denied" || perm === "default") {
-        focusTracker.setWebNotifyPermission(perm);
-      }
+  app.post("/api/v1/notifications/ack", async (request, reply) => {
+    const body = request.body as { notificationId?: unknown };
+    if (typeof body?.notificationId !== "string") {
+      return reply
+        .code(400)
+        .send({ error: "notificationId must be a string." });
     }
+    const found = ackWebNotification(body.notificationId);
+    app.log.debug(
+      { notificationId: body.notificationId, found },
+      "Web notification ack received"
+    );
+    return reply.code(204).send();
+  });
+
+  app.post("/api/v1/focus", async (request, reply) => {
+    const body = request.body as { agentId?: unknown };
+    const agentId = body?.agentId;
 
     if (agentId === null || agentId === undefined) {
       // User is no longer focused on any agent — clear all focus immediately
@@ -5034,6 +5064,13 @@ async function cleanupAppResources(): Promise<void> {
   stopGitContextRefreshLoop();
   stopAgentStatusReconcileLoop();
   stopSessionCleanupTimer();
+
+  // Cancel pending web notification fallback timers so they don't fire
+  // Slack notifications after the pool is closed.
+  for (const timer of pendingWebNotifications.values()) {
+    clearTimeout(timer);
+  }
+  pendingWebNotifications.clear();
 
   // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
   if (activeArchives.size > 0) {

@@ -1,16 +1,12 @@
 import { useEffect, useRef } from "react";
 import type { AuthState } from "@/components/app/types";
-import { getNotificationPermission } from "@/lib/web-notifications";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
 /**
  * Sends periodic focus heartbeats to the server so it knows the user is
  * actively viewing a specific agent. The server uses this to suppress
- * redundant Slack notifications.
- *
- * Also reports the browser notification permission state so the server
- * can decide whether to use web notifications or fall back to Slack.
+ * redundant notifications when the user is already looking at the agent.
  *
  * Heartbeats are only sent when:
  * - The user is authenticated
@@ -35,10 +31,7 @@ export function useAgentFocus(
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          agentId,
-          webNotifyPermission: getNotificationPermission(),
-        }),
+        body: JSON.stringify({ agentId }),
         keepalive: true,
       }).catch(() => {});
     };
