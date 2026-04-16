@@ -438,21 +438,34 @@ export function AgentCard({
                               onClick={() =>
                                 agent.cwd && copyWorktreePath(agent.cwd)
                               }
-                              className="group h-auto gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                              aria-label={
+                                worktreePathCopied
+                                  ? "Worktree path copied"
+                                  : `Copy worktree path: ${agent.cwd}`
+                              }
+                              className="group relative h-auto gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-muted/60 hover:text-foreground"
                             >
                               {worktreePathCopied ? (
                                 <Check className="h-3 w-3 text-status-done" />
                               ) : (
                                 <>
-                                  <FolderTree className="h-3 w-3 group-hover:hidden" />
-                                  <Copy className="hidden h-3 w-3 group-hover:block" />
+                                  <FolderTree className="h-3 w-3 group-hover:hidden group-focus-visible:hidden" />
+                                  <Copy className="hidden h-3 w-3 group-hover:block group-focus-visible:block" />
                                 </>
                               )}
                               <span>Worktree</span>
+                              <span className="sr-only" aria-live="polite">
+                                {worktreePathCopied
+                                  ? "Worktree path copied"
+                                  : ""}
+                              </span>
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent className="max-w-[420px] break-all">
                             {agent.cwd}
+                            <div className="mt-1 text-[10px] opacity-70">
+                              Click to copy
+                            </div>
                           </TooltipContent>
                         </Tooltip>
                       ) : (
