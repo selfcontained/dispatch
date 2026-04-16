@@ -11,11 +11,7 @@
  * All styles are scoped via wrapper classNames — nothing leaks into the app.
  */
 
-import { useEffect, useState } from "react";
-
-import { FlaskConical, Layers3 } from "lucide-react";
-
-import { DesignLabPrototypePlayground } from "@/components/app/design-lab-prototype-playground";
+import { useState, useEffect } from "react";
 
 // -- Fake data ----------------------------------------------------------------
 const agents = [
@@ -431,11 +427,8 @@ function VariantPreview({ style }: { style: StyleDef }) {
 
 // -- Main page ----------------------------------------------------------------
 
-type LabMode = "prototype" | "surface";
-
 export function DesignLab() {
   const [selected, setSelected] = useState<string | null>(null);
-  const [mode, setMode] = useState<LabMode>("prototype");
   const visibleStyles = selected
     ? styles.filter((s) => s.id === selected)
     : styles;
@@ -457,71 +450,41 @@ export function DesignLab() {
           Design Lab
         </h1>
         <p className="text-muted-foreground mb-6">
-          A UI playground for prototype work and visual studies inside Dispatch.
-          Prototype Playground is the new foundation for agent-built mocks, and
-          Surface Study preserves the older visual comparison work.
+          Comparing depth & elevation treatments for Dispatch. Each variant
+          renders the same mock components with different visual styles.
         </p>
 
-        <div className="mb-6 flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => setMode("prototype")}
-            className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              mode === "prototype"
+            onClick={() => setSelected(null)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              selected === null
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground hover:text-foreground"
             }`}
           >
-            <FlaskConical className="h-4 w-4" />
-            Prototype Playground
+            All
           </button>
-          <button
-            onClick={() => setMode("surface")}
-            className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              mode === "surface"
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Layers3 className="h-4 w-4" />
-            Surface Study
-          </button>
-        </div>
-
-        {mode === "surface" ? (
-          <div className="flex gap-2 flex-wrap">
+          {styles.map((s) => (
             <button
-              onClick={() => setSelected(null)}
+              key={s.id}
+              onClick={() => setSelected(selected === s.id ? null : s.id)}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                selected === null
+                selected === s.id
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:text-foreground"
               }`}
             >
-              All
+              {s.label}
             </button>
-            {styles.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setSelected(selected === s.id ? null : s.id)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  selected === s.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+          ))}
+        </div>
       </div>
 
       <div className="max-w-[1600px] mx-auto space-y-10">
-        {mode === "prototype" ? (
-          <DesignLabPrototypePlayground />
-        ) : (
-          visibleStyles.map((s) => <VariantPreview key={s.id} style={s} />)
-        )}
+        {visibleStyles.map((s) => (
+          <VariantPreview key={s.id} style={s} />
+        ))}
       </div>
     </div>
   );
