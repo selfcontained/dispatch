@@ -6,9 +6,9 @@
  */
 
 /** Frosted panel — sidebar, right panel, jobs sidebar.
- *  Frosted gradient with subtle internal glow so panels read as glass. */
+ *  Solid --card base with a subtle white gradient for depth. Updates on theme switch. */
 export const glassPanel =
-  "border-white/[0.18] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.04)_40%,rgba(255,255,255,0.06)_100%)] backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]";
+  "border-white/[0.18] bg-[hsl(var(--card))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(255,255,255,0.04)]";
 
 /** Elevated surface — cards, stat cards, containers that float above background */
 export const glassSurface =

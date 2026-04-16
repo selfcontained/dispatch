@@ -499,17 +499,17 @@ export function SettingsNavContent({
           Settings
         </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sections.map(({ id, label, icon: Icon }) => (
           <div key={id}>
             <button
               type="button"
               onClick={() => onSectionChange(id)}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-md mx-2 px-3 py-2.5 text-left text-sm transition-colors",
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
                 activeSection === id
-                  ? "bg-white/[0.08] text-foreground border border-white/[0.1]"
-                  : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  ? "bg-primary/10 text-foreground border border-primary/20"
+                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
