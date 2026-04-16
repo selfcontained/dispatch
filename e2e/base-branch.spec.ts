@@ -193,8 +193,9 @@ test.describe("Agent base branch", () => {
     await page.getByTestId(`agent-row-${agent.id}`).click();
 
     await expect(agentCard.getByText("main", { exact: true })).toBeVisible();
+    const visibleBranchSuffix = agent.worktreeBranch!.split("/").at(-1)!;
     await expect(
-      agentCard.getByText(agent.worktreeBranch!, { exact: true })
+      agentCard.getByText(visibleBranchSuffix, { exact: true })
     ).toBeVisible();
   });
 });
