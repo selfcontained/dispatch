@@ -1,5 +1,6 @@
 ## What's Changed
-* feat: unify navigation and layout system across mobile and desktop by @selfcontained in https://github.com/selfcontained/dispatch/pull/334
+* Add Prettier tooling and CI formatting checks by @selfcontained in https://github.com/selfcontained/dispatch/pull/331
+* Apply glass/elevation design treatment to unified layout by @selfcontained in https://github.com/selfcontained/dispatch/pull/337
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.15.1...v0.15.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.15.2...v0.16.0
