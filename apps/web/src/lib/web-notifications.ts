@@ -7,14 +7,15 @@ const EVENT_LABELS: Record<string, string> = {
 /**
  * Show a browser notification for an agent event.
  * Only fires when the Notification API is available and permission is granted.
+ * Returns true if a notification was attempted (permission granted), false otherwise.
  */
 export function showWebNotification(payload: {
   agentName: string;
   eventType: string;
   message: string;
-}): void {
-  if (typeof Notification === "undefined") return;
-  if (Notification.permission !== "granted") return;
+}): boolean {
+  if (typeof Notification === "undefined") return false;
+  if (Notification.permission !== "granted") return false;
 
   const verb = EVENT_LABELS[payload.eventType] ?? payload.eventType;
   const title = `${payload.agentName} ${verb}`;
@@ -24,6 +25,8 @@ export function showWebNotification(payload: {
     tag: `dispatch-${payload.agentName}-${payload.eventType}`,
     icon: getAppIconUrl(),
   });
+
+  return true;
 }
 
 /** Derive the app icon URL from the current page's apple-touch-icon link. */

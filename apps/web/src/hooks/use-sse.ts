@@ -16,7 +16,7 @@ type UiEvent =
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
   | { type: "job.changed" }
-  | { type: "notification"; agentId: string; agentName: string; eventType: string; message: string };
+  | { type: "notification"; notificationId: string; agentId: string; agentName: string; eventType: string; message: string };
 
 export function useSSE(
   authState: AuthState,
@@ -112,7 +112,16 @@ export function useSSE(
         }
 
         if (payload.type === "notification") {
-          showWebNotification(payload);
+          const shown = showWebNotification(payload);
+          if (shown) {
+            void fetch("/api/v1/notifications/ack", {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ notificationId: payload.notificationId }),
+              keepalive: true,
+            }).catch(() => {});
+          }
           return;
         }
       } catch {}

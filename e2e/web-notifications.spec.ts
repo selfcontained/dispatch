@@ -85,12 +85,6 @@ test.describe("Web notification SSE events", () => {
       data: { webNotifyEnabled: true, webNotifyEvents: ["done", "waiting_user", "blocked"] },
     });
 
-    // Report browser permission as granted via focus heartbeat
-    await request.post("/api/v1/focus", {
-      headers: authHeader,
-      data: { agentId: null, webNotifyPermission: "granted" },
-    });
-
     // Create an agent and set it to "done"
     const agent = await createAgentViaAPI(request);
     await setAgentLatestEventViaAPI(request, agent.id, {
@@ -135,31 +129,28 @@ test.describe("Web notification SSE events", () => {
   });
 });
 
-test.describe("Focus heartbeat includes notification permission", () => {
-  test("POST /api/v1/focus accepts webNotifyPermission field", async ({ request }) => {
-    const res = await request.post("/api/v1/focus", {
+test.describe("Web notification ack endpoint", () => {
+  test("POST /api/v1/notifications/ack accepts a valid notificationId", async ({ request }) => {
+    const res = await request.post("/api/v1/notifications/ack", {
       headers: authHeader,
-      data: { agentId: null, webNotifyPermission: "granted" },
+      data: { notificationId: "test-notification-id" },
     });
     expect(res.status()).toBe(204);
   });
 
-  test("POST /api/v1/focus accepts all valid permission values", async ({ request }) => {
-    for (const perm of ["granted", "denied", "default"]) {
-      const res = await request.post("/api/v1/focus", {
-        headers: authHeader,
-        data: { agentId: null, webNotifyPermission: perm },
-      });
-      expect(res.status()).toBe(204);
-    }
+  test("POST /api/v1/notifications/ack rejects missing notificationId", async ({ request }) => {
+    const res = await request.post("/api/v1/notifications/ack", {
+      headers: authHeader,
+      data: {},
+    });
+    expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/focus ignores invalid permission values", async ({ request }) => {
-    const res = await request.post("/api/v1/focus", {
+  test("POST /api/v1/notifications/ack rejects non-string notificationId", async ({ request }) => {
+    const res = await request.post("/api/v1/notifications/ack", {
       headers: authHeader,
-      data: { agentId: null, webNotifyPermission: "invalid" },
+      data: { notificationId: 123 },
     });
-    // Should still succeed — invalid values are silently ignored
-    expect(res.status()).toBe(204);
+    expect(res.status()).toBe(400);
   });
 });
