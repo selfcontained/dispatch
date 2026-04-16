@@ -89,7 +89,7 @@ export function AgentListContent({
           <Button
             size="sm"
             variant="default"
-            className="rounded-r-none border-r-0 bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+            className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
             onClick={() => onOpenCreateDialog(defaultCreateType)}
             data-testid="create-agent-button"
           >
@@ -104,7 +104,7 @@ export function AgentListContent({
               <Button
                 size="sm"
                 variant="default"
-                className="rounded-l-none border-l border-border/80 bg-muted/35 px-1 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+                className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
                 data-testid="create-agent-type-dropdown"
               >
                 <ChevronDown className="h-3.5 w-3.5" />

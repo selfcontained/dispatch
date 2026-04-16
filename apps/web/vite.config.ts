@@ -3,10 +3,12 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
 
+const isProd = process.env.NODE_ENV === "production";
+
 export default defineConfig({
   plugins: [
     react(),
-    VitePWA({
+    isProd && VitePWA({
       registerType: "autoUpdate",
       includeAssets: [
         "icons/teal/apple-touch-icon.png",
@@ -48,10 +50,16 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
       },
     }),
-  ],
+  ].filter(Boolean),
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
+    watch: {
+      // chokidar's fsevents backend silently fails on paths inside git worktrees
+      // (e.g. .dispatch/worktrees/...). Falling back to Node's native fs.watch
+      // fixes HMR without the CPU overhead of polling.
+      useFsEvents: false,
+    },
     proxy: {
       "/api": {
         target:

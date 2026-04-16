@@ -10,6 +10,8 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -233,7 +235,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
 
         {versionInfo && (
-          <div className="mt-3 grid gap-2 rounded border border-border p-3 text-sm">
+          <div className="mt-3 grid gap-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3 text-sm">
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">Release tag</span>
               <span className="font-mono">
@@ -283,16 +285,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             ) : null}
           </button>
           {notesExpanded && (
-            <div className="mt-2 rounded border border-border p-3">
-              <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                {versionInfo.releaseNotes}
+            <div className="mt-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
+              <div className="max-h-56 overflow-y-auto text-sm text-muted-foreground">
+                <Markdown>{versionInfo.releaseNotes}</Markdown>
               </div>
             </div>
           )}
         </div>
       )}
 
-      <div className="border-t border-border" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Release channel */}
       <div>
@@ -304,25 +306,24 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         </p>
         <div
           className={cn(
-            "inline-flex rounded border border-border",
+            "inline-flex",
             channelSaving && "opacity-50 pointer-events-none"
           )}
         >
           {(["stable", "latest"] as ReleaseChannel[]).map((ch) => (
-            <button
+            <Button
               key={ch}
+              size="sm"
+              variant={channel === ch ? "primary" : "default"}
               onClick={() => void handleChannelChange(ch)}
               className={cn(
-                "px-4 py-1.5 text-sm font-medium capitalize transition-colors",
-                channel === ch
-                  ? "bg-primary/15 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-                ch === "stable" && "rounded-l border-r border-border",
-                ch === "latest" && "rounded-r"
+                "capitalize",
+                ch === "stable" && "rounded-r-none border-r-0",
+                ch === "latest" && "rounded-l-none border-l border-white/[0.12]"
               )}
             >
               {ch}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -330,12 +331,14 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       {/* Check for updates */}
       <div className="flex flex-col gap-4">
         {!info && !infoLoading && (
-          <button
+          <Button
+            size="sm"
+            variant="default"
             onClick={() => void handleCheckForUpdates()}
-            className="self-start rounded border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            className="self-start text-muted-foreground hover:text-foreground"
           >
             Check for updates
-          </button>
+          </Button>
         )}
 
         {infoLoading && (
@@ -405,7 +408,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
       </div>
 
-      <div className="border-t border-border" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Reload */}
       <div>
@@ -415,25 +418,29 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         <p className="mb-3 text-sm text-muted-foreground">
           Reload the app to pick up the latest version.
         </p>
-        <div className="inline-flex items-stretch">
-          <button
+        <div className="inline-flex items-center">
+          <Button
+            size="sm"
+            variant="default"
             onClick={handleReload}
             disabled={reloading}
-            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+            className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
           >
             <RefreshCw
-              className={cn("h-3.5 w-3.5", reloading && "animate-spin")}
+              className={cn("mr-1 h-3.5 w-3.5", reloading && "animate-spin")}
             />
             {reloading ? "Reloading..." : "Reload"}
-          </button>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
+                size="sm"
+                variant="default"
                 disabled={reloading}
-                className="inline-flex items-center rounded-r border border-border px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+                className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -485,7 +492,7 @@ export function OperationTakeover({
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Left column — controls */}
-      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-border p-4 md:p-6">
+      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6">
         <PhaseProgress
           job={job}
           phasesOrder={phasesOrder}
@@ -516,12 +523,13 @@ export function OperationTakeover({
                 </span>
               </span>
             </div>
-            <button
+            <Button
+              variant="default"
               onClick={onDismiss}
-              className="self-start rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start text-muted-foreground hover:text-foreground"
             >
               Done
-            </button>
+            </Button>
           </div>
         )}
 
@@ -533,12 +541,13 @@ export function OperationTakeover({
                 {job.error ? cleanError(job.error) : "Operation failed"}
               </span>
             </div>
-            <button
+            <Button
+              variant="default"
               onClick={onDismiss}
-              className="self-start rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start text-muted-foreground hover:text-foreground"
             >
               Dismiss
-            </button>
+            </Button>
           </div>
         )}
       </div>

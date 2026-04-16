@@ -6,7 +6,7 @@
  */
 
 /** Frosted panel — sidebar, right panel, jobs sidebar.
- *  Includes a subtle internal gradient so the glass reads even at full-width on mobile. */
+ *  Frosted gradient with subtle internal glow so panels read as glass. */
 export const glassPanel =
   "border-white/[0.18] bg-[linear-gradient(180deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.04)_40%,rgba(255,255,255,0.06)_100%)] backdrop-blur-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]";
 
@@ -16,7 +16,7 @@ export const glassSurface =
 
 /** Overlay — dialogs, popovers, dropdowns, sheets */
 export const glassOverlay =
-  "border border-white/[0.2] bg-white/[0.08] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]";
+  "border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]";
 
 /** Inset — inputs, textareas, select triggers (recessed feel) */
 export const glassInset =

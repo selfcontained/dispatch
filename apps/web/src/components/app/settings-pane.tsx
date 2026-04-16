@@ -22,6 +22,7 @@ import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
+import { Input } from "@/components/ui/input";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -120,7 +121,7 @@ function InstanceNameSettings(): JSX.Element {
         in the sidebar and browser tab.
       </p>
       <div className="flex items-center gap-2">
-        <input
+        <Input
           id="instance-name"
           ref={inputRef}
           type="text"
@@ -140,10 +141,8 @@ function InstanceNameSettings(): JSX.Element {
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
           className={cn(
-            "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
-            saveError
-              ? "border-destructive"
-              : "border-border focus:border-primary/50"
+            "w-full max-w-sm",
+            saveError && "border-destructive"
           )}
         />
         {showSaved && !saveError ? (

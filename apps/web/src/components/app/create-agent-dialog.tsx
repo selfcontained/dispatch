@@ -219,9 +219,11 @@ export function CreateAgentDialog({
 
             <form
               data-testid="create-agent-form"
-              className="space-y-3"
+              className="flex min-h-0 flex-col"
               onSubmit={(event) => void onSubmit(event)}
             >
+              <div className="min-h-0 flex-1 overflow-y-auto px-1">
+              <div className="space-y-3">
               <div className="relative space-y-1" ref={typeCmdRef}>
                 <label className="text-sm text-muted-foreground">Type</label>
                 <button
@@ -242,7 +244,7 @@ export function CreateAgentDialog({
                     }
                   }}
                   className={cn(
-                    "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm",
+                    "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm",
                     "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                   )}
                 >
@@ -255,7 +257,7 @@ export function CreateAgentDialog({
                   />
                 </button>
                 {typeDropdownOpen ? (
-                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-border bg-background shadow-md">
+                  <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
                     <Command
                       shouldFilter={false}
                       ref={(el) => {
@@ -378,7 +380,7 @@ export function CreateAgentDialog({
                           }
                         }}
                         className={cn(
-                          "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 font-mono text-xs",
+                          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 font-mono text-xs",
                           "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                         )}
                       >
@@ -395,7 +397,7 @@ export function CreateAgentDialog({
                         )}
                       </button>
                       {branchDropdownOpen ? (
-                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-border bg-background shadow-md">
+                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
                           <Command
                             onKeyDown={(e) => {
                               if (e.key === "Escape") {
@@ -507,7 +509,9 @@ export function CreateAgentDialog({
                 </span>
               </label>
 
-              <div className="flex justify-end gap-2 pt-1">
+              </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3">
                 <Button
                   type="button"
                   variant="ghost"
@@ -563,7 +567,7 @@ export function CreateAgentDialog({
                 placeholder="Enter instructions for the agent..."
                 data-testid="create-agent-initial-prompt"
                 className={cn(
-                  "flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
+                  "flex min-h-[200px] w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm",
                   "ring-offset-background placeholder:text-muted-foreground",
                   "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   "resize-y"
@@ -611,3 +615,7 @@ export function CreateAgentDialog({
     </Dialog>
   );
 }
+// HMR TEST MARKER
+// test
+// poll-test
+// fswatch-test
