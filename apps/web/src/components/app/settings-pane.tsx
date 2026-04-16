@@ -140,10 +140,7 @@ function InstanceNameSettings(): JSX.Element {
           disabled={isSaving}
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
-          className={cn(
-            "w-full max-w-sm",
-            saveError && "border-destructive"
-          )}
+          className={cn("w-full max-w-sm", saveError && "border-destructive")}
         />
         {showSaved && !saveError ? (
           <span className="text-xs text-muted-foreground">Saved</span>

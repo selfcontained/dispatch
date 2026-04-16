@@ -1332,9 +1332,7 @@ function AddJobFlow({
 
       <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
         <DialogPrimitive.Close asChild>
-          <Button variant="ghost">
-            Cancel
-          </Button>
+          <Button variant="ghost">Cancel</Button>
         </DialogPrimitive.Close>
         <Button
           variant="primary"

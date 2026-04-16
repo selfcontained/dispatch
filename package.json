@@ -34,6 +34,9 @@
     ]
   },
   "lint-staged": {
+    "**/*.{ts,tsx,js,jsx,json,css,md,yaml,yml}": [
+      "prettier --write"
+    ],
     "apps/web/src/**/*.{ts,tsx}": [
       "eslint --config apps/web/eslint.config.js"
     ],

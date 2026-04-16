@@ -8,48 +8,49 @@ const isProd = process.env.NODE_ENV === "production";
 export default defineConfig({
   plugins: [
     react(),
-    isProd && VitePWA({
-      registerType: "autoUpdate",
-      includeAssets: [
-        "icons/teal/apple-touch-icon.png",
-        "icons/teal/favicon.png",
-      ],
-      manifest: {
-        id: "/",
-        name: "Dispatch",
-        short_name: "Dispatch",
-        description: "Local-first control plane for remote Codex CLI agents.",
-        start_url: "/",
-        scope: "/",
-        display: "standalone",
-        background_color: "#141414",
-        theme_color: "#141414",
-        icons: [
-          {
-            src: "/icons/teal/pwa-192.png",
-            sizes: "192x192",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "/icons/teal/pwa-512.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "any",
-          },
-          {
-            src: "/icons/teal/pwa-512.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "maskable",
-          },
+    isProd &&
+      VitePWA({
+        registerType: "autoUpdate",
+        includeAssets: [
+          "icons/teal/apple-touch-icon.png",
+          "icons/teal/favicon.png",
         ],
-      },
-      workbox: {
-        // Do not cache API traffic by default; this app is realtime-oriented.
-        navigateFallbackDenylist: [/^\/api\//],
-      },
-    }),
+        manifest: {
+          id: "/",
+          name: "Dispatch",
+          short_name: "Dispatch",
+          description: "Local-first control plane for remote Codex CLI agents.",
+          start_url: "/",
+          scope: "/",
+          display: "standalone",
+          background_color: "#141414",
+          theme_color: "#141414",
+          icons: [
+            {
+              src: "/icons/teal/pwa-192.png",
+              sizes: "192x192",
+              type: "image/png",
+              purpose: "any",
+            },
+            {
+              src: "/icons/teal/pwa-512.png",
+              sizes: "512x512",
+              type: "image/png",
+              purpose: "any",
+            },
+            {
+              src: "/icons/teal/pwa-512.png",
+              sizes: "512x512",
+              type: "image/png",
+              purpose: "maskable",
+            },
+          ],
+        },
+        workbox: {
+          // Do not cache API traffic by default; this app is realtime-oriented.
+          navigateFallbackDenylist: [/^\/api\//],
+        },
+      }),
   ].filter(Boolean),
   server: {
     host: "0.0.0.0",

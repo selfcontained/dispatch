@@ -1254,4 +1254,3 @@ function AgentsWorkspace({
 
   return <>{children}</>;
 }
-

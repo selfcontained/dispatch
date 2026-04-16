@@ -383,7 +383,10 @@ body {
 
 /* Glass atmosphere — subtle radial gradients behind all content.
    Themes with custom body::before (mytra, matrix) override this. */
-html:not([data-theme="mytra"]):not([data-theme="matrix"]):not([data-theme="light"]) body::before {
+html:not([data-theme="mytra"]):not([data-theme="matrix"]):not(
+    [data-theme="light"]
+  )
+  body::before {
   content: "";
   position: fixed;
   inset: 0;
