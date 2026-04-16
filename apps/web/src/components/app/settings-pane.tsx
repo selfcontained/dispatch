@@ -22,6 +22,7 @@ import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
+import { Input } from "@/components/ui/input";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -120,7 +121,7 @@ function InstanceNameSettings(): JSX.Element {
         in the sidebar and browser tab.
       </p>
       <div className="flex items-center gap-2">
-        <input
+        <Input
           id="instance-name"
           ref={inputRef}
           type="text"
@@ -139,12 +140,7 @@ function InstanceNameSettings(): JSX.Element {
           disabled={isSaving}
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
-          className={cn(
-            "w-full max-w-sm rounded border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50",
-            saveError
-              ? "border-destructive"
-              : "border-border focus:border-primary/50"
-          )}
+          className={cn("w-full max-w-sm", saveError && "border-destructive")}
         />
         {showSaved && !saveError ? (
           <span className="text-xs text-muted-foreground">Saved</span>
@@ -503,17 +499,17 @@ export function SettingsNavContent({
           Settings
         </div>
       </div>
-      <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sections.map(({ id, label, icon: Icon }) => (
           <div key={id}>
             <button
               type="button"
               onClick={() => onSectionChange(id)}
               className={cn(
-                "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
                 activeSection === id
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary/10 text-foreground border border-primary/20"
+                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />

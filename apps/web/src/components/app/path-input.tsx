@@ -14,7 +14,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -161,7 +160,7 @@ export function PathInput({
       ) : null}
 
       <div className="relative" ref={cmdRef}>
-        <div className="relative">
+        <div className="relative rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]">
           {/* Ghost autocomplete overlay */}
           {ghostSuffix && value.trim() ? (
             <div
@@ -174,7 +173,7 @@ export function PathInput({
               </span>
             </div>
           ) : null}
-          <Input
+          <input
             ref={inputRef}
             id={id}
             value={value}
@@ -208,7 +207,7 @@ export function PathInput({
             }}
             placeholder={placeholder}
             data-testid={testId}
-            className="bg-transparent pr-8 font-mono text-xs"
+            className="flex h-9 w-full bg-transparent pr-8 px-3 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
           />
           {history.length > 0 ? (
             <button
@@ -231,7 +230,7 @@ export function PathInput({
           ) : null}
         </div>
         {dropdownOpen && sortedHistory.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-border bg-background p-1 shadow-md">
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
             <Command
               shouldFilter={false}
               onKeyDown={(e) => {

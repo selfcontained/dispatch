@@ -403,7 +403,7 @@ export function MediaSidebarContent({
     <aside
       data-testid="media-sidebar"
       className={cn(
-        "flex h-full min-h-0 w-full flex-col border-l-2 border-border bg-card text-foreground",
+        "flex h-full min-h-0 w-full flex-col border-l border-white/[0.12] bg-[hsl(var(--card))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
         className
       )}
     >

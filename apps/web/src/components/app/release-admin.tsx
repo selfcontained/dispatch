@@ -8,6 +8,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OperationTakeover } from "@/components/app/release-manager";
+import { Button } from "@/components/ui/button";
 import type {
   ReleaseInfo,
   ReleaseVersionType,
@@ -231,7 +232,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
         )}
 
         {infoError && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {infoError}
           </div>
         )}
@@ -239,7 +240,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
         {info && !infoLoading && (
           <>
             {info.refMissing ? (
-              <div className="rounded border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
+              <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
                 Deployed version{" "}
                 <span className="font-mono">
                   {info.currentTag ?? "unknown"}
@@ -257,7 +258,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                   {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
                   <span className="font-mono">main</span>
                 </div>
-                <div className="flex flex-col gap-0.5 rounded border border-border bg-muted/20 p-2">
+                <div className="flex flex-col gap-0.5 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
                   {info.commits.map((c) => (
                     <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
                       <span className="shrink-0 font-mono text-muted-foreground">
@@ -286,7 +287,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
           </div>
 
           {releaseError && (
-            <div className="mb-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {releaseError}
             </div>
           )}
@@ -306,7 +307,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                     key={type}
                     onClick={() => void handleRelease(type)}
                     className={cn(
-                      "flex flex-col items-center justify-center gap-2 rounded border py-4 transition-all",
+                      "flex flex-col items-center justify-center gap-2 rounded-lg border py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all",
                       border,
                       bg,
                       hover
@@ -329,7 +330,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
         </div>
       )}
 
-      <div className="border-t border-border" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Recent releases */}
       <div>
@@ -338,7 +339,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
         </div>
 
         {promoteError && (
-          <div className="mb-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {promoteError}
           </div>
         )}
@@ -355,7 +356,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
             {releases.map((r) => (
               <div
                 key={r.tag}
-                className="flex items-center gap-3 rounded border border-border px-3 py-2.5"
+                className="flex items-center gap-3 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2.5"
               >
                 <span className="font-mono text-sm font-semibold text-foreground">
                   {r.tag}
@@ -375,17 +376,18 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                 </span>
                 <div className="ml-auto flex items-center gap-2">
                   {r.isPrerelease && (
-                    <button
+                    <Button
+                      size="sm"
+                      variant="ghost-primary"
                       onClick={() => void handlePromote(r.tag)}
                       disabled={promotingTag === r.tag}
-                      className="rounded border border-green-500/30 bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-400 transition-all hover:border-green-500/60 hover:bg-green-500/20 disabled:opacity-50"
                     >
                       {promotingTag === r.tag ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
                         "Promote"
                       )}
-                    </button>
+                    </Button>
                   )}
                   {!r.isPrerelease && (
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />

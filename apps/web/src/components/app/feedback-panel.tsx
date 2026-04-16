@@ -1136,7 +1136,7 @@ export function FeedbackDetailPanel({
           onClose();
         }
       }}
-      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-white/[0.12] bg-[hsl(var(--card))] px-6 py-4 outline-none"
     >
       {/* Header row with nav + close */}
       <div className="flex items-center justify-between shrink-0 mb-3">
@@ -1263,7 +1263,7 @@ export function ReviewSummaryPanel({
           onClose();
         }
       }}
-      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-border bg-card px-6 py-4 outline-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden border-t border-white/[0.12] bg-[hsl(var(--card))] px-6 py-4 outline-none"
     >
       <div className="flex items-center justify-between shrink-0 mb-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">

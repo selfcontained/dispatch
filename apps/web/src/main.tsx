@@ -2,8 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
-import { registerSW } from "virtual:pwa-register";
-
 import { router } from "./router";
 import "./index.css";
 
@@ -34,15 +32,20 @@ if (import.meta.env.PROD) {
   // Check for SW updates every 5 minutes so long-lived Safari tabs pick up
   // new deployments without a manual refresh.
   const intervalMS = 5 * 60 * 1000;
-  registerSW({
-    immediate: true,
-    onRegisteredSW(_swUrl, registration) {
-      if (registration) {
-        setInterval(() => {
-          void registration.update();
-        }, intervalMS);
-      }
-    },
+  // Dynamic import uses a variable so Vite's dep scanner skips it in dev
+  // (the PWA plugin is only loaded in production builds).
+  const pwaModule = "virtual:pwa-register";
+  void import(/* @vite-ignore */ pwaModule).then(({ registerSW }) => {
+    registerSW({
+      immediate: true,
+      onRegisteredSW(_swUrl: string, registration?: ServiceWorkerRegistration) {
+        if (registration) {
+          setInterval(() => {
+            void registration.update();
+          }, intervalMS);
+        }
+      },
+    });
   });
 } else if ("serviceWorker" in navigator) {
   void navigator.serviceWorker.getRegistrations().then((registrations) => {

@@ -48,6 +48,7 @@ import {
   type AgentVisualState,
   type ServiceState,
 } from "@/components/app/types";
+import { DesignLab } from "@/components/app/design-lab";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { cn } from "@/lib/utils";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
@@ -151,6 +152,7 @@ export function DashboardLayout(): JSX.Element {
     ? (pathSegments[1] as "metrics" | "history" | undefined)
     : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
+  const designLabOpen = pathSegments[0] === "design-lab";
 
   useEffect(() => {
     if (!legacyDocsOpen) return;
@@ -670,6 +672,7 @@ export function DashboardLayout(): JSX.Element {
     if (location.pathname.startsWith("/jobs")) return "jobs";
     if (location.pathname.startsWith("/activity")) return "activity";
     if (location.pathname.startsWith("/settings")) return "settings";
+    if (location.pathname.startsWith("/design-lab")) return "design-lab";
     return "agents";
   })();
   const prevNavItemRef = useRef(currentNavItem);
@@ -760,7 +763,7 @@ export function DashboardLayout(): JSX.Element {
       onOpenAgent={attachToAgent}
       enabledAgentTypes={enabledAgentTypes}
     >
-      <div className="h-full min-h-0 overflow-hidden bg-background text-foreground">
+      <div className="h-full min-h-0 overflow-hidden text-foreground">
         <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
           {/* ── Unified sidebar (desktop: inline, mobile: slide-over) ─── */}
           <GlassSidebar
@@ -864,7 +867,7 @@ export function DashboardLayout(): JSX.Element {
                       Activity
                     </div>
                   </div>
-                  <nav className="min-h-0 flex-1 overflow-y-auto py-2">
+                  <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -872,10 +875,10 @@ export function DashboardLayout(): JSX.Element {
                         navigate("/activity/metrics", { replace: true });
                       }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
                         (activityTab ?? "metrics") === "metrics"
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "bg-primary/10 text-foreground border border-primary/20"
+                          : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
                       )}
                     >
                       <BarChart3 className="h-3.5 w-3.5 shrink-0" />
@@ -888,10 +891,10 @@ export function DashboardLayout(): JSX.Element {
                         navigate("/activity/history", { replace: true });
                       }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                        "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
                         activityTab === "history"
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "bg-primary/10 text-foreground border border-primary/20"
+                          : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
                       )}
                     >
                       <History className="h-3.5 w-3.5 shrink-0" />
@@ -1056,6 +1059,13 @@ export function DashboardLayout(): JSX.Element {
                     }}
                     isAdmin={isAdmin}
                   />
+                </div>
+              )}
+
+              {/* Design Lab */}
+              {designLabOpen && (
+                <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+                  <DesignLab />
                 </div>
               )}
 

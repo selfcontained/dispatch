@@ -210,7 +210,7 @@ export function MobileTerminalToolbar({
           <div className="flex-1 p-4">
             <textarea
               ref={inputRef}
-              className="h-full w-full resize-none rounded-lg border border-border bg-card p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-full w-full resize-none rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Type command here..."
               autoCapitalize="off"
             />

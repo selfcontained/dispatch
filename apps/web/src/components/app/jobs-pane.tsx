@@ -1061,8 +1061,8 @@ function AddJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
           <DialogPrimitive.Title className="sr-only">
             Add job
           </DialogPrimitive.Title>
@@ -1129,7 +1129,7 @@ function AddJobFlow({
 
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
               <span>
                 <span className="block font-medium text-foreground">
@@ -1241,11 +1241,11 @@ function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
-          <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
             <button
               type="button"
               className="flex w-full items-center justify-between gap-3 text-left"
@@ -1331,6 +1331,9 @@ function AddJobFlow({
       </ScrollArea>
 
       <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
+        <DialogPrimitive.Close asChild>
+          <Button variant="ghost">Cancel</Button>
+        </DialogPrimitive.Close>
         <Button
           variant="primary"
           disabled={!canAdd || isAdding}
@@ -1769,7 +1772,7 @@ function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <div className="rounded-md border border-border bg-background/50 p-4">
+      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="text-sm font-medium">Job configuration</div>
         <p className="mt-1 text-xs text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
@@ -1990,8 +1993,8 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl outline-none">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-5 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none">
           <DialogPrimitive.Title className="text-base font-semibold">
             Remove job?
           </DialogPrimitive.Title>
@@ -2047,7 +2050,7 @@ function PromptTab({
 
   return (
     <div className="mt-4 flex h-full min-h-full flex-col">
-      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-border bg-background/50 p-4">
+      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="space-y-1">
           <label
             className="text-sm font-medium text-foreground"
@@ -2064,7 +2067,7 @@ function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         {saveError ? (
           <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">

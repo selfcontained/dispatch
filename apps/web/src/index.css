@@ -381,6 +381,30 @@ body {
   font-family: "JetBrains Mono", Menlo, monospace;
 }
 
+/* Glass atmosphere — subtle radial gradients behind all content.
+   Themes with custom body::before (mytra, matrix) override this. */
+html:not([data-theme="mytra"]):not([data-theme="matrix"]):not(
+    [data-theme="light"]
+  )
+  body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      ellipse at top,
+      hsl(var(--primary) / 0.06),
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse at bottom right,
+      hsl(var(--status-done) / 0.04),
+      transparent 50%
+    );
+}
+
 html[data-theme="mytra"] body {
   background-image:
     radial-gradient(
@@ -502,6 +526,7 @@ html[data-theme="matrix"] body::after {
   overflow: hidden;
   position: relative;
   z-index: 1;
+  background: transparent;
 }
 
 /* iPad PWA: prevent viewport jump when typing space in terminal.
