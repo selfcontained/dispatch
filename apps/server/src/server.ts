@@ -4223,6 +4223,13 @@ async function cleanupAppResources(): Promise<void> {
   stopAgentStatusReconcileLoop();
   stopSessionCleanupTimer();
 
+  // Cancel pending web notification fallback timers so they don't fire
+  // Slack notifications after the pool is closed.
+  for (const timer of pendingWebNotifications.values()) {
+    clearTimeout(timer);
+  }
+  pendingWebNotifications.clear();
+
   // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
   if (activeArchives.size > 0) {
     app.log.info({ count: activeArchives.size }, "Waiting for in-flight archives to complete…");
