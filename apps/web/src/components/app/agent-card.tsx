@@ -11,13 +11,24 @@ import {
 
 import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { latestEventLabel, latestEventColor, formatRelativeTime } from "@/components/app/agent-event-utils";
-import { type FeedbackDetailState, ParentFeedbackPanel } from "@/components/app/feedback-panel";
+import {
+  latestEventLabel,
+  latestEventColor,
+  formatRelativeTime,
+} from "@/components/app/agent-event-utils";
+import {
+  type FeedbackDetailState,
+  ParentFeedbackPanel,
+} from "@/components/app/feedback-panel";
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { AnimatePresence, motion } from "framer-motion";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
@@ -31,7 +42,9 @@ export type AgentCardProps = {
   agentVisualState: (agent: Agent) => AgentVisualState;
   borderForAgentState: (state: AgentVisualState) => string;
   toggleAgentDetails: (agentId: string) => void;
-  isFullAccessEnabled: (agent: Pick<Agent, "agentArgs" | "fullAccess">) => boolean;
+  isFullAccessEnabled: (
+    agent: Pick<Agent, "agentArgs" | "fullAccess">
+  ) => boolean;
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
@@ -94,13 +107,20 @@ export function AgentCard({
         )}
       >
         <div
-          className={cn("flex items-center gap-1.5", !isStopped && "cursor-pointer")}
+          className={cn(
+            "flex items-center gap-1.5",
+            !isStopped && "cursor-pointer"
+          )}
           data-testid={`agent-row-${agent.id}`}
           onClick={(event) => {
             const target = event.target as HTMLElement;
             if (target.closest("[data-agent-control='true']")) return;
             if (isStopped) return;
-            if (connectedAgentId === agent.id) { detachTerminal(); if (isExpanded) toggleAgentDetails(agent.id); return; }
+            if (connectedAgentId === agent.id) {
+              detachTerminal();
+              if (isExpanded) toggleAgentDetails(agent.id);
+              return;
+            }
             if (closeOnSessionAction) onRequestClose?.();
             void attachToAgent(agent);
           }}
@@ -108,7 +128,12 @@ export function AgentCard({
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold">
-                <AgentTypeIcon type={agent.type} eventType={agent.status === "running" ? agent.latestEvent?.type : null} />
+                <AgentTypeIcon
+                  type={agent.type}
+                  eventType={
+                    agent.status === "running" ? agent.latestEvent?.type : null
+                  }
+                />
                 <span className="truncate">{agent.name}</span>
               </div>
             </TooltipTrigger>
@@ -118,7 +143,10 @@ export function AgentCard({
           {needsAttention ? (
             <Badge
               className="border-status-blocked/45 bg-status-blocked/15 text-status-blocked"
-              title={agent.lastError ?? "Agent entered an error state and may need attention."}
+              title={
+                agent.lastError ??
+                "Agent entered an error state and may need attention."
+              }
             >
               Attention
             </Badge>
@@ -149,7 +177,13 @@ export function AgentCard({
                   <Play className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Resume<br /><span className="text-muted-foreground">Resume agent session</span></TooltipContent>
+              <TooltipContent>
+                Resume
+                <br />
+                <span className="text-muted-foreground">
+                  Resume agent session
+                </span>
+              </TooltipContent>
             </Tooltip>
           ) : agent.status === "archiving" ? null : (
             <Tooltip>
@@ -166,7 +200,13 @@ export function AgentCard({
                   <Pause className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Pause<br /><span className="text-muted-foreground">Pause agent session</span></TooltipContent>
+              <TooltipContent>
+                Pause
+                <br />
+                <span className="text-muted-foreground">
+                  Pause agent session
+                </span>
+              </TooltipContent>
             </Tooltip>
           )}
 
@@ -178,7 +218,9 @@ export function AgentCard({
                 data-agent-control="true"
                 data-testid={`agent-archive-${agent.id}`}
                 className="ml-auto"
-                disabled={agent.status === "archiving" || agent.status === "creating"}
+                disabled={
+                  agent.status === "archiving" || agent.status === "creating"
+                }
                 onClick={() => {
                   setDeleteTarget(agent);
                   setDeleteConfirmOpen(true);
@@ -187,7 +229,11 @@ export function AgentCard({
                 <Archive className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Archive<br /><span className="text-muted-foreground">Remove agent</span></TooltipContent>
+            <TooltipContent>
+              Archive
+              <br />
+              <span className="text-muted-foreground">Remove agent</span>
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -199,16 +245,27 @@ export function AgentCard({
                 data-testid={`agent-expand-toggle-${agent.id}`}
                 onClick={() => {
                   // If collapsing while a child persona is connected, detach it
-                  if (isExpanded && connectedAgentId && childAgents.some((c) => c.id === connectedAgentId)) {
+                  if (
+                    isExpanded &&
+                    connectedAgentId &&
+                    childAgents.some((c) => c.id === connectedAgentId)
+                  ) {
                     detachTerminal();
                   }
                   toggleAgentDetails(agent.id);
                 }}
               >
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", isExpanded && "rotate-180")} />
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform duration-200",
+                    isExpanded && "rotate-180"
+                  )}
+                />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{isExpanded ? "Hide details" : "Show details"}</TooltipContent>
+            <TooltipContent>
+              {isExpanded ? "Hide details" : "Show details"}
+            </TooltipContent>
           </Tooltip>
         </div>
 
@@ -216,10 +273,15 @@ export function AgentCard({
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
             <span className="truncate font-medium">
-              {agent.setupPhase === "worktree" ? "Creating worktree…" :
-               agent.setupPhase === "env" ? "Copying environment…" :
-               agent.setupPhase === "deps" ? "Installing dependencies…" :
-               agent.setupPhase === "session" ? "Starting session…" : "Setting up…"}
+              {agent.setupPhase === "worktree"
+                ? "Creating worktree…"
+                : agent.setupPhase === "env"
+                  ? "Copying environment…"
+                  : agent.setupPhase === "deps"
+                    ? "Installing dependencies…"
+                    : agent.setupPhase === "session"
+                      ? "Starting session…"
+                      : "Setting up…"}
             </span>
           </div>
         ) : null}
@@ -228,10 +290,15 @@ export function AgentCard({
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
             <span className="truncate font-medium">
-              {agent.archivePhase === "stopping" ? "Stopping agent…" :
-               agent.archivePhase === "worktree-check" ? "Checking worktree…" :
-               agent.archivePhase === "worktree-cleanup" ? "Removing worktree…" :
-               agent.archivePhase === "finalizing" ? "Finalizing…" : "Archiving…"}
+              {agent.archivePhase === "stopping"
+                ? "Stopping agent…"
+                : agent.archivePhase === "worktree-check"
+                  ? "Checking worktree…"
+                  : agent.archivePhase === "worktree-cleanup"
+                    ? "Removing worktree…"
+                    : agent.archivePhase === "finalizing"
+                      ? "Finalizing…"
+                      : "Archiving…"}
             </span>
           </div>
         ) : null}
@@ -240,19 +307,47 @@ export function AgentCard({
           isExpanded ? (
             <div className="mt-1 text-xs text-muted-foreground">
               <div className="flex items-baseline">
-                <span className={cn("shrink-0 font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
-                <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
-                <span className="shrink-0">{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
+                <span
+                  className={cn(
+                    "shrink-0 font-medium",
+                    latestEventColor(agent.latestEvent.type)
+                  )}
+                >
+                  {latestEventLabel(agent.latestEvent.type)}
+                </span>
+                <span className="mx-1.5 shrink-0 text-muted-foreground/70">
+                  •
+                </span>
+                <span className="shrink-0">
+                  {formatRelativeTime(agent.latestEvent.updatedAt)}
+                </span>
               </div>
-              <div className="mt-0.5 leading-relaxed text-muted-foreground">{agent.latestEvent.message}</div>
+              <div className="mt-0.5 leading-relaxed text-muted-foreground">
+                {agent.latestEvent.message}
+              </div>
             </div>
           ) : (
             <div className="mt-1 flex min-w-0 items-baseline text-xs text-muted-foreground">
-              <span className={cn("shrink-0 font-medium", latestEventColor(agent.latestEvent.type))}>{latestEventLabel(agent.latestEvent.type)}</span>
-              <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
-              <span className="shrink-0">{formatRelativeTime(agent.latestEvent.updatedAt)}</span>
-              <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
-              <span className="min-w-0 truncate">{agent.latestEvent.message}</span>
+              <span
+                className={cn(
+                  "shrink-0 font-medium",
+                  latestEventColor(agent.latestEvent.type)
+                )}
+              >
+                {latestEventLabel(agent.latestEvent.type)}
+              </span>
+              <span className="mx-1.5 shrink-0 text-muted-foreground/70">
+                •
+              </span>
+              <span className="shrink-0">
+                {formatRelativeTime(agent.latestEvent.updatedAt)}
+              </span>
+              <span className="mx-1.5 shrink-0 text-muted-foreground/70">
+                •
+              </span>
+              <span className="min-w-0 truncate">
+                {agent.latestEvent.message}
+              </span>
             </div>
           )
         ) : null}
@@ -270,40 +365,86 @@ export function AgentCard({
                 <div className="grid gap-2 text-xs text-muted-foreground">
                   {agent.gitContext?.isWorktree ? (
                     <>
-                      <AgentMeta label="Repo" value={agent.gitContext.repoRoot.split("/").pop() ?? agent.gitContext.repoRoot} />
+                      <AgentMeta
+                        label="Repo"
+                        value={
+                          agent.gitContext.repoRoot.split("/").pop() ??
+                          agent.gitContext.repoRoot
+                        }
+                      />
                       <div className="grid gap-1">
-                        <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Branch</div>
+                        <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                          Branch
+                        </div>
                         {agent.gitContext.branch ? (
                           <div className="grid gap-0">
                             <div className="text-muted-foreground">
-                              <FrontTruncatedValue value={sidebarBaseBranch} mono className="text-muted-foreground" tooltipClassName="" tooltipValue={`Base branch: ${sidebarBaseBranch}`} />
+                              <FrontTruncatedValue
+                                value={sidebarBaseBranch}
+                                mono
+                                className="text-muted-foreground"
+                                tooltipClassName=""
+                                tooltipValue={`Base branch: ${sidebarBaseBranch}`}
+                              />
                             </div>
                             <div className="flex items-center gap-1 pl-1">
-                              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">└</span>
-                              <FrontTruncatedValue value={agent.gitContext.branch} mono tooltipValue={`Working branch: ${agent.gitContext.branch}`} />
+                              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">
+                                └
+                              </span>
+                              <FrontTruncatedValue
+                                value={agent.gitContext.branch}
+                                mono
+                                tooltipValue={`Working branch: ${agent.gitContext.branch}`}
+                              />
                             </div>
                           </div>
                         ) : (
-                          <FrontTruncatedValue value={agent.gitContext.branch} mono />
+                          <FrontTruncatedValue
+                            value={agent.gitContext.branch}
+                            mono
+                          />
                         )}
                       </div>
-                      <AgentMeta label="Worktree" value={agent.cwd} mono truncateStart />
+                      <AgentMeta
+                        label="Worktree"
+                        value={agent.cwd}
+                        mono
+                        truncateStart
+                      />
                     </>
                   ) : (
                     <>
-                      <AgentMeta label="Working dir" value={agent.cwd} mono truncateStart />
+                      <AgentMeta
+                        label="Working dir"
+                        value={agent.cwd}
+                        mono
+                        truncateStart
+                      />
                       {agent.gitContext ? (
-                        <AgentMeta label="Branch" value={agent.gitContext.branch} mono truncateStart />
+                        <AgentMeta
+                          label="Branch"
+                          value={agent.gitContext.branch}
+                          mono
+                          truncateStart
+                        />
                       ) : (
                         <div className="grid gap-1">
-                          <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Git</div>
-                          <div className="text-foreground text-xs">Not a git repository</div>
+                          <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                            Git
+                          </div>
+                          <div className="text-foreground text-xs">
+                            Not a git repository
+                          </div>
                         </div>
                       )}
                     </>
                   )}
                   <div className="flex items-center justify-between">
-                    <div className="text-foreground">{AGENT_TYPE_LABELS[agent.type as AgentType] ?? agent.type ?? "Codex"}</div>
+                    <div className="text-foreground">
+                      {AGENT_TYPE_LABELS[agent.type as AgentType] ??
+                        agent.type ??
+                        "Codex"}
+                    </div>
                     <div
                       className={cn(
                         "inline-flex items-center gap-1 px-1.5 py-0.5 text-foreground text-[11px]",
@@ -311,18 +452,28 @@ export function AgentCard({
                           "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
                       )}
                     >
-                      {fullAccessEnabled ? <AlertTriangle className="h-3 w-3" /> : null}
-                      <span>{fullAccessEnabled ? "Full access" : "Sandboxed"}</span>
+                      {fullAccessEnabled ? (
+                        <AlertTriangle className="h-3 w-3" />
+                      ) : null}
+                      <span>
+                        {fullAccessEnabled ? "Full access" : "Sandboxed"}
+                      </span>
                     </div>
                   </div>
-                  {agent.lastError ? <AgentMeta label="Last error" value={agent.lastError} /> : null}
+                  {agent.lastError ? (
+                    <AgentMeta label="Last error" value={agent.lastError} />
+                  ) : null}
                   {agent.persona ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">Persona</span>
+                      <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                        Persona
+                      </span>
                       <Badge variant="running">{agent.persona}</Badge>
                       {agent.parentAgentId ? (
                         <span className="text-[10px] text-muted-foreground">
-                          from {agents.find((a) => a.id === agent.parentAgentId)?.name ?? agent.parentAgentId.slice(-6)}
+                          from{" "}
+                          {agents.find((a) => a.id === agent.parentAgentId)
+                            ?.name ?? agent.parentAgentId.slice(-6)}
                         </span>
                       ) : null}
                     </div>
@@ -346,7 +497,12 @@ export function AgentCard({
                     onRequestClose={onRequestClose}
                     closeOnSessionAction={closeOnSessionAction}
                     onOpenDetail={onOpenFeedbackDetail}
-                    activeDetailItemId={feedbackDetailState?.parentAgentId === agent.id && "itemId" in feedbackDetailState ? feedbackDetailState.itemId : null}
+                    activeDetailItemId={
+                      feedbackDetailState?.parentAgentId === agent.id &&
+                      "itemId" in feedbackDetailState
+                        ? feedbackDetailState.itemId
+                        : null
+                    }
                     childAgents={childAgents}
                     selectedAgentId={selectedAgentId}
                     agentVisualState={getVisualState}

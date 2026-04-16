@@ -1,6 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -23,7 +29,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ password }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
@@ -56,7 +62,12 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
               data-testid="login-password"
             />
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" variant="primary" className="w-full" disabled={loading || !password}>
+            <Button
+              type="submit"
+              variant="primary"
+              className="w-full"
+              disabled={loading || !password}
+            >
               {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>

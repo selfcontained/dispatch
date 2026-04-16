@@ -19,7 +19,7 @@ function createHarness() {
       if (count > 0) {
         log.splice(-count);
       }
-    }
+    },
   });
 
   return { log, processor };
@@ -36,7 +36,9 @@ describe("ReleaseLogStreamProcessor", () => {
     processor.push("✓ Set up job\n");
     processor.push("* Install dependencies\n");
     processor.push("* Build\n");
-    processor.push("Refreshing run status every 3 seconds. Press Ctrl+C to quit.\n");
+    processor.push(
+      "Refreshing run status every 3 seconds. Press Ctrl+C to quit.\n"
+    );
 
     processor.push("\x1b[9A\x1b[J");
     processor.push("* main Release · 12345\n");
@@ -46,7 +48,9 @@ describe("ReleaseLogStreamProcessor", () => {
     processor.push("✓ Set up job\n");
     processor.push("✓ Install dependencies\n");
     processor.push("* Build\n");
-    processor.push("Refreshing run status every 3 seconds. Press Ctrl+C to quit.\n");
+    processor.push(
+      "Refreshing run status every 3 seconds. Press Ctrl+C to quit.\n"
+    );
 
     processor.push("\x1b[9A\x1b[J");
     processor.push("✓ main Release · 12345\n");
@@ -67,7 +71,7 @@ describe("ReleaseLogStreamProcessor", () => {
       "✓ Set up job",
       "✓ Install dependencies",
       "✓ Build",
-      ""
+      "",
     ]);
   });
 

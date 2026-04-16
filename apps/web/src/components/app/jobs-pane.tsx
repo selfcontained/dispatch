@@ -1,6 +1,23 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import cronstrue from "cronstrue";
-import { Activity, AlarmClock, CheckCircle2, ChevronDown, Clock, GitBranch, History, Loader2, LoaderCircle, MessageSquareText, Play, Settings, Terminal, Trash2, X, XCircle } from "lucide-react";
+import {
+  Activity,
+  AlarmClock,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  GitBranch,
+  History,
+  Loader2,
+  LoaderCircle,
+  MessageSquareText,
+  Play,
+  Settings,
+  Terminal,
+  Trash2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -11,11 +28,38 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Bar, BarChart, XAxis } from "recharts";
-import { type AddJobConfig, type Job, type JobRun, type JobRunStatus, useJobActions, useJobHistory, useJobs, useJobStats } from "@/hooks/use-jobs";
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from "@/components/ui/chart";
+import {
+  type AddJobConfig,
+  type Job,
+  type JobRun,
+  type JobRunStatus,
+  useJobActions,
+  useJobHistory,
+  useJobs,
+  useJobStats,
+} from "@/hooks/use-jobs";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { StatCard } from "@/components/app/stat-card";
 import { formatRelativeTime } from "@/lib/format";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
@@ -38,7 +82,10 @@ type JobsContextValue = {
   tab: DetailTab;
   history: { data?: { runs: JobRun[] }; isLoading: boolean };
   activeRunAgent: Agent | null;
-  jobStats: { data?: import("@/hooks/use-jobs").JobStats | null; isLoading: boolean };
+  jobStats: {
+    data?: import("@/hooks/use-jobs").JobStats | null;
+    isLoading: boolean;
+  };
   routeRunId: string | undefined;
   selectJob: (job: Job) => void;
   openAddJob: () => void;
@@ -68,34 +115,47 @@ function useJobsContext(): JobsContextValue {
 
 type DetailTab = "configure" | "prompt" | "history";
 
-const ACTIVE_RUN_STATUSES: JobRunStatus[] = ["started", "running", "needs_input"];
+const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
+  "started",
+  "running",
+  "needs_input",
+];
 
 function statusClasses(status: JobRunStatus | null): string {
-  if (status === "completed") return "border-status-done/45 bg-status-done/15 text-status-done";
-  if (status === "failed" || status === "timed_out" || status === "crashed") return "border-status-blocked/45 bg-status-blocked/15 text-status-blocked";
-  if (status === "needs_input") return "border-status-waiting/45 bg-status-waiting/15 text-status-waiting";
-  if (status === "started" || status === "running") return "border-status-working/45 bg-status-working/15 text-status-working";
+  if (status === "completed")
+    return "border-status-done/45 bg-status-done/15 text-status-done";
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return "border-status-blocked/45 bg-status-blocked/15 text-status-blocked";
+  if (status === "needs_input")
+    return "border-status-waiting/45 bg-status-waiting/15 text-status-waiting";
+  if (status === "started" || status === "running")
+    return "border-status-working/45 bg-status-working/15 text-status-working";
   return "border-border bg-muted/35 text-muted-foreground";
 }
 
 function statusTextColor(status: JobRunStatus | null): string {
   if (status === "completed") return "text-status-done";
-  if (status === "failed" || status === "timed_out" || status === "crashed") return "text-status-blocked";
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return "text-status-blocked";
   if (status === "needs_input") return "text-status-waiting";
-  if (status === "started" || status === "running") return "text-status-working";
+  if (status === "started" || status === "running")
+    return "text-status-working";
   return "text-muted-foreground";
 }
 
 function statusIcon(status: JobRunStatus | null): JSX.Element | null {
   if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5" />;
-  if (status === "failed" || status === "timed_out" || status === "crashed") return <XCircle className="h-3.5 w-3.5" />;
-  if (status === "started" || status === "running" || status === "needs_input") return <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />;
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return <XCircle className="h-3.5 w-3.5" />;
+  if (status === "started" || status === "running" || status === "needs_input")
+    return <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />;
   return null;
 }
 
 function statusDotColor(status: JobRunStatus | null): string {
   if (status === "completed") return "bg-status-done";
-  if (status === "failed" || status === "timed_out" || status === "crashed") return "bg-status-blocked";
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return "bg-status-blocked";
   if (status === "needs_input") return "bg-status-waiting";
   if (status === "started" || status === "running") return "bg-status-working";
   return "bg-muted-foreground";
@@ -105,7 +165,10 @@ function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Not scheduled";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function formatDuration(ms: number | null | undefined): string {
@@ -134,9 +197,11 @@ function errorMessage(error: unknown): string {
 
 function cronError(schedule: string, enabled: boolean): string | null {
   const trimmed = schedule.trim();
-  if (!trimmed) return enabled ? "Add a cron schedule before enabling this job." : null;
+  if (!trimmed)
+    return enabled ? "Add a cron schedule before enabling this job." : null;
   const fields = trimmed.split(/\s+/);
-  if (fields.length !== 5) return "Use a 5-field cron expression like */30 * * * *.";
+  if (fields.length !== 5)
+    return "Use a 5-field cron expression like */30 * * * *.";
   return null;
 }
 
@@ -161,23 +226,49 @@ function triggerSourceLabel(run: JobRun): string {
 
 function useActiveRun(job: Job | null, agents: Agent[]) {
   return useMemo(() => {
-    if (!job?.lastRunId || !job.lastRunStatus || !ACTIVE_RUN_STATUSES.includes(job.lastRunStatus)) return null;
-    return agents.find((agent) => agent.name.startsWith(`job-${job.name}-`) || agent.name.endsWith(job.lastRunId!.slice(0, 8))) ?? null;
+    if (
+      !job?.lastRunId ||
+      !job.lastRunStatus ||
+      !ACTIVE_RUN_STATUSES.includes(job.lastRunStatus)
+    )
+      return null;
+    return (
+      agents.find(
+        (agent) =>
+          agent.name.startsWith(`job-${job.name}-`) ||
+          agent.name.endsWith(job.lastRunId!.slice(0, 8))
+      ) ?? null
+    );
   }, [agents, job]);
 }
 
 /** Provider that manages all job state. Wrap around both JobListContent and JobDetailPane. */
-export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, children }: JobsPaneProps & { children: React.ReactNode }): JSX.Element {
+export function JobsProvider({
+  open,
+  agents,
+  onOpenAgent,
+  enabledAgentTypes,
+  children,
+}: JobsPaneProps & { children: React.ReactNode }): JSX.Element {
   const navigate = useNavigate();
-  const { jobId: routeJobId, section: routeSection, runId: routeRunId } = useParams();
+  const {
+    jobId: routeJobId,
+    section: routeSection,
+    runId: routeRunId,
+  } = useParams();
   const { data: jobs = [], isLoading, error } = useJobs(open);
   const { addJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
   const [isAddingJob, setIsAddingJob] = useState(false);
   const [actionErrorByJobId] = useState<Record<string, string>>({});
   const [justAddedJobId, setJustAddedJobId] = useState<string | null>(null);
   const showOverview = routeJobId === "overview";
-  const selectedJob = showOverview ? null : (jobs.find((job) => job.id === routeJobId) ?? null);
-  const tab: DetailTab = routeSection === "prompt" || routeSection === "history" ? routeSection : "configure";
+  const selectedJob = showOverview
+    ? null
+    : (jobs.find((job) => job.id === routeJobId) ?? null);
+  const tab: DetailTab =
+    routeSection === "prompt" || routeSection === "history"
+      ? routeSection
+      : "configure";
   const history = useJobHistory(selectedJob);
   const activeRunAgent = useActiveRun(selectedJob, agents);
   const jobStats = useJobStats(open && !selectedJob);
@@ -196,12 +287,33 @@ export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, chi
   const showDetailPane = !!selectedJob || showOverview;
 
   const ctx: JobsContextValue = {
-    jobs, isLoading, error, selectedJob, showOverview, showDetailPane, tab,
-    history, activeRunAgent, jobStats, routeRunId,
-    selectJob, openAddJob, actionErrorByJobId, navigate,
-    agents, onOpenAgent, enabledAgentTypes,
-    addJob, runNow, setEnabled, updateJob, removeJob,
-    isAddingJob, setIsAddingJob, justAddedJobId, setJustAddedJobId,
+    jobs,
+    isLoading,
+    error,
+    selectedJob,
+    showOverview,
+    showDetailPane,
+    tab,
+    history,
+    activeRunAgent,
+    jobStats,
+    routeRunId,
+    selectJob,
+    openAddJob,
+    actionErrorByJobId,
+    navigate,
+    agents,
+    onOpenAgent,
+    enabledAgentTypes,
+    addJob,
+    runNow,
+    setEnabled,
+    updateJob,
+    removeJob,
+    isAddingJob,
+    setIsAddingJob,
+    justAddedJobId,
+    setJustAddedJobId,
   };
 
   return (
@@ -224,13 +336,29 @@ export function JobsProvider({ open, agents, onOpenAgent, enabledAgentTypes, chi
 }
 
 /** Job list content for the unified sidebar. */
-export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }): JSX.Element {
-  const { jobs, isLoading, error, selectedJob, showOverview, actionErrorByJobId, selectJob, openAddJob, navigate } = useJobsContext();
+export function JobListContent({
+  onItemSelect,
+}: {
+  onItemSelect?: () => void;
+}): JSX.Element {
+  const {
+    jobs,
+    isLoading,
+    error,
+    selectedJob,
+    showOverview,
+    actionErrorByJobId,
+    selectJob,
+    openAddJob,
+    navigate,
+  } = useJobsContext();
 
   return (
     <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Jobs</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Jobs
+        </h2>
         <div className="ml-auto flex items-center">
           <Button
             size="sm"
@@ -245,16 +373,28 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
         </div>
       </div>
 
-      <div data-testid="jobs-sidebar-scroll" className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        data-testid="jobs-sidebar-scroll"
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         {error ? (
-          <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{error instanceof Error ? error.message : "Failed to load jobs."}</div>
+          <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            {error instanceof Error ? error.message : "Failed to load jobs."}
+          </div>
         ) : isLoading ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...</div>
+          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...
+          </div>
         ) : jobs.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
-              <div className="font-medium text-foreground">No jobs added yet.</div>
-              <div className="mt-1 text-xs">Added jobs will appear here with schedule, status, and run controls.</div>
+              <div className="font-medium text-foreground">
+                No jobs added yet.
+              </div>
+              <div className="mt-1 text-xs">
+                Added jobs will appear here with schedule, status, and run
+                controls.
+              </div>
             </div>
           </div>
         ) : (
@@ -264,7 +404,10 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
                 "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40",
                 showOverview && "border-r-primary bg-muted/60"
               )}
-              onClick={() => { navigate("/jobs/overview"); onItemSelect?.(); }}
+              onClick={() => {
+                navigate("/jobs/overview");
+                onItemSelect?.();
+              }}
             >
               <Activity className="h-3.5 w-3.5" />
               <span>Overview</span>
@@ -277,25 +420,42 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
                   data-testid={`job-row-${job.id}`}
                   className={cn(
                     "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                    selectedJob?.id === job.id && "md:border-r-primary md:bg-muted/60"
+                    selectedJob?.id === job.id &&
+                      "md:border-r-primary md:bg-muted/60"
                   )}
-                  onClick={() => { selectJob(job); onItemSelect?.(); }}
+                  onClick={() => {
+                    selectJob(job);
+                    onItemSelect?.();
+                  }}
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold leading-5">{job.name}</div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground" title={job.directory}>{shortPath(job.directory)}</div>
+                      <div className="truncate text-sm font-semibold leading-5">
+                        {job.name}
+                      </div>
+                      <div
+                        className="truncate font-mono text-[11px] text-muted-foreground"
+                        title={job.directory}
+                      >
+                        {shortPath(job.directory)}
+                      </div>
                     </div>
                     <Badge className={statusClasses(job.lastRunStatus)}>
-                      <span className="mr-1 hidden sm:inline-flex">{statusIcon(job.lastRunStatus)}</span>
+                      <span className="mr-1 hidden sm:inline-flex">
+                        {statusIcon(job.lastRunStatus)}
+                      </span>
                       {job.lastRunStatus ?? "new"}
                     </Badge>
                   </div>
                   <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{job.schedule ? `Cron: ${job.schedule}` : "No schedule"}</span>
+                    <span className="truncate">
+                      {job.schedule ? `Cron: ${job.schedule}` : "No schedule"}
+                    </span>
                     <span className="shrink-0 text-muted-foreground/70">•</span>
-                    <span className="shrink-0">{job.enabled ? "enabled" : "disabled"}</span>
+                    <span className="shrink-0">
+                      {job.enabled ? "enabled" : "disabled"}
+                    </span>
                   </div>
                   {actionError ? (
                     <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
@@ -315,9 +475,23 @@ export function JobListContent({ onItemSelect }: { onItemSelect?: () => void }):
 /** Job detail pane for the main content area. */
 export function JobDetailPane(): JSX.Element {
   const {
-    jobs, selectedJob, tab, history, activeRunAgent, jobStats,
-    routeRunId, navigate, onOpenAgent, enabledAgentTypes,
-    runNow, setEnabled, updateJob, removeJob, justAddedJobId, setJustAddedJobId, selectJob,
+    jobs,
+    selectedJob,
+    tab,
+    history,
+    activeRunAgent,
+    jobStats,
+    routeRunId,
+    navigate,
+    onOpenAgent,
+    enabledAgentTypes,
+    runNow,
+    setEnabled,
+    updateJob,
+    removeJob,
+    justAddedJobId,
+    setJustAddedJobId,
+    selectJob,
   } = useJobsContext();
 
   return (
@@ -330,20 +504,32 @@ export function JobDetailPane(): JSX.Element {
               job={selectedJob}
               tab={tab}
               onTabChange={(nextTab) => {
-                navigate(`/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`);
+                navigate(
+                  `/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
+                );
               }}
               history={history.data?.runs ?? []}
               historyLoading={history.isLoading}
               selectedRunId={routeRunId ?? null}
               onSelectRun={(runId) => {
-                navigate(runId ? `/jobs/${selectedJob.id}/history/${runId}` : `/jobs/${selectedJob.id}/history`);
+                navigate(
+                  runId
+                    ? `/jobs/${selectedJob.id}/history/${runId}`
+                    : `/jobs/${selectedJob.id}/history`
+                );
               }}
               activeRunAgent={activeRunAgent}
               onOpenAgent={onOpenAgent}
-              onRunNow={async (job) => { await runNow.mutateAsync(job); }}
-              onSetEnabled={async (job, enabled) => { await setEnabled.mutateAsync({ job, enabled }); }}
+              onRunNow={async (job) => {
+                await runNow.mutateAsync(job);
+              }}
+              onSetEnabled={async (job, enabled) => {
+                await setEnabled.mutateAsync({ job, enabled });
+              }}
               enabledAgentTypes={enabledAgentTypes}
-              onUpdateJob={async (job) => { await updateJob.mutateAsync(job); }}
+              onUpdateJob={async (job) => {
+                await updateJob.mutateAsync(job);
+              }}
               onRemoveJob={async (job) => {
                 await removeJob.mutateAsync(job);
                 navigate("/jobs");
@@ -361,7 +547,9 @@ export function JobDetailPane(): JSX.Element {
               stats={jobStats.data ?? null}
               statsLoading={jobStats.isLoading}
               onSelectJob={selectJob}
-              onSelectRun={(jobId, runId) => navigate(`/jobs/${jobId}/history/${runId}`)}
+              onSelectRun={(jobId, runId) =>
+                navigate(`/jobs/${jobId}/history/${runId}`)
+              }
             />
           </div>
         )}
@@ -378,7 +566,8 @@ function formatTimeUntil(iso: string): string {
   if (mins < 60) return `in ${mins}m`;
   const hours = Math.floor(mins / 60);
   const remMins = mins % 60;
-  if (hours < 24) return remMins > 0 ? `in ${hours}h ${remMins}m` : `in ${hours}h`;
+  if (hours < 24)
+    return remMins > 0 ? `in ${hours}h ${remMins}m` : `in ${hours}h`;
   const days = Math.floor(hours / 24);
   return `in ${days}d`;
 }
@@ -391,13 +580,28 @@ function formatTimeUntilDate(iso: string): string {
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const isTomorrow = date.toDateString() === tomorrow.toDateString();
-  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const time = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
   if (isToday) return `Today at ${time}`;
   if (isTomorrow) return `Tomorrow at ${time}`;
-  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
-function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
+function JobsOverview({
+  jobs,
+  stats,
+  statsLoading,
+  onSelectJob,
+  onSelectRun,
+}: {
   jobs: Job[];
   stats: import("@/hooks/use-jobs").JobStats | null;
   statsLoading: boolean;
@@ -407,7 +611,10 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
   const upcomingJobs = useMemo(() => {
     return jobs
       .filter((j) => j.nextRun)
-      .sort((a, b) => new Date(a.nextRun!).getTime() - new Date(b.nextRun!).getTime())
+      .sort(
+        (a, b) =>
+          new Date(a.nextRun!).getTime() - new Date(b.nextRun!).getTime()
+      )
       .slice(0, 5);
   }, [jobs]);
 
@@ -415,14 +622,20 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
   const metrics = stats?.stats ?? null;
   const hasAnyData = jobs.length > 0;
 
-  const successRate = metrics && metrics.totalRuns > 0
-    ? Math.round((metrics.successCount / metrics.totalRuns) * 100)
-    : null;
+  const successRate =
+    metrics && metrics.totalRuns > 0
+      ? Math.round((metrics.successCount / metrics.totalRuns) * 100)
+      : null;
 
   const dailyChartData = useMemo(() => {
     if (!metrics?.daily?.length) return [];
     const byDay = new Map(metrics.daily.map((d) => [d.day, d]));
-    const days: Array<{ day: string; label: string; completed: number; failed: number }> = [];
+    const days: Array<{
+      day: string;
+      label: string;
+      completed: number;
+      failed: number;
+    }> = [];
     const now = new Date();
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
@@ -445,7 +658,10 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
         <div>
           <AlarmClock className="mx-auto mb-3 h-8 w-8" />
           <div className="font-medium text-foreground">No jobs yet</div>
-          <div className="mt-1 max-w-sm text-sm">Use jobs for recurring maintenance, scheduled checks, and repeatable agent workflows that should run without manual prompting.</div>
+          <div className="mt-1 max-w-sm text-sm">
+            Use jobs for recurring maintenance, scheduled checks, and repeatable
+            agent workflows that should run without manual prompting.
+          </div>
         </div>
       </div>
     );
@@ -465,16 +681,28 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
         {metrics && metrics.totalRuns > 0 && (
           <>
             <div className="flex flex-wrap gap-2 sm:gap-3">
-              <StatCard label="Total Runs" value={metrics.totalRuns} sub="Last 7 days" />
+              <StatCard
+                label="Total Runs"
+                value={metrics.totalRuns}
+                sub="Last 7 days"
+              />
               <StatCard
                 label="Success Rate"
                 value={successRate !== null ? `${successRate}%` : "-"}
                 sub="Last 7 days"
-                variant={successRate !== null && successRate < 80 ? "warning" : undefined}
+                variant={
+                  successRate !== null && successRate < 80
+                    ? "warning"
+                    : undefined
+                }
               />
               <StatCard
                 label="Avg Duration"
-                value={metrics.avgDurationMs ? formatDuration(metrics.avgDurationMs) : "-"}
+                value={
+                  metrics.avgDurationMs
+                    ? formatDuration(metrics.avgDurationMs)
+                    : "-"
+                }
                 sub="Last 7 days"
               />
               <StatCard
@@ -488,7 +716,9 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
             <div className="flex flex-col gap-4 sm:flex-row [&>*]:sm:flex-1 [&>*]:sm:min-w-0">
               {dailyChartData.length > 0 && (
                 <div>
-                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Daily Runs</h3>
+                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Daily Runs
+                  </h3>
                   <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3">
                     <DailyRunsChart data={dailyChartData} />
                   </div>
@@ -514,10 +744,14 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
                   className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
                   onClick={() => onSelectJob(job)}
                 >
-                  <span className="font-medium text-foreground">{job.name}</span>
+                  <span className="font-medium text-foreground">
+                    {job.name}
+                  </span>
                   <span className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{formatTimeUntil(job.nextRun!)}</span>
-                    <span className="hidden text-muted-foreground/60 sm:inline">{formatTimeUntilDate(job.nextRun!)}</span>
+                    <span className="hidden text-muted-foreground/60 sm:inline">
+                      {formatTimeUntilDate(job.nextRun!)}
+                    </span>
                   </span>
                 </button>
               ))}
@@ -533,20 +767,36 @@ function JobsOverview({ jobs, stats, statsLoading, onSelectJob, onSelectRun }: {
               Recent Activity
             </div>
             <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
-              {recentRuns.filter((run) => jobs.some((j) => j.id === run.jobId)).slice(0, 8).map((run) => {
-                return (
-                  <button
-                    key={run.id}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
-                    onClick={() => onSelectRun(run.jobId, run.id)}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">{run.jobName}</span>
-                    <span className={cn("shrink-0 text-xs capitalize", statusTextColor(run.status))}>{run.status}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDuration(run.durationMs)}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground/60">{formatRelativeTime(run.startedAt)}</span>
-                  </button>
-                );
-              })}
+              {recentRuns
+                .filter((run) => jobs.some((j) => j.id === run.jobId))
+                .slice(0, 8)
+                .map((run) => {
+                  return (
+                    <button
+                      key={run.id}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                      onClick={() => onSelectRun(run.jobId, run.id)}
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                        {run.jobName}
+                      </span>
+                      <span
+                        className={cn(
+                          "shrink-0 text-xs capitalize",
+                          statusTextColor(run.status)
+                        )}
+                      >
+                        {run.status}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {formatDuration(run.durationMs)}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground/60">
+                        {formatRelativeTime(run.startedAt)}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           </div>
         )}
@@ -573,21 +823,45 @@ const dailyRunsChartConfig = {
   failed: { label: "Failed", color: "hsl(var(--status-blocked))" },
 } satisfies ChartConfig;
 
-function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; completed: number; failed: number }> }) {
+function DailyRunsChart({
+  data,
+}: {
+  data: Array<{
+    day: string;
+    label: string;
+    completed: number;
+    failed: number;
+  }>;
+}) {
   return (
     <ChartContainer config={dailyRunsChartConfig} className="h-full w-full">
       <BarChart data={data} barCategoryGap="20%">
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={6} tick={{ fontSize: 11 }} />
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          tickMargin={6}
+          tick={{ fontSize: 11 }}
+        />
         <ChartTooltip
           content={
             <ChartTooltipContent
               indicator="dot"
               formatter={(value, name, item) => (
                 <>
-                  <div className="h-2.5 w-2.5 shrink-0 rounded-[2px]" style={{ backgroundColor: item.color }} />
+                  <div
+                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                    style={{ backgroundColor: item.color }}
+                  />
                   <div className="flex flex-1 items-center justify-between gap-4">
-                    <span className="text-muted-foreground">{dailyRunsChartConfig[name as keyof typeof dailyRunsChartConfig]?.label ?? name}</span>
-                    <span className="font-mono font-medium tabular-nums text-foreground">{value as number}</span>
+                    <span className="text-muted-foreground">
+                      {dailyRunsChartConfig[
+                        name as keyof typeof dailyRunsChartConfig
+                      ]?.label ?? name}
+                    </span>
+                    <span className="font-mono font-medium tabular-nums text-foreground">
+                      {value as number}
+                    </span>
                   </div>
                 </>
               )}
@@ -596,8 +870,18 @@ function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; co
           }
         />
         <ChartLegend content={<ChartLegendContent className="gap-2" />} />
-        <Bar dataKey="completed" stackId="runs" fill="var(--color-completed)" radius={0} />
-        <Bar dataKey="failed" stackId="runs" fill="var(--color-failed)" radius={[2, 2, 0, 0]} />
+        <Bar
+          dataKey="completed"
+          stackId="runs"
+          fill="var(--color-completed)"
+          radius={0}
+        />
+        <Bar
+          dataKey="failed"
+          stackId="runs"
+          fill="var(--color-failed)"
+          radius={[2, 2, 0, 0]}
+        />
       </BarChart>
     </ChartContainer>
   );
@@ -605,7 +889,9 @@ function DailyRunsChart({ data }: { data: Array<{ day: string; label: string; co
 
 // ─── Avg Duration Per Job ─────────────────────────────────────────────
 
-function JobAvgDuration({ runs }: {
+function JobAvgDuration({
+  runs,
+}: {
   runs: Array<{ jobName: string; durationMs: number | null }>;
 }) {
   const perJob = useMemo(() => {
@@ -628,20 +914,29 @@ function JobAvgDuration({ runs }: {
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Avg Duration</h3>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Avg Duration
+      </h3>
       <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-center">
         <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
-        {perJob.jobs.map((job) => (
-          <div key={job.name}>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="truncate text-xs text-muted-foreground">{job.name}</span>
-              <span className="text-xs font-medium tabular-nums text-foreground">{formatDuration(job.avg)}</span>
+          {perJob.jobs.map((job) => (
+            <div key={job.name}>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="truncate text-xs text-muted-foreground">
+                  {job.name}
+                </span>
+                <span className="text-xs font-medium tabular-nums text-foreground">
+                  {formatDuration(job.avg)}
+                </span>
+              </div>
+              <div className="flex h-2 overflow-hidden rounded-sm bg-muted/60">
+                <div
+                  className="bg-chart-1/70 transition-all rounded-sm"
+                  style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }}
+                />
+              </div>
             </div>
-            <div className="flex h-2 overflow-hidden rounded-sm bg-muted/60">
-              <div className="bg-chart-1/70 transition-all rounded-sm" style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }} />
-            </div>
-          </div>
-        ))}
+          ))}
         </div>
       </div>
     </div>
@@ -652,17 +947,32 @@ function JobAvgDuration({ runs }: {
 
 const MAX_RUN_CELLS = 16;
 
-function RunHistoryGrid({ runs }: {
-  runs: Array<{ jobId: string; jobName: string; status: JobRunStatus; startedAt: string }>;
+function RunHistoryGrid({
+  runs,
+}: {
+  runs: Array<{
+    jobId: string;
+    jobName: string;
+    status: JobRunStatus;
+    startedAt: string;
+  }>;
 }) {
   const perJob = useMemo(() => {
-    const grouped = new Map<string, Array<{ status: JobRunStatus; startedAt: string }>>();
+    const grouped = new Map<
+      string,
+      Array<{ status: JobRunStatus; startedAt: string }>
+    >();
     for (const run of runs) {
       if (!grouped.has(run.jobName)) grouped.set(run.jobName, []);
-      grouped.get(run.jobName)!.push({ status: run.status, startedAt: run.startedAt });
+      grouped
+        .get(run.jobName)!
+        .push({ status: run.status, startedAt: run.startedAt });
     }
     // Each job's runs are newest-first from the API; take last N then reverse to oldest→newest
-    const result: Array<{ name: string; runs: Array<{ status: JobRunStatus; startedAt: string }> }> = [];
+    const result: Array<{
+      name: string;
+      runs: Array<{ status: JobRunStatus; startedAt: string }>;
+    }> = [];
     for (const [name, jobRuns] of grouped) {
       result.push({ name, runs: jobRuns.slice(0, MAX_RUN_CELLS).reverse() });
     }
@@ -673,27 +983,45 @@ function RunHistoryGrid({ runs }: {
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Run History</h3>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Run History
+      </h3>
       <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-between">
         <TooltipProvider delayDuration={80}>
           <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
             {perJob.map(({ name, runs: jobRuns }) => (
               <div key={name}>
-                <div className="mb-1 truncate text-[10px] text-muted-foreground">{name}</div>
-                <div className="grid gap-[1px]" style={{ gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)` }}>
+                <div className="mb-1 truncate text-[10px] text-muted-foreground">
+                  {name}
+                </div>
+                <div
+                  className="grid gap-[1px]"
+                  style={{
+                    gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)`,
+                  }}
+                >
                   {Array.from({ length: MAX_RUN_CELLS }, (_, i) => {
                     const run = i < jobRuns.length ? jobRuns[i] : null;
-                    if (!run) return <div key={i} className="h-4 sm:h-3 bg-muted/30" />;
+                    if (!run)
+                      return <div key={i} className="h-4 sm:h-3 bg-muted/30" />;
                     return (
                       <Tooltip key={i}>
                         <TooltipTrigger asChild>
-                          <div className={cn(
-                            "h-4 sm:h-3",
-                            run.status === "completed" && "bg-status-done/70",
-                            (run.status === "failed" || run.status === "timed_out" || run.status === "crashed") && "bg-status-blocked/70",
-                            (run.status === "running" || run.status === "started") && "bg-status-working/70",
-                            run.status === "needs_input" && "bg-status-waiting/70",
-                          )} />
+                          <div
+                            className={cn(
+                              "h-4 sm:h-3",
+                              run.status === "completed" && "bg-status-done/70",
+                              (run.status === "failed" ||
+                                run.status === "timed_out" ||
+                                run.status === "crashed") &&
+                                "bg-status-blocked/70",
+                              (run.status === "running" ||
+                                run.status === "started") &&
+                                "bg-status-working/70",
+                              run.status === "needs_input" &&
+                                "bg-status-waiting/70"
+                            )}
+                          />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="text-xs">
                           {run.status} — {formatRelativeTime(run.startedAt)}
@@ -707,8 +1035,14 @@ function RunHistoryGrid({ runs }: {
           </div>
         </TooltipProvider>
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 bg-status-done/70" />Completed</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 bg-status-blocked/70" />Failed</span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-3 bg-status-done/70" />
+            Completed
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-3 bg-status-blocked/70" />
+            Failed
+          </span>
         </div>
       </div>
     </div>
@@ -727,12 +1061,21 @@ function AddJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
-          <DialogPrimitive.Title className="sr-only">Add job</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">Create a new recurring Dispatch job.</DialogPrimitive.Description>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+          <DialogPrimitive.Title className="sr-only">
+            Add job
+          </DialogPrimitive.Title>
+          <DialogPrimitive.Description className="sr-only">
+            Create a new recurring Dispatch job.
+          </DialogPrimitive.Description>
           <DialogPrimitive.Close asChild>
-            <Button variant="ghost" size="icon" className="absolute right-3 top-3 z-10" aria-label="Close add job">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-3 top-3 z-10"
+              aria-label="Close add job"
+            >
               <X className="h-4 w-4" />
             </Button>
           </DialogPrimitive.Close>
@@ -757,8 +1100,11 @@ function AddJobFlow({
   const [prompt, setPrompt] = useState("");
   const [schedule, setSchedule] = useState("");
   const [timeoutMinutes, setTimeoutMinutes] = useState("30");
-  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState("1440");
-  const [agentType, setAgentType] = useState<AgentType>(enabledAgentTypes[0] ?? "codex");
+  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] =
+    useState("1440");
+  const [agentType, setAgentType] = useState<AgentType>(
+    enabledAgentTypes[0] ?? "codex"
+  );
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [branchName, setBranchName] = useState("");
@@ -766,30 +1112,61 @@ function AddJobFlow({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const scheduleError = cronError(schedule, enableImmediately);
-  const canAdd = !!displayName.trim() && !!directory.trim() && !!prompt.trim() && !scheduleError && !!msFromMinutes(timeoutMinutes) && !!msFromMinutes(needsInputTimeoutMinutes);
+  const canAdd =
+    !!displayName.trim() &&
+    !!directory.trim() &&
+    !!prompt.trim() &&
+    !scheduleError &&
+    !!msFromMinutes(timeoutMinutes) &&
+    !!msFromMinutes(needsInputTimeoutMinutes);
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
       <div className="text-lg font-semibold">Create a new job</div>
-      <p className="mt-1 text-sm text-muted-foreground">Define a recurring automation with a prompt and schedule.</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Define a recurring automation with a prompt and schedule.
+      </p>
 
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
               <span>
-                <span className="block font-medium text-foreground">Enabled</span>
-                <span className="block text-xs text-muted-foreground">Run this job on its schedule after creating it.</span>
+                <span className="block font-medium text-foreground">
+                  Enabled
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Run this job on its schedule after creating it.
+                </span>
               </span>
-              <SwitchToggle checked={enableImmediately} onCheckedChange={setEnableImmediately} ariaLabel="Enable job" />
+              <SwitchToggle
+                checked={enableImmediately}
+                onCheckedChange={setEnableImmediately}
+                ariaLabel="Enable job"
+              />
             </label>
             <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">
               <div className="min-w-0 space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground" htmlFor="job-display-name">Name</label>
-                <Input id="job-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="e.g. Daily cleanup" />
+                <label
+                  className="text-sm text-muted-foreground"
+                  htmlFor="job-display-name"
+                >
+                  Name
+                </label>
+                <Input
+                  id="job-display-name"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="e.g. Daily cleanup"
+                />
               </div>
               <div className="min-w-0 space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground" htmlFor="job-directory">Working directory</label>
+                <label
+                  className="text-sm text-muted-foreground"
+                  htmlFor="job-directory"
+                >
+                  Working directory
+                </label>
                 <PathInput
                   value={directory}
                   onChange={setDirectory}
@@ -800,20 +1177,46 @@ function AddJobFlow({
                 />
               </div>
               <div className="min-w-0 space-y-1">
-                <label className="text-sm text-muted-foreground" htmlFor="job-schedule">Cron schedule</label>
-                <Input id="job-schedule" value={schedule} onChange={(event) => setSchedule(event.target.value)} placeholder="*/30 * * * *" className="font-mono text-xs" />
-                {scheduleError ? <div className="text-xs text-status-blocked">{scheduleError}</div> : null}
-                {!scheduleError && schedule.trim() ? <div className="text-xs text-muted-foreground">{humanSchedule(schedule)}</div> : null}
+                <label
+                  className="text-sm text-muted-foreground"
+                  htmlFor="job-schedule"
+                >
+                  Cron schedule
+                </label>
+                <Input
+                  id="job-schedule"
+                  value={schedule}
+                  onChange={(event) => setSchedule(event.target.value)}
+                  placeholder="*/30 * * * *"
+                  className="font-mono text-xs"
+                />
+                {scheduleError ? (
+                  <div className="text-xs text-status-blocked">
+                    {scheduleError}
+                  </div>
+                ) : null}
+                {!scheduleError && schedule.trim() ? (
+                  <div className="text-xs text-muted-foreground">
+                    {humanSchedule(schedule)}
+                  </div>
+                ) : null}
               </div>
               <div className="min-w-0 space-y-1">
-                <label className="text-sm text-muted-foreground">Agent type</label>
-                <Select value={agentType} onValueChange={(value) => setAgentType(value as AgentType)}>
+                <label className="text-sm text-muted-foreground">
+                  Agent type
+                </label>
+                <Select
+                  value={agentType}
+                  onValueChange={(value) => setAgentType(value as AgentType)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {enabledAgentTypes.map((type) => (
-                      <SelectItem key={type} value={type}>{AGENT_TYPE_LABELS[type]}</SelectItem>
+                      <SelectItem key={type} value={type}>
+                        {AGENT_TYPE_LABELS[type]}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -823,42 +1226,86 @@ function AddJobFlow({
 
           <div className="min-w-0 rounded-md border border-border bg-muted/20 p-4">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-foreground" htmlFor="job-prompt">Prompt</label>
-              <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
+              <label
+                className="text-sm font-medium text-foreground"
+                htmlFor="job-prompt"
+              >
+                Prompt
+              </label>
+              <p className="text-xs text-muted-foreground">
+                The instructions the agent will follow when this job runs.
+              </p>
             </div>
             <textarea
               id="job-prompt"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
 
-          <div className="min-w-0 rounded-md border border-border bg-background/50 p-4">
-            <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setAdvancedOpen((current) => !current)}>
+          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setAdvancedOpen((current) => !current)}
+            >
               <div>
                 <div className="text-sm font-medium">Advanced settings</div>
-                <div className="mt-1 text-xs text-muted-foreground">Timeouts, worktree behavior, and permissions.</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Timeouts, worktree behavior, and permissions.
+                </div>
               </div>
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 text-muted-foreground transition-transform",
+                  advancedOpen && "rotate-180"
+                )}
+              />
             </button>
             <div
               className={cn(
                 "grid min-w-0 overflow-hidden transition-all duration-200 ease-out",
-                advancedOpen ? "mt-4 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0",
+                advancedOpen
+                  ? "mt-4 grid-rows-[1fr] opacity-100"
+                  : "mt-0 grid-rows-[0fr] opacity-0"
               )}
               aria-hidden={!advancedOpen}
             >
               <div className="min-h-0">
                 <div className="grid min-w-0 gap-3 md:grid-cols-2">
                   <div className="min-w-0 space-y-1">
-                    <label className="text-sm text-muted-foreground" htmlFor="job-timeout">Run timeout, minutes</label>
-                    <Input id="job-timeout" value={timeoutMinutes} onChange={(event) => setTimeoutMinutes(event.target.value)} inputMode="numeric" />
+                    <label
+                      className="text-sm text-muted-foreground"
+                      htmlFor="job-timeout"
+                    >
+                      Run timeout, minutes
+                    </label>
+                    <Input
+                      id="job-timeout"
+                      value={timeoutMinutes}
+                      onChange={(event) =>
+                        setTimeoutMinutes(event.target.value)
+                      }
+                      inputMode="numeric"
+                    />
                   </div>
                   <div className="min-w-0 space-y-1">
-                    <label className="text-sm text-muted-foreground" htmlFor="job-needs-input-timeout">Wait for input, minutes</label>
-                    <Input id="job-needs-input-timeout" value={needsInputTimeoutMinutes} onChange={(event) => setNeedsInputTimeoutMinutes(event.target.value)} inputMode="numeric" />
+                    <label
+                      className="text-sm text-muted-foreground"
+                      htmlFor="job-needs-input-timeout"
+                    >
+                      Wait for input, minutes
+                    </label>
+                    <Input
+                      id="job-needs-input-timeout"
+                      value={needsInputTimeoutMinutes}
+                      onChange={(event) =>
+                        setNeedsInputTimeoutMinutes(event.target.value)
+                      }
+                      inputMode="numeric"
+                    />
                   </div>
                   <JobWorktreeOption
                     checked={useWorktree}
@@ -866,19 +1313,27 @@ function AddJobFlow({
                     onCheckedChange={setUseWorktree}
                     onBranchNameChange={setBranchName}
                   />
-                  <JobFullAccessOption checked={fullAccess} onCheckedChange={setFullAccess} />
+                  <JobFullAccessOption
+                    checked={fullAccess}
+                    onCheckedChange={setFullAccess}
+                  />
                 </div>
               </div>
             </div>
           </div>
 
           {submitError ? (
-            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{submitError}</div>
+            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+              {submitError}
+            </div>
           ) : null}
         </div>
       </ScrollArea>
 
       <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
+        <DialogPrimitive.Close asChild>
+          <Button variant="ghost">Cancel</Button>
+        </DialogPrimitive.Close>
         <Button
           variant="primary"
           disabled={!canAdd || isAdding}
@@ -949,13 +1404,20 @@ function JobDetail({
   justAdded: boolean;
   onDismissAdded: () => void;
 }) {
-  const [detailActionError, setDetailActionError] = useState<string | null>(null);
+  const [detailActionError, setDetailActionError] = useState<string | null>(
+    null
+  );
   return (
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-xl font-semibold">{job.name}</h2>
-          <div className="mt-1 truncate font-mono text-xs text-muted-foreground" title={job.directory}>{shortPath(job.directory)}</div>
+          <div
+            className="mt-1 truncate font-mono text-xs text-muted-foreground"
+            title={job.directory}
+          >
+            {shortPath(job.directory)}
+          </div>
         </div>
         <Button
           size="sm"
@@ -963,7 +1425,9 @@ function JobDetail({
           disabled={isUpdating}
           onClick={() => {
             setDetailActionError(null);
-            void onRunNow(job).catch((error) => setDetailActionError(errorMessage(error)));
+            void onRunNow(job).catch((error) =>
+              setDetailActionError(errorMessage(error))
+            );
           }}
         >
           <Play className="mr-2 h-4 w-4" />
@@ -975,8 +1439,12 @@ function JobDetail({
         <div className="mt-4 rounded-md border border-status-working/40 bg-status-working/10 p-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-status-working">Active run is attached to a live agent session.</div>
-              <div className="truncate text-xs text-muted-foreground">{activeRunAgent.name}</div>
+              <div className="text-sm font-medium text-status-working">
+                Active run is attached to a live agent session.
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {activeRunAgent.name}
+              </div>
             </div>
             <Button size="sm" onClick={() => void onOpenAgent(activeRunAgent)}>
               <Terminal className="mr-2 h-4 w-4" />
@@ -988,18 +1456,28 @@ function JobDetail({
 
       {justAdded ? (
         <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-4">
-          <div className="text-sm font-semibold text-status-done">Job added</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {job.enabled && job.nextRun ? `Scheduled next run: ${formatDate(job.nextRun)}.` : "This job is saved but not enabled on a schedule yet."}
+          <div className="text-sm font-semibold text-status-done">
+            Job added
           </div>
-          {detailActionError ? <div className="mt-3 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">{detailActionError}</div> : null}
+          <div className="mt-1 text-sm text-muted-foreground">
+            {job.enabled && job.nextRun
+              ? `Scheduled next run: ${formatDate(job.nextRun)}.`
+              : "This job is saved but not enabled on a schedule yet."}
+          </div>
+          {detailActionError ? (
+            <div className="mt-3 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
+              {detailActionError}
+            </div>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="primary"
               onClick={() => {
                 setDetailActionError(null);
-                void onRunNow(job).catch((error) => setDetailActionError(errorMessage(error)));
+                void onRunNow(job).catch((error) =>
+                  setDetailActionError(errorMessage(error))
+                );
               }}
             >
               <Play className="mr-2 h-4 w-4" />
@@ -1012,23 +1490,63 @@ function JobDetail({
                 disabled={!job.schedule}
                 onClick={() => {
                   setDetailActionError(null);
-                  void onSetEnabled(job, true).catch((error) => setDetailActionError(errorMessage(error)));
+                  void onSetEnabled(job, true).catch((error) =>
+                    setDetailActionError(errorMessage(error))
+                  );
                 }}
               >
                 Enable schedule
               </Button>
             ) : null}
-            <Button size="sm" variant="default" onClick={() => { onDismissAdded(); onTabChange("configure"); }}>Edit settings</Button>
-            <Button size="sm" variant="ghost" onClick={() => { onDismissAdded(); onTabChange("history"); }}>View history</Button>
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => {
+                onDismissAdded();
+                onTabChange("configure");
+              }}
+            >
+              Edit settings
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                onDismissAdded();
+                onTabChange("history");
+              }}
+            >
+              View history
+            </Button>
           </div>
         </div>
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-border">
-        <TabButton active={tab === "configure"} onClick={() => onTabChange("configure")} icon={<Settings className="h-4 w-4" />}>Configure</TabButton>
-        <TabButton active={tab === "prompt"} onClick={() => onTabChange("prompt")} icon={<MessageSquareText className="h-4 w-4" />}>Prompt</TabButton>
-        <TabButton active={tab === "history"} onClick={() => onTabChange("history")} icon={<History className="h-4 w-4" />}>History</TabButton>
-        <Badge className={cn("mb-2 self-center", statusClasses(job.lastRunStatus))}>
+        <TabButton
+          active={tab === "configure"}
+          onClick={() => onTabChange("configure")}
+          icon={<Settings className="h-4 w-4" />}
+        >
+          Configure
+        </TabButton>
+        <TabButton
+          active={tab === "prompt"}
+          onClick={() => onTabChange("prompt")}
+          icon={<MessageSquareText className="h-4 w-4" />}
+        >
+          Prompt
+        </TabButton>
+        <TabButton
+          active={tab === "history"}
+          onClick={() => onTabChange("history")}
+          icon={<History className="h-4 w-4" />}
+        >
+          History
+        </TabButton>
+        <Badge
+          className={cn("mb-2 self-center", statusClasses(job.lastRunStatus))}
+        >
           <span className="mr-1">{statusIcon(job.lastRunStatus)}</span>
           {job.lastRunStatus ?? "never run"}
         </Badge>
@@ -1036,26 +1554,57 @@ function JobDetail({
 
       {tab === "history" ? (
         <div className="min-h-0 flex-1">
-          <HistoryTab runs={history} loading={historyLoading} selectedRunId={selectedRunId} onSelectRun={onSelectRun} />
+          <HistoryTab
+            runs={history}
+            loading={historyLoading}
+            selectedRunId={selectedRunId}
+            onSelectRun={onSelectRun}
+          />
         </div>
       ) : tab === "configure" ? (
         <ScrollArea className="min-h-0 flex-1 pr-1">
-          <SettingsTab job={job} enabledAgentTypes={enabledAgentTypes} onUpdateJob={onUpdateJob} onRemoveJob={onRemoveJob} isUpdating={isUpdating} isRemoving={isRemoving} />
+          <SettingsTab
+            job={job}
+            enabledAgentTypes={enabledAgentTypes}
+            onUpdateJob={onUpdateJob}
+            onRemoveJob={onRemoveJob}
+            isUpdating={isUpdating}
+            isRemoving={isRemoving}
+          />
         </ScrollArea>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <PromptTab job={job} onUpdateJob={onUpdateJob} isUpdating={isUpdating} />
+          <PromptTab
+            job={job}
+            onUpdateJob={onUpdateJob}
+            isUpdating={isUpdating}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function TabButton({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
-      className={cn("flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors", active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
+      className={cn(
+        "flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground"
+      )}
       onClick={onClick}
     >
       {icon}
@@ -1123,9 +1672,12 @@ function JobFullAccessOption({
         title="Toggle full access"
       />
       <span className="space-y-1">
-        <span className="block text-sm font-medium text-foreground">Run in full access mode</span>
+        <span className="block text-sm font-medium text-foreground">
+          Run in full access mode
+        </span>
         <span className="block text-xs text-muted-foreground">
-          Starts the selected agent with its most permissive supported execution mode.
+          Starts the selected agent with its most permissive supported execution
+          mode.
         </span>
       </span>
     </label>
@@ -1180,8 +1732,12 @@ function SettingsTab({
 }) {
   const [displayName, setDisplayName] = useState(job.name);
   const [schedule, setSchedule] = useState(job.schedule ?? "");
-  const [timeoutMinutes, setTimeoutMinutes] = useState(minutesFromMs(job.timeoutMs));
-  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState(minutesFromMs(job.needsInputTimeoutMs));
+  const [timeoutMinutes, setTimeoutMinutes] = useState(
+    minutesFromMs(job.timeoutMs)
+  );
+  const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState(
+    minutesFromMs(job.needsInputTimeoutMs)
+  );
   const [agentType, setAgentType] = useState<AgentType>(job.agentType);
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
@@ -1192,7 +1748,11 @@ function SettingsTab({
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const scheduleError = cronError(schedule, enabled);
-  const canSave = !!displayName.trim() && !scheduleError && !!msFromMinutes(timeoutMinutes) && !!msFromMinutes(needsInputTimeoutMinutes);
+  const canSave =
+    !!displayName.trim() &&
+    !scheduleError &&
+    !!msFromMinutes(timeoutMinutes) &&
+    !!msFromMinutes(needsInputTimeoutMinutes);
 
   useEffect(() => {
     setDisplayName(job.name);
@@ -1212,47 +1772,108 @@ function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <div className="rounded-md border border-border bg-background/50 p-4">
+      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="text-sm font-medium">Job configuration</div>
-        <p className="mt-1 text-xs text-muted-foreground">These values are used when the schedule or Run button starts this job.</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          These values are used when the schedule or Run button starts this job.
+        </p>
         <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
-            <span className="block text-xs text-muted-foreground">Run this job on its saved schedule.</span>
+            <span className="block text-xs text-muted-foreground">
+              Run this job on its saved schedule.
+            </span>
           </span>
-          <SwitchToggle checked={enabled} onCheckedChange={setEnabled} ariaLabel="Enable job" />
+          <SwitchToggle
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            ariaLabel="Enable job"
+          />
         </label>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
-            <label className="text-sm text-muted-foreground" htmlFor={`settings-name-${job.id}`}>Name</label>
-            <Input id={`settings-name-${job.id}`} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            <label
+              className="text-sm text-muted-foreground"
+              htmlFor={`settings-name-${job.id}`}
+            >
+              Name
+            </label>
+            <Input
+              id={`settings-name-${job.id}`}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
           </div>
           <div className="space-y-1">
-            <label className="text-sm text-muted-foreground" htmlFor={`settings-schedule-${job.id}`}>Cron schedule</label>
-            <Input id={`settings-schedule-${job.id}`} value={schedule} onChange={(event) => setSchedule(event.target.value)} placeholder="*/30 * * * *" className="font-mono text-xs" />
-            {scheduleError ? <div className="text-xs text-status-blocked">{scheduleError}</div> : null}
-            {!scheduleError && schedule.trim() ? <div className="text-xs text-muted-foreground">{humanSchedule(schedule)}</div> : null}
+            <label
+              className="text-sm text-muted-foreground"
+              htmlFor={`settings-schedule-${job.id}`}
+            >
+              Cron schedule
+            </label>
+            <Input
+              id={`settings-schedule-${job.id}`}
+              value={schedule}
+              onChange={(event) => setSchedule(event.target.value)}
+              placeholder="*/30 * * * *"
+              className="font-mono text-xs"
+            />
+            {scheduleError ? (
+              <div className="text-xs text-status-blocked">{scheduleError}</div>
+            ) : null}
+            {!scheduleError && schedule.trim() ? (
+              <div className="text-xs text-muted-foreground">
+                {humanSchedule(schedule)}
+              </div>
+            ) : null}
           </div>
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Agent type</label>
-            <Select value={agentType} onValueChange={(value) => setAgentType(value as AgentType)}>
+            <Select
+              value={agentType}
+              onValueChange={(value) => setAgentType(value as AgentType)}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {enabledAgentTypes.map((type) => (
-                  <SelectItem key={type} value={type}>{AGENT_TYPE_LABELS[type]}</SelectItem>
+                  <SelectItem key={type} value={type}>
+                    {AGENT_TYPE_LABELS[type]}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1">
-            <label className="text-sm text-muted-foreground" htmlFor={`settings-timeout-${job.id}`}>Run timeout, minutes</label>
-            <Input id={`settings-timeout-${job.id}`} value={timeoutMinutes} onChange={(event) => setTimeoutMinutes(event.target.value)} inputMode="numeric" />
+            <label
+              className="text-sm text-muted-foreground"
+              htmlFor={`settings-timeout-${job.id}`}
+            >
+              Run timeout, minutes
+            </label>
+            <Input
+              id={`settings-timeout-${job.id}`}
+              value={timeoutMinutes}
+              onChange={(event) => setTimeoutMinutes(event.target.value)}
+              inputMode="numeric"
+            />
           </div>
           <div className="space-y-1">
-            <label className="text-sm text-muted-foreground" htmlFor={`settings-needs-input-${job.id}`}>Wait for input, minutes</label>
-            <Input id={`settings-needs-input-${job.id}`} value={needsInputTimeoutMinutes} onChange={(event) => setNeedsInputTimeoutMinutes(event.target.value)} inputMode="numeric" />
+            <label
+              className="text-sm text-muted-foreground"
+              htmlFor={`settings-needs-input-${job.id}`}
+            >
+              Wait for input, minutes
+            </label>
+            <Input
+              id={`settings-needs-input-${job.id}`}
+              value={needsInputTimeoutMinutes}
+              onChange={(event) =>
+                setNeedsInputTimeoutMinutes(event.target.value)
+              }
+              inputMode="numeric"
+            />
           </div>
         </div>
         <div className="mt-4 grid gap-3">
@@ -1262,10 +1883,21 @@ function SettingsTab({
             onCheckedChange={setUseWorktree}
             onBranchNameChange={setBranchName}
           />
-          <JobFullAccessOption checked={fullAccess} onCheckedChange={setFullAccess} />
+          <JobFullAccessOption
+            checked={fullAccess}
+            onCheckedChange={setFullAccess}
+          />
         </div>
-        {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
-        {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Settings saved.</div> : null}
+        {saveError ? (
+          <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            {saveError}
+          </div>
+        ) : null}
+        {saved ? (
+          <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
+            Settings saved.
+          </div>
+        ) : null}
         <div className="mt-4 flex justify-end">
           <Button
             variant="primary"
@@ -1285,22 +1917,29 @@ function SettingsTab({
                 branchName: useWorktree ? branchName : null,
                 fullAccess,
                 enabled,
-              }).then(() => {
-                setSaved(true);
-              }).catch((error) => {
-                setSaveError(errorMessage(error));
-              });
+              })
+                .then(() => {
+                  setSaved(true);
+                })
+                .catch((error) => {
+                  setSaveError(errorMessage(error));
+                });
             }}
           >
-            {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isUpdating ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
             Save
           </Button>
         </div>
       </div>
       <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-        <div className="text-sm font-medium text-status-blocked">Remove job</div>
+        <div className="text-sm font-medium text-status-blocked">
+          Remove job
+        </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          Remove this saved job, schedule, and run history from this Dispatch instance.
+          Remove this saved job, schedule, and run history from this Dispatch
+          instance.
         </p>
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
@@ -1316,7 +1955,11 @@ function SettingsTab({
             Remove
           </Button>
         </div>
-        {removeError ? <div className="mt-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{removeError}</div> : null}
+        {removeError ? (
+          <div className="mt-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            {removeError}
+          </div>
+        ) : null}
       </div>
       <RemoveJobDialog
         open={removeDialogOpen}
@@ -1350,18 +1993,33 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 shadow-xl outline-none">
-          <DialogPrimitive.Title className="text-base font-semibold">Remove job?</DialogPrimitive.Title>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-5 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none">
+          <DialogPrimitive.Title className="text-base font-semibold">
+            Remove job?
+          </DialogPrimitive.Title>
           <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
-            Remove <span className="font-medium text-foreground">{job.name}</span> from this Dispatch instance? This removes its saved schedule and run history.
+            Remove{" "}
+            <span className="font-medium text-foreground">{job.name}</span> from
+            this Dispatch instance? This removes its saved schedule and run
+            history.
           </DialogPrimitive.Description>
           <div className="mt-5 flex justify-end gap-2">
             <DialogPrimitive.Close asChild>
-              <Button variant="ghost" disabled={isRemoving}>Cancel</Button>
+              <Button variant="ghost" disabled={isRemoving}>
+                Cancel
+              </Button>
             </DialogPrimitive.Close>
-            <Button variant="destructive" disabled={isRemoving} onClick={onConfirm}>
-              {isRemoving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+            <Button
+              variant="destructive"
+              disabled={isRemoving}
+              onClick={onConfirm}
+            >
+              {isRemoving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
               Remove
             </Button>
           </div>
@@ -1392,20 +2050,35 @@ function PromptTab({
 
   return (
     <div className="mt-4 flex h-full min-h-full flex-col">
-      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-border bg-background/50 p-4">
+      <div className="flex h-full min-h-full flex-1 flex-col rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="space-y-1">
-          <label className="text-sm font-medium text-foreground" htmlFor={`prompt-${job.id}`}>Prompt</label>
-          <p className="text-xs text-muted-foreground">The instructions the agent will follow when this job runs.</p>
+          <label
+            className="text-sm font-medium text-foreground"
+            htmlFor={`prompt-${job.id}`}
+          >
+            Prompt
+          </label>
+          <p className="text-xs text-muted-foreground">
+            The instructions the agent will follow when this job runs.
+          </p>
         </div>
         <textarea
           id={`prompt-${job.id}`}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
-        {saveError ? <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">{saveError}</div> : null}
-        {saved ? <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">Prompt saved.</div> : null}
+        {saveError ? (
+          <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            {saveError}
+          </div>
+        ) : null}
+        {saved ? (
+          <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
+            Prompt saved.
+          </div>
+        ) : null}
         <div className="mt-4 flex justify-end">
           <Button
             variant="primary"
@@ -1417,14 +2090,18 @@ function PromptTab({
                 name: job.name,
                 directory: job.directory,
                 prompt: prompt.trim() || null,
-              }).then(() => {
-                setSaved(true);
-              }).catch((error) => {
-                setSaveError(errorMessage(error));
-              });
+              })
+                .then(() => {
+                  setSaved(true);
+                })
+                .catch((error) => {
+                  setSaveError(errorMessage(error));
+                });
             }}
           >
-            {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isUpdating ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
             Save prompt
           </Button>
         </div>
@@ -1433,33 +2110,67 @@ function PromptTab({
   );
 }
 
-function HistoryTab({ runs, loading, selectedRunId, onSelectRun }: { runs: JobRun[]; loading: boolean; selectedRunId: string | null; onSelectRun: (runId: string) => void }) {
-  const selectedRun = selectedRunId ? runs.find((run) => run.id === selectedRunId) ?? null : null;
+function HistoryTab({
+  runs,
+  loading,
+  selectedRunId,
+  onSelectRun,
+}: {
+  runs: JobRun[];
+  loading: boolean;
+  selectedRunId: string | null;
+  onSelectRun: (runId: string) => void;
+}) {
+  const selectedRun = selectedRunId
+    ? (runs.find((run) => run.id === selectedRunId) ?? null)
+    : null;
   return (
     <ScrollArea className="mt-4 min-h-0 h-full pr-1">
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading history...</div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading history...
+        </div>
       ) : runs.length === 0 ? (
         <div className="text-sm text-muted-foreground">No runs yet.</div>
       ) : (
         <div className="flex flex-col">
           {runs.map((run) => {
             const isSelected = selectedRun?.id === run.id;
-            const isActive = run.status === "started" || run.status === "running" || run.status === "needs_input";
+            const isActive =
+              run.status === "started" ||
+              run.status === "running" ||
+              run.status === "needs_input";
             return (
               <div key={run.id}>
                 <button
                   type="button"
                   className={cn(
                     "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-xs transition-colors hover:text-foreground",
-                    isSelected ? "text-foreground" : "text-muted-foreground",
+                    isSelected ? "text-foreground" : "text-muted-foreground"
                   )}
                   onClick={() => onSelectRun(isSelected ? "" : run.id)}
                 >
-                  <span className={cn("h-2 w-2 shrink-0 rounded-full", statusDotColor(run.status), isActive && "animate-pulse")} />
-                  <span className={cn("shrink-0 font-medium", statusTextColor(run.status))}>{run.status}</span>
-                  <span className="min-w-0 truncate font-mono tabular-nums">{formatDate(run.startedAt)}</span>
-                  <span className="font-mono tabular-nums opacity-50">{formatDuration(run.durationMs)}</span>
+                  <span
+                    className={cn(
+                      "h-2 w-2 shrink-0 rounded-full",
+                      statusDotColor(run.status),
+                      isActive && "animate-pulse"
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "shrink-0 font-medium",
+                      statusTextColor(run.status)
+                    )}
+                  >
+                    {run.status}
+                  </span>
+                  <span className="min-w-0 truncate font-mono tabular-nums">
+                    {formatDate(run.startedAt)}
+                  </span>
+                  <span className="font-mono tabular-nums opacity-50">
+                    {formatDuration(run.durationMs)}
+                  </span>
                   <span className="opacity-40">{triggerSourceLabel(run)}</span>
                 </button>
                 {isSelected && <RunReport run={run} />}
@@ -1474,32 +2185,64 @@ function HistoryTab({ runs, loading, selectedRunId, onSelectRun }: { runs: JobRu
 
 function RunReport({ run }: { run: JobRun | null }) {
   if (!run) {
-    return <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-xs text-muted-foreground">Select a run.</div>;
+    return (
+      <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+        Select a run.
+      </div>
+    );
   }
   return (
     <div className="mb-2 ml-[3px] border-l-2 border-border pl-4">
       {run.report?.summary && (
-        <div className="pb-1 text-xs text-muted-foreground">{run.report.summary}</div>
+        <div className="pb-1 text-xs text-muted-foreground">
+          {run.report.summary}
+        </div>
       )}
       {run.report?.tasks.map((task, index) => (
         <div key={`${task.name}-${index}`} className="py-0.5">
           <div className="flex items-center gap-1.5 text-xs">
-            <span className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-full",
-              task.status === "success" ? "bg-status-done" : task.status === "error" ? "bg-status-blocked" : "bg-muted-foreground",
-            )} />
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                task.status === "success"
+                  ? "bg-status-done"
+                  : task.status === "error"
+                    ? "bg-status-blocked"
+                    : "bg-muted-foreground"
+              )}
+            />
             <span className="font-medium">{task.name}</span>
-            {task.status === "error" && <span className="uppercase text-status-blocked">{task.status}</span>}
+            {task.status === "error" && (
+              <span className="uppercase text-status-blocked">
+                {task.status}
+              </span>
+            )}
           </div>
-          {task.summary ? <div className="pl-3.5 text-xs text-muted-foreground/70">{task.summary}</div> : null}
+          {task.summary ? (
+            <div className="pl-3.5 text-xs text-muted-foreground/70">
+              {task.summary}
+            </div>
+          ) : null}
           {task.errors?.map((error, errorIndex) => (
-            <div key={errorIndex} className="pl-3.5 text-xs text-status-blocked">
+            <div
+              key={errorIndex}
+              className="pl-3.5 text-xs text-status-blocked"
+            >
               {error.message}
-              {error.action ? <span className="ml-2 text-muted-foreground">{error.action}</span> : null}
+              {error.action ? (
+                <span className="ml-2 text-muted-foreground">
+                  {error.action}
+                </span>
+              ) : null}
             </div>
           ))}
           {task.logs?.slice(-5).map((log, logIndex) => (
-            <div key={logIndex} className="pl-3.5 font-mono text-[11px] text-muted-foreground/50">[{log.level}] {log.message}</div>
+            <div
+              key={logIndex}
+              className="pl-3.5 font-mono text-[11px] text-muted-foreground/50"
+            >
+              [{log.level}] {log.message}
+            </div>
           ))}
         </div>
       ))}
@@ -1510,7 +2253,9 @@ function RunReport({ run }: { run: JobRun | null }) {
         </div>
       )}
       {run.completedAt && (
-        <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">Completed {formatDate(run.completedAt)}</div>
+        <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">
+          Completed {formatDate(run.completedAt)}
+        </div>
       )}
       {!run.report && !run.pendingQuestion && (
         <div className="text-xs text-muted-foreground">No report yet.</div>

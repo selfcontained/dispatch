@@ -1,8 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, CheckCircle2, ChevronDown, ChevronRight, ExternalLink, Loader2, RefreshCw, Trash2, XCircle } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  ArrowDownToLine,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  XCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
-import { type ReleaseChannel, type ReleaseInfo, type ReleaseJob, type UseReleaseStreamResult } from "@/hooks/use-release-stream";
+import {
+  type ReleaseChannel,
+  type ReleaseInfo,
+  type ReleaseJob,
+  type UseReleaseStreamResult,
+} from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +43,7 @@ function formatDate(iso: string): string {
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
   });
 }
 
@@ -55,12 +77,18 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   useEffect(() => {
     let cancelled = false;
     void api<AppVersionInfo>("/api/v1/app/version")
-      .then((data) => { if (!cancelled) setVersionInfo(data); })
+      .then((data) => {
+        if (!cancelled) setVersionInfo(data);
+      })
       .catch(() => {});
     void api<{ channel: ReleaseChannel }>("/api/v1/release/channel")
-      .then((data) => { if (!cancelled) setChannel(data.channel); })
+      .then((data) => {
+        if (!cancelled) setChannel(data.channel);
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleChannelChange = useCallback(async (value: ReleaseChannel) => {
@@ -75,7 +103,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       setInfo(null);
     } catch {
       // revert on error
-      setChannel((prev) => prev === "stable" ? "latest" : "stable");
+      setChannel((prev) => (prev === "stable" ? "latest" : "stable"));
     } finally {
       setChannelSaving(false);
     }
@@ -94,7 +122,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       }
       setInfo((await res.json()) as ReleaseInfo);
     } catch (err) {
-      setInfoError(err instanceof Error ? cleanError(err.message) : "Failed to check for updates");
+      setInfoError(
+        err instanceof Error
+          ? cleanError(err.message)
+          : "Failed to check for updates"
+      );
     } finally {
       setInfoLoading(false);
     }
@@ -105,14 +137,23 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     const res = await fetch("/api/v1/release/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag })
+      body: JSON.stringify({ tag }),
     });
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
       setUpdateError(cleanError(err.error ?? "Failed to start update"));
       return;
     }
-    setJob({ jobType: "update", versionType: null, phase: "fetching", startedAt: new Date().toISOString(), log: [], runUrl: null, tag, error: null });
+    setJob({
+      jobType: "update",
+      versionType: null,
+      phase: "fetching",
+      startedAt: new Date().toISOString(),
+      log: [],
+      runUrl: null,
+      tag,
+      error: null,
+    });
     connectStream();
   };
 
@@ -140,9 +181,15 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
   // Only show takeover for update jobs
   const updateJob = job?.jobType === "update" ? job : null;
-  const isDone = updateJob?.phase === "done" || (!postRestartPolling && updateJob?.phase === "restarting" && status?.tag === updateJob?.tag);
+  const isDone =
+    updateJob?.phase === "done" ||
+    (!postRestartPolling &&
+      updateJob?.phase === "restarting" &&
+      status?.tag === updateJob?.tag);
   const isFailed = updateJob?.phase === "failed";
-  const isRestarting = updateJob?.phase === "restarting" || (updateJob !== null && postRestartPolling);
+  const isRestarting =
+    updateJob?.phase === "restarting" ||
+    (updateJob !== null && postRestartPolling);
   // Only show takeover for active jobs, not stale done jobs from server memory
   const showTakeover = updateJob !== null && !isDone;
 
@@ -156,7 +203,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         isRestarting={isRestarting}
         postRestartPolling={postRestartPolling}
         status={status}
-        onDismiss={() => { setJob(null); setInfo(null); setUpdateError(null); }}
+        onDismiss={() => {
+          setJob(null);
+          setInfo(null);
+          setUpdateError(null);
+        }}
       />
     );
   }
@@ -165,12 +216,18 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* Current version */}
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Current version</div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Current version
+        </div>
         {status ? (
           <div className="flex items-baseline gap-2">
-            <span className="font-mono text-xl font-bold text-foreground">{status.tag ?? "unknown"}</span>
+            <span className="font-mono text-xl font-bold text-foreground">
+              {status.tag ?? "unknown"}
+            </span>
             {status.deployedAt ? (
-              <span className="text-xs text-muted-foreground">{formatDate(status.deployedAt)}</span>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(status.deployedAt)}
+              </span>
             ) : null}
           </div>
         ) : (
@@ -178,18 +235,24 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
 
         {versionInfo && (
-          <div className="mt-3 grid gap-2 rounded border border-border p-3 text-sm">
+          <div className="mt-3 grid gap-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3 text-sm">
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">Release tag</span>
-              <span className="font-mono">{versionInfo.releaseTag ?? "unreleased"}</span>
+              <span className="font-mono">
+                {versionInfo.releaseTag ?? "unreleased"}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">Package version</span>
-              <span className="font-mono">{versionInfo.version ?? "unknown"}</span>
+              <span className="font-mono">
+                {versionInfo.version ?? "unknown"}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span className="text-muted-foreground">Git SHA</span>
-              <span className="font-mono">{versionInfo.gitSha ?? "unavailable"}</span>
+              <span className="font-mono">
+                {versionInfo.gitSha ?? "unavailable"}
+              </span>
             </div>
           </div>
         )}
@@ -202,7 +265,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             onClick={() => setNotesExpanded(!notesExpanded)}
             className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
           >
-            {notesExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {notesExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
             Release notes
             {versionInfo.releaseUrl ? (
               <a
@@ -218,39 +285,45 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             ) : null}
           </button>
           {notesExpanded && (
-            <div className="mt-2 rounded border border-border p-3">
-              <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                {versionInfo.releaseNotes}
+            <div className="mt-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
+              <div className="max-h-56 overflow-y-auto text-sm text-muted-foreground">
+                <Markdown>{versionInfo.releaseNotes}</Markdown>
               </div>
             </div>
           )}
         </div>
       )}
 
-      <div className="border-t border-border" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Release channel */}
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Release channel</div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Release channel
+        </div>
         <p className="mb-3 text-sm text-muted-foreground">
           Choose which releases this instance follows.
         </p>
-        <div className={cn("inline-flex rounded border border-border", channelSaving && "opacity-50 pointer-events-none")}>
+        <div
+          className={cn(
+            "inline-flex",
+            channelSaving && "opacity-50 pointer-events-none"
+          )}
+        >
           {(["stable", "latest"] as ReleaseChannel[]).map((ch) => (
-            <button
+            <Button
               key={ch}
+              size="sm"
+              variant={channel === ch ? "primary" : "default"}
               onClick={() => void handleChannelChange(ch)}
               className={cn(
-                "px-4 py-1.5 text-sm font-medium capitalize transition-colors",
-                channel === ch
-                  ? "bg-primary/15 text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-                ch === "stable" && "rounded-l border-r border-border",
-                ch === "latest" && "rounded-r"
+                "capitalize",
+                ch === "stable" && "rounded-r-none border-r-0",
+                ch === "latest" && "rounded-l-none border-l border-white/[0.12]"
               )}
             >
               {ch}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -258,12 +331,14 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       {/* Check for updates */}
       <div className="flex flex-col gap-4">
         {!info && !infoLoading && (
-          <button
+          <Button
+            size="sm"
+            variant="default"
             onClick={() => void handleCheckForUpdates()}
-            className="self-start rounded border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            className="self-start text-muted-foreground hover:text-foreground"
           >
             Check for updates
-          </button>
+          </Button>
         )}
 
         {infoLoading && (
@@ -286,7 +361,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                 <div className="flex items-center gap-2">
                   <ArrowDownToLine className="h-4 w-4 text-blue-400" />
                   <span className="text-sm text-foreground">
-                    <span className="font-mono font-semibold">{info.latestTag}</span> available
+                    <span className="font-mono font-semibold">
+                      {info.latestTag}
+                    </span>{" "}
+                    available
                   </span>
                   {info.latestRelease?.publishedAt && (
                     <span className="text-xs text-muted-foreground">
@@ -330,31 +408,39 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         )}
       </div>
 
-      <div className="border-t border-border" />
+      <div className="border-t border-white/[0.12]" />
 
       {/* Reload */}
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Reload</div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Reload
+        </div>
         <p className="mb-3 text-sm text-muted-foreground">
           Reload the app to pick up the latest version.
         </p>
-        <div className="inline-flex items-stretch">
-          <button
+        <div className="inline-flex items-center">
+          <Button
+            size="sm"
+            variant="default"
             onClick={handleReload}
             disabled={reloading}
-            className="inline-flex items-center gap-2 rounded-l border border-r-0 border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+            className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", reloading && "animate-spin")} />
+            <RefreshCw
+              className={cn("mr-1 h-3.5 w-3.5", reloading && "animate-spin")}
+            />
             {reloading ? "Reloading..." : "Reload"}
-          </button>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
+              <Button
+                size="sm"
+                variant="default"
                 disabled={reloading}
-                className="inline-flex items-center rounded-r border border-border px-1.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-50"
+                className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
@@ -406,7 +492,7 @@ export function OperationTakeover({
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Left column — controls */}
-      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-border p-4 md:p-6">
+      <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6">
         <PhaseProgress
           job={job}
           phasesOrder={phasesOrder}
@@ -432,15 +518,18 @@ export function OperationTakeover({
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>
                 {job.jobType === "update" ? "Updated to" : "Released"}{" "}
-                <span className="font-mono font-semibold">{job.tag ?? status?.tag}</span>
+                <span className="font-mono font-semibold">
+                  {job.tag ?? status?.tag}
+                </span>
               </span>
             </div>
-            <button
+            <Button
+              variant="default"
               onClick={onDismiss}
-              className="self-start rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start text-muted-foreground hover:text-foreground"
             >
               Done
-            </button>
+            </Button>
           </div>
         )}
 
@@ -448,20 +537,28 @@ export function OperationTakeover({
           <div className="flex flex-col gap-3">
             <div className="flex items-start gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{job.error ? cleanError(job.error) : "Operation failed"}</span>
+              <span>
+                {job.error ? cleanError(job.error) : "Operation failed"}
+              </span>
             </div>
-            <button
+            <Button
+              variant="default"
               onClick={onDismiss}
-              className="self-start rounded border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="self-start text-muted-foreground hover:text-foreground"
             >
               Dismiss
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {/* Right column — log */}
-      <OperationLog logRef={logRef} job={job} isRestarting={isRestarting} postRestartPolling={postRestartPolling} />
+      <OperationLog
+        logRef={logRef}
+        job={job}
+        isRestarting={isRestarting}
+        postRestartPolling={postRestartPolling}
+      />
     </div>
   );
 }

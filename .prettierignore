@@ -1,0 +1,16 @@
+node_modules
+.turbo
+dist
+coverage
+*.tsbuildinfo
+.env
+.env.local
+data
+.media
+artifacts
+.playwright-mcp
+test-results
+playwright-report
+release-notes/current.md
+.dispatch/config.json
+.dispatch/worktrees

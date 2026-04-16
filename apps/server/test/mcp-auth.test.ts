@@ -42,16 +42,26 @@ async function buildApp(): Promise<FastifyInstance> {
     const { agentId } = request.params as { agentId: string };
     const token = getBearerToken(request.headers.authorization);
     if (token && !validateAgentMcpToken(SERVER_AUTH_TOKEN, token, agentId)) {
-      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+      return reply
+        .code(403)
+        .send({ error: "Invalid MCP token for the requested agent route." });
     }
     return { ok: true, route: "agent" };
   });
 
   app.post("/api/mcp/jobs/:runId/:agentId", async (request, reply) => {
-    const { runId, agentId } = request.params as { runId: string; agentId: string };
+    const { runId, agentId } = request.params as {
+      runId: string;
+      agentId: string;
+    };
     const token = getBearerToken(request.headers.authorization);
-    if (token && !validateJobMcpToken(SERVER_AUTH_TOKEN, token, runId, agentId)) {
-      return reply.code(403).send({ error: "Invalid MCP token for the requested job agent route." });
+    if (
+      token &&
+      !validateJobMcpToken(SERVER_AUTH_TOKEN, token, runId, agentId)
+    ) {
+      return reply.code(403).send({
+        error: "Invalid MCP token for the requested job agent route.",
+      });
     }
     return { ok: true, route: "job" };
   });

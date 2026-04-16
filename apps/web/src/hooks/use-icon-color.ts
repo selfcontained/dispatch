@@ -1,8 +1,17 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-export const ICON_COLORS = ["teal", "blue", "purple", "red", "orange", "amber", "pink", "cyan"] as const;
-export type IconColorId = typeof ICON_COLORS[number];
+export const ICON_COLORS = [
+  "teal",
+  "blue",
+  "purple",
+  "red",
+  "orange",
+  "amber",
+  "pink",
+  "cyan",
+] as const;
+export type IconColorId = (typeof ICON_COLORS)[number];
 
 export type IconColorDefinition = {
   id: IconColorId;
@@ -60,7 +69,7 @@ export function useIconColor(): {
     (id: IconColorId) => {
       mutation.mutate(id);
     },
-    [mutation],
+    [mutation]
   );
 
   const clearError = useCallback(() => {
@@ -71,7 +80,9 @@ export function useIconColor(): {
     iconColor: data?.iconColor ?? "teal",
     setIconColor,
     isLoading: mutation.isPending,
-    error: mutation.isError ? "Failed to save icon color. Please try again." : null,
+    error: mutation.isError
+      ? "Failed to save icon color. Please try again."
+      : null,
     clearError,
   };
 }

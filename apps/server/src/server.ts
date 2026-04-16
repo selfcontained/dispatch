@@ -1,7 +1,16 @@
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -28,16 +37,24 @@ try {
 } catch {
   console.error(
     "\n✗ Failed to load node-pty native module.\n" +
-    "  This usually means the native addon was not compiled during install.\n" +
-    "  Fix: run 'pnpm rebuild node-pty' in the server directory, or ensure\n" +
-    "  'node-pty' is listed in pnpm.onlyBuiltDependencies in package.json.\n"
+      "  This usually means the native addon was not compiled during install.\n" +
+      "  Fix: run 'pnpm rebuild node-pty' in the server directory, or ensure\n" +
+      "  'node-pty' is listed in pnpm.onlyBuiltDependencies in package.json.\n"
   );
   process.exit(1);
 }
 
 import { AgentError, AgentManager } from "./agents/manager.js";
-import type { AgentGitContext, AgentRecord, FeedbackRecord } from "./agents/manager.js";
-import { loadPersonas, loadPersonaBySlug, assemblePersonaPrompt } from "./personas/loader.js";
+import type {
+  AgentGitContext,
+  AgentRecord,
+  FeedbackRecord,
+} from "./agents/manager.js";
+import {
+  loadPersonas,
+  loadPersonaBySlug,
+  assemblePersonaPrompt,
+} from "./personas/loader.js";
 import { buildPersonaReviewDiff } from "./personas/review-diff.js";
 import {
   isPasswordSet,
@@ -54,7 +71,7 @@ import {
   isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
-  validateJobMcpToken
+  validateJobMcpToken,
 } from "./auth.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
@@ -64,11 +81,20 @@ import { runCommand } from "./shared/lib/run-command.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
-import { SlackNotifier, isValidSlackWebhookUrl, type NotifyInput, type NotifyResult } from "./notifications/slack.js";
+import {
+  SlackNotifier,
+  isValidSlackWebhookUrl,
+  type NotifyInput,
+  type NotifyResult,
+} from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
-import { AGENT_TYPES, getEnabledAgentTypes, setEnabledAgentTypes } from "./agent-type-settings.js";
+import {
+  AGENT_TYPES,
+  getEnabledAgentTypes,
+  setEnabledAgentTypes,
+} from "./agent-type-settings.js";
 import { isPinType, validatePinValue } from "./pins.js";
 import { JobService } from "./jobs/service.js";
 import { randomUUID } from "node:crypto";
@@ -94,7 +120,12 @@ const terminalTokenStore = new TerminalTokenStore(60_000);
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
 const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
-const JOB_TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out", "crashed"]);
+const JOB_TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "timed_out",
+  "crashed",
+]);
 jobService.onRunStateChange((run) => {
   uiEventBroker.publish({ type: "job.changed" });
   void jobNotifier.onJobRunStateChange(run).catch((err) => {
@@ -104,7 +135,10 @@ jobService.onRunStateChange((run) => {
   // needs_input is excluded — user may need to interact with the agent.
   if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
     void autoArchiveJobAgent(run.agentId).catch((err) => {
-      app.log.warn({ err, agentId: run.agentId }, "Auto-archive of job agent failed");
+      app.log.warn(
+        { err, agentId: run.agentId },
+        "Auto-archive of job agent failed"
+      );
     });
   }
 });
@@ -145,11 +179,18 @@ agentManager.onLatestEvent((agent) => {
         // If any client acks within the timeout, Slack is suppressed.
         // Otherwise fall back to Slack.
         const notificationId = randomUUID();
-        uiEventBroker.publish({ type: "notification", notificationId, ...webPayload });
+        uiEventBroker.publish({
+          type: "notification",
+          notificationId,
+          ...webPayload,
+        });
 
         const fallbackTimer = setTimeout(() => {
           pendingWebNotifications.delete(notificationId);
-          app.log.debug({ notificationId, agentId: agent.id }, "Web notification not acked — falling back to Slack");
+          app.log.debug(
+            { notificationId, agentId: agent.id },
+            "Web notification not acked — falling back to Slack",
+          );
           void sendSlackNotification();
         }, WEB_NOTIFY_ACK_TIMEOUT_MS);
 
@@ -169,11 +210,17 @@ async function autoArchiveJobAgent(agentId: string): Promise<void> {
   if (archivingAgentIds.has(agentId)) return;
   try {
     const agent = await agentManager.beginArchive(agentId, "auto");
-    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(agent),
+    });
     archivingAgentIds.add(agentId);
     const archivePromise = agentManager.executeArchive(agentId, {
       onPhaseChange: (updated) => {
-        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+        uiEventBroker.publish({
+          type: "agent.upsert",
+          agent: withStreamFlag(updated),
+        });
       },
       onComplete: (deletedIds) => {
         for (const deletedId of deletedIds) {
@@ -193,7 +240,13 @@ async function autoArchiveJobAgent(agentId: string): Promise<void> {
   }
 }
 
-const AGENT_LATEST_EVENT_TYPES = ["working", "blocked", "waiting_user", "done", "idle"] as const;
+const AGENT_LATEST_EVENT_TYPES = [
+  "working",
+  "blocked",
+  "waiting_user",
+  "done",
+  "idle",
+] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
@@ -206,10 +259,25 @@ type UiEvent =
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | { type: "feedback.created"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
-  | { type: "feedback.updated"; agentId: string; feedback: import("./agents/manager.js").FeedbackRecord }
+  | {
+      type: "feedback.created";
+      agentId: string;
+      feedback: import("./agents/manager.js").FeedbackRecord;
+    }
+  | {
+      type: "feedback.updated";
+      agentId: string;
+      feedback: import("./agents/manager.js").FeedbackRecord;
+    }
   | { type: "job.changed" }
-  | { type: "notification"; notificationId: string; agentId: string; agentName: string; eventType: string; message: string };
+  | {
+      type: "notification";
+      notificationId: string;
+      agentId: string;
+      agentName: string;
+      eventType: string;
+      message: string;
+    };
 
 class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -295,16 +363,23 @@ type ActivityQuery = {
   granularity: ActivityGranularity;
 };
 
-const VALID_GRANULARITIES = new Set<ActivityGranularity>(["hour", "day", "week", "month"]);
+const VALID_GRANULARITIES = new Set<ActivityGranularity>([
+  "hour",
+  "day",
+  "week",
+  "month",
+]);
 const FALLBACK_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const VALID_TIMEZONES = new Set(Intl.supportedValuesOf("timeZone"));
 
 function parseActivityQuery(query: Record<string, unknown>): ActivityQuery {
   const startStr = typeof query.start === "string" ? query.start : "";
   const endStr = typeof query.end === "string" ? query.end : "";
-  const rawTz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+  const rawTz =
+    typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
   const tz = VALID_TIMEZONES.has(rawTz) ? rawTz : FALLBACK_TZ;
-  const gran = typeof query.granularity === "string" ? query.granularity : "day";
+  const gran =
+    typeof query.granularity === "string" ? query.granularity : "day";
 
   const start = startStr ? new Date(startStr) : null;
   const end = endStr ? new Date(endStr) : null;
@@ -340,7 +415,11 @@ function timeRangeClause(
   };
 }
 
-function dateTruncTz(granularity: ActivityGranularity, column: string, tz: string): string {
+function dateTruncTz(
+  granularity: ActivityGranularity,
+  column: string,
+  tz: string
+): string {
   const escaped = tz.replace(/'/g, "''");
   const trunc = `date_trunc('${granularity}', ${column} AT TIME ZONE '${escaped}')`;
   if (granularity === "hour") {
@@ -350,7 +429,12 @@ function dateTruncTz(granularity: ActivityGranularity, column: string, tz: strin
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function escapeLike(s: string): string {
@@ -401,7 +485,13 @@ const gitRefreshAgentDiagnostics = new Map<
     lastStartedAt: number | null;
     lastCompletedAt: number | null;
     lastDurationMs: number | null;
-    lastResult: "updated" | "unchanged" | "probe_error" | "failed" | "skipped" | null;
+    lastResult:
+      | "updated"
+      | "unchanged"
+      | "probe_error"
+      | "failed"
+      | "skipped"
+      | null;
     lastError: string | null;
   }
 >();
@@ -414,7 +504,7 @@ const gitRefreshCounters = {
   probeErrors: 0,
   failed: 0,
   timedOut: 0,
-  skipped: 0
+  skipped: 0,
 };
 let gitContextRefreshTimer: NodeJS.Timeout | null = null;
 
@@ -426,7 +516,9 @@ const __dirname = path.dirname(__filename);
 const appRootDir = path.resolve(__dirname, "..");
 const repoRootDir = path.resolve(appRootDir, "../..");
 if (!existsSync(path.join(repoRootDir, "pnpm-workspace.yaml"))) {
-  throw new Error(`repoRootDir "${repoRootDir}" does not contain pnpm-workspace.yaml — monorepo layout may have changed`);
+  throw new Error(
+    `repoRootDir "${repoRootDir}" does not contain pnpm-workspace.yaml — monorepo layout may have changed`
+  );
 }
 const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
 const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
@@ -436,15 +528,28 @@ const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 // ---------------------------------------------------------------------------
 // Icon color templating — rewrite index.html and manifest for active color
 // ---------------------------------------------------------------------------
-const VALID_ICON_COLORS = ["teal", "blue", "purple", "red", "orange", "amber", "pink", "cyan"] as const;
-type IconColor = typeof VALID_ICON_COLORS[number];
+const VALID_ICON_COLORS = [
+  "teal",
+  "blue",
+  "purple",
+  "red",
+  "orange",
+  "amber",
+  "pink",
+  "cyan",
+] as const;
+type IconColor = (typeof VALID_ICON_COLORS)[number];
 const DEFAULT_ICON_COLOR: IconColor = "teal";
 const ICON_COLOR_KEY = "icon_color";
 
 const indexHtmlPath = path.join(staticDir, "index.html");
 const manifestPath = path.join(staticDir, "manifest.webmanifest");
-const indexHtmlTemplate = existsSync(indexHtmlPath) ? readFileSync(indexHtmlPath, "utf-8") : "";
-const manifestTemplate = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : "";
+const indexHtmlTemplate = existsSync(indexHtmlPath)
+  ? readFileSync(indexHtmlPath, "utf-8")
+  : "";
+const manifestTemplate = existsSync(manifestPath)
+  ? readFileSync(manifestPath, "utf-8")
+  : "";
 
 let cachedIconColor: IconColor = DEFAULT_ICON_COLOR;
 let cachedIndexHtml: string = indexHtmlTemplate;
@@ -456,12 +561,20 @@ function rewriteForColor(color: IconColor): void {
     cachedIndexHtml = indexHtmlTemplate;
     cachedManifest = manifestTemplate;
   } else {
-    cachedIndexHtml = indexHtmlTemplate.replaceAll("/icons/teal/", `/icons/${color}/`);
-    cachedManifest = manifestTemplate.replaceAll("/icons/teal/", `/icons/${color}/`);
+    cachedIndexHtml = indexHtmlTemplate.replaceAll(
+      "/icons/teal/",
+      `/icons/${color}/`
+    );
+    cachedManifest = manifestTemplate.replaceAll(
+      "/icons/teal/",
+      `/icons/${color}/`
+    );
   }
 }
 
-function withStreamFlag<T extends AgentRecord>(agent: T): T & { hasStream: boolean } {
+function withStreamFlag<T extends AgentRecord>(
+  agent: T
+): T & { hasStream: boolean } {
   return { ...agent, hasStream: streamManager.hasStream(agent.id) };
 }
 
@@ -483,7 +596,9 @@ async function getAppVersionInfo(): Promise<{
 
   let version: string | null = null;
   try {
-    const packageJson = JSON.parse(await readFile(path.join(appRootDir, "package.json"), "utf8")) as {
+    const packageJson = JSON.parse(
+      await readFile(path.join(appRootDir, "package.json"), "utf8")
+    ) as {
       version?: unknown;
     };
     if (typeof packageJson.version === "string" && packageJson.version.trim()) {
@@ -507,14 +622,16 @@ async function getAppVersionInfo(): Promise<{
   const releaseNotes = await readFile(releaseNotesFile, "utf8")
     .then((raw) => raw.trim() || null)
     .catch(() => null);
-  const releaseUrl = releaseTag ? `https://github.com/${await getGitHubRepo()}/releases/tag/${releaseTag}` : null;
+  const releaseUrl = releaseTag
+    ? `https://github.com/${await getGitHubRepo()}/releases/tag/${releaseTag}`
+    : null;
 
   return {
     releaseTag,
     version,
     gitSha,
     releaseNotes,
-    releaseUrl
+    releaseUrl,
   };
 }
 
@@ -524,7 +641,15 @@ async function getAppVersionInfo(): Promise<{
 
 const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
 type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
-type ReleasePhase = "preflight" | "triggering" | "watching" | "fetching" | "deploying" | "restarting" | "done" | "failed";
+type ReleasePhase =
+  | "preflight"
+  | "triggering"
+  | "watching"
+  | "fetching"
+  | "deploying"
+  | "restarting"
+  | "done"
+  | "failed";
 type ReleaseJobType = "create" | "update";
 
 type ReleaseJob = {
@@ -550,7 +675,9 @@ type ReleaseStreamEvent =
 let activeReleaseJob: ReleaseJob | null = null;
 const releaseStreamClients = new Set<NodeJS.WritableStream>();
 
-const serverDir = process.env.DISPATCH_SERVER_DIR ?? path.join(os.homedir(), ".dispatch", "server");
+const serverDir =
+  process.env.DISPATCH_SERVER_DIR ??
+  path.join(os.homedir(), ".dispatch", "server");
 
 function broadcastReleaseEvent(event: ReleaseStreamEvent): void {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
@@ -585,7 +712,11 @@ function rewindReleaseLog(job: ReleaseJob, count: number): void {
   }
 }
 
-function setReleasePhase(job: ReleaseJob, phase: ReleasePhase, error?: string): void {
+function setReleasePhase(
+  job: ReleaseJob,
+  phase: ReleasePhase,
+  error?: string
+): void {
   job.phase = phase;
   broadcastReleaseEvent({ type: "phase", phase, error });
 }
@@ -601,14 +732,17 @@ function streamProcess(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    const processor = new ReleaseLogStreamProcessor({
-      append: (line) => appendReleaseLog(job, line),
-      replace: (line) => replaceReleaseLog(job, line),
-      rewind: (count) => rewindReleaseLog(job, count)
-    }, onLine);
+    const processor = new ReleaseLogStreamProcessor(
+      {
+        append: (line) => appendReleaseLog(job, line),
+        replace: (line) => replaceReleaseLog(job, line),
+        rewind: (count) => rewindReleaseLog(job, count),
+      },
+      onLine
+    );
 
     const processChunk = (chunk: Buffer): void => {
       processor.push(chunk);
@@ -631,7 +765,13 @@ function streamProcess(
 
 async function getGitHubRepo(): Promise<string> {
   try {
-    const result = await runCommand("git", ["-C", serverDir, "remote", "get-url", "origin"]);
+    const result = await runCommand("git", [
+      "-C",
+      serverDir,
+      "remote",
+      "get-url",
+      "origin",
+    ]);
     const url = result.stdout;
     const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
     if (match?.[1]) {
@@ -652,9 +792,13 @@ async function checkIsAdmin(): Promise<boolean> {
     await runCommand("gh", ["--version"]);
     const repo = await getGitHubRepo();
     const result = await runCommand("gh", [
-      "repo", "view", repo,
-      "--json", "viewerPermission",
-      "--jq", ".viewerPermission"
+      "repo",
+      "view",
+      repo,
+      "--json",
+      "viewerPermission",
+      "--jq",
+      ".viewerPermission",
     ]);
     cachedIsAdmin = result.stdout.trim() === "ADMIN";
   } catch {
@@ -684,13 +828,19 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-async function fetchReleaseMetadata(tag: string): Promise<GitHubReleaseMetadata | null> {
+async function fetchReleaseMetadata(
+  tag: string
+): Promise<GitHubReleaseMetadata | null> {
   try {
     const repo = await getGitHubRepo();
     const result = await runCommand("gh", [
-      "release", "view", tag,
-      "--repo", repo,
-      "--json", "tagName,publishedAt,url,body"
+      "release",
+      "view",
+      tag,
+      "--repo",
+      repo,
+      "--json",
+      "tagName,publishedAt,url,body",
     ]);
     const data = JSON.parse(result.stdout) as {
       tagName: string;
@@ -702,14 +852,16 @@ async function fetchReleaseMetadata(tag: string): Promise<GitHubReleaseMetadata 
       tag: data.tagName,
       publishedAt: data.publishedAt,
       url: data.url,
-      body: typeof data.body === "string" ? data.body.trim() : null
+      body: typeof data.body === "string" ? data.body.trim() : null,
     };
   } catch {
     return null;
   }
 }
 
-async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMetadata | null> {
+async function fetchLatestReleaseMetadata(
+  tag: string
+): Promise<GitHubReleaseMetadata | null> {
   return fetchReleaseMetadata(tag);
 }
 
@@ -718,7 +870,10 @@ async function fetchLatestReleaseMetadata(tag: string): Promise<GitHubReleaseMet
  * Returns true on success, false if the artifact isn't available (caller falls
  * back to building from source).
  */
-async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean> {
+async function deployFromArtifact(
+  job: ReleaseJob,
+  tag: string
+): Promise<boolean> {
   // Need gh CLI to download release assets
   try {
     await runCommand("gh", ["--version"]);
@@ -731,7 +886,10 @@ async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean
   try {
     repo = await getGitHubRepo();
   } catch {
-    appendReleaseLog(job, "could not resolve GitHub repo, skipping artifact download");
+    appendReleaseLog(
+      job,
+      "could not resolve GitHub repo, skipping artifact download"
+    );
     return false;
   }
 
@@ -743,10 +901,15 @@ async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean
     appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
     try {
       await runCommand("gh", [
-        "release", "download", tag,
-        "--pattern", "dispatch-release.tar.gz",
-        "--output", tarball,
-        "--repo", repo
+        "release",
+        "download",
+        tag,
+        "--pattern",
+        "dispatch-release.tar.gz",
+        "--output",
+        tarball,
+        "--repo",
+        repo,
       ]);
     } catch {
       appendReleaseLog(job, "no release artifact found for this tag");
@@ -771,12 +934,26 @@ async function deployFromArtifact(job: ReleaseJob, tag: string): Promise<boolean
     }
 
     appendReleaseLog(job, "==> extracting pre-built artifact");
-    await runCommand("tar", ["xzf", tarball, "--no-same-owner", "-C", serverDir]);
+    await runCommand("tar", [
+      "xzf",
+      tarball,
+      "--no-same-owner",
+      "-C",
+      serverDir,
+    ]);
 
     appendReleaseLog(job, "==> installing dependencies (native modules only)");
-    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+    await streamProcess(
+      "pnpm",
+      ["install", "--frozen-lockfile"],
+      { cwd: serverDir },
+      job
+    );
 
-    appendReleaseLog(job, "==> deployed from pre-built artifact (no build needed)");
+    appendReleaseLog(
+      job,
+      "==> deployed from pre-built artifact (no build needed)"
+    );
     return true;
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -798,7 +975,12 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     await runCommand("git", ["-C", serverDir, "checkout", tag]);
 
     appendReleaseLog(job, "==> installing dependencies");
-    await streamProcess("pnpm", ["install", "--frozen-lockfile"], { cwd: serverDir }, job);
+    await streamProcess(
+      "pnpm",
+      ["install", "--frozen-lockfile"],
+      { cwd: serverDir },
+      job
+    );
 
     appendReleaseLog(job, "==> building from source");
     await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
@@ -820,13 +1002,13 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   if (process.platform === "linux") {
     spawn("systemctl", ["--user", "restart", "dispatch"], {
       detached: true,
-      stdio: "ignore"
+      stdio: "ignore",
     }).unref();
   } else {
     const uid = process.getuid?.() ?? 501;
     spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
       detached: true,
-      stdio: "ignore"
+      stdio: "ignore",
     }).unref();
   }
 }
@@ -863,23 +1045,34 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
     try {
       await runCommand("gh", ["--version"]);
     } catch {
-      throw new Error("GitHub CLI (gh) is not available. Install it from https://cli.github.com");
+      throw new Error(
+        "GitHub CLI (gh) is not available. Install it from https://cli.github.com"
+      );
     }
 
     const repo = await getGitHubRepo();
 
     // Trigger workflow
     setReleasePhase(job, "triggering");
-    appendReleaseLog(job, `==> triggering release workflow (version: ${job.versionType})`);
+    appendReleaseLog(
+      job,
+      `==> triggering release workflow (version: ${job.versionType})`
+    );
 
     try {
       await runCommand("gh", [
-        "workflow", "run", "release.yml",
-        "--repo", repo,
-        "--field", `version=${job.versionType}`
+        "workflow",
+        "run",
+        "release.yml",
+        "--repo",
+        repo,
+        "--field",
+        `version=${job.versionType}`,
       ]);
     } catch (err) {
-      throw new Error(`Failed to trigger workflow: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(
+        `Failed to trigger workflow: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     // Give GitHub a moment to register the run
@@ -887,12 +1080,18 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
 
     // Get the run ID
     const runIdResult = await runCommand("gh", [
-      "run", "list",
-      "--repo", repo,
-      "--workflow", "release.yml",
-      "--limit", "1",
-      "--json", "databaseId",
-      "--jq", ".[0].databaseId"
+      "run",
+      "list",
+      "--repo",
+      repo,
+      "--workflow",
+      "release.yml",
+      "--limit",
+      "1",
+      "--json",
+      "databaseId",
+      "--jq",
+      ".[0].databaseId",
     ]);
     const runId = runIdResult.stdout.trim();
     if (!runId) {
@@ -908,17 +1107,30 @@ async function runReleaseJob(job: ReleaseJob): Promise<void> {
     // Watch the workflow
     setReleasePhase(job, "watching");
     try {
-      await streamProcess("gh", ["run", "watch", runId, "--repo", repo], { env: { GH_FORCE_TTY: "120" } }, job);
+      await streamProcess(
+        "gh",
+        ["run", "watch", runId, "--repo", repo],
+        { env: { GH_FORCE_TTY: "120" } },
+        job
+      );
     } catch {
       throw new Error(`GitHub Actions workflow failed. See ${runUrl}`);
     }
 
     // Fetch tags and find the latest
     await runCommand("git", ["-C", serverDir, "fetch", "--tags", "--quiet"]);
-    const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
-    const tag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? "";
+    const tagsResult = await runCommand("git", [
+      "-C",
+      serverDir,
+      "tag",
+      "--sort=-version:refname",
+    ]);
+    const tag =
+      tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? "";
     if (!tag) {
-      throw new Error("Could not determine release tag after workflow completed");
+      throw new Error(
+        "Could not determine release tag after workflow completed"
+      );
     }
 
     job.tag = tag;
@@ -968,7 +1180,10 @@ function resolveTilde(raw: string): string {
   if (raw === "~") return os.homedir();
   return raw;
 }
-const directoryField = z.string().min(1, "Job directory is required.").transform(resolveTilde);
+const directoryField = z
+  .string()
+  .min(1, "Job directory is required.")
+  .transform(resolveTilde);
 const RunJobBodySchema = z.object({
   name: z.string().min(1, "Job name is required."),
   directory: directoryField,
@@ -999,29 +1214,45 @@ const JobHistoryParamsSchema = z.object({
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
   await app.register(fastifyCookie, { secret: cookieSecret });
-  await app.register(fastifyMultipart, { limits: { fileSize: 20 * 1024 * 1024 } });
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 20 * 1024 * 1024 },
+  });
   await app.register(fastifyWebsocket);
   await app.register(fastifyRateLimit, { global: false });
 
   // Initialize icon color from DB before serving any requests
   const storedIconColor = await getSetting(pool, ICON_COLOR_KEY);
-  if (storedIconColor && (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)) {
+  if (
+    storedIconColor &&
+    (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)
+  ) {
     rewriteForColor(storedIconColor as IconColor);
   }
 
   // Serve templated index.html and manifest before static files so they take priority
-  const noCacheHeaders = { "Cache-Control": "no-cache, no-store, must-revalidate" };
+  const noCacheHeaders = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+  };
 
   app.get("/", async (_, reply) => {
-    return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+    return reply
+      .type("text/html")
+      .headers(noCacheHeaders)
+      .send(cachedIndexHtml);
   });
 
   app.get("/index.html", async (_, reply) => {
-    return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+    return reply
+      .type("text/html")
+      .headers(noCacheHeaders)
+      .send(cachedIndexHtml);
   });
 
   app.get("/manifest.webmanifest", async (_, reply) => {
-    return reply.type("application/manifest+json").headers(noCacheHeaders).send(cachedManifest);
+    return reply
+      .type("application/manifest+json")
+      .headers(noCacheHeaders)
+      .send(cachedManifest);
   });
 
   await app.register(fastifyStatic, {
@@ -1032,14 +1263,17 @@ async function registerRoutes() {
       if (base === "sw.js") {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       }
-    }
+    },
   });
 
   // SPA fallback — serve templated index.html for client-side routes
   app.setNotFoundHandler(async (request, reply) => {
     const url = request.url.split("?")[0];
     if (!url.startsWith("/api/") && !path.extname(url)) {
-      return reply.type("text/html").headers(noCacheHeaders).send(cachedIndexHtml);
+      return reply
+        .type("text/html")
+        .headers(noCacheHeaders)
+        .send(cachedIndexHtml);
     }
     return reply.code(404).send({ error: "Not found" });
   });
@@ -1077,7 +1311,11 @@ async function registerRoutes() {
     const signed = request.cookies[SESSION_COOKIE];
     if (signed) {
       const unsigned = request.unsignCookie(signed);
-      if (unsigned.valid && unsigned.value && await validateSession(pool, unsigned.value)) {
+      if (
+        unsigned.valid &&
+        unsigned.value &&
+        (await validateSession(pool, unsigned.value))
+      ) {
         return;
       }
     }
@@ -1107,49 +1345,57 @@ async function registerRoutes() {
     return { passwordSet: hasPassword, authenticated };
   });
 
-  app.post("/api/v1/auth/setup", { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } }, async (request, reply) => {
-    if (await isPasswordSetCached()) {
-      return reply.code(400).send({ error: "Password is already set." });
+  app.post(
+    "/api/v1/auth/setup",
+    { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (await isPasswordSetCached()) {
+        return reply.code(400).send({ error: "Password is already set." });
+      }
+      const parsed = SetupBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: parsed.error.issues[0].message });
+      }
+      const { password } = parsed.data;
+      await setPassword(pool, password);
+      invalidatePasswordSetCache();
+      const token = await createSession(pool);
+      reply.setCookie(SESSION_COOKIE, token, {
+        path: "/",
+        httpOnly: true,
+        signed: true,
+        sameSite: "lax",
+        secure: config.tls !== null,
+        maxAge: SESSION_MAX_AGE_S,
+      });
+      return { ok: true };
     }
-    const parsed = SetupBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
-    const { password } = parsed.data;
-    await setPassword(pool, password);
-    invalidatePasswordSetCache();
-    const token = await createSession(pool);
-    reply.setCookie(SESSION_COOKIE, token, {
-      path: "/",
-      httpOnly: true,
-      signed: true,
-      sameSite: "lax",
-      secure: config.tls !== null,
-      maxAge: SESSION_MAX_AGE_S
-    });
-    return { ok: true };
-  });
+  );
 
-  app.post("/api/v1/auth/login", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
-    const parsed = LoginBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
+  app.post(
+    "/api/v1/auth/login",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = LoginBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: parsed.error.issues[0].message });
+      }
+      const { password } = parsed.data;
+      if (!(await verifyPassword(pool, password))) {
+        return reply.code(401).send({ error: "Invalid password." });
+      }
+      const token = await createSession(pool);
+      reply.setCookie(SESSION_COOKIE, token, {
+        path: "/",
+        httpOnly: true,
+        signed: true,
+        sameSite: "lax",
+        secure: config.tls !== null,
+        maxAge: SESSION_MAX_AGE_S,
+      });
+      return { ok: true };
     }
-    const { password } = parsed.data;
-    if (!(await verifyPassword(pool, password))) {
-      return reply.code(401).send({ error: "Invalid password." });
-    }
-    const token = await createSession(pool);
-    reply.setCookie(SESSION_COOKIE, token, {
-      path: "/",
-      httpOnly: true,
-      signed: true,
-      sameSite: "lax",
-      secure: config.tls !== null,
-      maxAge: SESSION_MAX_AGE_S
-    });
-    return { ok: true };
-  });
+  );
 
   app.post("/api/v1/auth/logout", async (request, reply) => {
     const signed = request.cookies[SESSION_COOKIE];
@@ -1163,29 +1409,35 @@ async function registerRoutes() {
     return { ok: true };
   });
 
-  app.post("/api/v1/auth/change-password", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
-    const parsed = ChangePasswordBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
+  app.post(
+    "/api/v1/auth/change-password",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = ChangePasswordBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: parsed.error.issues[0].message });
+      }
+      const { currentPassword, newPassword } = parsed.data;
+      const changed = await changePassword(pool, currentPassword, newPassword);
+      if (!changed) {
+        return reply
+          .code(401)
+          .send({ error: "Current password is incorrect." });
+      }
+      await deleteAllSessions(pool);
+      const token = await createSession(pool);
+      reply.setCookie(SESSION_COOKIE, token, {
+        path: "/",
+        httpOnly: true,
+        signed: true,
+        sameSite: "lax",
+        secure: config.tls !== null,
+        maxAge: SESSION_MAX_AGE_S,
+      });
+      invalidatePasswordSetCache();
+      return { ok: true };
     }
-    const { currentPassword, newPassword } = parsed.data;
-    const changed = await changePassword(pool, currentPassword, newPassword);
-    if (!changed) {
-      return reply.code(401).send({ error: "Current password is incorrect." });
-    }
-    await deleteAllSessions(pool);
-    const token = await createSession(pool);
-    reply.setCookie(SESSION_COOKIE, token, {
-      path: "/",
-      httpOnly: true,
-      signed: true,
-      sameSite: "lax",
-      secure: config.tls !== null,
-      maxAge: SESSION_MAX_AGE_S,
-    });
-    invalidatePasswordSetCache();
-    return { ok: true };
-  });
+  );
 
   // ---------------------------------------------------------------------------
   // Jobs routes
@@ -1320,8 +1572,13 @@ async function registerRoutes() {
     const runId = params.runId ?? "";
     const agentId = params.agentId ?? "";
     const bearerToken = getBearerToken(request);
-    if (bearerToken && !validateJobMcpToken(config.authToken, bearerToken, runId, agentId)) {
-      return reply.code(403).send({ error: "Invalid MCP token for the requested job agent route." });
+    if (
+      bearerToken &&
+      !validateJobMcpToken(config.authToken, bearerToken, runId, agentId)
+    ) {
+      return reply.code(403).send({
+        error: "Invalid MCP token for the requested job agent route.",
+      });
     }
     const agent = await agentManager.getAgent(agentId);
     if (!agent) {
@@ -1329,7 +1586,9 @@ async function registerRoutes() {
     }
     const run = await jobService.getActiveRunForAgent(agentId);
     if (!run || run.id !== runId || run.agentId !== agentId) {
-      return reply.code(404).send({ error: "Active job run not found for agent." });
+      return reply
+        .code(404)
+        .send({ error: "Active job run not found for agent." });
     }
 
     let repoRoot: string | null = null;
@@ -1355,10 +1614,17 @@ async function registerRoutes() {
         log: mcpJobLog,
         listAgents: async () => {
           const agents = await agentManager.listAgents();
-          return agents.map((a) => ({ id: a.id, name: a.name, status: a.status, cwd: a.cwd }));
+          return agents.map((a) => ({
+            id: a.id,
+            name: a.name,
+            status: a.status,
+            cwd: a.cwd,
+          }));
         },
-        listRecentPersonaReviews: (sinceDays: number) => agentManager.listRecentPersonaReviews(sinceDays),
-        listRecentFeedback: (sinceDays: number) => agentManager.listRecentFeedback(sinceDays),
+        listRecentPersonaReviews: (sinceDays: number) =>
+          agentManager.listRecentPersonaReviews(sinceDays),
+        listRecentFeedback: (sinceDays: number) =>
+          agentManager.listRecentFeedback(sinceDays),
         getActivitySummary: (params) => agentManager.getActivitySummary(params),
         getAgentHistory: (params) => agentManager.getAgentHistory(params),
         getFeedbackSummary: (params) => agentManager.getFeedbackSummary(params),
@@ -1370,8 +1636,13 @@ async function registerRoutes() {
     const params = request.params as { agentId?: string };
     const agentId = params.agentId ?? "";
     const bearerToken = getBearerToken(request);
-    if (bearerToken && !validateAgentMcpToken(config.authToken, bearerToken, agentId)) {
-      return reply.code(403).send({ error: "Invalid MCP token for the requested agent route." });
+    if (
+      bearerToken &&
+      !validateAgentMcpToken(config.authToken, bearerToken, agentId)
+    ) {
+      return reply
+        .code(403)
+        .send({ error: "Invalid MCP token for the requested agent route." });
     }
     const agent = await agentManager.getAgent(agentId);
     if (!agent) {
@@ -1379,7 +1650,9 @@ async function registerRoutes() {
     }
     const activeJobRun = await jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
-      return reply.code(403).send({ error: "Job agents must use the job-scoped MCP route." });
+      return reply
+        .code(403)
+        .send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
     let repoRoot: string | null = null;
@@ -1417,9 +1690,18 @@ async function registerRoutes() {
       getParentContext: mcpGetParentContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
-      getActivitySummary: (params) => agentManager.getActivitySummary(params) as Promise<Record<string, unknown>>,
-      getAgentHistory: (params) => agentManager.getAgentHistory(params) as Promise<Record<string, unknown>>,
-      getFeedbackSummary: (params) => agentManager.getFeedbackSummary(params) as Promise<Record<string, unknown>>,
+      getActivitySummary: (params) =>
+        agentManager.getActivitySummary(params) as Promise<
+          Record<string, unknown>
+        >,
+      getAgentHistory: (params) =>
+        agentManager.getAgentHistory(params) as Promise<
+          Record<string, unknown>
+        >,
+      getFeedbackSummary: (params) =>
+        agentManager.getFeedbackSummary(params) as Promise<
+          Record<string, unknown>
+        >,
     });
   });
 
@@ -1458,7 +1740,14 @@ async function registerRoutes() {
 
   app.get("/api/v1/release/info", async (_, reply) => {
     try {
-      await runCommand("git", ["-C", serverDir, "fetch", "origin", "--tags", "--quiet"]);
+      await runCommand("git", [
+        "-C",
+        serverDir,
+        "fetch",
+        "origin",
+        "--tags",
+        "--quiet",
+      ]);
 
       // Current deployed tag from store (fast)
       const record = await readReleaseStore();
@@ -1479,12 +1768,18 @@ async function registerRoutes() {
       try {
         const repo = await getGitHubRepo();
         const ghResult = await runCommand("gh", [
-          "release", "list",
-          "--repo", repo,
-          "--limit", "10",
-          "--json", "tagName,isPrerelease"
+          "release",
+          "list",
+          "--repo",
+          repo,
+          "--limit",
+          "10",
+          "--json",
+          "tagName,isPrerelease",
         ]);
-        const allReleases = parseGhJson<Array<{ tagName: string; isPrerelease: boolean }>>(ghResult.stdout);
+        const allReleases = parseGhJson<
+          Array<{ tagName: string; isPrerelease: boolean }>
+        >(ghResult.stdout);
         absoluteLatestTag = allReleases[0]?.tagName ?? null;
         if (channel === "stable") {
           latestTag = allReleases.find((r) => !r.isPrerelease)?.tagName ?? null;
@@ -1493,16 +1788,30 @@ async function registerRoutes() {
         }
       } catch {
         // Fallback to git tags (sees all releases regardless of channel)
-        const tagsResult = await runCommand("git", ["-C", serverDir, "tag", "--sort=-version:refname"]);
-        const fallbackTag = tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
+        const tagsResult = await runCommand("git", [
+          "-C",
+          serverDir,
+          "tag",
+          "--sort=-version:refname",
+        ]);
+        const fallbackTag =
+          tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
         latestTag = fallbackTag;
         absoluteLatestTag = fallbackTag;
       }
 
-      const updateAvailable = !!(currentTag && latestTag && compareSemver(latestTag, currentTag) > 0);
+      const updateAvailable = !!(
+        currentTag &&
+        latestTag &&
+        compareSemver(latestTag, currentTag) > 0
+      );
 
       // Try to enrich with GitHub Release metadata
-      let latestRelease: { tag: string; publishedAt: string; url: string } | null = null;
+      let latestRelease: {
+        tag: string;
+        publishedAt: string;
+        url: string;
+      } | null = null;
       if (latestTag && updateAvailable) {
         latestRelease = await fetchLatestReleaseMetadata(latestTag);
       }
@@ -1517,25 +1826,31 @@ async function registerRoutes() {
       const compareTag = absoluteLatestTag ?? currentTag;
       if (isAdmin && compareTag) {
         const refCheck = await runCommand(
-          "git", ["-C", serverDir, "rev-parse", "--verify", compareTag],
+          "git",
+          ["-C", serverDir, "rev-parse", "--verify", compareTag],
           { allowedExitCodes: [0, 128] }
         );
         if (refCheck.exitCode !== 0) {
           refMissing = true;
         } else {
           const countResult = await runCommand("git", [
-            "-C", serverDir,
-            "rev-list", `${compareTag}..origin/main`, "--count"
+            "-C",
+            serverDir,
+            "rev-list",
+            `${compareTag}..origin/main`,
+            "--count",
           ]);
           unreleasedCount = Number(countResult.stdout) || 0;
 
           if (unreleasedCount > 0) {
             const logResult = await runCommand("git", [
-              "-C", serverDir,
-              "log", `${compareTag}..origin/main`,
+              "-C",
+              serverDir,
+              "log",
+              `${compareTag}..origin/main`,
               "--no-merges",
               "--format=%H\t%s",
-              "--max-count=20"
+              "--max-count=20",
             ]);
             commits = logResult.stdout
               .split("\n")
@@ -1544,7 +1859,7 @@ async function registerRoutes() {
                 const tab = line.indexOf("\t");
                 return {
                   sha: line.slice(0, tab).slice(0, 7),
-                  subject: line.slice(tab + 1)
+                  subject: line.slice(tab + 1),
                 };
               });
           }
@@ -1560,7 +1875,7 @@ async function registerRoutes() {
         latestRelease,
         unreleasedCount,
         commits,
-        refMissing
+        refMissing,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -1582,8 +1897,13 @@ async function registerRoutes() {
 
   app.post("/api/v1/release/channel", async (request, reply) => {
     const body = request.body as { channel?: unknown } | undefined;
-    if (!body?.channel || !VALID_CHANNELS.includes(body.channel as ReleaseChannel)) {
-      return reply.code(400).send({ error: `channel must be one of: ${VALID_CHANNELS.join(", ")}` });
+    if (
+      !body?.channel ||
+      !VALID_CHANNELS.includes(body.channel as ReleaseChannel)
+    ) {
+      return reply.code(400).send({
+        error: `channel must be one of: ${VALID_CHANNELS.join(", ")}`,
+      });
     }
     await setSetting(pool, RELEASE_CHANNEL_KEY, body.channel as string);
     return { channel: body.channel };
@@ -1605,16 +1925,25 @@ async function registerRoutes() {
     }
 
     const body = request.body as { tag?: unknown } | undefined;
-    if (!body?.tag || typeof body.tag !== "string" || !/^v\d+\.\d+\.\d+$/.test(body.tag)) {
-      return reply.code(400).send({ error: "tag is required and must be a semver tag (e.g. v0.11.18)" });
+    if (
+      !body?.tag ||
+      typeof body.tag !== "string" ||
+      !/^v\d+\.\d+\.\d+$/.test(body.tag)
+    ) {
+      return reply.code(400).send({
+        error: "tag is required and must be a semver tag (e.g. v0.11.18)",
+      });
     }
 
     try {
       const repo = await getGitHubRepo();
       await runCommand("gh", [
-        "release", "edit", body.tag,
-        "--repo", repo,
-        "--prerelease=false"
+        "release",
+        "edit",
+        body.tag,
+        "--repo",
+        repo,
+        "--prerelease=false",
       ]);
       return { ok: true, tag: body.tag };
     } catch (err) {
@@ -1629,23 +1958,29 @@ async function registerRoutes() {
     try {
       const repo = await getGitHubRepo();
       const result = await runCommand("gh", [
-        "release", "list",
-        "--repo", repo,
-        "--limit", "10",
-        "--json", "tagName,publishedAt,isPrerelease"
+        "release",
+        "list",
+        "--repo",
+        repo,
+        "--limit",
+        "10",
+        "--json",
+        "tagName,publishedAt,isPrerelease",
       ]);
-      const releases = parseGhJson<Array<{
-        tagName: string;
-        publishedAt: string;
-        isPrerelease: boolean;
-      }>>(result.stdout);
+      const releases = parseGhJson<
+        Array<{
+          tagName: string;
+          publishedAt: string;
+          isPrerelease: boolean;
+        }>
+      >(result.stdout);
       return {
         releases: releases.map((r) => ({
           tag: r.tagName,
           publishedAt: r.publishedAt,
           isPrerelease: r.isPrerelease,
-          url: `https://github.com/${repo}/releases/tag/${r.tagName}`
-        }))
+          url: `https://github.com/${repo}/releases/tag/${r.tagName}`,
+        })),
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -1656,22 +1991,36 @@ async function registerRoutes() {
   app.post("/api/v1/release", async (request, reply) => {
     const body = request.body as { versionType?: unknown } | undefined;
 
-    if (!body?.versionType || !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)) {
-      return reply.code(400).send({ error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}` });
+    if (
+      !body?.versionType ||
+      !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)
+    ) {
+      return reply.code(400).send({
+        error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}`,
+      });
     }
 
     const versionType = body.versionType as ReleaseVersionType;
 
     // Only one release at a time
-    if (activeReleaseJob && activeReleaseJob.phase !== "done" && activeReleaseJob.phase !== "failed") {
-      return reply.code(409).send({ error: "A release is already in progress." });
+    if (
+      activeReleaseJob &&
+      activeReleaseJob.phase !== "done" &&
+      activeReleaseJob.phase !== "failed"
+    ) {
+      return reply
+        .code(409)
+        .send({ error: "A release is already in progress." });
     }
 
     // Quick pre-flight: check gh CLI before spawning the job
     try {
       await runCommand("gh", ["--version"]);
     } catch {
-      return reply.code(422).send({ error: "GitHub CLI (gh) is not available. Install it from https://cli.github.com" });
+      return reply.code(422).send({
+        error:
+          "GitHub CLI (gh) is not available. Install it from https://cli.github.com",
+      });
     }
 
     const job: ReleaseJob = {
@@ -1682,7 +2031,7 @@ async function registerRoutes() {
       log: [],
       runUrl: null,
       tag: null,
-      error: null
+      error: null,
     };
     activeReleaseJob = job;
 
@@ -1695,15 +2044,27 @@ async function registerRoutes() {
   app.post("/api/v1/release/update", async (request, reply) => {
     const body = request.body as { tag?: unknown } | undefined;
 
-    if (!body?.tag || typeof body.tag !== "string" || !/^v\d+\.\d+\.\d+$/.test(body.tag)) {
-      return reply.code(400).send({ error: "tag is required and must be a semver tag (e.g. v0.2.31)" });
+    if (
+      !body?.tag ||
+      typeof body.tag !== "string" ||
+      !/^v\d+\.\d+\.\d+$/.test(body.tag)
+    ) {
+      return reply.code(400).send({
+        error: "tag is required and must be a semver tag (e.g. v0.2.31)",
+      });
     }
 
     const tag = body.tag as string;
 
     // Only one release/update at a time
-    if (activeReleaseJob && activeReleaseJob.phase !== "done" && activeReleaseJob.phase !== "failed") {
-      return reply.code(409).send({ error: "A release or update is already in progress." });
+    if (
+      activeReleaseJob &&
+      activeReleaseJob.phase !== "done" &&
+      activeReleaseJob.phase !== "failed"
+    ) {
+      return reply
+        .code(409)
+        .send({ error: "A release or update is already in progress." });
     }
 
     const job: ReleaseJob = {
@@ -1714,7 +2075,7 @@ async function registerRoutes() {
       log: [],
       runUrl: null,
       tag,
-      error: null
+      error: null,
     };
     activeReleaseJob = job;
 
@@ -1739,7 +2100,10 @@ async function registerRoutes() {
     }, 20_000);
 
     // Send current job snapshot
-    const snapshot: ReleaseStreamEvent = { type: "snapshot", job: activeReleaseJob };
+    const snapshot: ReleaseStreamEvent = {
+      type: "snapshot",
+      job: activeReleaseJob,
+    };
     stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
 
     stream.on("close", () => {
@@ -1756,7 +2120,7 @@ async function registerRoutes() {
     return {
       status: "ok",
       db: "ok",
-      now: result.rows[0]?.now
+      now: result.rows[0]?.now,
     };
   });
 
@@ -1766,7 +2130,9 @@ async function registerRoutes() {
   app.post("/api/v1/clipboard/image", async (request, reply) => {
     const data = await request.file();
     if (!data) {
-      return reply.code(400).send({ error: "An image file field is required." });
+      return reply
+        .code(400)
+        .send({ error: "An image file field is required." });
     }
     const mime = data.mimetype;
     if (!mime.startsWith("image/")) {
@@ -1774,7 +2140,8 @@ async function registerRoutes() {
     }
 
     const buffer = await data.toBuffer();
-    const ext = mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
+    const ext =
+      mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
     const tmpPath = `/tmp/dispatch-clipboard-${Date.now()}.${ext}`;
     await writeFile(tmpPath, buffer);
 
@@ -1784,28 +2151,43 @@ async function registerRoutes() {
         await new Promise<void>((resolve, reject) => {
           const proc = spawn("osascript", [
             "-e",
-            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`
+            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`,
           ]);
-          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`)));
+          proc.on("close", (code) =>
+            code === 0
+              ? resolve()
+              : reject(new Error(`osascript exited ${code}`))
+          );
           proc.on("error", reject);
         });
       } else {
         const display = process.env.DISPATCH_COPY_DISPLAY;
         if (!display) {
-          return reply.code(500).send({ error: "DISPATCH_COPY_DISPLAY is not set. Clipboard image paste on Linux requires Xvfb and xclip." });
+          return reply.code(500).send({
+            error:
+              "DISPATCH_COPY_DISPLAY is not set. Clipboard image paste on Linux requires Xvfb and xclip.",
+          });
         }
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn("xclip", ["-selection", "clipboard", "-t", mime, "-i", tmpPath], {
-            env: { ...process.env, DISPLAY: display }
-          });
-          proc.on("close", (code) => code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`)));
+          const proc = spawn(
+            "xclip",
+            ["-selection", "clipboard", "-t", mime, "-i", tmpPath],
+            {
+              env: { ...process.env, DISPLAY: display },
+            }
+          );
+          proc.on("close", (code) =>
+            code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`))
+          );
           proc.on("error", reject);
         });
       }
       return reply.code(200).send({ ok: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return reply.code(500).send({ error: `Failed to write to clipboard: ${message}` });
+      return reply
+        .code(500)
+        .send({ error: `Failed to write to clipboard: ${message}` });
     } finally {
       await unlink(tmpPath).catch(() => {});
     }
@@ -1813,7 +2195,7 @@ async function registerRoutes() {
 
   app.get("/api/v1/system/defaults", async () => {
     return {
-      homeDir: os.homedir()
+      homeDir: os.homedir(),
     };
   });
 
@@ -1826,11 +2208,18 @@ async function registerRoutes() {
   app.get("/api/v1/system/path-info", async (request, reply) => {
     const query = request.query as { path?: unknown };
     if (typeof query?.path !== "string" || !query.path.trim()) {
-      return reply.code(400).send({ error: "path query parameter is required." });
+      return reply
+        .code(400)
+        .send({ error: "path query parameter is required." });
     }
     const resolved = resolveTildePath(query.path.trim());
     if (!path.isAbsolute(resolved)) {
-      return { exists: false, isDirectory: false, isGitRepo: false, resolvedPath: resolved };
+      return {
+        exists: false,
+        isDirectory: false,
+        isGitRepo: false,
+        resolvedPath: resolved,
+      };
     }
     try {
       const info = await stat(resolved).catch(() => null);
@@ -1838,22 +2227,33 @@ async function registerRoutes() {
       const isDirectory = exists && info.isDirectory();
       let isGitRepo = false;
       if (isDirectory) {
-        const result = await runCommand("git", ["-C", resolved, "rev-parse", "--is-inside-work-tree"], {
-          timeoutMs: 3_000,
-          allowedExitCodes: [0, 1, 128],
-        });
+        const result = await runCommand(
+          "git",
+          ["-C", resolved, "rev-parse", "--is-inside-work-tree"],
+          {
+            timeoutMs: 3_000,
+            allowedExitCodes: [0, 1, 128],
+          }
+        );
         isGitRepo = result.exitCode === 0 && result.stdout.trim() === "true";
       }
       return { exists, isDirectory, isGitRepo, resolvedPath: resolved };
     } catch {
-      return { exists: false, isDirectory: false, isGitRepo: false, resolvedPath: resolved };
+      return {
+        exists: false,
+        isDirectory: false,
+        isGitRepo: false,
+        resolvedPath: resolved,
+      };
     }
   });
 
   app.get("/api/v1/system/path-completions", async (request, reply) => {
     const query = request.query as { prefix?: unknown };
     if (typeof query?.prefix !== "string" || !query.prefix.trim()) {
-      return reply.code(400).send({ error: "prefix query parameter is required." });
+      return reply
+        .code(400)
+        .send({ error: "prefix query parameter is required." });
     }
     const raw = query.prefix.trim();
     const resolved = resolveTildePath(raw);
@@ -1874,7 +2274,8 @@ async function registerRoutes() {
         .filter((entry) => {
           if (!entry.isDirectory()) return false;
           // Skip hidden dirs unless the partial starts with "."
-          if (entry.name.startsWith(".") && !searchPartial.startsWith(".")) return false;
+          if (entry.name.startsWith(".") && !searchPartial.startsWith("."))
+            return false;
           return entry.name.toLowerCase().startsWith(searchPartial);
         })
         .sort((a, b) => a.name.localeCompare(b.name))
@@ -1899,16 +2300,28 @@ async function registerRoutes() {
   app.get("/api/v1/git/branches", async (request, reply) => {
     const query = request.query as { cwd?: unknown };
     if (typeof query?.cwd !== "string" || !query.cwd.trim()) {
-      return reply.code(400).send({ error: "cwd query parameter is required." });
+      return reply
+        .code(400)
+        .send({ error: "cwd query parameter is required." });
     }
     try {
       const rawCwd = query.cwd.trim();
-      const cwd = rawCwd.startsWith("~/") ? path.join(os.homedir(), rawCwd.slice(2)) : rawCwd === "~" ? os.homedir() : rawCwd;
-      const result = await runCommand("git", ["-C", cwd, "ls-remote", "--heads", "origin"], {
-        timeoutMs: 15_000,
-      });
+      const cwd = rawCwd.startsWith("~/")
+        ? path.join(os.homedir(), rawCwd.slice(2))
+        : rawCwd === "~"
+          ? os.homedir()
+          : rawCwd;
+      const result = await runCommand(
+        "git",
+        ["-C", cwd, "ls-remote", "--heads", "origin"],
+        {
+          timeoutMs: 15_000,
+        }
+      );
       if (result.exitCode !== 0) {
-        return reply.code(500).send({ error: "Failed to list remote branches." });
+        return reply
+          .code(500)
+          .send({ error: "Failed to list remote branches." });
       }
       const branches = result.stdout
         .split("\n")
@@ -1936,24 +2349,40 @@ async function registerRoutes() {
   app.get("/api/v1/agents/settings", async () => {
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
-      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
+      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw)
+        ? (raw as WorktreeLocation)
+        : "sibling";
     const instanceName = (await getSetting(pool, INSTANCE_NAME_KEY)) ?? "";
     return { worktreeLocation, iconColor: cachedIconColor, instanceName };
   });
 
   app.post("/api/v1/agents/settings", async (request, reply) => {
-    const body = request.body as { worktreeLocation?: unknown; iconColor?: unknown; instanceName?: unknown };
+    const body = request.body as {
+      worktreeLocation?: unknown;
+      iconColor?: unknown;
+      instanceName?: unknown;
+    };
 
     if (body.worktreeLocation !== undefined) {
-      if (typeof body.worktreeLocation !== "string" || !(VALID_WORKTREE_LOCATIONS as string[]).includes(body.worktreeLocation)) {
-        return reply.code(400).send({ error: `worktreeLocation must be "sibling" or "nested".` });
+      if (
+        typeof body.worktreeLocation !== "string" ||
+        !(VALID_WORKTREE_LOCATIONS as string[]).includes(body.worktreeLocation)
+      ) {
+        return reply
+          .code(400)
+          .send({ error: `worktreeLocation must be "sibling" or "nested".` });
       }
       await setSetting(pool, WORKTREE_LOCATION_KEY, body.worktreeLocation);
     }
 
     if (body.iconColor !== undefined) {
-      if (typeof body.iconColor !== "string" || !(VALID_ICON_COLORS as readonly string[]).includes(body.iconColor)) {
-        return reply.code(400).send({ error: `iconColor must be one of: ${VALID_ICON_COLORS.join(", ")}` });
+      if (
+        typeof body.iconColor !== "string" ||
+        !(VALID_ICON_COLORS as readonly string[]).includes(body.iconColor)
+      ) {
+        return reply.code(400).send({
+          error: `iconColor must be one of: ${VALID_ICON_COLORS.join(", ")}`,
+        });
       }
       await setSetting(pool, ICON_COLOR_KEY, body.iconColor);
       rewriteForColor(body.iconColor as IconColor);
@@ -1961,7 +2390,9 @@ async function registerRoutes() {
 
     if (body.instanceName !== undefined) {
       if (typeof body.instanceName !== "string") {
-        return reply.code(400).send({ error: "instanceName must be a string." });
+        return reply
+          .code(400)
+          .send({ error: "instanceName must be a string." });
       }
       const trimmed = body.instanceName.trim().slice(0, 100);
       if (trimmed) {
@@ -1973,7 +2404,9 @@ async function registerRoutes() {
 
     const raw = await getSetting(pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation: WorktreeLocation =
-      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw) ? (raw as WorktreeLocation) : "sibling";
+      raw && (VALID_WORKTREE_LOCATIONS as string[]).includes(raw)
+        ? (raw as WorktreeLocation)
+        : "sibling";
     const instanceName = (await getSetting(pool, INSTANCE_NAME_KEY)) ?? "";
     return { worktreeLocation, iconColor: cachedIconColor, instanceName };
   });
@@ -1996,28 +2429,36 @@ async function registerRoutes() {
         return reply.code(400).send({ error: "webhookUrl must be a string." });
       }
       if (body.webhookUrl && !isValidSlackWebhookUrl(body.webhookUrl)) {
-        return reply.code(400).send({ error: "webhookUrl must start with https://hooks.slack.com/" });
+        return reply.code(400).send({
+          error: "webhookUrl must start with https://hooks.slack.com/",
+        });
       }
       await slackNotifier.setWebhookUrl(body.webhookUrl);
     }
 
     if (body?.notifyEvents !== undefined) {
       if (!Array.isArray(body.notifyEvents)) {
-        return reply.code(400).send({ error: "notifyEvents must be an array." });
+        return reply
+          .code(400)
+          .send({ error: "notifyEvents must be an array." });
       }
       await slackNotifier.setNotifyEvents(body.notifyEvents as string[]);
     }
 
     if (body?.webNotifyEnabled !== undefined) {
       if (typeof body.webNotifyEnabled !== "boolean") {
-        return reply.code(400).send({ error: "webNotifyEnabled must be a boolean." });
+        return reply
+          .code(400)
+          .send({ error: "webNotifyEnabled must be a boolean." });
       }
       await slackNotifier.setWebNotifyEnabled(body.webNotifyEnabled);
     }
 
     if (body?.webNotifyEvents !== undefined) {
       if (!Array.isArray(body.webNotifyEvents)) {
-        return reply.code(400).send({ error: "webNotifyEvents must be an array." });
+        return reply
+          .code(400)
+          .send({ error: "webNotifyEvents must be an array." });
       }
       await slackNotifier.setWebNotifyEvents(body.webNotifyEvents as string[]);
     }
@@ -2027,19 +2468,26 @@ async function registerRoutes() {
 
   app.post("/api/v1/notifications/test", async (request, reply) => {
     const body = request.body as { webhookUrl?: unknown } | null;
-    const url = typeof body?.webhookUrl === "string" ? body.webhookUrl : await slackNotifier.getWebhookUrl();
+    const url =
+      typeof body?.webhookUrl === "string"
+        ? body.webhookUrl
+        : await slackNotifier.getWebhookUrl();
     if (!url) {
-      return reply.code(400).send({ error: "No webhook URL provided or configured." });
+      return reply
+        .code(400)
+        .send({ error: "No webhook URL provided or configured." });
     }
     if (!isValidSlackWebhookUrl(url)) {
-      return reply.code(400).send({ error: "webhookUrl must start with https://hooks.slack.com/" });
+      return reply
+        .code(400)
+        .send({ error: "webhookUrl must start with https://hooks.slack.com/" });
     }
     return slackNotifier.sendTestMessage(url);
   });
 
   app.get("/api/v1/app/settings/agent-types", async () => {
     return {
-      enabledAgentTypes: await getEnabledAgentTypes(pool)
+      enabledAgentTypes: await getEnabledAgentTypes(pool),
     };
   });
 
@@ -2047,25 +2495,33 @@ async function registerRoutes() {
     const body = request.body as { enabledAgentTypes?: unknown } | null;
 
     if (!Array.isArray(body?.enabledAgentTypes)) {
-      return reply.code(400).send({ error: "enabledAgentTypes must be an array." });
+      return reply
+        .code(400)
+        .send({ error: "enabledAgentTypes must be an array." });
     }
 
     const uniqueTypes = body.enabledAgentTypes
-      .filter((value): value is typeof AGENT_TYPES[number] => typeof value === "string" && AGENT_TYPES.includes(value as typeof AGENT_TYPES[number]))
+      .filter(
+        (value): value is (typeof AGENT_TYPES)[number] =>
+          typeof value === "string" &&
+          AGENT_TYPES.includes(value as (typeof AGENT_TYPES)[number])
+      )
       .filter((value, index, values) => values.indexOf(value) === index);
 
     if (uniqueTypes.length === 0) {
-      return reply.code(400).send({ error: "At least one agent type must remain enabled." });
+      return reply
+        .code(400)
+        .send({ error: "At least one agent type must remain enabled." });
     }
 
     if (uniqueTypes.length !== body.enabledAgentTypes.length) {
-      return reply
-        .code(400)
-        .send({ error: `enabledAgentTypes must only include ${AGENT_TYPES.join(", ")}.` });
+      return reply.code(400).send({
+        error: `enabledAgentTypes must only include ${AGENT_TYPES.join(", ")}.`,
+      });
     }
 
     return {
-      enabledAgentTypes: await setEnabledAgentTypes(pool, uniqueTypes)
+      enabledAgentTypes: await setEnabledAgentTypes(pool, uniqueTypes),
     };
   });
 
@@ -2082,17 +2538,21 @@ async function registerRoutes() {
 
   app.get("/api/v1/diagnostics/git-context", async () => {
     const now = Date.now();
-    const pendingAges = Array.from(pendingGitRefreshEnqueuedAt.values()).map((queuedAt) =>
-      Math.max(0, now - queuedAt)
+    const pendingAges = Array.from(pendingGitRefreshEnqueuedAt.values()).map(
+      (queuedAt) => Math.max(0, now - queuedAt)
     );
-    const oldestPendingAgeMs = pendingAges.length > 0 ? Math.max(...pendingAges) : null;
+    const oldestPendingAgeMs =
+      pendingAges.length > 0 ? Math.max(...pendingAges) : null;
 
     const durations = [...gitRefreshDurationsMs].sort((a, b) => a - b);
     const p50DurationMs = percentile(durations, 0.5);
     const p95DurationMs = percentile(durations, 0.95);
-    const maxDurationMs = durations.length > 0 ? durations[durations.length - 1] : null;
+    const maxDurationMs =
+      durations.length > 0 ? durations[durations.length - 1] : null;
     const lastDurationMs =
-      gitRefreshDurationsMs.length > 0 ? gitRefreshDurationsMs[gitRefreshDurationsMs.length - 1] : null;
+      gitRefreshDurationsMs.length > 0
+        ? gitRefreshDurationsMs[gitRefreshDurationsMs.length - 1]
+        : null;
 
     const agents = Array.from(gitRefreshAgentDiagnostics.entries())
       .map(([agentId, diag]) => ({
@@ -2104,7 +2564,7 @@ async function registerRoutes() {
         lastCompletedAt: toIso(diag.lastCompletedAt),
         lastDurationMs: diag.lastDurationMs,
         lastResult: diag.lastResult,
-        lastError: diag.lastError
+        lastError: diag.lastError,
       }))
       .sort((a, b) => a.agentId.localeCompare(b.agentId));
 
@@ -2112,12 +2572,12 @@ async function registerRoutes() {
       config: {
         intervalMs: GIT_CONTEXT_REFRESH_INTERVAL_MS,
         concurrency: GIT_CONTEXT_REFRESH_CONCURRENCY,
-        probeTimeoutMs: PROBE_COMMAND_TIMEOUT_MS
+        probeTimeoutMs: PROBE_COMMAND_TIMEOUT_MS,
       },
       queue: {
         pending: pendingGitRefreshAgentIds.size,
         active: activeGitRefreshAgentIds.size,
-        oldestPendingAgeMs
+        oldestPendingAgeMs,
       },
       counters: gitRefreshCounters,
       durationsMs: {
@@ -2125,9 +2585,9 @@ async function registerRoutes() {
         p50: p50DurationMs,
         p95: p95DurationMs,
         max: maxDurationMs,
-        last: lastDurationMs
+        last: lastDurationMs,
       },
-      agents
+      agents,
     };
   });
 
@@ -2135,8 +2595,12 @@ async function registerRoutes() {
 
   app.get("/api/v1/activity/heatmap", async (request) => {
     const query = request.query as Record<string, unknown>;
-    const days = Math.min(Math.max(parseInt((query.days as string) ?? "365", 10) || 365, 1), 730);
-    const rawTz = typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
+    const days = Math.min(
+      Math.max(parseInt((query.days as string) ?? "365", 10) || 365, 1),
+      730
+    );
+    const rawTz =
+      typeof query.tz === "string" && query.tz ? query.tz : FALLBACK_TZ;
     const tz = VALID_TIMEZONES.has(rawTz) ? rawTz : FALLBACK_TZ;
 
     const result = await pool.query<{ day: string; count: number }>(
@@ -2255,7 +2719,10 @@ async function registerRoutes() {
 
   app.get("/api/v1/activity/token-stats", async (request) => {
     const aq = parseActivityQuery(request.query as Record<string, unknown>);
-    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
+    const tokenFilter = timeRangeClause(
+      aq,
+      "COALESCE(session_start, harvested_at)"
+    );
     const result = await pool.query<{
       total_input: number;
       total_cache_creation: number;
@@ -2275,19 +2742,24 @@ async function registerRoutes() {
        ${tokenFilter.clause}`,
       tokenFilter.params
     );
-    return result.rows[0] ?? {
-      total_input: 0,
-      total_cache_creation: 0,
-      total_cache_read: 0,
-      total_output: 0,
-      total_messages: 0,
-      total_sessions: 0,
-    };
+    return (
+      result.rows[0] ?? {
+        total_input: 0,
+        total_cache_creation: 0,
+        total_cache_read: 0,
+        total_output: 0,
+        total_messages: 0,
+        total_sessions: 0,
+      }
+    );
   });
 
   app.get("/api/v1/activity/token-daily", async (request) => {
     const aq = parseActivityQuery(request.query as Record<string, unknown>);
-    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
+    const tokenFilter = timeRangeClause(
+      aq,
+      "COALESCE(session_start, harvested_at)"
+    );
 
     const result = await pool.query<{
       day: string;
@@ -2314,7 +2786,10 @@ async function registerRoutes() {
 
   app.get("/api/v1/activity/token-by-project", async (request) => {
     const aq = parseActivityQuery(request.query as Record<string, unknown>);
-    const tokenFilter = timeRangeClause(aq, "COALESCE(t.session_start, t.harvested_at)");
+    const tokenFilter = timeRangeClause(
+      aq,
+      "COALESCE(t.session_start, t.harvested_at)"
+    );
     const result = await pool.query<{
       project_dir: string;
       total_input: number;
@@ -2339,7 +2814,10 @@ async function registerRoutes() {
 
   app.get("/api/v1/activity/token-by-model", async (request) => {
     const aq = parseActivityQuery(request.query as Record<string, unknown>);
-    const tokenFilter = timeRangeClause(aq, "COALESCE(session_start, harvested_at)");
+    const tokenFilter = timeRangeClause(
+      aq,
+      "COALESCE(session_start, harvested_at)"
+    );
     const result = await pool.query<{
       model: string;
       total_input: number;
@@ -2389,15 +2867,21 @@ async function registerRoutes() {
   app.get("/api/v1/history/agents", async (request) => {
     const query = request.query as Record<string, unknown>;
     const aq = parseActivityQuery(query);
-    const limit = Math.min(Math.max(parseInt(String(query.limit ?? "50"), 10) || 50, 1), 100);
+    const limit = Math.min(
+      Math.max(parseInt(String(query.limit ?? "50"), 10) || 50, 1),
+      100
+    );
     const offset = Math.max(parseInt(String(query.offset ?? "0"), 10) || 0, 0);
     const search = typeof query.search === "string" ? query.search.trim() : "";
     const type = typeof query.type === "string" ? query.type : "";
     const project = typeof query.project === "string" ? query.project : "";
-    const sortCol = typeof query.sort === "string" && ["created_at", "name", "updated_at"].includes(query.sort)
-      ? query.sort
-      : "created_at";
-    const order = typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
+    const sortCol =
+      typeof query.sort === "string" &&
+      ["created_at", "name", "updated_at"].includes(query.sort)
+        ? query.sort
+        : "created_at";
+    const order =
+      typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
 
     const conditions: string[] = ["a.parent_agent_id IS NULL"];
     const params: unknown[] = [];
@@ -2412,7 +2896,9 @@ async function registerRoutes() {
     }
     if (project) {
       params.push(project);
-      conditions.push(`COALESCE(a.git_context->>'repoRoot', a.cwd) = $${params.length}`);
+      conditions.push(
+        `COALESCE(a.git_context->>'repoRoot', a.cwd) = $${params.length}`
+      );
     }
 
     const dateRange = timeRangeClause(aq, "a.created_at", params.length);
@@ -2423,8 +2909,12 @@ async function registerRoutes() {
       conditions.push(rangeConditions);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const sortSql = sortCol === "name" ? `a.name ${order}, a.created_at DESC` : `a.${sortCol} ${order}`;
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sortSql =
+      sortCol === "name"
+        ? `a.name ${order}, a.created_at DESC`
+        : `a.${sortCol} ${order}`;
     const listParams = [...params, limit, offset];
 
     const [countResult, agentsResult] = await Promise.all([
@@ -2480,7 +2970,9 @@ async function registerRoutes() {
     const childrenByParent = new Map<string, ChildAgent[]>();
 
     if (parentIds.length > 0) {
-      const childResult = await pool.query<ChildAgent & { parentAgentId: string }>(
+      const childResult = await pool.query<
+        ChildAgent & { parentAgentId: string }
+      >(
         `SELECT
           a.id,
           a.name,
@@ -2500,7 +2992,10 @@ async function registerRoutes() {
       for (const child of childResult.rows) {
         const pid = child.parentAgentId;
         let list = childrenByParent.get(pid);
-        if (!list) { list = []; childrenByParent.set(pid, list); }
+        if (!list) {
+          list = [];
+          childrenByParent.set(pid, list);
+        }
         list.push({
           id: child.id,
           name: child.name,
@@ -2512,15 +3007,17 @@ async function registerRoutes() {
       }
     }
 
-    const agents = agentsResult.rows.map((agent: { id: string; totalTokens: number }) => {
-      const children = childrenByParent.get(agent.id) ?? [];
-      const childTokens = children.reduce((sum, c) => sum + c.totalTokens, 0);
-      return {
-        ...agent,
-        children,
-        groupTotalTokens: agent.totalTokens + childTokens,
-      };
-    });
+    const agents = agentsResult.rows.map(
+      (agent: { id: string; totalTokens: number }) => {
+        const children = childrenByParent.get(agent.id) ?? [];
+        const childTokens = children.reduce((sum, c) => sum + c.totalTokens, 0);
+        return {
+          ...agent,
+          children,
+          groupTotalTokens: agent.totalTokens + childTokens,
+        };
+      }
+    );
 
     return { agents, total: countResult.rows[0]?.total ?? 0, limit, offset };
   });
@@ -2552,8 +3049,20 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found" });
     }
 
-    const [eventsResult, tokenResult, tokenByModelResult, mediaResult, feedbackResult] = await Promise.all([
-      pool.query<{ id: number; event_type: string; message: string; metadata: Record<string, unknown>; created_at: string }>(
+    const [
+      eventsResult,
+      tokenResult,
+      tokenByModelResult,
+      mediaResult,
+      feedbackResult,
+    ] = await Promise.all([
+      pool.query<{
+        id: number;
+        event_type: string;
+        message: string;
+        metadata: Record<string, unknown>;
+        created_at: string;
+      }>(
         `SELECT id, event_type, message, metadata, created_at
          FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
         [id]
@@ -2574,7 +3083,11 @@ async function registerRoutes() {
          FROM agent_token_usage WHERE agent_id = $1`,
         [id]
       ),
-      pool.query<{ model: string; input_tokens: number; output_tokens: number }>(
+      pool.query<{
+        model: string;
+        input_tokens: number;
+        output_tokens: number;
+      }>(
         `SELECT model,
           SUM(input_tokens + cache_creation_tokens + cache_read_tokens) AS input_tokens,
           SUM(output_tokens) AS output_tokens
@@ -2582,7 +3095,13 @@ async function registerRoutes() {
          GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
         [id]
       ),
-      pool.query<{ file_name: string; source: string; size_bytes: number; description: string | null; created_at: string }>(
+      pool.query<{
+        file_name: string;
+        source: string;
+        size_bytes: number;
+        description: string | null;
+        created_at: string;
+      }>(
         `SELECT file_name, source, size_bytes, description, created_at
          FROM media WHERE agent_id = $1 ORDER BY created_at`,
         [id]
@@ -2651,16 +3170,17 @@ async function registerRoutes() {
 
     const idFilter = ids.length > 0 ? new Set(ids) : null;
     const agents = await agentManager.listAgents();
-    const targets = idFilter ? agents.filter((agent) => idFilter.has(agent.id)) : agents;
+    const targets = idFilter
+      ? agents.filter((agent) => idFilter.has(agent.id))
+      : agents;
 
     const contexts = targets.map((agent) => ({
       id: agent.id,
-      gitContext: agent.gitContext
+      gitContext: agent.gitContext,
     }));
 
     return { contexts };
   });
-
 
   app.get("/api/v1/events", async (_request, reply) => {
     reply.raw.setHeader("Content-Type", "text/event-stream");
@@ -2691,10 +3211,15 @@ async function registerRoutes() {
   app.post("/api/v1/notifications/ack", async (request, reply) => {
     const body = request.body as { notificationId?: unknown };
     if (typeof body?.notificationId !== "string") {
-      return reply.code(400).send({ error: "notificationId must be a string." });
+      return reply
+        .code(400)
+        .send({ error: "notificationId must be a string." });
     }
     const found = ackWebNotification(body.notificationId);
-    app.log.debug({ notificationId: body.notificationId, found }, "Web notification ack received");
+    app.log.debug(
+      { notificationId: body.notificationId, found },
+      "Web notification ack received",
+    );
     return reply.code(204).send();
   });
 
@@ -2710,7 +3235,9 @@ async function registerRoutes() {
     }
 
     if (typeof agentId !== "string" || !agentId.trim()) {
-      return reply.code(400).send({ error: "agentId must be a non-empty string or null." });
+      return reply
+        .code(400)
+        .send({ error: "agentId must be a non-empty string or null." });
     }
 
     focusTracker.setFocused(agentId.trim());
@@ -2733,19 +3260,26 @@ async function registerRoutes() {
     const id = params.id ?? "";
     const body = request.body as { reviewAgentType?: unknown } | null;
 
-    let reviewAgentType: typeof AGENT_TYPES[number] | null;
+    let reviewAgentType: (typeof AGENT_TYPES)[number] | null;
     if (body?.reviewAgentType === null || body?.reviewAgentType === undefined) {
       reviewAgentType = null;
-    } else if (typeof body.reviewAgentType === "string" && AGENT_TYPES.includes(body.reviewAgentType as typeof AGENT_TYPES[number])) {
-      reviewAgentType = body.reviewAgentType as typeof AGENT_TYPES[number];
+    } else if (
+      typeof body.reviewAgentType === "string" &&
+      AGENT_TYPES.includes(body.reviewAgentType as (typeof AGENT_TYPES)[number])
+    ) {
+      reviewAgentType = body.reviewAgentType as (typeof AGENT_TYPES)[number];
     } else {
-      return reply.code(400).send({ error: `reviewAgentType must be null or one of ${AGENT_TYPES.join(", ")}.` });
+      return reply.code(400).send({
+        error: `reviewAgentType must be null or one of ${AGENT_TYPES.join(", ")}.`,
+      });
     }
 
     if (reviewAgentType) {
       const enabledAgentTypes = await getEnabledAgentTypes(pool);
       if (!enabledAgentTypes.includes(reviewAgentType)) {
-        return reply.code(400).send({ error: `${reviewAgentType} agents are disabled in settings.` });
+        return reply.code(400).send({
+          error: `${reviewAgentType} agents are disabled in settings.`,
+        });
       }
     }
 
@@ -2755,7 +3289,10 @@ async function registerRoutes() {
       if (!agent) {
         return reply.code(404).send({ error: "Agent not found." });
       }
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
       return { agent: withStreamFlag(agent) };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -2776,28 +3313,37 @@ async function registerRoutes() {
 
     if (!isAgentLatestEventType(type)) {
       return reply.code(400).send({
-        error: `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
+        error: `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`,
       });
     }
 
     if (typeof message !== "string" || !message.trim()) {
-      return reply.code(400).send({ error: "message must be a non-empty string." });
+      return reply
+        .code(400)
+        .send({ error: "message must be a non-empty string." });
     }
 
     if (
       metadata !== undefined &&
-      (metadata === null || typeof metadata !== "object" || Array.isArray(metadata))
+      (metadata === null ||
+        typeof metadata !== "object" ||
+        Array.isArray(metadata))
     ) {
-      return reply.code(400).send({ error: "metadata must be an object when provided." });
+      return reply
+        .code(400)
+        .send({ error: "metadata must be an object when provided." });
     }
 
     const agent = await agentManager.upsertLatestEvent(id, {
       type,
       message: message.trim(),
-      metadata: metadata as Record<string, unknown> | undefined
+      metadata: metadata as Record<string, unknown> | undefined,
     });
 
-    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(agent),
+    });
     return { agent };
   });
 
@@ -2805,7 +3351,9 @@ async function registerRoutes() {
     const params = request.params as { id?: string };
     const id = params.id ?? "";
     // Include deleted agents so historical media lists still work
-    const agentExists = await pool.query("SELECT 1 FROM agents WHERE id = $1", [id]);
+    const agentExists = await pool.query("SELECT 1 FROM agents WHERE id = $1", [
+      id,
+    ]);
     if (agentExists.rows.length === 0) {
       return reply.code(404).send({ error: "Agent not found." });
     }
@@ -2815,8 +3363,8 @@ async function registerRoutes() {
     return {
       files: files.map((file) => ({
         ...file,
-        seen: seenKeys.has(toMediaKey(file))
-      }))
+        seen: seenKeys.has(toMediaKey(file)),
+      })),
     };
   });
 
@@ -2838,7 +3386,10 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid media file name." });
     }
 
-    const filePath = path.join(resolveMediaDir(agentRow.rows[0].id, agentRow.rows[0].media_dir), file);
+    const filePath = path.join(
+      resolveMediaDir(agentRow.rows[0].id, agentRow.rows[0].media_dir),
+      file
+    );
     const fileStat = await stat(filePath).catch(() => null);
     if (!fileStat || !fileStat.isFile()) {
       return reply.code(404).send({ error: "Media file not found." });
@@ -2865,14 +3416,25 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     if (!isMediaFile(fileName)) {
-      return reply.code(400).send({ error: "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)." });
+      return reply.code(400).send({
+        error:
+          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).",
+      });
     }
 
     const isText = isTextFile(fileName);
-    const sourceField = (data.fields.source as { value?: string } | undefined)?.value ?? (isText ? "text" : "screenshot");
+    const sourceField =
+      (data.fields.source as { value?: string } | undefined)?.value ??
+      (isText ? "text" : "screenshot");
     const validSources = ["screenshot", "stream", "simulator", "text", "user"];
-    const source = validSources.includes(sourceField) ? sourceField : (isText ? "text" : "screenshot");
-    const description = (data.fields.description as { value?: string } | undefined)?.value ?? null;
+    const source = validSources.includes(sourceField)
+      ? sourceField
+      : isText
+        ? "text"
+        : "screenshot";
+    const description =
+      (data.fields.description as { value?: string } | undefined)?.value ??
+      null;
 
     const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
     await mkdir(mediaDir, { recursive: true });
@@ -2880,7 +3442,11 @@ async function registerRoutes() {
     const buffer = await data.toBuffer();
 
     // Timestamp filenames to prevent collisions (matches mcpShareMedia pattern)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .replace("T", "-")
+      .replace("Z", "");
     const ext = path.extname(fileName);
     const base = path.basename(fileName, ext);
     const timestampedFileName = `${base}-${timestamp}${ext}`;
@@ -2902,7 +3468,7 @@ async function registerRoutes() {
       source,
       sizeBytes: buffer.length,
       createdAt: row.created_at.toISOString(),
-      url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`
+      url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`,
     };
 
     uiEventBroker.publish({ type: "media.changed", agentId: id });
@@ -2918,15 +3484,18 @@ async function registerRoutes() {
     }
 
     const body = request.body as { keys?: unknown } | undefined;
-    if (!Array.isArray(body?.keys) || !body.keys.every((key) => typeof key === "string")) {
-      return reply.code(400).send({ error: "keys must be an array of strings." });
+    if (
+      !Array.isArray(body?.keys) ||
+      !body.keys.every((key) => typeof key === "string")
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "keys must be an array of strings." });
     }
 
     const keys = Array.from(
       new Set(
-        body.keys
-          .map((key) => key.trim())
-          .filter((key) => isValidMediaKey(key))
+        body.keys.map((key) => key.trim()).filter((key) => isValidMediaKey(key))
       )
     );
 
@@ -2947,30 +3516,46 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const body = request.body as { type?: unknown; port?: unknown; description?: unknown };
+    const body = request.body as {
+      type?: unknown;
+      port?: unknown;
+      description?: unknown;
+    };
     if (body?.type === "stop") {
-      const description = typeof body.description === "string" ? body.description : null;
+      const description =
+        typeof body.description === "string" ? body.description : null;
       streamManager.stopStream(id, description);
       return { ok: true };
     }
 
     if (body?.type === "playwright") {
-      if (typeof body.port !== "number" || !Number.isFinite(body.port) || body.port < 1) {
-        return reply.code(400).send({ error: "port must be a positive number." });
+      if (
+        typeof body.port !== "number" ||
+        !Number.isFinite(body.port) ||
+        body.port < 1
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "port must be a positive number." });
       }
       if (streamManager.hasStream(id)) {
-        return reply.code(409).send({ error: "Stream already active for this agent." });
+        return reply
+          .code(409)
+          .send({ error: "Stream already active for this agent." });
       }
       try {
         await streamManager.startStream(id, body.port);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to start stream.";
+        const message =
+          error instanceof Error ? error.message : "Failed to start stream.";
         return reply.code(502).send({ error: message });
       }
       return { ok: true };
     }
 
-    return reply.code(400).send({ error: "type must be 'playwright' or 'stop'." });
+    return reply
+      .code(400)
+      .send({ error: "type must be 'playwright' or 'stop'." });
   });
 
   app.get("/api/v1/agents/:id/stream", async (request, reply) => {
@@ -2981,7 +3566,9 @@ async function registerRoutes() {
       return reply.code(404).send({ error: "Agent not found." });
     }
     if (!streamManager.hasStream(id)) {
-      return reply.code(404).send({ error: "No active stream for this agent." });
+      return reply
+        .code(404)
+        .send({ error: "No active stream for this agent." });
     }
 
     reply.hijack();
@@ -2989,7 +3576,7 @@ async function registerRoutes() {
     raw.writeHead(200, {
       "Content-Type": "multipart/x-mixed-replace; boundary=frame",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
     raw.flushHeaders();
@@ -3052,57 +3639,100 @@ async function registerRoutes() {
     };
 
     if (typeof body?.cwd !== "string") {
-      return reply.code(400).send({ error: "Body must include cwd as a string." });
+      return reply
+        .code(400)
+        .send({ error: "Body must include cwd as a string." });
     }
 
     const providedAgentArgs = body.agentArgs ?? body.codexArgs;
     const agentArgsValid =
       providedAgentArgs === undefined ||
-      (Array.isArray(providedAgentArgs) && providedAgentArgs.every((item) => typeof item === "string"));
+      (Array.isArray(providedAgentArgs) &&
+        providedAgentArgs.every((item) => typeof item === "string"));
 
     if (!agentArgsValid) {
-      return reply.code(400).send({ error: "agentArgs must be an array of strings." });
+      return reply
+        .code(400)
+        .send({ error: "agentArgs must be an array of strings." });
     }
 
-    if (body.type !== undefined && body.type !== "codex" && body.type !== "claude" && body.type !== "opencode") {
-      return reply.code(400).send({ error: "type must be codex, claude, or opencode when provided." });
+    if (
+      body.type !== undefined &&
+      body.type !== "codex" &&
+      body.type !== "claude" &&
+      body.type !== "opencode"
+    ) {
+      return reply.code(400).send({
+        error: "type must be codex, claude, or opencode when provided.",
+      });
     }
 
     if (body.fullAccess !== undefined && typeof body.fullAccess !== "boolean") {
-      return reply.code(400).send({ error: "fullAccess must be a boolean when provided." });
+      return reply
+        .code(400)
+        .send({ error: "fullAccess must be a boolean when provided." });
     }
 
-    if (body.useWorktree !== undefined && typeof body.useWorktree !== "boolean") {
-      return reply.code(400).send({ error: "useWorktree must be a boolean when provided." });
+    if (
+      body.useWorktree !== undefined &&
+      typeof body.useWorktree !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "useWorktree must be a boolean when provided." });
     }
 
     if (body.autoReview !== undefined && typeof body.autoReview !== "boolean") {
-      return reply.code(400).send({ error: "autoReview must be a boolean when provided." });
+      return reply
+        .code(400)
+        .send({ error: "autoReview must be a boolean when provided." });
     }
 
-    if (body.worktreeBranch !== undefined && typeof body.worktreeBranch !== "string") {
-      return reply.code(400).send({ error: "worktreeBranch must be a string when provided." });
+    if (
+      body.worktreeBranch !== undefined &&
+      typeof body.worktreeBranch !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "worktreeBranch must be a string when provided." });
     }
 
     if (body.baseBranch !== undefined && typeof body.baseBranch !== "string") {
-      return reply.code(400).send({ error: "baseBranch must be a string when provided." });
+      return reply
+        .code(400)
+        .send({ error: "baseBranch must be a string when provided." });
     }
 
-    if (body.initialPrompt !== undefined && typeof body.initialPrompt !== "string") {
-      return reply.code(400).send({ error: "initialPrompt must be a string when provided." });
+    if (
+      body.initialPrompt !== undefined &&
+      typeof body.initialPrompt !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "initialPrompt must be a string when provided." });
     }
 
-    if (typeof body.initialPrompt === "string" && body.initialPrompt.trim().length > AGENT_INITIAL_PROMPT_MAX_CHARS) {
+    if (
+      typeof body.initialPrompt === "string" &&
+      body.initialPrompt.trim().length > AGENT_INITIAL_PROMPT_MAX_CHARS
+    ) {
       return reply.code(400).send({
-        error: `initialPrompt must be at most ${AGENT_INITIAL_PROMPT_MAX_CHARS} characters when provided.`
+        error: `initialPrompt must be at most ${AGENT_INITIAL_PROMPT_MAX_CHARS} characters when provided.`,
       });
     }
 
     const agentArgs = providedAgentArgs as string[] | undefined;
-    const agentType = body.type === "claude" ? "claude" : body.type === "opencode" ? "opencode" : "codex";
+    const agentType =
+      body.type === "claude"
+        ? "claude"
+        : body.type === "opencode"
+          ? "opencode"
+          : "codex";
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
-      return reply.code(400).send({ error: `${agentType} agents are disabled in settings.` });
+      return reply
+        .code(400)
+        .send({ error: `${agentType} agents are disabled in settings.` });
     }
 
     const fullAccessArg =
@@ -3119,7 +3749,8 @@ async function registerRoutes() {
     try {
       const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
       const worktreeLocation: WorktreeLocation =
-        worktreeLocationRaw && (VALID_WORKTREE_LOCATIONS as string[]).includes(worktreeLocationRaw)
+        worktreeLocationRaw &&
+        (VALID_WORKTREE_LOCATIONS as string[]).includes(worktreeLocationRaw)
           ? (worktreeLocationRaw as WorktreeLocation)
           : "sibling";
 
@@ -3129,18 +3760,35 @@ async function registerRoutes() {
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
         fullAccess: body.fullAccess === true,
-        useWorktree: typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
-        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : undefined,
-        baseBranch: typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+        useWorktree:
+          typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
+        worktreeBranch:
+          typeof body.worktreeBranch === "string"
+            ? body.worktreeBranch
+            : undefined,
+        baseBranch:
+          typeof body.baseBranch === "string" ? body.baseBranch : undefined,
         worktreeLocation,
         persona: typeof body.persona === "string" ? body.persona : undefined,
-        parentAgentId: typeof body.parentAgentId === "string" ? body.parentAgentId : undefined,
-        personaContext: typeof body.personaContext === "string" ? body.personaContext : undefined,
+        parentAgentId:
+          typeof body.parentAgentId === "string"
+            ? body.parentAgentId
+            : undefined,
+        personaContext:
+          typeof body.personaContext === "string"
+            ? body.personaContext
+            : undefined,
         autoReview: body.autoReview === true,
-        initialPrompt: typeof body.initialPrompt === "string" ? body.initialPrompt.trim() || undefined : undefined,
+        initialPrompt:
+          typeof body.initialPrompt === "string"
+            ? body.initialPrompt.trim() || undefined
+            : undefined,
       });
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
       return reply.code(201).send({ agent });
     } catch (error) {
       return handleAgentError(reply, error);
@@ -3155,14 +3803,22 @@ async function registerRoutes() {
 
     const validPhases = ["worktree", "env", "deps", "session"];
     if (typeof body?.phase !== "string" || !validPhases.includes(body.phase)) {
-      return reply.code(400).send({ error: "phase must be one of: worktree, env, deps, session" });
+      return reply
+        .code(400)
+        .send({ error: "phase must be one of: worktree, env, deps, session" });
     }
 
     try {
-      await agentManager.updateSetupPhase(id, body.phase as "worktree" | "env" | "deps" | "session");
+      await agentManager.updateSetupPhase(
+        id,
+        body.phase as "worktree" | "env" | "deps" | "session"
+      );
       const agent = await agentManager.getAgent(id);
       if (agent) {
-        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+        uiEventBroker.publish({
+          type: "agent.upsert",
+          agent: withStreamFlag(agent),
+        });
       }
       return { ok: true };
     } catch (error) {
@@ -3186,11 +3842,16 @@ async function registerRoutes() {
     try {
       const agent = await agentManager.completeSetup(id, {
         effectiveCwd: body.effectiveCwd,
-        worktreePath: typeof body.worktreePath === "string" ? body.worktreePath : null,
-        worktreeBranch: typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
+        worktreePath:
+          typeof body.worktreePath === "string" ? body.worktreePath : null,
+        worktreeBranch:
+          typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
       });
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
       return { ok: true };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -3204,7 +3865,10 @@ async function registerRoutes() {
     try {
       const agent = await agentManager.startAgent(id);
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -3216,16 +3880,26 @@ async function registerRoutes() {
     const body = request.body as { force?: unknown } | undefined;
     const id = params.id ?? "";
 
-    app.log.info({ agentId: id, force: body?.force ?? false }, "Stop agent requested");
+    app.log.info(
+      { agentId: id, force: body?.force ?? false },
+      "Stop agent requested"
+    );
 
     if (body?.force !== undefined && typeof body.force !== "boolean") {
-      return reply.code(400).send({ error: "force must be a boolean when provided." });
+      return reply
+        .code(400)
+        .send({ error: "force must be a boolean when provided." });
     }
 
     try {
-      const agent = await agentManager.stopAgent(id, { force: body?.force as boolean | undefined });
+      const agent = await agentManager.stopAgent(id, {
+        force: body?.force as boolean | undefined,
+      });
       queueGitContextRefresh([agent.id]);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
       return { agent };
     } catch (error) {
       return handleAgentError(reply, error);
@@ -3255,7 +3929,8 @@ async function registerRoutes() {
     const validCleanupModes = ["auto", "keep", "force"] as const;
     type CleanupMode = (typeof validCleanupModes)[number];
     const cleanupWorktree: CleanupMode =
-      typeof query.cleanupWorktree === "string" && (validCleanupModes as readonly string[]).includes(query.cleanupWorktree)
+      typeof query.cleanupWorktree === "string" &&
+      (validCleanupModes as readonly string[]).includes(query.cleanupWorktree)
         ? (query.cleanupWorktree as CleanupMode)
         : "auto";
 
@@ -3263,14 +3938,20 @@ async function registerRoutes() {
       // Fast synchronous phase: mark agent as archiving and return immediately.
       // cleanupWorktree is persisted so reconciliation can honor it if the server restarts.
       const agent = await agentManager.beginArchive(params.id, cleanupWorktree);
-      uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
 
       // Fire-and-forget: run cleanup in background (tracked for graceful shutdown + dedup)
       const agentId = params.id;
       archivingAgentIds.add(agentId);
       const archivePromise = agentManager.executeArchive(agentId, {
         onPhaseChange: (updated) => {
-          uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+          uiEventBroker.publish({
+            type: "agent.upsert",
+            agent: withStreamFlag(updated),
+          });
         },
         onComplete: (deletedIds) => {
           for (const deletedId of deletedIds) {
@@ -3279,12 +3960,15 @@ async function registerRoutes() {
             pendingGitRefreshEnqueuedAt.delete(deletedId);
             activeGitRefreshAgentIds.delete(deletedId);
             gitRefreshAgentDiagnostics.delete(deletedId);
-            uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+            uiEventBroker.publish({
+              type: "agent.deleted",
+              agentId: deletedId,
+            });
           }
         },
         onError: (error) => {
           app.log.error({ err: error, agentId }, "Background archive failed");
-        }
+        },
       });
       activeArchives.add(archivePromise);
       archivePromise.finally(() => {
@@ -3303,7 +3987,9 @@ async function registerRoutes() {
   app.get("/api/v1/personas", async (request, reply) => {
     const query = request.query as { cwd?: unknown };
     if (typeof query.cwd !== "string") {
-      return reply.code(400).send({ error: "cwd query parameter is required." });
+      return reply
+        .code(400)
+        .send({ error: "cwd query parameter is required." });
     }
     try {
       // Try worktree root first (uncommitted persona files live here), then repo root
@@ -3337,34 +4023,59 @@ async function registerRoutes() {
     }
   });
 
-  app.patch("/api/v1/agents/:id/feedback/:feedbackId", async (request, reply) => {
-    const params = request.params as { id?: string; feedbackId?: string };
-    const body = request.body as { status?: unknown };
-    const feedbackId = parseInt(params.feedbackId ?? "", 10);
+  app.patch(
+    "/api/v1/agents/:id/feedback/:feedbackId",
+    async (request, reply) => {
+      const params = request.params as { id?: string; feedbackId?: string };
+      const body = request.body as { status?: unknown };
+      const feedbackId = parseInt(params.feedbackId ?? "", 10);
 
-    if (isNaN(feedbackId)) {
-      return reply.code(400).send({ error: "Invalid feedback id." });
-    }
+      if (isNaN(feedbackId)) {
+        return reply.code(400).send({ error: "Invalid feedback id." });
+      }
 
-    const validStatuses = ["open", "dismissed", "forwarded", "fixed", "ignored"] as const;
-    if (typeof body?.status !== "string" || !(validStatuses as readonly string[]).includes(body.status)) {
-      return reply.code(400).send({ error: "status must be one of: open, dismissed, forwarded, fixed, ignored" });
-    }
+      const validStatuses = [
+        "open",
+        "dismissed",
+        "forwarded",
+        "fixed",
+        "ignored",
+      ] as const;
+      if (
+        typeof body?.status !== "string" ||
+        !(validStatuses as readonly string[]).includes(body.status)
+      ) {
+        return reply.code(400).send({
+          error:
+            "status must be one of: open, dismissed, forwarded, fixed, ignored",
+        });
+      }
 
-    try {
-      const agentId = params.id ?? "";
-      const updated = await agentManager.updateFeedbackStatus(
-        feedbackId,
-        agentId,
-        body.status as "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
-      );
-      if (!updated) return reply.code(404).send({ error: "Feedback not found." });
-      uiEventBroker.publish({ type: "feedback.updated", agentId, feedback: updated });
-      return { feedback: updated };
-    } catch (error) {
-      return handleAgentError(reply, error);
+      try {
+        const agentId = params.id ?? "";
+        const updated = await agentManager.updateFeedbackStatus(
+          feedbackId,
+          agentId,
+          body.status as
+            | "open"
+            | "dismissed"
+            | "forwarded"
+            | "fixed"
+            | "ignored"
+        );
+        if (!updated)
+          return reply.code(404).send({ error: "Feedback not found." });
+        uiEventBroker.publish({
+          type: "feedback.updated",
+          agentId,
+          feedback: updated,
+        });
+        return { feedback: updated };
+      } catch (error) {
+        return handleAgentError(reply, error);
+      }
     }
-  });
+  );
 
   app.post("/api/v1/agents/:id/terminal/token", async (request, reply) => {
     const params = request.params as { id?: string };
@@ -3375,21 +4086,24 @@ async function registerRoutes() {
       if (access.mode === "inert") {
         return {
           mode: "inert" as const,
-          message: access.message
+          message: access.message,
         };
       }
       const token = terminalTokenStore.issue(id);
       return {
         mode: "tmux" as const,
         token,
-        wsUrl: `/api/v1/agents/${id}/terminal/ws?token=${token}`
+        wsUrl: `/api/v1/agents/${id}/terminal/ws?token=${token}`,
       };
     } catch (error) {
       // Keep UI state in sync when terminal access lookup corrected a stale running status.
       const refreshed = await agentManager.getAgent(id);
       if (refreshed) {
         queueGitContextRefresh([refreshed.id]);
-        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(refreshed) });
+        uiEventBroker.publish({
+          type: "agent.upsert",
+          agent: withStreamFlag(refreshed),
+        });
       }
       return handleAgentError(reply, error);
     }
@@ -3401,12 +4115,21 @@ async function registerRoutes() {
     async (connection, request) => {
       const socket = connection.socket;
       const params = request.params as { id?: string };
-      const query = request.query as { token?: string; cols?: string; rows?: string };
+      const query = request.query as {
+        token?: string;
+        cols?: string;
+        rows?: string;
+      };
       const agentId = params.id ?? "";
       const token = query.token ?? "";
 
       if (!terminalTokenStore.consume(agentId, token)) {
-        socket.send(JSON.stringify({ type: "error", message: "Invalid or expired terminal token." }));
+        socket.send(
+          JSON.stringify({
+            type: "error",
+            message: "Invalid or expired terminal token.",
+          })
+        );
         socket.close(1008, "invalid token");
         return;
       }
@@ -3418,11 +4141,16 @@ async function registerRoutes() {
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
-        await runCommand("tmux", ["set-option", "-t", tmuxSession, "mouse", "on"], {
-          allowedExitCodes: [0]
-        });
+        await runCommand(
+          "tmux",
+          ["set-option", "-t", tmuxSession, "mouse", "on"],
+          {
+            allowedExitCodes: [0],
+          }
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Terminal attach failed.";
+        const message =
+          error instanceof Error ? error.message : "Terminal attach failed.";
         socket.send(JSON.stringify({ type: "error", message }));
         socket.close(1011, "attach failed");
         return;
@@ -3430,11 +4158,15 @@ async function registerRoutes() {
 
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
-      const ptyProcess = pty.spawn("tmux", ["attach-session", "-t", tmuxSession], {
-        name: "xterm-256color",
-        cols: Number.isFinite(cols) ? cols : 140,
-        rows: Number.isFinite(rows) ? rows : 42
-      });
+      const ptyProcess = pty.spawn(
+        "tmux",
+        ["attach-session", "-t", tmuxSession],
+        {
+          name: "xterm-256color",
+          cols: Number.isFinite(cols) ? cols : 140,
+          rows: Number.isFinite(rows) ? rows : 42,
+        }
+      );
 
       const sendJson = (payload: unknown): void => {
         if (socket.readyState === socket.OPEN) {
@@ -3485,7 +4217,6 @@ async function registerRoutes() {
       });
     }
   );
-
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
@@ -3503,9 +4234,13 @@ async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
 
 let routesRegistered = false;
 
-export async function initializeApp(options?: { runMigrations?: boolean; reconcileState?: boolean }): Promise<typeof app> {
+export async function initializeApp(options?: {
+  runMigrations?: boolean;
+  reconcileState?: boolean;
+}): Promise<typeof app> {
   await waitForDatabase();
-  const shouldRunMigrations = options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";
+  const shouldRunMigrations =
+    options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";
   if (!shouldRunMigrations) {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
@@ -3541,9 +4276,11 @@ export async function start() {
   const protocol = config.tls ? "https" : "http";
   await app.listen({
     host: config.host,
-    port: config.port
+    port: config.port,
   });
-  app.log.info(`Dispatch listening on ${protocol}://${config.host}:${config.port}`);
+  app.log.info(
+    `Dispatch listening on ${protocol}://${config.host}:${config.port}`
+  );
 }
 
 export { app, shutdown };
@@ -3557,13 +4294,18 @@ function handleAgentError(reply: FastifyReply, error: unknown) {
   return reply.code(500).send({ error: message });
 }
 
-
 function ensureGitRefreshAgentDiagnostics(agentId: string): {
   lastQueuedAt: number | null;
   lastStartedAt: number | null;
   lastCompletedAt: number | null;
   lastDurationMs: number | null;
-  lastResult: "updated" | "unchanged" | "probe_error" | "failed" | "skipped" | null;
+  lastResult:
+    | "updated"
+    | "unchanged"
+    | "probe_error"
+    | "failed"
+    | "skipped"
+    | null;
   lastError: string | null;
 } {
   const existing = gitRefreshAgentDiagnostics.get(agentId);
@@ -3576,7 +4318,7 @@ function ensureGitRefreshAgentDiagnostics(agentId: string): {
     lastCompletedAt: null,
     lastDurationMs: null,
     lastResult: null,
-    lastError: null
+    lastError: null,
   };
   gitRefreshAgentDiagnostics.set(agentId, created);
   return created;
@@ -3706,9 +4448,12 @@ let sessionCleanupTimer: NodeJS.Timeout | null = null;
 
 function startSessionCleanupTimer(): void {
   if (sessionCleanupTimer) return;
-  sessionCleanupTimer = setInterval(() => {
-    void cleanExpiredSessions(pool).catch(() => null);
-  }, 60 * 60 * 1000); // every hour
+  sessionCleanupTimer = setInterval(
+    () => {
+      void cleanExpiredSessions(pool).catch(() => null);
+    },
+    60 * 60 * 1000
+  ); // every hour
 }
 
 function stopSessionCleanupTimer(): void {
@@ -3727,13 +4472,21 @@ async function runAgentStatusReconciliation(): Promise<void> {
           continue;
         }
         // Resume interrupted archive
-        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`);
-        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+        console.log(
+          `[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`
+        );
+        uiEventBroker.publish({
+          type: "agent.upsert",
+          agent: withStreamFlag(agent),
+        });
         // Cleanup mode is persisted on the agent record by beginArchive
         archivingAgentIds.add(agent.id);
         const archivePromise = agentManager.executeArchive(agent.id, {
           onPhaseChange: (updated) => {
-            uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(updated) });
+            uiEventBroker.publish({
+              type: "agent.upsert",
+              agent: withStreamFlag(updated),
+            });
           },
           onComplete: (deletedIds) => {
             for (const deletedId of deletedIds) {
@@ -3742,12 +4495,18 @@ async function runAgentStatusReconciliation(): Promise<void> {
               pendingGitRefreshEnqueuedAt.delete(deletedId);
               activeGitRefreshAgentIds.delete(deletedId);
               gitRefreshAgentDiagnostics.delete(deletedId);
-              uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
+              uiEventBroker.publish({
+                type: "agent.deleted",
+                agentId: deletedId,
+              });
             }
           },
           onError: (error) => {
-            app.log.error({ err: error, agentId: agent.id }, "Resumed archive failed");
-          }
+            app.log.error(
+              { err: error, agentId: agent.id },
+              "Resumed archive failed"
+            );
+          },
         });
         activeArchives.add(archivePromise);
         archivePromise.finally(() => {
@@ -3755,8 +4514,13 @@ async function runAgentStatusReconciliation(): Promise<void> {
           archivingAgentIds.delete(agent.id);
         });
       } else {
-        console.log(`[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`);
-        uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
+        console.log(
+          `[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`
+        );
+        uiEventBroker.publish({
+          type: "agent.upsert",
+          agent: withStreamFlag(agent),
+        });
       }
     }
   } catch (error) {
@@ -3778,7 +4542,9 @@ async function drainGitContextRefreshQueue(): Promise<void> {
     activeGitRefreshAgentIds.size < GIT_CONTEXT_REFRESH_CONCURRENCY &&
     pendingGitRefreshAgentIds.size > 0
   ) {
-    const nextAgentId = pendingGitRefreshAgentIds.values().next().value as string | undefined;
+    const nextAgentId = pendingGitRefreshAgentIds.values().next().value as
+      | string
+      | undefined;
     if (!nextAgentId) {
       return;
     }
@@ -3802,7 +4568,10 @@ async function drainGitContextRefreshQueue(): Promise<void> {
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         recordGitRefreshCompletion(nextAgentId, startedAt, "failed", message);
-        app.log.warn({ err: error, agentId: nextAgentId }, "Git context refresh failed.");
+        app.log.warn(
+          { err: error, agentId: nextAgentId },
+          "Git context refresh failed."
+        );
       })
       .finally(() => {
         activeGitRefreshAgentIds.delete(nextAgentId);
@@ -3831,7 +4600,8 @@ async function refreshAgentGitContext(
 
   const nextContext = probe.value;
   const shouldPublish =
-    agent.gitContextStale || !areGitContextsEqual(agent.gitContext, nextContext);
+    agent.gitContextStale ||
+    !areGitContextsEqual(agent.gitContext, nextContext);
 
   await persistAgentGitContext(agentId, nextContext, false);
   if (!shouldPublish) {
@@ -3840,7 +4610,10 @@ async function refreshAgentGitContext(
 
   const refreshed = await agentManager.getAgent(agentId);
   if (refreshed) {
-    uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(refreshed) });
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(refreshed),
+    });
   }
   return "updated";
 }
@@ -3887,7 +4660,9 @@ async function resolveAgentGitCwd(agent: AgentRecord): Promise<string> {
 
 async function probeGitContext(
   cwd: string
-): Promise<{ status: "ok"; value: AgentGitContext | null } | { status: "error" }> {
+): Promise<
+  { status: "ok"; value: AgentGitContext | null } | { status: "error" }
+> {
   try {
     const inside = await runCommand(
       "git",
@@ -3903,22 +4678,26 @@ async function probeGitContext(
       (
         await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
           allowedExitCodes: [0],
-          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS,
         })
       ).stdout
     );
 
     let branch = (
-      await runCommand("git", ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"], {
-        allowedExitCodes: [0, 1],
-        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
-      })
+      await runCommand(
+        "git",
+        ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+        {
+          allowedExitCodes: [0, 1],
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS,
+        }
+      )
     ).stdout;
     if (!branch) {
       branch = (
         await runCommand("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], {
           allowedExitCodes: [0],
-          timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+          timeoutMs: PROBE_COMMAND_TIMEOUT_MS,
         })
       ).stdout;
     }
@@ -3930,8 +4709,8 @@ async function probeGitContext(
         branch,
         worktreePath: checkoutRoot,
         worktreeName: path.basename(checkoutRoot),
-        isWorktree: checkoutRoot !== repoRoot
-      }
+        isWorktree: checkoutRoot !== repoRoot,
+      },
     };
   } catch {
     return { status: "error" };
@@ -3957,7 +4736,10 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
     ["-C", cwd, "rev-parse", "--git-common-dir"],
     { allowedExitCodes: [0, 128], timeoutMs: PROBE_COMMAND_TIMEOUT_MS }
   );
-  if (fallbackCommonDirResult.exitCode === 0 && fallbackCommonDirResult.stdout) {
+  if (
+    fallbackCommonDirResult.exitCode === 0 &&
+    fallbackCommonDirResult.stdout
+  ) {
     const commonDir = fallbackCommonDirResult.stdout;
     const absoluteCommonDir = normalizePath(
       path.isAbsolute(commonDir) ? commonDir : path.resolve(cwd, commonDir)
@@ -3971,7 +4753,7 @@ async function resolveRepoRoot(cwd: string): Promise<string> {
     (
       await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
         allowedExitCodes: [0],
-        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+        timeoutMs: PROBE_COMMAND_TIMEOUT_MS,
       })
     ).stdout
   );
@@ -3982,20 +4764,24 @@ async function resolveWorktreeRoot(cwd: string): Promise<string> {
     (
       await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
         allowedExitCodes: [0],
-        timeoutMs: PROBE_COMMAND_TIMEOUT_MS
+        timeoutMs: PROBE_COMMAND_TIMEOUT_MS,
       })
     ).stdout
   );
 }
 
-function mcpMethodNotAllowed(): { jsonrpc: "2.0"; error: { code: number; message: string }; id: null } {
+function mcpMethodNotAllowed(): {
+  jsonrpc: "2.0";
+  error: { code: number; message: string };
+  id: null;
+} {
   return {
     jsonrpc: "2.0",
     error: {
       code: -32000,
-      message: "Method not allowed."
+      message: "Method not allowed.",
     },
-    id: null
+    id: null,
   };
 }
 
@@ -4022,7 +4808,7 @@ function decodeClientMessage(
     if (parsed.type === "input" && typeof parsed.data === "string") {
       return {
         type: "input",
-        data: parsed.data
+        data: parsed.data,
       };
     }
 
@@ -4034,7 +4820,7 @@ function decodeClientMessage(
       return {
         type: "resize",
         cols: parsed.cols,
-        rows: parsed.rows
+        rows: parsed.rows,
       };
     }
 
@@ -4044,9 +4830,16 @@ function decodeClientMessage(
   }
 }
 
-async function listMediaFiles(
-  agentId: string
-): Promise<Array<{ name: string; source: string; size: number; updatedAt: string; url: string; description: string | null }>> {
+async function listMediaFiles(agentId: string): Promise<
+  Array<{
+    name: string;
+    source: string;
+    size: number;
+    updatedAt: string;
+    url: string;
+    description: string | null;
+  }>
+> {
   const result = await pool.query<{
     file_name: string;
     source: string;
@@ -4068,7 +4861,7 @@ async function listMediaFiles(
     size: row.size_bytes,
     updatedAt: row.effective_updated_at.toISOString(),
     url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`,
-    description: row.description ?? null
+    description: row.description ?? null,
   }));
 }
 
@@ -4084,7 +4877,10 @@ function isValidMediaKey(key: string): boolean {
   return !/[\u0000-\u001F]/.test(key);
 }
 
-async function loadSeenMediaKeys(agentId: string, keys: string[]): Promise<Set<string>> {
+async function loadSeenMediaKeys(
+  agentId: string,
+  keys: string[]
+): Promise<Set<string>> {
   if (keys.length === 0) {
     return new Set();
   }
@@ -4101,7 +4897,10 @@ async function loadSeenMediaKeys(agentId: string, keys: string[]): Promise<Set<s
   return new Set(result.rows.map((row) => row.mediaKey));
 }
 
-async function markSeenMediaKeys(agentId: string, keys: string[]): Promise<void> {
+async function markSeenMediaKeys(
+  agentId: string,
+  keys: string[]
+): Promise<void> {
   if (keys.length === 0) {
     return;
   }
@@ -4119,11 +4918,50 @@ async function markSeenMediaKeys(agentId: string, keys: string[]): Promise<void>
 }
 
 const TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".csv", ".log", ".xml",
-  ".html", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".sh",
-  ".sql", ".diff", ".patch", ".env", ".ini", ".cfg", ".conf", ".swift",
-  ".kt", ".java", ".c", ".cpp", ".h", ".hpp", ".rb", ".php", ".lua",
-  ".zig", ".nim", ".r", ".m", ".ex", ".exs", ".erl", ".hs",
+  ".txt",
+  ".md",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".csv",
+  ".log",
+  ".xml",
+  ".html",
+  ".css",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".go",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".diff",
+  ".patch",
+  ".env",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".swift",
+  ".kt",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".rb",
+  ".php",
+  ".lua",
+  ".zig",
+  ".nim",
+  ".r",
+  ".m",
+  ".ex",
+  ".exs",
+  ".erl",
+  ".hs",
 ]);
 
 function isTextFile(name: string): boolean {
@@ -4139,7 +4977,11 @@ function isDocumentFile(name: string): boolean {
 }
 
 function isMediaFile(name: string): boolean {
-  return /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) || isTextFile(name) || isDocumentFile(name);
+  return (
+    /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) ||
+    isTextFile(name) ||
+    isDocumentFile(name)
+  );
 }
 
 function mimeType(name: string): string {
@@ -4232,7 +5074,10 @@ async function cleanupAppResources(): Promise<void> {
 
   // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
   if (activeArchives.size > 0) {
-    app.log.info({ count: activeArchives.size }, "Waiting for in-flight archives to complete…");
+    app.log.info(
+      { count: activeArchives.size },
+      "Waiting for in-flight archives to complete…"
+    );
     const ARCHIVE_DRAIN_TIMEOUT_MS = 10_000;
     await Promise.race([
       Promise.allSettled(activeArchives),
@@ -4250,7 +5095,10 @@ async function shutdown(code: number): Promise<void> {
 }
 
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
-  return typeof value === "string" && AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType);
+  return (
+    typeof value === "string" &&
+    AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType)
+  );
 }
 
 async function mcpUpsertEvent(
@@ -4258,12 +5106,14 @@ async function mcpUpsertEvent(
   event: { type: string; message: string; metadata?: Record<string, unknown> }
 ): Promise<void> {
   if (!isAgentLatestEventType(event.type)) {
-    throw new Error(`type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`);
+    throw new Error(
+      `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
+    );
   }
   const agent = await agentManager.upsertLatestEvent(agentId, {
     type: event.type,
     message: event.message.trim(),
-    metadata: event.metadata
+    metadata: event.metadata,
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
@@ -4282,7 +5132,11 @@ async function mcpSubmitFeedback(
   feedback: import("./agents/manager.js").FeedbackInput
 ): Promise<FeedbackRecord> {
   const record = await agentManager.submitFeedback(agentId, feedback);
-  uiEventBroker.publish({ type: "feedback.created", agentId, feedback: record });
+  uiEventBroker.publish({
+    type: "feedback.created",
+    agentId,
+    feedback: record,
+  });
   return record;
 }
 
@@ -4290,7 +5144,11 @@ async function mcpGetFeedback(
   agentId: string,
   opts: { persona?: string; limit?: number }
 ) {
-  return agentManager.listFeedbackByParentGrouped(agentId, opts.persona, opts.limit);
+  return agentManager.listFeedbackByParentGrouped(
+    agentId,
+    opts.persona,
+    opts.limit
+  );
 }
 
 async function mcpResolveFeedback(
@@ -4298,9 +5156,20 @@ async function mcpResolveFeedback(
   feedbackId: number,
   status: "fixed" | "ignored"
 ): Promise<import("./agents/manager.js").FeedbackRecord> {
-  const record = await agentManager.updateFeedbackStatusByParent(feedbackId, agentId, status);
-  if (!record) throw new Error(`Feedback #${feedbackId} not found or not owned by a child of this agent.`);
-  uiEventBroker.publish({ type: "feedback.updated", agentId: record.agentId, feedback: record });
+  const record = await agentManager.updateFeedbackStatusByParent(
+    feedbackId,
+    agentId,
+    status
+  );
+  if (!record)
+    throw new Error(
+      `Feedback #${feedbackId} not found or not owned by a child of this agent.`
+    );
+  uiEventBroker.publish({
+    type: "feedback.updated",
+    agentId: record.agentId,
+    feedback: record,
+  });
   return record;
 }
 
@@ -4315,15 +5184,12 @@ async function mcpUpsertPin(
   const agent = await agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
-    type: pin.type
+    type: pin.type,
   });
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
 
-async function mcpDeletePin(
-  agentId: string,
-  label: string
-): Promise<void> {
+async function mcpDeletePin(agentId: string, label: string): Promise<void> {
   const agent = await agentManager.deletePin(agentId, label);
   uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agent) });
 }
@@ -4338,21 +5204,42 @@ async function mcpUpdateReviewStatus(
     agentManager.getAgent(agentId),
     agentManager.getAgent(review.parentAgentId),
   ]);
-  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
-  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+  if (child)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(child),
+    });
+  if (parent)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(parent),
+    });
 }
 
 async function mcpCompleteReview(
   agentId: string,
-  input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
+  input: {
+    verdict: string;
+    summary: string;
+    filesReviewed?: string[];
+    message?: string;
+  }
 ): Promise<void> {
   const review = await agentManager.completePersonaReview(agentId, input);
   const [child, parent] = await Promise.all([
     agentManager.getAgent(agentId),
     agentManager.getAgent(review.parentAgentId),
   ]);
-  if (child) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(child) });
-  if (parent) uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(parent) });
+  if (child)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(child),
+    });
+  if (parent)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(parent),
+    });
 }
 
 async function mcpGetParentContext(
@@ -4364,7 +5251,7 @@ async function mcpGetParentContext(
   const pins = (parent.pins ?? []).map((p) => ({
     label: p.label,
     value: p.value,
-    type: p.type
+    type: p.type,
   }));
 
   const media = await agentManager.listMedia(parentAgentId);
@@ -4375,8 +5262,8 @@ async function mcpGetParentContext(
       fileName: m.fileName,
       description: m.description,
       source: m.source,
-      createdAt: m.createdAt
-    }))
+      createdAt: m.createdAt,
+    })),
   };
 }
 
@@ -4389,7 +5276,9 @@ async function mcpRenameSession(
   return { id: agent.id, name: agent.name };
 }
 
-function getBearerToken(request: { headers: Record<string, unknown> }): string | null {
+function getBearerToken(request: {
+  headers: Record<string, unknown>;
+}): string | null {
   const authHeader = request.headers.authorization;
   if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
     return null;
@@ -4397,24 +5286,37 @@ function getBearerToken(request: { headers: Record<string, unknown> }): string |
   return authHeader.slice(7);
 }
 
-async function mcpJobComplete(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
+async function mcpJobComplete(
+  agentId: string,
+  report: unknown
+): Promise<{ runId: string; status: string }> {
   const run = await jobService.completeRunForAgent(agentId, report);
   return { runId: run.id, status: run.status };
 }
 
-async function mcpJobFailed(agentId: string, report: unknown): Promise<{ runId: string; status: string }> {
+async function mcpJobFailed(
+  agentId: string,
+  report: unknown
+): Promise<{ runId: string; status: string }> {
   const run = await jobService.failRunForAgent(agentId, report);
   return { runId: run.id, status: run.status };
 }
 
-async function mcpJobNeedsInput(agentId: string, question: string): Promise<{ runId: string; status: string }> {
+async function mcpJobNeedsInput(
+  agentId: string,
+  question: string
+): Promise<{ runId: string; status: string }> {
   const run = await jobService.markNeedsInputForAgent(agentId, question);
   return { runId: run.id, status: run.status };
 }
 
 async function mcpJobLog(
   agentId: string,
-  input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
+  input: {
+    task: string;
+    message: string;
+    level: "debug" | "info" | "warn" | "error";
+  }
 ): Promise<{ runId: string; status: string }> {
   const run = await jobService.logForAgent(agentId, input);
   return { runId: run.id, status: run.status };
@@ -4424,17 +5326,30 @@ async function mcpListPersonas(
   agentCwd: string
 ): Promise<Array<{ slug: string; name: string; description: string }>> {
   const personas = await loadPersonas(agentCwd);
-  return personas.map(({ slug, name, description }) => ({ slug, name, description }));
+  return personas.map(({ slug, name, description }) => ({
+    slug,
+    name,
+    description,
+  }));
 }
 
 async function mcpLaunchPersona(
   agentId: string,
-  opts: { persona: string; context: string; agentType?: typeof AGENT_TYPES[number] }
+  opts: {
+    persona: string;
+    context: string;
+    agentType?: (typeof AGENT_TYPES)[number];
+  }
 ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
   const parent = await agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
 
-  const personaAgentType = opts.agentType ?? parent.reviewAgentType ?? (parent.type === "claude" || parent.type === "opencode" ? parent.type : "codex");
+  const personaAgentType =
+    opts.agentType ??
+    parent.reviewAgentType ??
+    (parent.type === "claude" || parent.type === "opencode"
+      ? parent.type
+      : "codex");
   if (!AGENT_TYPES.includes(personaAgentType)) {
     throw new Error(`Unsupported persona agent type "${personaAgentType}".`);
   }
@@ -4468,7 +5383,9 @@ async function mcpLaunchPersona(
     } catch {}
   }
   if (!persona) {
-    throw new Error(`Persona "${opts.persona}" not found in .dispatch/personas/.`);
+    throw new Error(
+      `Persona "${opts.persona}" not found in .dispatch/personas/.`
+    );
   }
 
   const diff = await buildPersonaReviewDiff(parentCwd, runCommand);
@@ -4479,9 +5396,11 @@ async function mcpLaunchPersona(
   const personaArgs: string[] = [`--append-system-prompt`, prompt];
   if (parent.fullAccess) {
     const fullAccessArg =
-      personaAgentType === "claude" ? CLAUDE_FULL_ACCESS_ARG
-      : personaAgentType === "codex" ? CODEX_FULL_ACCESS_ARG
-      : null;
+      personaAgentType === "claude"
+        ? CLAUDE_FULL_ACCESS_ARG
+        : personaAgentType === "codex"
+          ? CODEX_FULL_ACCESS_ARG
+          : null;
     if (fullAccessArg) personaArgs.push(fullAccessArg);
   }
 
@@ -4514,16 +5433,26 @@ async function mcpLaunchPersona(
   const agentWithReview = await agentManager.getAgent(agent.id);
 
   queueGitContextRefresh([agent.id]);
-  uiEventBroker.publish({ type: "agent.upsert", agent: withStreamFlag(agentWithReview ?? agent) });
+  uiEventBroker.publish({
+    type: "agent.upsert",
+    agent: withStreamFlag(agentWithReview ?? agent),
+  });
 
   // Send initial prompt to the persona agent after it starts up
   if (agent.tmuxSession) {
     const tmuxSession = agent.tmuxSession;
-    const initialMessage = "Begin your review now. Follow your system prompt instructions.";
+    const initialMessage =
+      "Begin your review now. Follow your system prompt instructions.";
     setTimeout(async () => {
       try {
         const { runCommand: run } = await import("./shared/lib/run-command.js");
-        await run("tmux", ["send-keys", "-t", tmuxSession, "-l", initialMessage]);
+        await run("tmux", [
+          "send-keys",
+          "-t",
+          tmuxSession,
+          "-l",
+          initialMessage,
+        ]);
         await run("tmux", ["send-keys", "-t", tmuxSession, "Enter"]);
       } catch {}
     }, 10_000);
@@ -4534,18 +5463,36 @@ async function mcpLaunchPersona(
 
 async function mcpShareMedia(
   agentId: string,
-  opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
-): Promise<{ fileName: string; url: string; sizeBytes: number; source: string; description: string }> {
+  opts: {
+    filePath: string;
+    description: string;
+    source?: string;
+    name?: string;
+    update?: string;
+  }
+): Promise<{
+  fileName: string;
+  url: string;
+  sizeBytes: number;
+  source: string;
+  description: string;
+}> {
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
   if (!isMediaFile(opts.filePath)) {
-    throw new Error("Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).");
+    throw new Error(
+      "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
+    );
   }
 
   const isText = isTextFile(opts.filePath);
   const validSources = ["screenshot", "stream", "simulator", "text"];
-  const source = isText ? "text" : (opts.source && validSources.includes(opts.source) ? opts.source : "screenshot");
+  const source = isText
+    ? "text"
+    : opts.source && validSources.includes(opts.source)
+      ? opts.source
+      : "screenshot";
 
   const buffer = await readFile(opts.filePath);
   const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
@@ -4558,7 +5505,9 @@ async function mcpShareMedia(
       [agentId, opts.update]
     );
     if (existing.rows.length === 0) {
-      throw new Error(`No media file found with the given fileName for this agent.`);
+      throw new Error(
+        `No media file found with the given fileName for this agent.`
+      );
     }
 
     const fileName = existing.rows[0].file_name;
@@ -4583,16 +5532,23 @@ async function mcpShareMedia(
       url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
       sizeBytes: buffer.length,
       source,
-      description: opts.description
+      description: opts.description,
     };
   }
 
   // Create new media file
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "-").replace("Z", "");
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .replace("T", "-")
+    .replace("Z", "");
   const baseName = opts.name ?? path.basename(opts.filePath);
   const ext0 = path.extname(baseName).toLowerCase();
-  const fallbackExt = ext0 === ".mp4" ? ".mp4" : isText ? (ext0 || ".txt") : ".png";
-  const safeName = baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") || `shared-${timestamp}${fallbackExt}`;
+  const fallbackExt =
+    ext0 === ".mp4" ? ".mp4" : isText ? ext0 || ".txt" : ".png";
+  const safeName =
+    baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") ||
+    `shared-${timestamp}${fallbackExt}`;
   const ext = path.extname(safeName);
   const base = path.basename(safeName, ext);
   const fileName = `${base}-${timestamp}${ext}`;
@@ -4612,14 +5568,23 @@ async function mcpShareMedia(
     url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
     sizeBytes: buffer.length,
     source,
-    description: opts.description
+    description: opts.description,
   };
 }
 
 async function mcpListMedia(
   agentId: string,
   opts: { source?: string }
-): Promise<Array<{ fileName: string; filePath: string; source: string; description: string | null; sizeBytes: number; createdAt: string }>> {
+): Promise<
+  Array<{
+    fileName: string;
+    filePath: string;
+    source: string;
+    description: string | null;
+    sizeBytes: number;
+    createdAt: string;
+  }>
+> {
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
@@ -4628,7 +5593,9 @@ async function mcpListMedia(
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
     : `WHERE agent_id = $1`;
-  const params: (string | number)[] = opts.source ? [agentId, opts.source] : [agentId];
+  const params: (string | number)[] = opts.source
+    ? [agentId, opts.source]
+    : [agentId];
 
   const result = await pool.query<{
     file_name: string;

@@ -11,7 +11,7 @@ const PHASE_LABELS: Record<ReleasePhase, string> = {
   deploying: "Deploying",
   restarting: "Restarting",
   done: "Complete",
-  failed: "Failed"
+  failed: "Failed",
 };
 
 type PhaseProgressProps = {
@@ -21,40 +21,53 @@ type PhaseProgressProps = {
   isRestarting: boolean;
 };
 
-export function PhaseProgress({ job, phasesOrder, isFailed, isRestarting }: PhaseProgressProps): JSX.Element {
+export function PhaseProgress({
+  job,
+  phasesOrder,
+  isFailed,
+  isRestarting,
+}: PhaseProgressProps): JSX.Element {
   const phaseIndex = phasesOrder.indexOf(job.phase);
 
   return (
     <div>
-      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">Progress</div>
+      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Progress
+      </div>
       <div className="flex flex-col gap-2">
-        {phasesOrder.filter((p) => p !== "done").map((phase, i) => {
-          const current = phaseIndex === i;
-          const done = phaseIndex > i || job.phase === "done";
-          return (
-            <div key={phase} className="flex items-center gap-3">
-              <div className={cn(
-                "h-2 w-2 rounded-full shrink-0",
-                done && "bg-status-working",
-                current && !isFailed && "animate-pulse bg-status-waiting",
-                current && isFailed && "bg-destructive",
-                !done && !current && "bg-muted"
-              )} />
-              <span className={cn(
-                "text-sm",
-                done && "text-muted-foreground",
-                current && !isFailed && "text-foreground font-medium",
-                current && isFailed && "text-destructive font-medium",
-                !done && !current && "text-muted-foreground/50"
-              )}>
-                {PHASE_LABELS[phase as ReleasePhase] ?? phase}
-              </span>
-              {current && isRestarting && phase === "restarting" && (
-                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              )}
-            </div>
-          );
-        })}
+        {phasesOrder
+          .filter((p) => p !== "done")
+          .map((phase, i) => {
+            const current = phaseIndex === i;
+            const done = phaseIndex > i || job.phase === "done";
+            return (
+              <div key={phase} className="flex items-center gap-3">
+                <div
+                  className={cn(
+                    "h-2 w-2 rounded-full shrink-0",
+                    done && "bg-status-working",
+                    current && !isFailed && "animate-pulse bg-status-waiting",
+                    current && isFailed && "bg-destructive",
+                    !done && !current && "bg-muted"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "text-sm",
+                    done && "text-muted-foreground",
+                    current && !isFailed && "text-foreground font-medium",
+                    current && isFailed && "text-destructive font-medium",
+                    !done && !current && "text-muted-foreground/50"
+                  )}
+                >
+                  {PHASE_LABELS[phase as ReleasePhase] ?? phase}
+                </span>
+                {current && isRestarting && phase === "restarting" && (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            );
+          })}
       </div>
     </div>
   );
@@ -67,7 +80,12 @@ type OperationLogProps = {
   postRestartPolling: boolean;
 };
 
-export function OperationLog({ logRef, job, isRestarting, postRestartPolling }: OperationLogProps): JSX.Element {
+export function OperationLog({
+  logRef,
+  job,
+  isRestarting,
+  postRestartPolling,
+}: OperationLogProps): JSX.Element {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
       <LogStream viewportRef={logRef}>

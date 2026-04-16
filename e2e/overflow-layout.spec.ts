@@ -1,4 +1,10 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import {
   cleanupE2EAgents,
@@ -38,7 +44,10 @@ async function createJobViaAPI(
     },
   });
 
-  expect(res.ok(), `Failed to create job ${name}: ${await res.text()}`).toBeTruthy();
+  expect(
+    res.ok(),
+    `Failed to create job ${name}: ${await res.text()}`
+  ).toBeTruthy();
 }
 
 async function getScrollMetrics(locator: Locator): Promise<ScrollMetrics> {
@@ -53,10 +62,12 @@ async function getScrollMetrics(locator: Locator): Promise<ScrollMetrics> {
 }
 
 async function expectOverflow(locator: Locator): Promise<void> {
-  await expect.poll(async () => {
-    const { clientHeight, scrollHeight } = await getScrollMetrics(locator);
-    return scrollHeight - clientHeight;
-  }).toBeGreaterThan(40);
+  await expect
+    .poll(async () => {
+      const { clientHeight, scrollHeight } = await getScrollMetrics(locator);
+      return scrollHeight - clientHeight;
+    })
+    .toBeGreaterThan(40);
 }
 
 async function scrollToBottom(locator: Locator): Promise<void> {
@@ -70,7 +81,10 @@ async function getWindowScrollY(page: Page): Promise<number> {
   return page.evaluate(() => window.scrollY);
 }
 
-async function seedOverflowAgents(request: APIRequestContext, count: number): Promise<Array<{ id: string; name: string }>> {
+async function seedOverflowAgents(
+  request: APIRequestContext,
+  count: number
+): Promise<Array<{ id: string; name: string }>> {
   const created = await Promise.all(
     Array.from({ length: count }, async (_, index) => {
       const agent = await createAgentViaAPI(request, {
@@ -93,7 +107,10 @@ test.describe("Overflow layout", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("agents workspace keeps sidebar, media, and terminal overflow isolated", async ({ page, request }) => {
+  test("agents workspace keeps sidebar, media, and terminal overflow isolated", async ({
+    page,
+    request,
+  }) => {
     const agents = await seedOverflowAgents(request, 24);
     const focusAgent = agents[0]!;
 
@@ -108,7 +125,12 @@ test.describe("Overflow layout", () => {
 
     await Promise.all(
       Array.from({ length: 14 }, (_, index) =>
-        uploadMediaViaAPI(request, focusAgent.id, `Overflow media item ${index + 1}`, `overflow-media-${index + 1}.png`)
+        uploadMediaViaAPI(
+          request,
+          focusAgent.id,
+          `Overflow media item ${index + 1}`,
+          `overflow-media-${index + 1}.png`
+        )
       )
     );
 
@@ -145,7 +167,11 @@ test.describe("Overflow layout", () => {
 
     const terminalBoxAfterSidebarScroll = await terminalPane.boundingBox();
     expect(terminalBoxAfterSidebarScroll).not.toBeNull();
-    expect(Math.abs(terminalBoxAfterSidebarScroll!.height - terminalBoxBefore!.height)).toBeLessThan(2);
+    expect(
+      Math.abs(
+        terminalBoxAfterSidebarScroll!.height - terminalBoxBefore!.height
+      )
+    ).toBeLessThan(2);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
@@ -163,10 +189,15 @@ test.describe("Overflow layout", () => {
 
     const terminalBoxAfterMediaScroll = await terminalPane.boundingBox();
     expect(terminalBoxAfterMediaScroll).not.toBeNull();
-    expect(Math.abs(terminalBoxAfterMediaScroll!.height - terminalBoxBefore!.height)).toBeLessThan(2);
+    expect(
+      Math.abs(terminalBoxAfterMediaScroll!.height - terminalBoxBefore!.height)
+    ).toBeLessThan(2);
   });
 
-  test("jobs page keeps sidebar overflow isolated from the shell", async ({ page, request }) => {
+  test("jobs page keeps sidebar overflow isolated from the shell", async ({
+    page,
+    request,
+  }) => {
     const stamp = Date.now();
 
     await Promise.all(

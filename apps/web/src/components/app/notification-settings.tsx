@@ -17,10 +17,22 @@ type NotificationSettingsResponse = {
   webNotifyEvents: NotifyEventType[];
 };
 
-const EVENT_OPTIONS: Array<{ id: NotifyEventType; label: string; description: string }> = [
+const EVENT_OPTIONS: Array<{
+  id: NotifyEventType;
+  label: string;
+  description: string;
+}> = [
   { id: "done", label: "Done", description: "Agent finished its task" },
-  { id: "waiting_user", label: "Waiting for input", description: "Agent needs your response" },
-  { id: "blocked", label: "Blocked", description: "Agent hit an error or obstacle" },
+  {
+    id: "waiting_user",
+    label: "Waiting for input",
+    description: "Agent needs your response",
+  },
+  {
+    id: "blocked",
+    label: "Blocked",
+    description: "Agent hit an error or obstacle",
+  },
 ];
 
 export function NotificationSettings(): JSX.Element {
@@ -43,9 +55,8 @@ export function NotificationSettings(): JSX.Element {
     "blocked",
   ]);
   const [savedWebEvents, setSavedWebEvents] = useState<NotifyEventType[]>([]);
-  const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(
-    getNotificationPermission()
-  );
+  const [browserPermission, setBrowserPermission] =
+    useState<NotificationPermission>(getNotificationPermission());
 
   // Re-check permission when the user returns to this page (e.g. after
   // changing settings in iOS Settings or browser site settings).
@@ -56,7 +67,8 @@ export function NotificationSettings(): JSX.Element {
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
   const [loading, setLoading] = useState(true);
@@ -147,47 +159,54 @@ export function NotificationSettings(): JSX.Element {
     }
   }, [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents]);
 
-  const persistWebNotificationSettings = useCallback(async (
-    nextEnabled: boolean,
-    nextEvents: NotifyEventType[]
-  ): Promise<boolean> => {
-    const requestId = webSaveRequestIdRef.current + 1;
-    webSaveRequestIdRef.current = requestId;
-    setWebError("");
-    setWebMessage("");
-    setSaving(true);
-    try {
-      const data = await api<NotificationSettingsResponse>(
-        "/api/v1/notifications/settings",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            webNotifyEnabled: nextEnabled,
-            webNotifyEvents: nextEvents,
-          }),
+  const persistWebNotificationSettings = useCallback(
+    async (
+      nextEnabled: boolean,
+      nextEvents: NotifyEventType[]
+    ): Promise<boolean> => {
+      const requestId = webSaveRequestIdRef.current + 1;
+      webSaveRequestIdRef.current = requestId;
+      setWebError("");
+      setWebMessage("");
+      setSaving(true);
+      try {
+        const data = await api<NotificationSettingsResponse>(
+          "/api/v1/notifications/settings",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              webNotifyEnabled: nextEnabled,
+              webNotifyEvents: nextEvents,
+            }),
+          }
+        );
+        if (webSaveRequestIdRef.current !== requestId) {
+          return true;
         }
-      );
-      if (webSaveRequestIdRef.current !== requestId) {
+        setSavedWebEnabled(data.webNotifyEnabled);
+        setSavedWebEvents(data.webNotifyEvents);
+        setWebNotifyEnabled(data.webNotifyEnabled);
+        setWebNotifyEvents(data.webNotifyEvents);
+        setWebMessage("Browser notification settings saved.");
         return true;
+      } catch (err) {
+        if (webSaveRequestIdRef.current !== requestId) {
+          return true;
+        }
+        setWebError(
+          err instanceof Error
+            ? err.message
+            : "Failed to save browser notifications."
+        );
+        return false;
+      } finally {
+        if (webSaveRequestIdRef.current === requestId) {
+          setSaving(false);
+        }
       }
-      setSavedWebEnabled(data.webNotifyEnabled);
-      setSavedWebEvents(data.webNotifyEvents);
-      setWebNotifyEnabled(data.webNotifyEnabled);
-      setWebNotifyEvents(data.webNotifyEvents);
-      setWebMessage("Browser notification settings saved.");
-      return true;
-    } catch (err) {
-      if (webSaveRequestIdRef.current !== requestId) {
-        return true;
-      }
-      setWebError(err instanceof Error ? err.message : "Failed to save browser notifications.");
-      return false;
-    } finally {
-      if (webSaveRequestIdRef.current === requestId) {
-        setSaving(false);
-      }
-    }
-  }, []);
+    },
+    []
+  );
 
   const handleTest = useCallback(async () => {
     setError("");
@@ -221,32 +240,44 @@ export function NotificationSettings(): JSX.Element {
     );
   }, []);
 
-  const toggleWebEvent = useCallback(async (eventType: NotifyEventType) => {
-    const previousEnabled = webNotifyEnabledRef.current;
-    const previousEvents = webNotifyEventsRef.current;
-    const nextEvents = previousEvents.includes(eventType)
-      ? previousEvents.filter((e) => e !== eventType)
-      : [...previousEvents, eventType];
+  const toggleWebEvent = useCallback(
+    async (eventType: NotifyEventType) => {
+      const previousEnabled = webNotifyEnabledRef.current;
+      const previousEvents = webNotifyEventsRef.current;
+      const nextEvents = previousEvents.includes(eventType)
+        ? previousEvents.filter((e) => e !== eventType)
+        : [...previousEvents, eventType];
 
-    setWebNotifyEvents(nextEvents);
-    const saved = await persistWebNotificationSettings(previousEnabled, nextEvents);
-    if (!saved) {
-      setWebNotifyEnabled(savedWebEnabledRef.current);
-      setWebNotifyEvents(savedWebEventsRef.current);
-    }
-  }, [persistWebNotificationSettings]);
+      setWebNotifyEvents(nextEvents);
+      const saved = await persistWebNotificationSettings(
+        previousEnabled,
+        nextEvents
+      );
+      if (!saved) {
+        setWebNotifyEnabled(savedWebEnabledRef.current);
+        setWebNotifyEvents(savedWebEventsRef.current);
+      }
+    },
+    [persistWebNotificationSettings]
+  );
 
-  const toggleWebNotifyEnabled = useCallback(async (checked: boolean) => {
-    const previousEvents = webNotifyEventsRef.current;
-    const nextEnabled = checked;
+  const toggleWebNotifyEnabled = useCallback(
+    async (checked: boolean) => {
+      const previousEvents = webNotifyEventsRef.current;
+      const nextEnabled = checked;
 
-    setWebNotifyEnabled(nextEnabled);
-    const saved = await persistWebNotificationSettings(nextEnabled, previousEvents);
-    if (!saved) {
-      setWebNotifyEnabled(savedWebEnabledRef.current);
-      setWebNotifyEvents(savedWebEventsRef.current);
-    }
-  }, [persistWebNotificationSettings]);
+      setWebNotifyEnabled(nextEnabled);
+      const saved = await persistWebNotificationSettings(
+        nextEnabled,
+        previousEvents
+      );
+      if (!saved) {
+        setWebNotifyEnabled(savedWebEnabledRef.current);
+        setWebNotifyEvents(savedWebEventsRef.current);
+      }
+    },
+    [persistWebNotificationSettings]
+  );
 
   const handleRequestPermission = useCallback(async () => {
     const result = await requestNotificationPermission();
@@ -263,16 +294,17 @@ export function NotificationSettings(): JSX.Element {
   }, []);
 
   if (loading) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">Loading...</div>
-    );
+    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
   }
 
   const notificationsSupported = typeof Notification !== "undefined";
-  const isStandalone = window.matchMedia("(display-mode: standalone)").matches
-    || ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true);
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    ("standalone" in navigator &&
+      (navigator as { standalone?: boolean }).standalone === true);
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   return (
     <div className="flex flex-col gap-8 overflow-y-auto p-6">
@@ -283,7 +315,8 @@ export function NotificationSettings(): JSX.Element {
         </h3>
         <p className="mb-3 text-sm text-muted-foreground">
           Get native desktop or mobile notifications when agents need attention.
-          When enabled and the app is open, browser notifications are used instead of Slack.
+          When enabled and the app is open, browser notifications are used
+          instead of Slack.
         </p>
 
         {!notificationsSupported ? (
@@ -300,7 +333,9 @@ export function NotificationSettings(): JSX.Element {
               <div className="flex items-center gap-3 rounded border border-border px-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-foreground">
-                    {browserPermission === "denied" ? "Notifications blocked" : "Permission required"}
+                    {browserPermission === "denied"
+                      ? "Notifications blocked"
+                      : "Permission required"}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {browserPermission === "denied"
@@ -327,7 +362,9 @@ export function NotificationSettings(): JSX.Element {
               <Checkbox
                 checked={webNotifyEnabled}
                 disabled={browserPermission !== "granted" || saving}
-                onCheckedChange={(checked) => void toggleWebNotifyEnabled(checked === true)}
+                onCheckedChange={(checked) =>
+                  void toggleWebNotifyEnabled(checked === true)
+                }
                 data-testid="web-notify-enabled"
               />
               <div className="min-w-0">
@@ -379,7 +416,9 @@ export function NotificationSettings(): JSX.Element {
                 </div>
               </div>
             )}
-            {webError ? <p className="text-sm text-destructive">{webError}</p> : null}
+            {webError ? (
+              <p className="text-sm text-destructive">{webError}</p>
+            ) : null}
             {webMessage ? (
               <p className="text-sm text-status-working">{webMessage}</p>
             ) : null}
@@ -393,12 +432,19 @@ export function NotificationSettings(): JSX.Element {
           Slack Webhook
         </h3>
         <p className="mb-3 text-sm text-muted-foreground">
-          Receive notifications in Slack when agents finish, need input, or get blocked.
+          Receive notifications in Slack when agents finish, need input, or get
+          blocked.
           {webNotifyEnabled && (
-            <> When browser notifications are active, Slack is used as a fallback for when the app is closed.</>
+            <>
+              {" "}
+              When browser notifications are active, Slack is used as a fallback
+              for when the app is closed.
+            </>
           )}
           {!webNotifyEnabled && (
-            <>{" "}Create an{" "}
+            <>
+              {" "}
+              Create an{" "}
               <a
                 href="https://api.slack.com/messaging/webhooks"
                 target="_blank"
@@ -407,7 +453,8 @@ export function NotificationSettings(): JSX.Element {
               >
                 Incoming Webhook
               </a>{" "}
-              in your Slack workspace and paste the URL below.</>
+              in your Slack workspace and paste the URL below.
+            </>
           )}
         </p>
         <div className="max-w-lg space-y-3">

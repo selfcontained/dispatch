@@ -3,7 +3,9 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 /**
  * Helper to call the MCP tools/list endpoint for an agent and extract
@@ -30,7 +32,9 @@ async function getCreatePrBaseBranchDefault(
   const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
   if (!dataLine) return undefined;
   const json = JSON.parse(dataLine.slice("data: ".length));
-  const createPr = json.result?.tools?.find((t: { name: string }) => t.name === "create_pr");
+  const createPr = json.result?.tools?.find(
+    (t: { name: string }) => t.name === "create_pr"
+  );
   return createPr?.inputSchema?.properties?.baseBranch?.default;
 }
 
@@ -43,10 +47,13 @@ function createTestRepo(suffix: string): string {
   mkdirSync(barePath, { recursive: true });
   execSync("git init --bare", { cwd: barePath, stdio: "ignore" });
   execSync(`git clone "${barePath}" "${repoPath}"`, { stdio: "ignore" });
-  execSync('git config user.email "test@test.com" && git config user.name "Test"', {
-    cwd: repoPath,
-    stdio: "ignore",
-  });
+  execSync(
+    'git config user.email "test@test.com" && git config user.name "Test"',
+    {
+      cwd: repoPath,
+      stdio: "ignore",
+    }
+  );
   writeFileSync(`${repoPath}/README.md`, "# test\n");
   execSync("git add -A && git commit -m 'initial' && git push origin main", {
     cwd: repoPath,
@@ -59,12 +66,18 @@ function createTestRepo(suffix: string): string {
 function cleanupTestRepo(repoPath: string): void {
   const barePath = repoPath.replace("-repo-", "-bare-");
   try {
-    const output = execSync("git worktree list --porcelain", { cwd: repoPath, encoding: "utf-8" });
+    const output = execSync("git worktree list --porcelain", {
+      cwd: repoPath,
+      encoding: "utf-8",
+    });
     for (const line of output.split("\n")) {
       if (line.startsWith("worktree ") && !line.includes(repoPath)) {
         const wtPath = line.replace("worktree ", "").trim();
         try {
-          execSync(`git worktree remove --force "${wtPath}"`, { cwd: repoPath, stdio: "ignore" });
+          execSync(`git worktree remove --force "${wtPath}"`, {
+            cwd: repoPath,
+            stdio: "ignore",
+          });
         } catch {
           rmSync(wtPath, { recursive: true, force: true });
         }
@@ -103,7 +116,9 @@ test.describe("Agent base branch", () => {
     expect(body.agent.baseBranch).toBe("feature/foo");
   });
 
-  test("POST /api/v1/agents defaults baseBranch to null", async ({ request }) => {
+  test("POST /api/v1/agents defaults baseBranch to null", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/agents", {
       headers: authHeader,
       data: { cwd: "/tmp", useWorktree: false },
@@ -122,26 +137,48 @@ test.describe("Agent base branch", () => {
     expect(body.error).toContain("baseBranch");
   });
 
-  test("create_pr MCP tool defaults baseBranch from agent metadata", async ({ request }) => {
+  test("create_pr MCP tool defaults baseBranch from agent metadata", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/agents", {
       headers: authHeader,
-      data: { cwd: "/tmp", baseBranch: "develop", useWorktree: false, name: `e2e-agent-${Date.now()}` },
+      data: {
+        cwd: "/tmp",
+        baseBranch: "develop",
+        useWorktree: false,
+        name: `e2e-agent-${Date.now()}`,
+      },
     });
-    const body = (await res.json()) as { agent: { id: string; baseBranch: string | null } };
+    const body = (await res.json()) as {
+      agent: { id: string; baseBranch: string | null };
+    };
     expect(body.agent.baseBranch).toBe("develop");
 
-    const baseBranchDefault = await getCreatePrBaseBranchDefault(request, body.agent.id);
+    const baseBranchDefault = await getCreatePrBaseBranchDefault(
+      request,
+      body.agent.id
+    );
     expect(baseBranchDefault).toBe("develop");
   });
 
-  test("create_pr MCP tool defaults to main when agent has no baseBranch", async ({ request }) => {
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-${Date.now()}` });
+  test("create_pr MCP tool defaults to main when agent has no baseBranch", async ({
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-${Date.now()}`,
+    });
 
-    const baseBranchDefault = await getCreatePrBaseBranchDefault(request, agent.id);
+    const baseBranchDefault = await getCreatePrBaseBranchDefault(
+      request,
+      agent.id
+    );
     expect(baseBranchDefault).toBe("main");
   });
 
-  test("sidebar details show main when a worktree agent has no baseBranch", async ({ page, request }) => {
+  test("sidebar details show main when a worktree agent has no baseBranch", async ({
+    page,
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-${Date.now()}`,
       cwd: repoPath,
@@ -157,6 +194,8 @@ test.describe("Agent base branch", () => {
 
     await expect(agentCard.getByText("Branch")).toBeVisible({ timeout: 5_000 });
     await expect(agentCard.getByText("main", { exact: true })).toBeVisible();
-    await expect(agentCard.getByText(agent.worktreeBranch!, { exact: true })).toBeVisible();
+    await expect(
+      agentCard.getByText(agent.worktreeBranch!, { exact: true })
+    ).toBeVisible();
   });
 });

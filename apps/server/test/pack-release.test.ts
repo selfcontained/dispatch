@@ -31,7 +31,6 @@ function tarList(): string[] {
 // before the build step, so we skip gracefully. The release workflow validates
 // pack-release after building.
 describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
-
   afterAll(() => {
     if (existsSync(OUTPUT)) rmSync(OUTPUT);
   });
@@ -70,7 +69,9 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
     expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-launchd-wrapper"))).toBe(true);
+    expect(files.some((f) => f.includes("dispatch-launchd-wrapper"))).toBe(
+      true
+    );
   });
 
   it("includes database migrations", () => {
@@ -97,9 +98,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     const tsFiles = files.filter(
       (f) =>
-        f.endsWith(".ts") &&
-        !f.endsWith(".d.ts") &&
-        !f.includes("migrations/")
+        f.endsWith(".ts") && !f.endsWith(".d.ts") && !f.includes("migrations/")
     );
     expect(tsFiles).toEqual([]);
   });
@@ -118,12 +117,15 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     writeFileSync(path.join(tmpDir, "package.json"), "{}");
 
     try {
-      execSync(`${tmpDir}/bin/pack-release --output /tmp/should-not-exist.tar.gz`, {
-        cwd: tmpDir,
-        encoding: "utf8",
-        timeout: 10_000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      execSync(
+        `${tmpDir}/bin/pack-release --output /tmp/should-not-exist.tar.gz`,
+        {
+          cwd: tmpDir,
+          encoding: "utf8",
+          timeout: 10_000,
+          stdio: ["pipe", "pipe", "pipe"],
+        }
+      );
       expect.fail("should have thrown");
     } catch (error) {
       const err = error as { stderr?: string };

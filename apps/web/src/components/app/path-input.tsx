@@ -1,12 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, ChevronDown, GitBranch, Loader2, X } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  GitBranch,
+  Loader2,
+  X,
+} from "lucide-react";
 
-import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-function useClickOutside(ref: React.RefObject<HTMLElement | null>, isOpen: boolean, onClose: () => void): void {
+function useClickOutside(
+  ref: React.RefObject<HTMLElement | null>,
+  isOpen: boolean,
+  onClose: () => void
+): void {
   useEffect(() => {
     if (!isOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -82,14 +97,23 @@ export function PathInput({
     if (!showValidation) return;
     setValidating(true);
     const timer = setTimeout(() => {
-      api<PathInfo & { resolvedPath: string }>(`/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`)
+      api<PathInfo & { resolvedPath: string }>(
+        `/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`
+      )
         .then((result) => {
-          setPathValidation({ exists: result.exists, isDirectory: result.isDirectory, isGitRepo: result.isGitRepo });
+          setPathValidation({
+            exists: result.exists,
+            isDirectory: result.isDirectory,
+            isGitRepo: result.isGitRepo,
+          });
         })
         .catch(() => setPathValidation(null))
         .finally(() => setValidating(false));
     }, 400);
-    return () => { clearTimeout(timer); setValidating(false); };
+    return () => {
+      clearTimeout(timer);
+      setValidating(false);
+    };
   }, [value, showValidation]);
 
   // Debounced inline ghost completion
@@ -100,7 +124,9 @@ export function PathInput({
       return;
     }
     const timer = setTimeout(() => {
-      api<{ completions: string[] }>(`/api/v1/system/path-completions?prefix=${encodeURIComponent(trimmed)}`)
+      api<{ completions: string[] }>(
+        `/api/v1/system/path-completions?prefix=${encodeURIComponent(trimmed)}`
+      )
         .then((result) => {
           if (result.completions.length > 0) {
             const best = result.completions[0];
@@ -125,13 +151,16 @@ export function PathInput({
   return (
     <div className={cn("relative", className)}>
       {label ? (
-        <label className="mb-1.5 block text-xs font-medium text-muted-foreground" htmlFor={id}>
+        <label
+          className="mb-1.5 block text-xs font-medium text-muted-foreground"
+          htmlFor={id}
+        >
           {label}
         </label>
       ) : null}
 
       <div className="relative" ref={cmdRef}>
-        <div className="relative">
+        <div className="relative rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]">
           {/* Ghost autocomplete overlay */}
           {ghostSuffix && value.trim() ? (
             <div
@@ -139,10 +168,12 @@ export function PathInput({
               className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-xs"
             >
               <span className="invisible whitespace-pre">{value}</span>
-              <span className="whitespace-pre text-muted-foreground/40">{ghostSuffix}</span>
+              <span className="whitespace-pre text-muted-foreground/40">
+                {ghostSuffix}
+              </span>
             </div>
           ) : null}
-          <Input
+          <input
             ref={inputRef}
             id={id}
             value={value}
@@ -158,7 +189,11 @@ export function PathInput({
                 e.stopPropagation();
                 setDropdownOpen(false);
               }
-              if ((e.key === "Enter" || e.key === "ArrowDown") && !dropdownOpen && history.length > 0) {
+              if (
+                (e.key === "Enter" || e.key === "ArrowDown") &&
+                !dropdownOpen &&
+                history.length > 0
+              ) {
                 e.preventDefault();
                 setDropdownOpen(true);
               }
@@ -172,7 +207,7 @@ export function PathInput({
             }}
             placeholder={placeholder}
             data-testid={testId}
-            className="bg-transparent pr-8 font-mono text-xs"
+            className="flex h-9 w-full bg-transparent pr-8 px-3 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
           />
           {history.length > 0 ? (
             <button
@@ -185,19 +220,27 @@ export function PathInput({
                 inputRef.current?.focus();
               }}
             >
-              <ChevronDown className={cn("h-4 w-4 transition-transform", dropdownOpen && "rotate-180")} />
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  dropdownOpen && "rotate-180"
+                )}
+              />
             </button>
           ) : null}
         </div>
         {dropdownOpen && sortedHistory.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-border bg-background p-1 shadow-md">
-            <Command shouldFilter={false} onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setDropdownOpen(false);
-                inputRef.current?.focus();
-              }
-            }}>
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
+            <Command
+              shouldFilter={false}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDropdownOpen(false);
+                  inputRef.current?.focus();
+                }
+              }}
+            >
               <CommandList>
                 <CommandGroup heading="Recent">
                   {sortedHistory.map((dir) => (
@@ -247,21 +290,29 @@ export function PathInput({
                 {pathValidation.isGitRepo ? (
                   <>
                     <GitBranch className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">Git repository</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      Git repository
+                    </span>
                   </>
                 ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400">Valid directory</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    Valid directory
+                  </span>
                 )}
               </>
             ) : pathValidation.exists ? (
               <>
                 <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">Not a directory</span>
+                <span className="text-amber-600 dark:text-amber-400">
+                  Not a directory
+                </span>
               </>
             ) : (
               <>
                 <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">Directory not found</span>
+                <span className="text-amber-600 dark:text-amber-400">
+                  Directory not found
+                </span>
               </>
             )
           ) : null}

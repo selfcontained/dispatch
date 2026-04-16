@@ -12,14 +12,16 @@ export function useAgents(
   connectedAgentId: string | null,
   connState: ConnState,
   enabled: boolean,
-  selectedAgentId: string | null,
+  selectedAgentId: string | null
 ) {
   const queryClient = useQueryClient();
   const connectedAgentIdRef = useRef(connectedAgentId);
   connectedAgentIdRef.current = connectedAgentId;
 
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
-  const [streamingAgentIds, setStreamingAgentIds] = useState<Set<string>>(new Set());
+  const [streamingAgentIds, setStreamingAgentIds] = useState<Set<string>>(
+    new Set()
+  );
 
   const { data: agents = [], isSuccess: agentsLoaded } = useQuery<Agent[]>({
     queryKey: ["agents"],
@@ -61,33 +63,37 @@ export function useAgents(
     (agent: Agent): AgentVisualState => {
       if (agent.status === "creating") return "active";
       if (agent.status !== "running") return "stopped";
-      if (connState === "connected" && connectedAgentId === agent.id) return "active";
+      if (connState === "connected" && connectedAgentId === agent.id)
+        return "active";
       return "idle";
     },
     [connState, connectedAgentId]
   );
 
-  return useMemo(() => ({
-    agents,
-    agentsLoaded,
-    validatedSelectedAgentId,
-    selectedAgent,
-    connectedAgent,
-    overflowAgentId,
-    setOverflowAgentId,
-    streamingAgentIds,
-    setStreamingAgentIds,
-    agentVisualState,
-    resortAgents,
-  }), [
-    agents,
-    agentsLoaded,
-    validatedSelectedAgentId,
-    selectedAgent,
-    connectedAgent,
-    overflowAgentId,
-    streamingAgentIds,
-    agentVisualState,
-    resortAgents,
-  ]);
+  return useMemo(
+    () => ({
+      agents,
+      agentsLoaded,
+      validatedSelectedAgentId,
+      selectedAgent,
+      connectedAgent,
+      overflowAgentId,
+      setOverflowAgentId,
+      streamingAgentIds,
+      setStreamingAgentIds,
+      agentVisualState,
+      resortAgents,
+    }),
+    [
+      agents,
+      agentsLoaded,
+      validatedSelectedAgentId,
+      selectedAgent,
+      connectedAgent,
+      overflowAgentId,
+      streamingAgentIds,
+      agentVisualState,
+      resortAgents,
+    ]
+  );
 }

@@ -62,7 +62,10 @@ async function main() {
       .replaceAll(ORIGINAL_PRIMARY, color.primary)
       .replaceAll(ORIGINAL_DARK, color.dark);
 
-    fs.writeFileSync(path.join(colorDir, "brand-full-logo.svg"), recoloredFullLogo);
+    fs.writeFileSync(
+      path.join(colorDir, "brand-full-logo.svg"),
+      recoloredFullLogo
+    );
 
     // Create a composite SVG at 512x512 with dark background + centered icon
     // The brand icon viewBox is 299.347656 x 285.824219
@@ -93,7 +96,10 @@ function extractSvgContent(svg: string): string {
   // Remove XML declaration if present
   let s = svg.replace(/<\?xml[^?]*\?>/, "").trim();
   // Remove outer <svg ...> and </svg>
-  s = s.replace(/<svg[^>]*>/, "").replace(/<\/svg>/, "").trim();
+  s = s
+    .replace(/<svg[^>]*>/, "")
+    .replace(/<\/svg>/, "")
+    .trim();
   return s;
 }
 

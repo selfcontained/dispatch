@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 test.describe("API health", () => {
   test("GET /api/v1/health returns ok", async ({ request }) => {

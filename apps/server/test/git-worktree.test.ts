@@ -5,10 +5,11 @@ import path from "node:path";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn()
+  runCommand: vi.fn(),
 }));
 
-const { createGitWorktree, cleanupGitWorktree, GitWorktreeError } = await import("../src/shared/git/worktree.js");
+const { createGitWorktree, cleanupGitWorktree, GitWorktreeError } =
+  await import("../src/shared/git/worktree.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 describe("git worktree services", () => {
@@ -51,7 +52,7 @@ describe("git worktree services", () => {
 
     const result = await createGitWorktree({
       cwd: path.join(repoRoot, "nested"),
-      name: "Feature Auth Flow"
+      name: "Feature Auth Flow",
     });
 
     expect(result).toEqual({
@@ -61,7 +62,7 @@ describe("git worktree services", () => {
       branchName: "feature-auth-flow",
       baseBranch: "main",
       baseRef: "origin/main",
-      baseSha: "abc123"
+      baseSha: "abc123",
     });
   });
 
@@ -88,12 +89,12 @@ describe("git worktree services", () => {
     await expect(
       createGitWorktree({
         cwd: repoRoot,
-        name: "Existing Branch"
+        name: "Existing Branch",
       })
     ).rejects.toMatchObject({
       name: "GitWorktreeError",
       message: 'Local branch "existing-branch" already exists.',
-      statusCode: 409
+      statusCode: 409,
     });
   });
 
@@ -108,7 +109,11 @@ describe("git worktree services", () => {
         case `-C ${path.join(worktreePath, "nested")} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: worktreePath, stderr: "" };
         case `-C ${worktreePath} rev-parse --path-format=absolute --git-common-dir`:
-          return { exitCode: 0, stdout: path.join(repoRoot, ".git"), stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: path.join(repoRoot, ".git"),
+            stderr: "",
+          };
         case `-C ${worktreePath} symbolic-ref --short -q HEAD`:
           return { exitCode: 0, stdout: "feature-auth-flow", stderr: "" };
         case `-C ${repoRoot} symbolic-ref --short -q HEAD`:
@@ -133,7 +138,7 @@ describe("git worktree services", () => {
     const result = await cleanupGitWorktree({
       cwd: path.join(worktreePath, "nested"),
       updateBaseBranch: true,
-      deleteBranch: true
+      deleteBranch: true,
     });
 
     expect(result).toEqual({
@@ -143,7 +148,7 @@ describe("git worktree services", () => {
       branchName: "feature-auth-flow",
       baseBranch: "main",
       updatedBaseBranch: true,
-      deletedBranch: true
+      deletedBranch: true,
     });
   });
 
@@ -157,7 +162,11 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} rev-parse --path-format=absolute --git-common-dir`:
-          return { exitCode: 0, stdout: path.join(repoRoot, ".git"), stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: path.join(repoRoot, ".git"),
+            stderr: "",
+          };
         default:
           throw new Error(`Unexpected command: ${key}`);
       }
@@ -167,8 +176,9 @@ describe("git worktree services", () => {
 
     await expect(cleanupPromise).rejects.toBeInstanceOf(GitWorktreeError);
     await expect(cleanupPromise).rejects.toMatchObject({
-      message: "cleanup-worktree only removes linked worktrees, not the primary checkout.",
-      statusCode: 400
+      message:
+        "cleanup-worktree only removes linked worktrees, not the primary checkout.",
+      statusCode: 400,
     });
   });
 });

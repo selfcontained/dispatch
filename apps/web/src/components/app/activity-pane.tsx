@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { CalendarIcon } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { AgentHistoryTab } from "@/components/app/agent-history-tab";
 import {
@@ -31,7 +35,11 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
-import { formatDuration, formatTokenCount, shortProjectName } from "@/lib/format";
+import {
+  formatDuration,
+  formatTokenCount,
+  shortProjectName,
+} from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -72,7 +80,10 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function formatBucketLabel(iso: string, granularity: ActivityGranularity): string {
+function formatBucketLabel(
+  iso: string,
+  granularity: ActivityGranularity
+): string {
   if (granularity === "hour") {
     // iso is like "2026-04-14 09:00"
     const hourStr = iso.split(" ")[1] ?? "00:00";
@@ -109,8 +120,18 @@ const chartConfig: ChartConfig = {
 
 const DAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""];
 const MONTH_NAMES = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 function intensityClass(count: number, max: number): string {
@@ -124,9 +145,11 @@ function intensityClass(count: number, max: number): string {
 
 type HeatmapCell = { date: string; count: number; label: string };
 
-function buildHeatmapGrid(
-  data: Array<{ day: string; count: number }>
-): { cells: HeatmapCell[][]; months: Array<{ label: string; col: number }>; max: number } {
+function buildHeatmapGrid(data: Array<{ day: string; count: number }>): {
+  cells: HeatmapCell[][];
+  months: Array<{ label: string; col: number }>;
+  max: number;
+} {
   const countMap = new Map<string, number>();
   let max = 0;
   for (const d of data) {
@@ -167,11 +190,16 @@ function buildHeatmapGrid(
         week.push({
           date: iso,
           count,
-          label: inFuture ? dateLabel : `${dateLabel}: ${count} event${count !== 1 ? "s" : ""}`,
+          label: inFuture
+            ? dateLabel
+            : `${dateLabel}: ${count} event${count !== 1 ? "s" : ""}`,
         });
 
         if (cursor.getMonth() !== lastMonth && dow <= 3) {
-          months.push({ label: MONTH_NAMES[cursor.getMonth()], col: cols.length });
+          months.push({
+            label: MONTH_NAMES[cursor.getMonth()],
+            col: cols.length,
+          });
           lastMonth = cursor.getMonth();
         }
       }
@@ -226,7 +254,9 @@ function Heatmap({ data }: { data: Array<{ day: string; count: number }> }) {
                     title={cell.label}
                     className={cn(
                       "h-[11px] w-[11px] rounded-[2px] transition-colors",
-                      cell.date ? intensityClass(cell.count, max) : "bg-transparent"
+                      cell.date
+                        ? intensityClass(cell.count, max)
+                        : "bg-transparent"
                     )}
                   />
                 ))}
@@ -277,17 +307,31 @@ function formatHour(hour: number): string {
   return `${normalized}${suffix}`;
 }
 
-function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: ActivityRange }) {
+function ActiveHoursGrid({
+  data,
+  range,
+}: {
+  data: ActiveHoursCell[];
+  range: ActivityRange;
+}) {
   const cellMap = useMemo(
     () => new Map(data.map((cell) => [`${cell.dayOfWeek}:${cell.hour}`, cell])),
     [data]
   );
   const max = Math.max(...data.map((cell) => cell.avgPerWeek), 0.01);
-  const cadenceLabel = range === "daily" ? "events" : range === "7d" ? "events" : "avg events / week";
+  const cadenceLabel =
+    range === "daily"
+      ? "events"
+      : range === "7d"
+        ? "events"
+        : "avg events / week";
 
   return (
     <div className="space-y-3">
-      <ScrollArea style={{ maxWidth: "calc(100vw - 24px)" }} className="max-w-full">
+      <ScrollArea
+        style={{ maxWidth: "calc(100vw - 24px)" }}
+        className="max-w-full"
+      >
         <div className="grid w-max grid-cols-[56px_repeat(24,28px)] gap-x-1.5 gap-y-2 pb-2">
           <div />
           {Array.from({ length: 24 }, (_, hour) => (
@@ -319,7 +363,11 @@ function ActiveHoursGrid({ data, range }: { data: ActiveHoursCell[]; range: Acti
                   <div
                     key={`${dayOfWeek}-${hour}`}
                     title={title}
-                    data-testid={dayOfWeek === 1 && hour === 9 ? "active-hours-cell-sample" : undefined}
+                    data-testid={
+                      dayOfWeek === 1 && hour === 9
+                        ? "active-hours-cell-sample"
+                        : undefined
+                    }
                     className={cn(
                       "h-5 rounded-[6px] border border-border/40 transition-colors",
                       activeHoursIntensity(cell.avgPerWeek, max)
@@ -359,7 +407,11 @@ function fillGaps<T extends { day: string }>(
   if (granularity === "hour") {
     // Fill all 24 hours for the selected day
     const dataMap = new Map(data.map((d) => [d.day, d]));
-    const datePrefix = dailyDate ?? (data.length > 0 ? data[0].day.split(" ")[0] : new Date().toISOString().slice(0, 10));
+    const datePrefix =
+      dailyDate ??
+      (data.length > 0
+        ? data[0].day.split(" ")[0]
+        : new Date().toISOString().slice(0, 10));
     const filled: T[] = [];
     for (let h = 0; h < 24; h++) {
       const key = `${datePrefix} ${String(h).padStart(2, "0")}:00`;
@@ -392,7 +444,12 @@ function DailyStackedBarChart({
   dailyDate?: string;
 }) {
   const chartData = useMemo(() => {
-    const filled = fillGaps<DailyStatusEntry>(rawData, granularity, (day) => ({ day }), dailyDate);
+    const filled = fillGaps<DailyStatusEntry>(
+      rawData,
+      granularity,
+      (day) => ({ day }),
+      dailyDate
+    );
     return filled.map((d) => ({
       day: d.day,
       label: formatBucketLabel(d.day, granularity),
@@ -411,7 +468,10 @@ function DailyStackedBarChart({
   }
 
   return (
-    <ChartContainer config={chartConfig} className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full">
+    <ChartContainer
+      config={chartConfig}
+      className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full"
+    >
       <BarChart data={chartData} barCategoryGap="20%">
         <CartesianGrid vertical={false} />
         <XAxis
@@ -445,7 +505,9 @@ function DailyStackedBarChart({
             />
           }
         />
-        <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />} />
+        <ChartLegend
+          content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />}
+        />
         {STATUS_ORDER.map((key) => (
           <Bar
             key={key}
@@ -463,7 +525,8 @@ function DailyStackedBarChart({
 // ── Token helpers ──────────────────────────────────────────────────
 
 function cacheHitRate(stats: TokenStats): number {
-  const totalInput = stats.total_input + stats.total_cache_creation + stats.total_cache_read;
+  const totalInput =
+    stats.total_input + stats.total_cache_creation + stats.total_cache_read;
   if (totalInput === 0) return 0;
   return Math.round((stats.total_cache_read / totalInput) * 100);
 }
@@ -479,7 +542,12 @@ function shortModelName(model: string): string {
 
 // ── Token daily chart ─────────────────────────────────────────────
 
-const TOKEN_ORDER = ["input_tokens", "cache_read_tokens", "cache_creation_tokens", "output_tokens"];
+const TOKEN_ORDER = [
+  "input_tokens",
+  "cache_read_tokens",
+  "cache_creation_tokens",
+  "output_tokens",
+];
 
 const tokenChartConfig: ChartConfig = {
   input_tokens: { label: "Input", color: "hsl(var(--chart-1))" },
@@ -511,7 +579,9 @@ function DailyTokenChart({
 }) {
   const chartData = useMemo(() => {
     const filled = fillGaps(rawData, granularity, EMPTY_TOKEN_ENTRY, dailyDate);
-    const agentsMap = new Map(agentsCreatedData?.map((d) => [d.day, d.count]) ?? []);
+    const agentsMap = new Map(
+      agentsCreatedData?.map((d) => [d.day, d.count]) ?? []
+    );
     return filled.map((d) => ({
       ...d,
       label: formatBucketLabel(d.day, granularity),
@@ -530,7 +600,10 @@ function DailyTokenChart({
   }
 
   return (
-    <ChartContainer config={tokenChartConfig} className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full">
+    <ChartContainer
+      config={tokenChartConfig}
+      className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full"
+    >
       <ComposedChart data={chartData} barCategoryGap="20%">
         <CartesianGrid vertical={false} />
         <XAxis
@@ -541,25 +614,35 @@ function DailyTokenChart({
           interval="preserveStartEnd"
         />
         <YAxis yAxisId="tokens" hide />
-        {hasAgentsLine && (
-          <YAxis yAxisId="agents" orientation="right" hide />
-        )}
+        {hasAgentsLine && <YAxis yAxisId="agents" orientation="right" hide />}
         <ChartTooltip
           content={({ active, payload, label: tooltipLabel }) => {
             if (!active || !payload?.length) return null;
-            const tokenEntries = payload.filter((p) => p.dataKey !== "agents_created");
-            const total = tokenEntries.reduce((sum, p) => sum + (typeof p.value === "number" ? p.value : 0), 0);
+            const tokenEntries = payload.filter(
+              (p) => p.dataKey !== "agents_created"
+            );
+            const total = tokenEntries.reduce(
+              (sum, p) => sum + (typeof p.value === "number" ? p.value : 0),
+              0
+            );
             return (
-              <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-md">
+              <div className="rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl px-3 py-2 text-xs shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
                 <div className="mb-1.5 font-medium">{tooltipLabel}</div>
                 {payload.map((p) => (
-                  <div key={String(p.dataKey)} className="flex items-center gap-2 py-0.5">
+                  <div
+                    key={String(p.dataKey)}
+                    className="flex items-center gap-2 py-0.5"
+                  >
                     <div
                       className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-                      style={{ backgroundColor: tokenChartConfig[p.dataKey as string]?.color }}
+                      style={{
+                        backgroundColor:
+                          tokenChartConfig[p.dataKey as string]?.color,
+                      }}
                     />
                     <span className="flex-1 text-muted-foreground">
-                      {tokenChartConfig[p.dataKey as string]?.label ?? String(p.dataKey)}
+                      {tokenChartConfig[p.dataKey as string]?.label ??
+                        String(p.dataKey)}
                     </span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
                       {p.dataKey === "agents_created"
@@ -571,7 +654,9 @@ function DailyTokenChart({
                 {tokenEntries.length > 1 && (
                   <div className="mt-1.5 flex items-center gap-2 border-t border-border pt-1.5">
                     <div className="h-2.5 w-2.5 shrink-0" />
-                    <span className="flex-1 font-medium text-foreground">Total</span>
+                    <span className="flex-1 font-medium text-foreground">
+                      Total
+                    </span>
                     <span className="font-mono font-medium text-foreground tabular-nums">
                       {formatTokenCount(total)}
                     </span>
@@ -581,7 +666,9 @@ function DailyTokenChart({
             );
           }}
         />
-        <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />} />
+        <ChartLegend
+          content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />}
+        />
         {TOKEN_ORDER.map((key) => (
           <Bar
             key={key}
@@ -628,7 +715,8 @@ function HorizontalBar({
       <div className="flex items-center justify-between text-xs">
         <span className="truncate text-foreground">{label}</span>
         <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
-          {formatTokenCount(value)}{sub ? ` ${sub}` : ""}
+          {formatTokenCount(value)}
+          {sub ? ` ${sub}` : ""}
         </span>
       </div>
       <div className="h-2 w-full rounded-full bg-muted/60">
@@ -645,12 +733,24 @@ function HorizontalBar({
 
 function ModelBreakdown({ data }: { data: TokenByModel[] }) {
   if (data.length === 0) return null;
-  const max = Math.max(...data.map((m) => m.total_input + m.total_cache_creation + m.total_cache_read + m.total_output));
+  const max = Math.max(
+    ...data.map(
+      (m) =>
+        m.total_input +
+        m.total_cache_creation +
+        m.total_cache_read +
+        m.total_output
+    )
+  );
 
   return (
     <div className="space-y-3">
       {data.map((m) => {
-        const total = m.total_input + m.total_cache_creation + m.total_cache_read + m.total_output;
+        const total =
+          m.total_input +
+          m.total_cache_creation +
+          m.total_cache_read +
+          m.total_output;
         return (
           <HorizontalBar
             key={m.model}
@@ -677,8 +777,12 @@ function ProjectBreakdown({
 }) {
   if (data.length === 0) return null;
   const max = Math.max(...data.map((p) => p.total_input + p.total_output));
-  const wtMap = new Map(workingTime?.map((w) => [w.project_dir, w.working_time_ms]) ?? []);
-  const maxWt = Math.max(...(workingTime?.map((w) => w.working_time_ms) ?? [0]));
+  const wtMap = new Map(
+    workingTime?.map((w) => [w.project_dir, w.working_time_ms]) ?? []
+  );
+  const maxWt = Math.max(
+    ...(workingTime?.map((w) => w.working_time_ms) ?? [0])
+  );
 
   return (
     <div className="space-y-4">
@@ -696,7 +800,9 @@ function ProjectBreakdown({
             {wt != null && wt > 0 && (
               <div className="pl-0">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-transparent">{shortProjectName(p.project_dir)}</span>
+                  <span className="text-transparent">
+                    {shortProjectName(p.project_dir)}
+                  </span>
                   <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
                     {formatDuration(wt)} working
                   </span>
@@ -731,11 +837,13 @@ function DatePickerPopover({
   // Scoped to this component so it only applies while the date picker is mounted.
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = "[data-radix-popper-content-wrapper]{z-index:80!important}";
+    style.textContent =
+      "[data-radix-popper-content-wrapper]{z-index:80!important}";
     document.head.appendChild(style);
-    return () => { style.remove(); };
+    return () => {
+      style.remove();
+    };
   }, []);
-
 
   return (
     <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
@@ -759,7 +867,9 @@ function DatePickerPopover({
           selected={new Date(dailyDate + "T00:00:00")}
           onSelect={(date) => {
             if (date) {
-              onDateChange(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+              onDateChange(
+                `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+              );
               setCalendarOpen(false);
             }
           }}
@@ -773,7 +883,10 @@ function DatePickerPopover({
 // ── Main pane ───────────────────────────────────────────────────────
 
 /** Activity content for the main content area. */
-export function ActivityPane({ open, initialTab }: ActivityPaneProps): JSX.Element {
+export function ActivityPane({
+  open,
+  initialTab,
+}: ActivityPaneProps): JSX.Element {
   const [range, setRange] = useState<ActivityRange>("7d");
   const [dailyDate, setDailyDate] = useState<string>(() => {
     const d = new Date();
@@ -799,14 +912,25 @@ export function ActivityPane({ open, initialTab }: ActivityPaneProps): JSX.Eleme
   const { data: tokenByModel } = useTokenByModel(range, dailyDateParam);
   const { data: tokenByProject } = useTokenByProject(range, dailyDateParam);
   const { data: agentsCreated } = useAgentsCreated(range, dailyDateParam);
-  const { data: workingTimeByProject } = useWorkingTimeByProject(range, dailyDateParam);
+  const { data: workingTimeByProject } = useWorkingTimeByProject(
+    range,
+    dailyDateParam
+  );
 
-  const hasData = stats && (stats.totalWorkingMs > 0 || stats.avgBlockedMs > 0 || stats.avgWaitingMs > 0);
+  const hasData =
+    stats &&
+    (stats.totalWorkingMs > 0 ||
+      stats.avgBlockedMs > 0 ||
+      stats.avgWaitingMs > 0);
   const totalTokens = tokenStats
-    ? tokenStats.total_input + tokenStats.total_cache_creation + tokenStats.total_cache_read + tokenStats.total_output
+    ? tokenStats.total_input +
+      tokenStats.total_cache_creation +
+      tokenStats.total_cache_read +
+      tokenStats.total_output
     : 0;
   const hasTokenData = totalTokens > 0;
-  const hasActiveHourData = activeHours?.some((cell) => cell.count > 0) ?? false;
+  const hasActiveHourData =
+    activeHours?.some((cell) => cell.count > 0) ?? false;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -816,9 +940,15 @@ export function ActivityPane({ open, initialTab }: ActivityPaneProps): JSX.Eleme
           {tab === "metrics" && (
             <>
               {isDaily && (
-                <DatePickerPopover dailyDate={dailyDate} onDateChange={setDailyDate} />
+                <DatePickerPopover
+                  dailyDate={dailyDate}
+                  onDateChange={setDailyDate}
+                />
               )}
-              <Select value={range} onValueChange={(value) => setRange(value as ActivityRange)}>
+              <Select
+                value={range}
+                onValueChange={(value) => setRange(value as ActivityRange)}
+              >
                 <SelectTrigger
                   className="h-8 w-[132px] bg-muted/30 text-xs"
                   data-testid="activity-range-select"
@@ -847,78 +977,175 @@ export function ActivityPane({ open, initialTab }: ActivityPaneProps): JSX.Eleme
       )}
 
       {/* Metrics tab body */}
-      {tab === "metrics" && <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
-          {hasTokenData && tokenStats && (
-            <div className="flex flex-wrap gap-2 sm:gap-3">
-              <StatCard label="Total tokens" value={formatTokenCount(totalTokens)} sub={`${formatTokenCount(tokenStats.total_output)} output`} />
-              <StatCard label="Cache hit rate" value={`${cacheHitRate(tokenStats)}%`} sub="of input from cache" />
-              <StatCard label="Avg tokens / session" value={tokenStats.total_sessions > 0 ? formatTokenCount(Math.round(totalTokens / tokenStats.total_sessions)) : "—"} />
-              <StatCard label="Sessions" value={tokenStats.total_sessions} sub={`${tokenStats.total_messages} messages`} />
-              {agentsCreated && agentsCreated.total > 0 && <StatCard label="Agents created" value={agentsCreated.total} />}
-            </div>
-          )}
+      {tab === "metrics" && (
+        <ScrollArea className="flex-1">
+          <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+            {hasTokenData && tokenStats && (
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <StatCard
+                  label="Total tokens"
+                  value={formatTokenCount(totalTokens)}
+                  sub={`${formatTokenCount(tokenStats.total_output)} output`}
+                />
+                <StatCard
+                  label="Cache hit rate"
+                  value={`${cacheHitRate(tokenStats)}%`}
+                  sub="of input from cache"
+                />
+                <StatCard
+                  label="Avg tokens / session"
+                  value={
+                    tokenStats.total_sessions > 0
+                      ? formatTokenCount(
+                          Math.round(totalTokens / tokenStats.total_sessions)
+                        )
+                      : "—"
+                  }
+                />
+                <StatCard
+                  label="Sessions"
+                  value={tokenStats.total_sessions}
+                  sub={`${tokenStats.total_messages} messages`}
+                />
+                {agentsCreated && agentsCreated.total > 0 && (
+                  <StatCard
+                    label="Agents created"
+                    value={agentsCreated.total}
+                  />
+                )}
+              </div>
+            )}
 
-          {tokenDaily && tokenDaily.days.length > 0 && (
+            {tokenDaily && tokenDaily.days.length > 0 && (
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-foreground">
+                  Token usage (
+                  {isDaily
+                    ? new Date(dailyDate + "T00:00:00").toLocaleDateString(
+                        undefined,
+                        { month: "short", day: "numeric" }
+                      )
+                    : rangeLabel(range).toLowerCase()}
+                  )
+                </h2>
+                <DailyTokenChart
+                  data={tokenDaily.days}
+                  granularity={tokenDaily.granularity}
+                  agentsCreatedData={agentsCreated?.days}
+                  dailyDate={dailyDateParam}
+                />
+              </div>
+            )}
+
+            {hasTokenData &&
+            (tokenByModel?.length || tokenByProject?.length) ? (
+              <div className="grid gap-6 sm:grid-cols-2">
+                {tokenByModel && tokenByModel.length > 0 && (
+                  <div>
+                    <h2 className="mb-3 text-sm font-medium text-foreground">
+                      Tokens by model
+                    </h2>
+                    <ModelBreakdown data={tokenByModel} />
+                  </div>
+                )}
+                {tokenByProject && tokenByProject.length > 0 && (
+                  <div>
+                    <h2 className="mb-3 text-sm font-medium text-foreground">
+                      By project
+                    </h2>
+                    <ProjectBreakdown
+                      data={tokenByProject}
+                      workingTime={workingTimeByProject}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             <div>
               <h2 className="mb-3 text-sm font-medium text-foreground">
-                Token usage ({isDaily ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : rangeLabel(range).toLowerCase()})
+                Activity this year
               </h2>
-              <DailyTokenChart data={tokenDaily.days} granularity={tokenDaily.granularity} agentsCreatedData={agentsCreated?.days} dailyDate={dailyDateParam} />
-            </div>
-          )}
-
-          {hasTokenData && (tokenByModel?.length || tokenByProject?.length) ? (
-            <div className="grid gap-6 sm:grid-cols-2">
-              {tokenByModel && tokenByModel.length > 0 && (
-                <div><h2 className="mb-3 text-sm font-medium text-foreground">Tokens by model</h2><ModelBreakdown data={tokenByModel} /></div>
-              )}
-              {tokenByProject && tokenByProject.length > 0 && (
-                <div><h2 className="mb-3 text-sm font-medium text-foreground">By project</h2><ProjectBreakdown data={tokenByProject} workingTime={workingTimeByProject} /></div>
+              {heatmapData ? (
+                <Heatmap data={heatmapData} />
+              ) : (
+                <div className="h-24 animate-pulse rounded-md bg-muted/30" />
               )}
             </div>
-          ) : null}
 
-          <div>
-            <h2 className="mb-3 text-sm font-medium text-foreground">Activity this year</h2>
-            {heatmapData ? <Heatmap data={heatmapData} /> : <div className="h-24 animate-pulse rounded-md bg-muted/30" />}
+            {activeHours && activeHours.length > 0 && hasActiveHourData && (
+              <div className="min-w-0">
+                <h2 className="mb-1 text-sm font-medium text-foreground">
+                  Active hours
+                </h2>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  {isDaily
+                    ? "Active-state events by weekday and hour for the selected day."
+                    : range === "7d"
+                      ? "Active-state events by weekday and hour for the last 7 days."
+                      : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
+                </p>
+                <ActiveHoursGrid data={activeHours} range={range} />
+              </div>
+            )}
+
+            {stats && hasData && (
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <StatCard
+                  label="Total working time"
+                  value={formatDuration(stats.totalWorkingMs)}
+                />
+                <StatCard
+                  label="Avg blocked time"
+                  value={formatDuration(stats.avgBlockedMs)}
+                />
+                <StatCard
+                  label="Avg waiting time"
+                  value={formatDuration(stats.avgWaitingMs)}
+                />
+                <StatCard
+                  label="Busiest day"
+                  value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"}
+                  sub={
+                    stats.busiestDayCount > 0
+                      ? `${stats.busiestDayCount} events`
+                      : undefined
+                  }
+                />
+              </div>
+            )}
+
+            {dailyStatus && dailyStatus.days.length > 0 && (
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-foreground">
+                  Status breakdown (
+                  {isDaily
+                    ? new Date(dailyDate + "T00:00:00").toLocaleDateString(
+                        undefined,
+                        { month: "short", day: "numeric" }
+                      )
+                    : rangeLabel(range).toLowerCase()}
+                  )
+                </h2>
+                <DailyStackedBarChart
+                  data={dailyStatus.days}
+                  granularity={dailyStatus.granularity}
+                  dailyDate={dailyDateParam}
+                />
+              </div>
+            )}
+
+            {stats &&
+              !hasData &&
+              (!heatmapData || heatmapData.length === 0) &&
+              !hasTokenData && (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  No activity yet. Stats will appear here as agents run.
+                </div>
+              )}
           </div>
-
-          {activeHours && activeHours.length > 0 && hasActiveHourData && (
-            <div className="min-w-0">
-              <h2 className="mb-1 text-sm font-medium text-foreground">Active hours</h2>
-              <p className="mb-3 text-xs text-muted-foreground">
-                {isDaily ? "Active-state events by weekday and hour for the selected day." : range === "7d" ? "Active-state events by weekday and hour for the last 7 days." : `Average active-state events per week by weekday and hour for ${rangeLabel(range).toLowerCase()}.`}
-              </p>
-              <ActiveHoursGrid data={activeHours} range={range} />
-            </div>
-          )}
-
-          {stats && hasData && (
-            <div className="flex flex-wrap gap-2 sm:gap-3">
-              <StatCard label="Total working time" value={formatDuration(stats.totalWorkingMs)} />
-              <StatCard label="Avg blocked time" value={formatDuration(stats.avgBlockedMs)} />
-              <StatCard label="Avg waiting time" value={formatDuration(stats.avgWaitingMs)} />
-              <StatCard label="Busiest day" value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"} sub={stats.busiestDayCount > 0 ? `${stats.busiestDayCount} events` : undefined} />
-            </div>
-          )}
-
-          {dailyStatus && dailyStatus.days.length > 0 && (
-            <div>
-              <h2 className="mb-3 text-sm font-medium text-foreground">
-                Status breakdown ({isDaily ? new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : rangeLabel(range).toLowerCase()})
-              </h2>
-              <DailyStackedBarChart data={dailyStatus.days} granularity={dailyStatus.granularity} dailyDate={dailyDateParam} />
-            </div>
-          )}
-
-          {stats && !hasData && (!heatmapData || heatmapData.length === 0) && !hasTokenData && (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No activity yet. Stats will appear here as agents run.
-            </div>
-          )}
-        </div>
-      </ScrollArea>}
+        </ScrollArea>
+      )}
     </div>
   );
 }

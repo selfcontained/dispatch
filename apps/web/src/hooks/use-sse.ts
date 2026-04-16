@@ -16,14 +16,21 @@ type UiEvent =
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
   | { type: "job.changed" }
-  | { type: "notification"; notificationId: string; agentId: string; agentName: string; eventType: string; message: string };
+  | {
+      type: "notification";
+      notificationId: string;
+      agentId: string;
+      agentName: string;
+      eventType: string;
+      message: string;
+    };
 
 export function useSSE(
   authState: AuthState,
   connectedAgentIdRef: React.RefObject<string | null>,
   selectedAgentIdRef: React.RefObject<string | null>,
   setStreamingAgentIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-  markSeenInCache: (agentId: string, keys: Set<string>) => void,
+  markSeenInCache: (agentId: string, keys: Set<string>) => void
 ): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -72,7 +79,10 @@ export function useSSE(
         }
 
         if (payload.type === "media.changed") {
-          void queryClient.invalidateQueries({ queryKey: ["media", payload.agentId], exact: true });
+          void queryClient.invalidateQueries({
+            queryKey: ["media", payload.agentId],
+            exact: true,
+          });
           return;
         }
 
@@ -101,7 +111,10 @@ export function useSSE(
           return;
         }
 
-        if (payload.type === "feedback.created" || payload.type === "feedback.updated") {
+        if (
+          payload.type === "feedback.created" ||
+          payload.type === "feedback.updated"
+        ) {
           void queryClient.invalidateQueries({ queryKey: ["feedback"] });
           return;
         }
@@ -129,7 +142,9 @@ export function useSSE(
 
     const openSSE = () => {
       if (eventSourceRef.current) return;
-      const source = new EventSource("/api/v1/events", { withCredentials: true });
+      const source = new EventSource("/api/v1/events", {
+        withCredentials: true,
+      });
       eventSourceRef.current = source;
       source.onmessage = handleSSEMessage;
       source.onerror = () => {
@@ -162,5 +177,12 @@ export function useSSE(
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [authState, connectedAgentIdRef, markSeenInCache, queryClient, selectedAgentIdRef, setStreamingAgentIds]);
+  }, [
+    authState,
+    connectedAgentIdRef,
+    markSeenInCache,
+    queryClient,
+    selectedAgentIdRef,
+    setStreamingAgentIds,
+  ]);
 }

@@ -38,12 +38,13 @@ export function AppHeader({
     >
       <div className="flex min-w-0 flex-1 items-center">
         {showLeftToggle ? (
-          <div
-            className={cn(
-              "inline-flex items-center gap-1"
-            )}
-          >
-            <Button size="icon" variant="ghost" onClick={() => setLeftOpen(true)} title="Open agent sidebar">
+          <div className={cn("inline-flex items-center gap-1")}>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setLeftOpen(true)}
+              title="Open agent sidebar"
+            >
               <PanelRightOpen className="h-4 w-4" />
             </Button>
             {!isMobile ? (
@@ -54,7 +55,9 @@ export function AppHeader({
               />
             ) : null}
           </div>
-        ) : <div />}
+        ) : (
+          <div />
+        )}
       </div>
 
       <div className="ml-3 flex shrink-0 items-center gap-1">

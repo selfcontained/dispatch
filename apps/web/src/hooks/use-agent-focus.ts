@@ -18,7 +18,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
  */
 export function useAgentFocus(
   selectedAgentId: string | null,
-  authState: AuthState,
+  authState: AuthState
 ): void {
   const lastReportedRef = useRef<string | null>(null);
 

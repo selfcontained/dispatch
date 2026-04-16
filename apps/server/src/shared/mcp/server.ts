@@ -4,15 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
-import {
-  createPr,
-
-  getPrStatus,
-  GitHubPrError,
-} from "../github/pr.js";
-import {
-  GitWorktreeError,
-} from "../git/worktree.js";
+import { createPr, getPrStatus, GitHubPrError } from "../github/pr.js";
+import { GitWorktreeError } from "../git/worktree.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 
 export type McpAgent = {
@@ -63,34 +56,79 @@ export type GetFeedbackResult = {
 };
 
 export type JobTools = {
-  complete: (agentId: string, report: unknown) => Promise<{ runId: string; status: string }>;
-  failed: (agentId: string, report: unknown) => Promise<{ runId: string; status: string }>;
-  needsInput: (agentId: string, question: string) => Promise<{ runId: string; status: string }>;
+  complete: (
+    agentId: string,
+    report: unknown
+  ) => Promise<{ runId: string; status: string }>;
+  failed: (
+    agentId: string,
+    report: unknown
+  ) => Promise<{ runId: string; status: string }>;
+  needsInput: (
+    agentId: string,
+    question: string
+  ) => Promise<{ runId: string; status: string }>;
   log: (
     agentId: string,
-    input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
+    input: {
+      task: string;
+      message: string;
+      level: "debug" | "info" | "warn" | "error";
+    }
   ) => Promise<{ runId: string; status: string }>;
-  listAgents: () => Promise<Array<{ id: string; name: string; status: string; cwd: string }>>;
-  listRecentPersonaReviews: (sinceDays: number) => Promise<Array<{
-    id: number; agentId: string; parentAgentId: string; persona: string;
-    status: string; message: string | null; verdict: string | null;
-    summary: string | null; filesReviewed: string[] | null;
-    createdAt: string; updatedAt: string;
-  }>>;
-  listRecentFeedback: (sinceDays: number) => Promise<Array<{
-    id: number; agentId: string; persona: string; severity: string;
-    filePath: string | null; lineNumber: number | null;
-    description: string; suggestion: string | null;
-    mediaRef: string | null; status: string; createdAt: string;
-  }>>;
-  getActivitySummary: (params: { start: Date; end: Date; project?: string }) => Promise<Record<string, unknown>>;
+  listAgents: () => Promise<
+    Array<{ id: string; name: string; status: string; cwd: string }>
+  >;
+  listRecentPersonaReviews: (sinceDays: number) => Promise<
+    Array<{
+      id: number;
+      agentId: string;
+      parentAgentId: string;
+      persona: string;
+      status: string;
+      message: string | null;
+      verdict: string | null;
+      summary: string | null;
+      filesReviewed: string[] | null;
+      createdAt: string;
+      updatedAt: string;
+    }>
+  >;
+  listRecentFeedback: (sinceDays: number) => Promise<
+    Array<{
+      id: number;
+      agentId: string;
+      persona: string;
+      severity: string;
+      filePath: string | null;
+      lineNumber: number | null;
+      description: string;
+      suggestion: string | null;
+      mediaRef: string | null;
+      status: string;
+      createdAt: string;
+    }>
+  >;
+  getActivitySummary: (params: {
+    start: Date;
+    end: Date;
+    project?: string;
+  }) => Promise<Record<string, unknown>>;
   getAgentHistory: (params: {
-    start: Date; end: Date; project?: string; limit: number; offset: number;
-    includeEvents: boolean; includeFeedback: boolean;
-    includeReviews: boolean; includeChildren: boolean;
+    start: Date;
+    end: Date;
+    project?: string;
+    limit: number;
+    offset: number;
+    includeEvents: boolean;
+    includeFeedback: boolean;
+    includeReviews: boolean;
+    includeChildren: boolean;
   }) => Promise<Record<string, unknown>>;
   getFeedbackSummary: (params: {
-    start: Date; end: Date; project?: string;
+    start: Date;
+    end: Date;
+    project?: string;
     groupBy: "persona" | "severity" | "directory";
   }) => Promise<Record<string, unknown>>;
 };
@@ -169,7 +207,12 @@ export type ReviewCompletion = {
 
 export type ParentContextResult = {
   pins: Array<{ label: string; value: string; type: string }>;
-  media: Array<{ fileName: string; description: string | null; source: string; createdAt: string }>;
+  media: Array<{
+    fileName: string;
+    description: string | null;
+    source: string;
+    createdAt: string;
+  }>;
 };
 
 export type NotifyInput = {
@@ -188,10 +231,7 @@ export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
-  sendNotify?: (
-    agentId: string,
-    input: NotifyInput
-  ) => Promise<NotifyResult>;
+  sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   upsertEvent?: (
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
@@ -202,12 +242,27 @@ export type McpRequestContext = {
   ) => Promise<{ id: string; name: string }>;
   shareMedia?: (
     agentId: string,
-    opts: { filePath: string; description: string; source?: string; name?: string; update?: string }
+    opts: {
+      filePath: string;
+      description: string;
+      source?: string;
+      name?: string;
+      update?: string;
+    }
   ) => Promise<MediaResult>;
   listMedia?: (
     agentId: string,
     opts: { source?: string }
-  ) => Promise<Array<{ fileName: string; filePath: string; source: string; description: string | null; sizeBytes: number; createdAt: string }>>;
+  ) => Promise<
+    Array<{
+      fileName: string;
+      filePath: string;
+      source: string;
+      description: string | null;
+      sizeBytes: number;
+      createdAt: string;
+    }>
+  >;
   submitFeedback?: (
     agentId: string,
     feedback: FeedbackInput
@@ -217,7 +272,11 @@ export type McpRequestContext = {
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
   launchPersona?: (
     agentId: string,
-    opts: { persona: string; context: string; agentType?: LaunchPersonaAgentType }
+    opts: {
+      persona: string;
+      context: string;
+      agentType?: LaunchPersonaAgentType;
+    }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   getFeedback?: (
     agentId: string,
@@ -232,34 +291,43 @@ export type McpRequestContext = {
     agentId: string,
     pin: { label: string; value: string; type: string }
   ) => Promise<void>;
-  deletePin?: (
-    agentId: string,
-    label: string
-  ) => Promise<void>;
-  getParentContext?: (
-    parentAgentId: string
-  ) => Promise<ParentContextResult>;
+  deletePin?: (agentId: string, label: string) => Promise<void>;
+  getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   updateReviewStatus?: (
     agentId: string,
     input: { status: string; message?: string }
   ) => Promise<void>;
   completeReview?: (
     agentId: string,
-    input: { verdict: string; summary: string; filesReviewed?: string[]; message?: string }
-  ) => Promise<void>;
-  getActivitySummary?: (
-    params: { start: Date; end: Date; project?: string }
-  ) => Promise<Record<string, unknown>>;
-  getAgentHistory?: (
-    params: {
-      start: Date; end: Date; project?: string; limit: number; offset: number;
-      includeEvents: boolean; includeFeedback: boolean;
-      includeReviews: boolean; includeChildren: boolean;
+    input: {
+      verdict: string;
+      summary: string;
+      filesReviewed?: string[];
+      message?: string;
     }
-  ) => Promise<Record<string, unknown>>;
-  getFeedbackSummary?: (
-    params: { start: Date; end: Date; project?: string; groupBy: "persona" | "severity" | "directory" }
-  ) => Promise<Record<string, unknown>>;
+  ) => Promise<void>;
+  getActivitySummary?: (params: {
+    start: Date;
+    end: Date;
+    project?: string;
+  }) => Promise<Record<string, unknown>>;
+  getAgentHistory?: (params: {
+    start: Date;
+    end: Date;
+    project?: string;
+    limit: number;
+    offset: number;
+    includeEvents: boolean;
+    includeFeedback: boolean;
+    includeReviews: boolean;
+    includeChildren: boolean;
+  }) => Promise<Record<string, unknown>>;
+  getFeedbackSummary?: (params: {
+    start: Date;
+    end: Date;
+    project?: string;
+    groupBy: "persona" | "severity" | "directory";
+  }) => Promise<Record<string, unknown>>;
   jobTools?: JobTools;
   toolScope?: "agent" | "reviewer" | "job";
 };
@@ -268,11 +336,15 @@ export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
   parsedBody?: unknown,
-  context: McpRequestContext = { agent: null, repoRoot: null, worktreeRoot: null }
+  context: McpRequestContext = {
+    agent: null,
+    repoRoot: null,
+    worktreeRoot: null,
+  }
 ): Promise<void> {
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined
+    sessionIdGenerator: undefined,
   });
   res.once("close", () => {
     void transport.close();
@@ -283,17 +355,27 @@ export async function handleMcpRequest(
   await transport.handleRequest(req, res, parsedBody);
 }
 
-async function createDispatchMcpServer(context: McpRequestContext): Promise<McpServer> {
+async function createDispatchMcpServer(
+  context: McpRequestContext
+): Promise<McpServer> {
   const server = new McpServer({
     name: "dispatch",
-    version: "0.0.0"
+    version: "0.0.0",
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
-  const agentType: AgentType = context.agent?.persona ? "persona" : context.jobTools ? "job" : "agent";
+  const agentType: AgentType = context.agent?.persona
+    ? "persona"
+    : context.jobTools
+      ? "job"
+      : "agent";
   const allowed = TOOL_SETS[agentType];
 
   // ── review_status (persona) ───────────────────────────────────────
-  if (allowed.has("review_status") && context.updateReviewStatus && context.completeReview) {
+  if (
+    allowed.has("review_status") &&
+    context.updateReviewStatus &&
+    context.completeReview
+  ) {
     const agentId = context.agent!.id;
     const updateReviewStatus = context.updateReviewStatus;
     const completeReview = context.completeReview;
@@ -305,8 +387,14 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           "Report review progress. Call with status 'reviewing' while actively reviewing code or testing. " +
           "Call with status 'complete' when the review is finished — include a verdict and summary.",
         inputSchema: {
-          status: z.enum(["reviewing", "complete"]).describe("Current review status."),
-          message: z.string().describe("Short description of current activity or final summary."),
+          status: z
+            .enum(["reviewing", "complete"])
+            .describe("Current review status."),
+          message: z
+            .string()
+            .describe(
+              "Short description of current activity or final summary."
+            ),
           verdict: z
             .enum(["approve", "request_changes"])
             .optional()
@@ -314,39 +402,50 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           summary: z
             .string()
             .optional()
-            .describe("Summary of the review findings. Required when status is 'complete'."),
+            .describe(
+              "Summary of the review findings. Required when status is 'complete'."
+            ),
           filesReviewed: z
             .array(z.string())
             .optional()
-            .describe("List of file paths that were reviewed.")
-        }
+            .describe("List of file paths that were reviewed."),
+        },
       },
       async (args) => {
         try {
           if (args.status === "complete") {
             if (!args.verdict) {
-              return toToolError(new Error("verdict is required when status is 'complete'."));
+              return toToolError(
+                new Error("verdict is required when status is 'complete'.")
+              );
             }
             if (!args.summary) {
-              return toToolError(new Error("summary is required when status is 'complete'."));
+              return toToolError(
+                new Error("summary is required when status is 'complete'.")
+              );
             }
             await completeReview(agentId, {
               verdict: args.verdict,
               summary: args.summary,
               filesReviewed: args.filesReviewed,
-              message: args.message
+              message: args.message,
             });
             return {
-              content: [{ type: "text", text: `Review complete: ${args.verdict}. ${args.summary}` }]
+              content: [
+                {
+                  type: "text",
+                  text: `Review complete: ${args.verdict}. ${args.summary}`,
+                },
+              ],
             };
           }
 
           await updateReviewStatus(agentId, {
             status: "reviewing",
-            message: args.message
+            message: args.message,
           });
           return {
-            content: [{ type: "text", text: `Reviewing: ${args.message}` }]
+            content: [{ type: "text", text: `Reviewing: ${args.message}` }],
           };
         } catch (error) {
           return toToolError(error);
@@ -356,7 +455,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── get_parent_context (persona) ────────────────────────────────────
-  if (allowed.has("get_parent_context") && context.agent?.parentAgentId && context.getParentContext) {
+  if (
+    allowed.has("get_parent_context") &&
+    context.agent?.parentAgentId &&
+    context.getParentContext
+  ) {
     const parentAgentId = context.agent.parentAgentId;
     const getParentContext = context.getParentContext;
 
@@ -366,7 +469,7 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, " +
           "key files, screenshots, and other context the parent agent has surfaced.",
-        inputSchema: {}
+        inputSchema: {},
       },
       async () => {
         try {
@@ -383,12 +486,14 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           if (result.media.length > 0) {
             parts.push("\nShared media:");
             for (const m of result.media) {
-              parts.push(`  ${m.fileName}: ${m.description ?? "(no description)"}`);
+              parts.push(
+                `  ${m.fileName}: ${m.description ?? "(no description)"}`
+              );
             }
           }
           return {
             content: [{ type: "text", text: parts.join("\n") }],
-            structuredContent: result
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -406,23 +511,40 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       {
         description: "Create a GitHub pull request for the current branch.",
         inputSchema: {
-          cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
-          baseBranch: z.string().default(defaultBaseBranch).describe("Base branch to target."),
+          cwd: cwdSchema(
+            defaultCwd,
+            "Absolute path inside the git repository."
+          ),
+          baseBranch: z
+            .string()
+            .default(defaultBaseBranch)
+            .describe("Base branch to target."),
           title: z.string().optional().describe("Explicit PR title."),
           body: z.string().optional().describe("Explicit PR body."),
-          draft: z.boolean().default(false).describe("Create the PR as a draft."),
-          fillFromCommits: z.boolean().default(false).describe("Let gh derive title/body from commits.")
-        }
+          draft: z
+            .boolean()
+            .default(false)
+            .describe("Create the PR as a draft."),
+          fillFromCommits: z
+            .boolean()
+            .default(false)
+            .describe("Let gh derive title/body from commits."),
+        },
       },
       async (args) => {
         try {
           const result = await createPr({
             ...args,
-            cwd: resolveCwd(args.cwd, defaultCwd)
+            cwd: resolveCwd(args.cwd, defaultCwd),
           });
           return {
-            content: [{ type: "text", text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.` }],
-            structuredContent: result
+            content: [
+              {
+                type: "text",
+                text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.`,
+              },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -438,19 +560,34 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       {
         description: "Fetch status details for a pull request.",
         inputSchema: {
-          cwd: cwdSchema(defaultCwd, "Absolute path inside the git repository."),
-          prNumber: z.number().int().positive().optional().describe("Specific PR number. Defaults to the PR for the current branch.")
-        }
+          cwd: cwdSchema(
+            defaultCwd,
+            "Absolute path inside the git repository."
+          ),
+          prNumber: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              "Specific PR number. Defaults to the PR for the current branch."
+            ),
+        },
       },
       async (args) => {
         try {
           const result = await getPrStatus({
             ...args,
-            cwd: resolveCwd(args.cwd, defaultCwd)
+            cwd: resolveCwd(args.cwd, defaultCwd),
           });
           return {
-            content: [{ type: "text", text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.` }],
-            structuredContent: result
+            content: [
+              {
+                type: "text",
+                text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.`,
+              },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -471,23 +608,32 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Report agent status to Dispatch. Must be called at the start of each turn (working), when stuck and unable to proceed (blocked), waiting for user input (waiting_user), and before the final response (done or idle).",
         inputSchema: {
-          type: z.enum(["working", "blocked", "waiting_user", "done", "idle"]).describe("The status event type."),
-          message: z.string().describe("A short description of what is happening."),
+          type: z
+            .enum(["working", "blocked", "waiting_user", "done", "idle"])
+            .describe("The status event type."),
+          message: z
+            .string()
+            .describe("A short description of what is happening."),
           metadata: z
             .record(z.string(), z.unknown())
             .optional()
-            .describe("Optional metadata object.")
-        }
+            .describe("Optional metadata object."),
+        },
       },
       async (args) => {
         try {
           await upsertEvent(agentId, {
             type: args.type,
             message: args.message,
-            metadata: args.metadata as Record<string, unknown> | undefined
+            metadata: args.metadata as Record<string, unknown> | undefined,
           });
           return {
-            content: [{ type: "text", text: `Updated ${agentId}: ${args.type} - ${args.message}` }]
+            content: [
+              {
+                type: "text",
+                text: `Updated ${agentId}: ${args.type} - ${args.message}`,
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -497,7 +643,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── dispatch_rename_session ───────────────────────────────────────
-  if (allowed.has("dispatch_rename_session") && context.agent && context.renameSession) {
+  if (
+    allowed.has("dispatch_rename_session") &&
+    context.agent &&
+    context.renameSession
+  ) {
     const agentId = context.agent.id;
     const renameSession = context.renameSession;
 
@@ -507,15 +657,21 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Update the current session's display name. Use this to rename a default-generated session to a short goal or topic, or when the user explicitly asks for a rename.",
         inputSchema: {
-          name: z.string().min(1).max(120).describe("New session display name.")
-        }
+          name: z
+            .string()
+            .min(1)
+            .max(120)
+            .describe("New session display name."),
+        },
       },
       async (args) => {
         try {
           const result = await renameSession(agentId, args.name);
           return {
-            content: [{ type: "text", text: `Renamed session to \"${result.name}\".` }],
-            structuredContent: result
+            content: [
+              { type: "text", text: `Renamed session to \"${result.name}\".` },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -538,13 +694,32 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           "Requires a Slack webhook to be configured in Dispatch settings. " +
           "Rate limited to 5 messages per minute.",
         inputSchema: {
-          message: z.string().max(3000).describe("The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc). Max 3000 characters."),
-          title: z.string().max(150).optional().describe("Optional title displayed above the message. Defaults to 'Notification from <agent>'. Max 150 characters."),
-          level: z.enum(["info", "success", "warning", "error"]).default("info")
-            .describe("Notification level — controls the color and emoji. info (blue), success (green), warning (amber), error (red)."),
-          respectFocus: z.boolean().default(false)
-            .describe("When true, the notification is suppressed if the user is actively viewing this agent in Dispatch. Default false — notifications are always sent."),
-        }
+          message: z
+            .string()
+            .max(3000)
+            .describe(
+              "The notification message body. Supports Slack mrkdwn formatting (bold, links, lists, code blocks, etc). Max 3000 characters."
+            ),
+          title: z
+            .string()
+            .max(150)
+            .optional()
+            .describe(
+              "Optional title displayed above the message. Defaults to 'Notification from <agent>'. Max 150 characters."
+            ),
+          level: z
+            .enum(["info", "success", "warning", "error"])
+            .default("info")
+            .describe(
+              "Notification level — controls the color and emoji. info (blue), success (green), warning (amber), error (red)."
+            ),
+          respectFocus: z
+            .boolean()
+            .default(false)
+            .describe(
+              "When true, the notification is suppressed if the user is actively viewing this agent in Dispatch. Default false — notifications are always sent."
+            ),
+        },
       },
       async (args) => {
         try {
@@ -555,9 +730,14 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             respectFocus: args.respectFocus,
           });
           return {
-            content: [{ type: "text", text: result.sent
-              ? "Notification sent to Slack."
-              : `Notification not sent: ${result.reason}` }]
+            content: [
+              {
+                type: "text",
+                text: result.sent
+                  ? "Notification sent to Slack."
+                  : `Notification not sent: ${result.reason}`,
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -570,7 +750,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
 
   // ── dispatch_list_media ──────────────────────────────────────────
-  if (allowed.has("dispatch_list_media") && context.agent && context.listMedia) {
+  if (
+    allowed.has("dispatch_list_media") &&
+    context.agent &&
+    context.listMedia
+  ) {
     const agentId = context.agent.id;
     const listMedia = context.listMedia;
 
@@ -592,7 +776,9 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         try {
           const items = await listMedia(agentId, { source: args.source });
           return {
-            content: [{ type: "text" as const, text: JSON.stringify(items, null, 2) }],
+            content: [
+              { type: "text" as const, text: JSON.stringify(items, null, 2) },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -613,17 +799,24 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       {
         description:
           "List the persona reviewers available for this project. Returns each persona's slug, name, and description. Use this to decide which personas to launch via dispatch_launch_persona.",
-        inputSchema: {}
+        inputSchema: {},
       },
       async () => {
         if (!personaRoot) {
-          return { content: [{ type: "text", text: JSON.stringify({ personas: [] }, null, 2) }], structuredContent: { personas: [] } };
+          return {
+            content: [
+              { type: "text", text: JSON.stringify({ personas: [] }, null, 2) },
+            ],
+            structuredContent: { personas: [] },
+          };
         }
         try {
           const personas = await listPersonas(personaRoot);
           return {
-            content: [{ type: "text", text: JSON.stringify({ personas }, null, 2) }],
-            structuredContent: { personas }
+            content: [
+              { type: "text", text: JSON.stringify({ personas }, null, 2) },
+            ],
+            structuredContent: { personas },
           };
         } catch (error) {
           return toToolError(error);
@@ -633,7 +826,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── dispatch_launch_persona ───────────────────────────────────────
-  if (allowed.has("dispatch_launch_persona") && context.agent && context.launchPersona) {
+  if (
+    allowed.has("dispatch_launch_persona") &&
+    context.agent &&
+    context.launchPersona
+  ) {
     const agentId = context.agent.id;
     const launchPersona = context.launchPersona;
 
@@ -643,25 +840,39 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files.",
         inputSchema: {
-          persona: z.string().describe("Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."),
-          context: z.string().max(100_000).describe("Briefing for the persona — describe what you built, key files changed, and areas that need attention."),
-          agentType: z.enum(LAUNCH_PERSONA_AGENT_TYPES).optional().describe("Optional agent runtime override for the persona launch.")
-        }
+          persona: z
+            .string()
+            .describe(
+              "Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."
+            ),
+          context: z
+            .string()
+            .max(100_000)
+            .describe(
+              "Briefing for the persona — describe what you built, key files changed, and areas that need attention."
+            ),
+          agentType: z
+            .enum(LAUNCH_PERSONA_AGENT_TYPES)
+            .optional()
+            .describe(
+              "Optional agent runtime override for the persona launch."
+            ),
+        },
       },
       async (args) => {
         try {
           const result = await launchPersona(agentId, {
             persona: args.persona,
             context: args.context,
-            agentType: args.agentType
+            agentType: args.agentType,
           });
           return {
             content: [
               {
                 type: "text",
-                text: `Launched persona "${result.persona}" as agent ${result.agentId}.`
-              }
-            ]
+                text: `Launched persona "${result.persona}" as agent ${result.agentId}.`,
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -671,7 +882,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── dispatch_get_feedback ───────────────────────────────────────────
-  if (allowed.has("dispatch_get_feedback") && context.agent && context.getFeedback) {
+  if (
+    allowed.has("dispatch_get_feedback") &&
+    context.agent &&
+    context.getFeedback
+  ) {
     const agentId = context.agent.id;
     const getFeedback = context.getFeedback;
 
@@ -684,26 +899,37 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
           persona: z
             .string()
             .optional()
-            .describe("Filter to a specific persona by name. If omitted, returns feedback from all child personas."),
+            .describe(
+              "Filter to a specific persona by name. If omitted, returns feedback from all child personas."
+            ),
           limit: z
             .number()
             .int()
             .positive()
             .max(100)
             .default(100)
-            .describe("Maximum number of feedback items to return. Defaults and caps at 100.")
-        }
+            .describe(
+              "Maximum number of feedback items to return. Defaults and caps at 100."
+            ),
+        },
       },
       async (args) => {
         try {
-          const result = await getFeedback(agentId, { persona: args.persona, limit: args.limit });
-          const totalItems = result.personas.reduce((sum, p) => sum + p.feedback.length, 0);
-          const summary = result.personas.length === 0
-            ? "No persona feedback found."
-            : `Found ${totalItems} feedback item(s) from ${result.personas.length} persona(s).`;
+          const result = await getFeedback(agentId, {
+            persona: args.persona,
+            limit: args.limit,
+          });
+          const totalItems = result.personas.reduce(
+            (sum, p) => sum + p.feedback.length,
+            0
+          );
+          const summary =
+            result.personas.length === 0
+              ? "No persona feedback found."
+              : `Found ${totalItems} feedback item(s) from ${result.personas.length} persona(s).`;
           return {
             content: [{ type: "text", text: summary }],
-            structuredContent: result
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -713,7 +939,11 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   }
 
   // ── dispatch_resolve_feedback ───────────────────────────────────────
-  if (allowed.has("dispatch_resolve_feedback") && context.agent && context.resolveFeedback) {
+  if (
+    allowed.has("dispatch_resolve_feedback") &&
+    context.agent &&
+    context.resolveFeedback
+  ) {
     const agentId = context.agent.id;
     const resolveFeedback = context.resolveFeedback;
 
@@ -730,14 +960,25 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
             .describe("The ID of the feedback item to resolve."),
           status: z
             .enum(["fixed", "ignored"])
-            .describe("Resolution status: 'fixed' if addressed, 'ignored' if not applicable.")
-        }
+            .describe(
+              "Resolution status: 'fixed' if addressed, 'ignored' if not applicable."
+            ),
+        },
       },
       async (args) => {
         try {
-          const result = await resolveFeedback(agentId, args.feedbackId, args.status);
+          const result = await resolveFeedback(
+            agentId,
+            args.feedbackId,
+            args.status
+          );
           return {
-            content: [{ type: "text", text: `Feedback #${result.id} marked as ${result.status}.` }]
+            content: [
+              {
+                type: "text",
+                text: `Feedback #${result.id} marked as ${result.status}.`,
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -749,9 +990,12 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   // ── Summary / analytics tools (available to both agents and jobs) ──
 
   // Resolve the callback: prefer context-level, fall back to jobTools
-  const getActivitySummary = context.getActivitySummary ?? context.jobTools?.getActivitySummary;
-  const getAgentHistory = context.getAgentHistory ?? context.jobTools?.getAgentHistory;
-  const getFeedbackSummary = context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary;
+  const getActivitySummary =
+    context.getActivitySummary ?? context.jobTools?.getActivitySummary;
+  const getAgentHistory =
+    context.getAgentHistory ?? context.jobTools?.getAgentHistory;
+  const getFeedbackSummary =
+    context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary;
 
   if (allowed.has("get_activity_summary") && getActivitySummary) {
     const fn = getActivitySummary;
@@ -761,19 +1005,36 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Get a high-level summary of agent activity in Dispatch over a time range — working time, session counts, outcomes, and top agents by project. Use this for activity digests and dashboards.",
         inputSchema: {
-          start: z.string().datetime({ offset: true }).optional()
-            .describe("Start of time range (ISO 8601 with timezone). Defaults to 7 days ago."),
-          end: z.string().datetime({ offset: true }).optional()
-            .describe("End of time range (ISO 8601 with timezone). Defaults to now."),
-          project: z.string().optional()
-            .describe("Filter to a specific project directory (exact match). If omitted, returns all projects."),
+          start: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "Start of time range (ISO 8601 with timezone). Defaults to 7 days ago."
+            ),
+          end: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "End of time range (ISO 8601 with timezone). Defaults to now."
+            ),
+          project: z
+            .string()
+            .optional()
+            .describe(
+              "Filter to a specific project directory (exact match). If omitted, returns all projects."
+            ),
         },
       },
       async (args) => {
         try {
           const end = args.end ? new Date(args.end) : new Date();
-          const start = args.start ? new Date(args.start) : new Date(end.getTime() - 7 * 86_400_000);
-          if (start >= end) return toToolError(new Error("start must be before end"));
+          const start = args.start
+            ? new Date(args.start)
+            : new Date(end.getTime() - 7 * 86_400_000);
+          if (start >= end)
+            return toToolError(new Error("start must be before end"));
           const result = await fn({ start, end, project: args.project });
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -794,31 +1055,71 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Get detailed agent session history — what agents worked on, their event timelines, feedback received, and persona review results. Use for deeper investigation after get_activity_summary or for building narrative summaries.",
         inputSchema: {
-          start: z.string().datetime({ offset: true }).optional()
-            .describe("Start of time range (ISO 8601 with timezone). Defaults to 7 days ago."),
-          end: z.string().datetime({ offset: true }).optional()
-            .describe("End of time range (ISO 8601 with timezone). Defaults to now."),
-          project: z.string().optional()
+          start: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "Start of time range (ISO 8601 with timezone). Defaults to 7 days ago."
+            ),
+          end: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "End of time range (ISO 8601 with timezone). Defaults to now."
+            ),
+          project: z
+            .string()
+            .optional()
             .describe("Filter to a specific project directory (exact match)."),
-          limit: z.number().int().min(1).max(50).default(20)
-            .describe("Max number of agent sessions to return (default 20, max 50)."),
-          offset: z.number().int().min(0).default(0)
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(50)
+            .default(20)
+            .describe(
+              "Max number of agent sessions to return (default 20, max 50)."
+            ),
+          offset: z
+            .number()
+            .int()
+            .min(0)
+            .default(0)
             .describe("Pagination offset."),
-          include_events: z.boolean().default(false)
-            .describe("Include the event timeline for each agent session (capped at 200 per agent). Can be verbose."),
-          include_feedback: z.boolean().default(true)
+          include_events: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Include the event timeline for each agent session (capped at 200 per agent). Can be verbose."
+            ),
+          include_feedback: z
+            .boolean()
+            .default(true)
             .describe("Include feedback findings for each agent session."),
-          include_reviews: z.boolean().default(true)
-            .describe("Include persona review summaries for each agent session."),
-          include_children: z.boolean().default(false)
-            .describe("Include child/persona agents as standalone entries (default: nested under parent)."),
+          include_reviews: z
+            .boolean()
+            .default(true)
+            .describe(
+              "Include persona review summaries for each agent session."
+            ),
+          include_children: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Include child/persona agents as standalone entries (default: nested under parent)."
+            ),
         },
       },
       async (args) => {
         try {
           const end = args.end ? new Date(args.end) : new Date();
-          const start = args.start ? new Date(args.start) : new Date(end.getTime() - 7 * 86_400_000);
-          if (start >= end) return toToolError(new Error("start must be before end"));
+          const start = args.start
+            ? new Date(args.start)
+            : new Date(end.getTime() - 7 * 86_400_000);
+          if (start >= end)
+            return toToolError(new Error("start must be before end"));
           const result = await fn({
             start,
             end,
@@ -849,21 +1150,38 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
         description:
           "Aggregate persona review feedback to surface patterns — recurring issue types, hot spots in the codebase, and severity trends. Use for feedback pattern tracking and coaching check-ins.",
         inputSchema: {
-          start: z.string().datetime({ offset: true }).optional()
-            .describe("Start of time range (ISO 8601 with timezone). Defaults to 14 days ago."),
-          end: z.string().datetime({ offset: true }).optional()
-            .describe("End of time range (ISO 8601 with timezone). Defaults to now."),
-          project: z.string().optional()
+          start: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "Start of time range (ISO 8601 with timezone). Defaults to 14 days ago."
+            ),
+          end: z
+            .string()
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+              "End of time range (ISO 8601 with timezone). Defaults to now."
+            ),
+          project: z
+            .string()
+            .optional()
             .describe("Filter to a specific project directory (exact match)."),
-          group_by: z.enum(["persona", "severity", "directory"]).default("persona")
+          group_by: z
+            .enum(["persona", "severity", "directory"])
+            .default("persona")
             .describe("Primary grouping for the summary."),
         },
       },
       async (args) => {
         try {
           const end = args.end ? new Date(args.end) : new Date();
-          const start = args.start ? new Date(args.start) : new Date(end.getTime() - 14 * 86_400_000);
-          if (start >= end) return toToolError(new Error("start must be before end"));
+          const start = args.start
+            ? new Date(args.start)
+            : new Date(end.getTime() - 14 * 86_400_000);
+          if (start >= end)
+            return toToolError(new Error("start must be before end"));
           const result = await fn({
             start,
             end,
@@ -888,30 +1206,47 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     const reportSchema = z.object({
       status: z.enum(["completed", "failed"]),
       summary: z.string().min(1),
-      tasks: z.array(z.object({
-        name: z.string().min(1),
-        status: z.enum(["success", "skipped", "error"]),
-        summary: z.string(),
-        errors: z.array(z.object({
-          message: z.string().min(1),
-          recoverable: z.boolean().optional(),
-          action: z.string().optional()
-        })).optional()
-      }))
+      tasks: z.array(
+        z.object({
+          name: z.string().min(1),
+          status: z.enum(["success", "skipped", "error"]),
+          summary: z.string(),
+          errors: z
+            .array(
+              z.object({
+                message: z.string().min(1),
+                recoverable: z.boolean().optional(),
+                action: z.string().optional(),
+              })
+            )
+            .optional(),
+        })
+      ),
     });
 
     server.registerTool(
       "job_complete",
       {
-        description: "Submit the terminal structured report for a successful Dispatch job run.",
+        description:
+          "Submit the terminal structured report for a successful Dispatch job run.",
         inputSchema: {
-          report: reportSchema.describe("Structured job report. report.status must be completed.")
-        }
+          report: reportSchema.describe(
+            "Structured job report. report.status must be completed."
+          ),
+        },
       },
       async (args) => {
         try {
           const result = await jobTools.complete(agentId, args.report);
-          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Job run ${result.runId} marked ${result.status}.`,
+              },
+            ],
+            structuredContent: result,
+          };
         } catch (error) {
           return toToolError(error);
         }
@@ -921,15 +1256,26 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     server.registerTool(
       "job_failed",
       {
-        description: "Submit the terminal structured report for a failed Dispatch job run.",
+        description:
+          "Submit the terminal structured report for a failed Dispatch job run.",
         inputSchema: {
-          report: reportSchema.describe("Structured job report. report.status must be failed.")
-        }
+          report: reportSchema.describe(
+            "Structured job report. report.status must be failed."
+          ),
+        },
       },
       async (args) => {
         try {
           const result = await jobTools.failed(agentId, args.report);
-          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Job run ${result.runId} marked ${result.status}.`,
+              },
+            ],
+            structuredContent: result,
+          };
         } catch (error) {
           return toToolError(error);
         }
@@ -941,13 +1287,24 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
       {
         description: "Pause a Dispatch job run when human input is required.",
         inputSchema: {
-          question: z.string().min(1).describe("The question or decision needed from a human.")
-        }
+          question: z
+            .string()
+            .min(1)
+            .describe("The question or decision needed from a human."),
+        },
       },
       async (args) => {
         try {
           const result = await jobTools.needsInput(agentId, args.question);
-          return { content: [{ type: "text", text: `Job run ${result.runId} marked ${result.status}.` }], structuredContent: result };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Job run ${result.runId} marked ${result.status}.`,
+              },
+            ],
+            structuredContent: result,
+          };
         } catch (error) {
           return toToolError(error);
         }
@@ -957,17 +1314,32 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     server.registerTool(
       "job_log",
       {
-        description: "Append structured progress for a task within the active Dispatch job run.",
+        description:
+          "Append structured progress for a task within the active Dispatch job run.",
         inputSchema: {
-          task: z.string().min(1).describe("Task name this log entry belongs to."),
+          task: z
+            .string()
+            .min(1)
+            .describe("Task name this log entry belongs to."),
           message: z.string().min(1).describe("Progress message."),
-          level: z.enum(["debug", "info", "warn", "error"]).default("info").describe("Log severity.")
-        }
+          level: z
+            .enum(["debug", "info", "warn", "error"])
+            .default("info")
+            .describe("Log severity."),
+        },
       },
       async (args) => {
         try {
           const result = await jobTools.log(agentId, args);
-          return { content: [{ type: "text", text: `Logged progress for job run ${result.runId}.` }], structuredContent: result };
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Logged progress for job run ${result.runId}.`,
+              },
+            ],
+            structuredContent: result,
+          };
         } catch (error) {
           return toToolError(error);
         }
@@ -977,15 +1349,18 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     server.registerTool(
       "list_agents",
       {
-        description: "List all agents from this Dispatch server with their IDs, names, and statuses.",
-        inputSchema: {}
+        description:
+          "List all agents from this Dispatch server with their IDs, names, and statuses.",
+        inputSchema: {},
       },
       async () => {
         try {
           const agents = await jobTools.listAgents();
           return {
-            content: [{ type: "text", text: JSON.stringify({ agents }, null, 2) }],
-            structuredContent: { agents }
+            content: [
+              { type: "text", text: JSON.stringify({ agents }, null, 2) },
+            ],
+            structuredContent: { agents },
           };
         } catch (error) {
           return toToolError(error);
@@ -996,17 +1371,35 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     server.registerTool(
       "list_recent_persona_reviews",
       {
-        description: "List persona reviews from the last N days. Returns review metadata including persona type, status, verdict, and summary.",
+        description:
+          "List persona reviews from the last N days. Returns review metadata including persona type, status, verdict, and summary.",
         inputSchema: {
-          since_days: z.number().int().min(1).max(90).default(7).describe("Number of days to look back (default 7, max 90).")
-        }
+          since_days: z
+            .number()
+            .int()
+            .min(1)
+            .max(90)
+            .default(7)
+            .describe("Number of days to look back (default 7, max 90)."),
+        },
       },
       async (args) => {
         try {
-          const reviews = await jobTools.listRecentPersonaReviews(args.since_days);
+          const reviews = await jobTools.listRecentPersonaReviews(
+            args.since_days
+          );
           return {
-            content: [{ type: "text", text: JSON.stringify({ reviews, count: reviews.length }, null, 2) }],
-            structuredContent: { reviews, count: reviews.length }
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  { reviews, count: reviews.length },
+                  null,
+                  2
+                ),
+              },
+            ],
+            structuredContent: { reviews, count: reviews.length },
           };
         } catch (error) {
           return toToolError(error);
@@ -1017,17 +1410,33 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
     server.registerTool(
       "list_recent_feedback",
       {
-        description: "List feedback items submitted by persona agents in the last N days. Includes persona type, severity, description, status, and file location.",
+        description:
+          "List feedback items submitted by persona agents in the last N days. Includes persona type, severity, description, status, and file location.",
         inputSchema: {
-          since_days: z.number().int().min(1).max(90).default(7).describe("Number of days to look back (default 7, max 90).")
-        }
+          since_days: z
+            .number()
+            .int()
+            .min(1)
+            .max(90)
+            .default(7)
+            .describe("Number of days to look back (default 7, max 90)."),
+        },
       },
       async (args) => {
         try {
           const feedback = await jobTools.listRecentFeedback(args.since_days);
           return {
-            content: [{ type: "text", text: JSON.stringify({ feedback, count: feedback.length }, null, 2) }],
-            structuredContent: { feedback, count: feedback.length }
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  { feedback, count: feedback.length },
+                  null,
+                  2
+                ),
+              },
+            ],
+            structuredContent: { feedback, count: feedback.length },
           };
         } catch (error) {
           return toToolError(error);
@@ -1040,25 +1449,27 @@ async function createDispatchMcpServer(context: McpRequestContext): Promise<McpS
   if (context.agent && toolsRoot) {
     const allRepoTools = await loadRepoTools(toolsRoot);
     const scope = context.toolScope ?? "agent";
-    const repoTools = allRepoTools.filter((tool) => !tool.scope || tool.scope.includes(scope));
+    const repoTools = allRepoTools.filter(
+      (tool) => !tool.scope || tool.scope.includes(scope)
+    );
     for (const tool of repoTools) {
       const inputSchema = buildParamSchema(tool.params);
       server.registerTool(
         tool.name,
         {
           description: tool.description,
-          inputSchema
+          inputSchema,
         },
         async (args) => {
           try {
             const result = await tool.run({
               agentId: context.agent!.id,
               repoRoot: toolsRoot,
-              params: args as Record<string, unknown>
+              params: args as Record<string, unknown>,
             });
             return {
               content: [{ type: "text", text: result.message }],
-              structuredContent: result
+              structuredContent: result,
             };
           } catch (error) {
             return toToolError(error);
@@ -1086,7 +1497,12 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
         "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, pass delete: true. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
       inputSchema: {
-        label: z.string().max(100).describe("Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."),
+        label: z
+          .string()
+          .max(100)
+          .describe(
+            "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."
+          ),
         value: z
           .string()
           .max(2000)
@@ -1095,31 +1511,37 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
         type: z
           .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
           .default("string")
-          .describe("Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."),
+          .describe(
+            "Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
+          ),
         delete: z
           .boolean()
           .default(false)
-          .describe("Set to true to remove the pin with this label.")
-      }
+          .describe("Set to true to remove the pin with this label."),
+      },
     },
     async (args) => {
       try {
         if (args.delete) {
           await deletePin(agentId, args.label);
           return {
-            content: [{ type: "text", text: `Removed pin "${args.label}".` }]
+            content: [{ type: "text", text: `Removed pin "${args.label}".` }],
           };
         }
         if (!args.value) {
-          return toToolError(new Error("value is required when not deleting a pin."));
+          return toToolError(
+            new Error("value is required when not deleting a pin.")
+          );
         }
         await upsertPin(agentId, {
           label: args.label,
           value: args.value,
-          type: args.type ?? "string"
+          type: args.type ?? "string",
         });
         return {
-          content: [{ type: "text", text: `Pinned "${args.label}": ${args.value}` }]
+          content: [
+            { type: "text", text: `Pinned "${args.label}": ${args.value}` },
+          ],
         };
       } catch (error) {
         return toToolError(error);
@@ -1128,7 +1550,10 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
   );
 }
 
-function registerShareTool(server: McpServer, context: McpRequestContext): void {
+function registerShareTool(
+  server: McpServer,
+  context: McpRequestContext
+): void {
   if (!context.agent || !context.shareMedia) return;
   const agentId = context.agent.id;
   const shareMedia = context.shareMedia;
@@ -1142,29 +1567,43 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
         filePath: z
           .string()
           .optional()
-          .describe("Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."),
+          .describe(
+            "Absolute path to the file to upload. Not required when source is 'simulator' or when content is provided."
+          ),
         content: z
           .string()
           .optional()
-          .describe("Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."),
-        description: z.string().describe("A short description of the shared media."),
+          .describe(
+            "Text content to share directly (max 32KB). Requires name param with a file extension (e.g. 'snippet.ts'). Use this for text snippets instead of writing to a temp file."
+          ),
+        description: z
+          .string()
+          .describe("A short description of the shared media."),
         source: z
           .enum(["screenshot", "simulator", "text"])
           .default("screenshot")
-          .describe("The source type of the media. Automatically set to 'text' when sharing text files."),
+          .describe(
+            "The source type of the media. Automatically set to 'text' when sharing text files."
+          ),
         name: z
           .string()
           .optional()
-          .describe("Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."),
+          .describe(
+            "Preferred file name for the upload. Required when using content param. Derived from the file path if omitted."
+          ),
         simulatorUdid: z
           .string()
           .optional()
-          .describe("Simulator UDID for simulator screenshots. Defaults to 'booted'."),
+          .describe(
+            "Simulator UDID for simulator screenshots. Defaults to 'booted'."
+          ),
         update: z
           .string()
           .optional()
-          .describe("fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file.")
-      }
+          .describe(
+            "fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file."
+          ),
+      },
     },
     async (args) => {
       try {
@@ -1173,10 +1612,18 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
         if (args.content !== undefined) {
           const MAX_CONTENT_BYTES = 32 * 1024;
           if (Buffer.byteLength(args.content, "utf-8") > MAX_CONTENT_BYTES) {
-            return toToolError(new Error("content exceeds 32KB limit. Write to a file and use filePath instead."));
+            return toToolError(
+              new Error(
+                "content exceeds 32KB limit. Write to a file and use filePath instead."
+              )
+            );
           }
           if (!args.name) {
-            return toToolError(new Error("name is required when using content param (e.g. 'snippet.ts')."));
+            return toToolError(
+              new Error(
+                "name is required when using content param (e.g. 'snippet.ts')."
+              )
+            );
           }
           const { writeFile: writeFileTmp } = await import("node:fs/promises");
           const tmpDir = process.env.TMPDIR ?? "/tmp";
@@ -1199,12 +1646,23 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
             .replace("T", "-")
             .replace("Z", "");
           const tmpPath = `${process.env.TMPDIR ?? "/tmp"}/sim-${timestamp}.png`;
-          await execFileAsync("xcrun", ["simctl", "io", udid, "screenshot", "--type=png", tmpPath]);
+          await execFileAsync("xcrun", [
+            "simctl",
+            "io",
+            udid,
+            "screenshot",
+            "--type=png",
+            tmpPath,
+          ]);
           filePath = tmpPath;
         }
 
         if (!filePath) {
-          return toToolError(new Error("filePath is required when source is not 'simulator' and content is not provided."));
+          return toToolError(
+            new Error(
+              "filePath is required when source is not 'simulator' and content is not provided."
+            )
+          );
         }
 
         const result = await shareMedia(agentId, {
@@ -1212,17 +1670,17 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
           description: args.description,
           source: args.source,
           name: args.name,
-          update: args.update
+          update: args.update,
         });
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(result)
-            }
+              text: JSON.stringify(result),
+            },
           ],
-          structuredContent: result
+          structuredContent: result,
         };
       } catch (error) {
         return toToolError(error);
@@ -1231,7 +1689,10 @@ function registerShareTool(server: McpServer, context: McpRequestContext): void 
   );
 }
 
-function registerFeedbackTool(server: McpServer, context: McpRequestContext): void {
+function registerFeedbackTool(
+  server: McpServer,
+  context: McpRequestContext
+): void {
   if (!context.agent || !context.submitFeedback) return;
   const agentId = context.agent.id;
   const submitFeedback = context.submitFeedback;
@@ -1249,12 +1710,13 @@ function registerFeedbackTool(server: McpServer, context: McpRequestContext): vo
         filePath: z
           .string()
           .optional()
-          .describe("File path relative to repo root where the issue was found."),
-        lineNumber: z
-          .number()
-          .optional()
-          .describe("Line number in the file."),
-        description: z.string().describe("What was found — the issue or observation."),
+          .describe(
+            "File path relative to repo root where the issue was found."
+          ),
+        lineNumber: z.number().optional().describe("Line number in the file."),
+        description: z
+          .string()
+          .describe("What was found — the issue or observation."),
         suggestion: z
           .string()
           .optional()
@@ -1262,8 +1724,10 @@ function registerFeedbackTool(server: McpServer, context: McpRequestContext): vo
         mediaRef: z
           .string()
           .optional()
-          .describe("Filename of a previously shared media file (from dispatch_share) to attach.")
-      }
+          .describe(
+            "Filename of a previously shared media file (from dispatch_share) to attach."
+          ),
+      },
     },
     async (args) => {
       try {
@@ -1273,10 +1737,12 @@ function registerFeedbackTool(server: McpServer, context: McpRequestContext): vo
           lineNumber: args.lineNumber,
           description: args.description,
           suggestion: args.suggestion,
-          mediaRef: args.mediaRef
+          mediaRef: args.mediaRef,
         });
         return {
-          content: [{ type: "text", text: `Feedback #${result.id} submitted.` }]
+          content: [
+            { type: "text", text: `Feedback #${result.id} submitted.` },
+          ],
         };
       } catch (error) {
         return toToolError(error);
@@ -1285,14 +1751,22 @@ function registerFeedbackTool(server: McpServer, context: McpRequestContext): vo
   );
 }
 
-function cwdSchema(defaultCwd: string | undefined, description: string): z.ZodType<string | undefined> {
+function cwdSchema(
+  defaultCwd: string | undefined,
+  description: string
+): z.ZodType<string | undefined> {
   const suffix = defaultCwd
     ? ` Defaults to the agent working directory (${defaultCwd}) when omitted on agent-scoped MCP routes.`
     : "";
-  return defaultCwd ? z.string().optional().describe(`${description}${suffix}`) : z.string().describe(description);
+  return defaultCwd
+    ? z.string().optional().describe(`${description}${suffix}`)
+    : z.string().describe(description);
 }
 
-function resolveCwd(value: string | undefined, defaultCwd: string | undefined): string {
+function resolveCwd(
+  value: string | undefined,
+  defaultCwd: string | undefined
+): string {
   const cwd = value?.trim() || defaultCwd?.trim();
   if (!cwd) {
     throw new Error("cwd is required.");
@@ -1313,20 +1787,24 @@ function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {
   return schema;
 }
 
-function toToolError(error: unknown): { content: Array<{ type: "text"; text: string }>; isError: true } {
-  const message = error instanceof GitWorktreeError || error instanceof GitHubPrError
-    ? error.message
-    : error instanceof Error
+function toToolError(error: unknown): {
+  content: Array<{ type: "text"; text: string }>;
+  isError: true;
+} {
+  const message =
+    error instanceof GitWorktreeError || error instanceof GitHubPrError
       ? error.message
-      : String(error);
+      : error instanceof Error
+        ? error.message
+        : String(error);
 
   return {
     content: [
       {
         type: "text",
-        text: message
-      }
+        text: message,
+      },
     ],
-    isError: true
+    isError: true,
   };
 }

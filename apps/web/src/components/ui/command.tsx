@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
 
+import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const Command = React.forwardRef<
@@ -9,7 +10,11 @@ const Command = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive
     ref={ref}
-    className={cn("flex h-full w-full flex-col overflow-hidden rounded-md bg-background text-foreground", className)}
+    className={cn(
+      "flex h-full w-full flex-col overflow-hidden rounded-md text-foreground",
+      glassOverlay,
+      className
+    )}
     {...props}
   />
 ));
@@ -49,7 +54,11 @@ const CommandEmpty = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Empty>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty>
 >((props, ref) => (
-  <CommandPrimitive.Empty ref={ref} className="px-2 py-4 text-center text-xs text-muted-foreground" {...props} />
+  <CommandPrimitive.Empty
+    ref={ref}
+    className="px-2 py-4 text-center text-xs text-muted-foreground"
+    {...props}
+  />
 ));
 CommandEmpty.displayName = CommandPrimitive.Empty.displayName;
 

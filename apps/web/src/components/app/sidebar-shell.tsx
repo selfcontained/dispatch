@@ -9,7 +9,12 @@ import {
 import React from "react";
 
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
@@ -35,7 +40,10 @@ export function SidebarNavBar({
       active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
     );
 
-  const triggerNavAnimationForKey = (event: React.KeyboardEvent<HTMLButtonElement>, navItem: string): void => {
+  const triggerNavAnimationForKey = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    navItem: string
+  ): void => {
     if (event.key === "Enter" || event.key === " ") {
       triggerNavAnimation?.(navItem);
     }
@@ -50,7 +58,7 @@ export function SidebarNavBar({
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-border py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         {items.map(({ id, icon: Icon, label }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
@@ -101,29 +109,50 @@ export function SidebarShell({
   const { instanceName } = useInstanceName();
 
   return (
-    <aside data-testid="sidebar-shell" className="flex h-full min-h-0 w-full flex-col text-foreground">
+    <aside
+      data-testid="sidebar-shell"
+      className="flex h-full min-h-0 w-full flex-col text-foreground"
+    >
       <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center gap-2.5">
-          <img src={`/icons/${iconColor}/brand-icon.svg`} alt="" className="h-7 w-7 shrink-0 object-contain" />
+          <img
+            src={`/icons/${iconColor}/brand-icon.svg`}
+            alt=""
+            className="h-7 w-7 shrink-0 object-contain"
+          />
           <div className="flex min-w-0 flex-col justify-center">
-            <div className="text-sm font-bold uppercase tracking-widest text-foreground">Dispatch</div>
+            <div className="text-sm font-bold uppercase tracking-widest text-foreground">
+              Dispatch
+            </div>
             {instanceName ? (
-              <div title={instanceName} className="truncate text-[11px] leading-tight text-muted-foreground">{instanceName}</div>
+              <div
+                title={instanceName}
+                className="truncate text-[11px] leading-tight text-muted-foreground"
+              >
+                {instanceName}
+              </div>
             ) : null}
           </div>
         </div>
         {onRequestClose ? (
           <div className="ml-auto">
-            <Button size="icon" variant="ghost" onClick={onRequestClose} title="Close sidebar">
-              {closeButtonIcon === "chevron" ? <ChevronLeft className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onRequestClose}
+              title="Close sidebar"
+            >
+              {closeButtonIcon === "chevron" ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <X className="h-4 w-4" />
+              )}
             </Button>
           </div>
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {children}
-      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
 
       <SidebarNavBar
         activeSection={activeSection}

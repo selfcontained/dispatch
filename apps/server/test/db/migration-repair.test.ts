@@ -33,7 +33,9 @@ describe("migration drift repair", () => {
       `SELECT column_name FROM information_schema.columns
        WHERE table_name = 'jobs'`
     );
-    const colNames = cols.rows.map((r: { column_name: string }) => r.column_name);
+    const colNames = cols.rows.map(
+      (r: { column_name: string }) => r.column_name
+    );
 
     expect(colNames).toContain("schedule");
     expect(colNames).toContain("timeout_ms");
@@ -41,7 +43,9 @@ describe("migration drift repair", () => {
     expect(colNames).toContain("notify");
     expect(colNames).toContain("prompt");
 
-    const applied = await pool.query(`SELECT name FROM pgmigrations ORDER BY run_on`);
+    const applied = await pool.query(
+      `SELECT name FROM pgmigrations ORDER BY run_on`
+    );
     const appliedNames = applied.rows.map((r: { name: string }) => r.name);
     expect(appliedNames).toContain("0006_jobs-schedule-repair");
   });

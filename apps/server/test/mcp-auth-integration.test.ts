@@ -1,8 +1,21 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
-import { setupTestDb, teardownTestDb, runTestMigrations, getTestDatabaseUrl } from "./db/setup.js";
+import {
+  setupTestDb,
+  teardownTestDb,
+  runTestMigrations,
+  getTestDatabaseUrl,
+} from "./db/setup.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
@@ -28,7 +41,10 @@ beforeAll(async () => {
   ({ createAgentMcpToken, createJobMcpToken, createSession } = auth);
 
   const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({ runMigrations: false, reconcileState: false });
+  app = await serverModule.initializeApp({
+    runMigrations: false,
+    reconcileState: false,
+  });
 
   const setupResponse = await app.inject({
     method: "POST",
@@ -58,7 +74,9 @@ beforeEach(async () => {
   await pool.query("DELETE FROM sessions");
   await pool.query("DELETE FROM agents");
   const session = await createSession(pool);
-  const signed = (app as FastifyInstance & { signCookie: (value: string) => string }).signCookie(session);
+  const signed = (
+    app as FastifyInstance & { signCookie: (value: string) => string }
+  ).signCookie(session);
   sessionCookie = `dispatch_session=${signed}`;
 });
 
@@ -72,7 +90,9 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "Invalid MCP token for the requested agent route." });
+    expect(response.json()).toEqual({
+      error: "Invalid MCP token for the requested agent route.",
+    });
   });
 
   it("rejects invalid scoped job tokens on the real route", async () => {
@@ -84,7 +104,9 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "Invalid MCP token for the requested job agent route." });
+    expect(response.json()).toEqual({
+      error: "Invalid MCP token for the requested job agent route.",
+    });
   });
 
   it("accepts session-cookie auth on /api/mcp", async () => {
@@ -120,7 +142,9 @@ describe("MCP auth integration", () => {
     const agentResponse = await app.inject({
       method: "POST",
       url: "/api/mcp/agt_123456abcdef",
-      headers: { authorization: `Bearer ${createAgentMcpToken(authToken, "agt_123456abcdef")}` },
+      headers: {
+        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_123456abcdef")}`,
+      },
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
     });
     expect(agentResponse.statusCode).toBe(404);
@@ -129,7 +153,9 @@ describe("MCP auth integration", () => {
     const jobResponse = await app.inject({
       method: "POST",
       url: "/api/mcp/jobs/run_123/agt_123456abcdef",
-      headers: { authorization: `Bearer ${createJobMcpToken(authToken, "run_123", "agt_123456abcdef")}` },
+      headers: {
+        authorization: `Bearer ${createJobMcpToken(authToken, "run_123", "agt_123456abcdef")}`,
+      },
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
     });
     expect(jobResponse.statusCode).toBe(404);

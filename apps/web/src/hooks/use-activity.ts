@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { buildActiveHours, type ActiveHourEvent, type ActiveHoursCell } from "@/lib/active-hours";
+import {
+  buildActiveHours,
+  type ActiveHourEvent,
+  type ActiveHoursCell,
+} from "@/lib/active-hours";
 
 export type { ActiveHoursCell } from "@/lib/active-hours";
 
@@ -38,7 +42,10 @@ function getGranularity(range: ActivityRange): ActivityGranularity {
   return "month";
 }
 
-export function getRangeBounds(range: ActivityRange, dailyDate?: string): { start: string; end: string } {
+export function getRangeBounds(
+  range: ActivityRange,
+  dailyDate?: string
+): { start: string; end: string } {
   const now = new Date();
   const end = now.toISOString();
 
@@ -54,10 +61,16 @@ export function getRangeBounds(range: ActivityRange, dailyDate?: string): { star
     return { start: yearStart.toISOString(), end };
   }
   if (range === "7d") {
-    return { start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(), end };
+    return {
+      start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      end,
+    };
   }
   if (range === "30d") {
-    return { start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), end };
+    return {
+      start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      end,
+    };
   }
   // "all" — no bounds
   return { start: "", end: "" };
@@ -112,7 +125,10 @@ export function useActivityHeatmap(days = 365) {
 export function useActivityStats(range: ActivityRange, dailyDate?: string) {
   return useQuery<ActivityStats>({
     queryKey: ["activity", "stats", range, dailyDate],
-    queryFn: () => api<ActivityStats>(`/api/v1/activity/stats?${activityParams(range, dailyDate)}`),
+    queryFn: () =>
+      api<ActivityStats>(
+        `/api/v1/activity/stats?${activityParams(range, dailyDate)}`
+      ),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -168,7 +184,10 @@ export type TokenDailyEntry = {
 export function useTokenStats(range: ActivityRange, dailyDate?: string) {
   return useQuery<TokenStats>({
     queryKey: ["activity", "token-stats", range, dailyDate],
-    queryFn: () => api<TokenStats>(`/api/v1/activity/token-stats?${activityParams(range, dailyDate)}`),
+    queryFn: () =>
+      api<TokenStats>(
+        `/api/v1/activity/token-stats?${activityParams(range, dailyDate)}`
+      ),
     ...ACTIVITY_QUERY_OPTIONS,
   });
 }
@@ -251,7 +270,10 @@ export type WorkingTimeByProject = {
   working_time_ms: number;
 };
 
-export function useWorkingTimeByProject(range: ActivityRange, dailyDate?: string) {
+export function useWorkingTimeByProject(
+  range: ActivityRange,
+  dailyDate?: string
+) {
   return useQuery<WorkingTimeByProject[]>({
     queryKey: ["activity", "working-time-by-project", range, dailyDate],
     queryFn: async () => {

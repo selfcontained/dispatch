@@ -1,8 +1,20 @@
-import { type MutableRefObject, type RefCallback, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MutableRefObject,
+  type RefCallback,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
-import { type Agent, type AuthState, type ConnState } from "@/components/app/types";
+import {
+  type Agent,
+  type AuthState,
+  type ConnState,
+} from "@/components/app/types";
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
@@ -10,7 +22,8 @@ import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 const TERMINAL_HEARTBEAT_INTERVAL_MS = 20_000;
 const TERMINAL_LIVENESS_GRACE_MS = 5_000;
-const TERMINAL_FRESHNESS_MS = TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
+const TERMINAL_FRESHNESS_MS =
+  TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
 
@@ -55,7 +68,10 @@ function persistActiveShellAgentId(agentId: string | null): void {
 /** Strip terminal line-wrap artifacts from copied text. */
 function cleanCopiedText(text: string): string {
   const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
-  if (/^https?:\/\//.test(joined) || (/\S/.test(joined) && !joined.includes(" "))) {
+  if (
+    /^https?:\/\//.test(joined) ||
+    (/\S/.test(joined) && !joined.includes(" "))
+  ) {
     return joined;
   }
   return text;
@@ -82,7 +98,11 @@ export function useTerminal(args: {
   terminalHostRef: RefCallback<HTMLDivElement>;
   ctrlPendingRef: MutableRefObject<boolean>;
   focusTerminal: () => void;
-  ensureTerminalConnected: (clearScreen?: boolean, userInitiated?: boolean, targetAgentId?: string) => Promise<void>;
+  ensureTerminalConnected: (
+    clearScreen?: boolean,
+    userInitiated?: boolean,
+    targetAgentId?: string
+  ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
 } {
@@ -102,16 +122,23 @@ export function useTerminal(args: {
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
-  const [terminalMode, setTerminalMode] = useState<"tmux" | "inert" | null>(null);
-  const [terminalPlaceholderMessage, setTerminalPlaceholderMessage] = useState<string | null>(null);
+  const [terminalMode, setTerminalMode] = useState<"tmux" | "inert" | null>(
+    null
+  );
+  const [terminalPlaceholderMessage, setTerminalPlaceholderMessage] = useState<
+    string | null
+  >(null);
   const [statusMessage, setStatusMessage] = useState("Starting...");
-  const [restoreShellAgentId, setRestoreShellAgentId] = useState<string | null>(() => readActiveShellAgentId());
+  const [restoreShellAgentId, setRestoreShellAgentId] = useState<string | null>(
+    () => readActiveShellAgentId()
+  );
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
-  const [terminalHostElement, setTerminalHostElement] = useState<HTMLDivElement | null>(null);
+  const [terminalHostElement, setTerminalHostElement] =
+    useState<HTMLDivElement | null>(null);
   const setTerminalHostRef = useCallback((node: HTMLDivElement | null) => {
     terminalHostRef.current = node;
     setTerminalHostElement(node);
@@ -149,7 +176,9 @@ export function useTerminal(args: {
     const ws = wsRef.current;
     const term = terminalRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN || !term) return;
-    ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    ws.send(
+      JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+    );
   }, []);
 
   const clearSocketHealth = useCallback(() => {
@@ -163,19 +192,22 @@ export function useTerminal(args: {
     };
   }, []);
 
-  const markSocketHealthy = useCallback((source: "open" | "heartbeat" | "output") => {
-    const now = Date.now();
-    if (source === "open") {
-      socketHealthRef.current.lastOpenAt = now;
-    } else if (source === "heartbeat") {
-      socketHealthRef.current.lastHeartbeatAt = now;
-    } else {
-      socketHealthRef.current.lastOutputAt = now;
-    }
-    socketHealthRef.current.lastHealthyAt = now;
-    socketHealthRef.current.lastErrorMessage = null;
-    socketHealthRef.current.sessionGone = false;
-  }, []);
+  const markSocketHealthy = useCallback(
+    (source: "open" | "heartbeat" | "output") => {
+      const now = Date.now();
+      if (source === "open") {
+        socketHealthRef.current.lastOpenAt = now;
+      } else if (source === "heartbeat") {
+        socketHealthRef.current.lastHeartbeatAt = now;
+      } else {
+        socketHealthRef.current.lastOutputAt = now;
+      }
+      socketHealthRef.current.lastHealthyAt = now;
+      socketHealthRef.current.lastErrorMessage = null;
+      socketHealthRef.current.sessionGone = false;
+    },
+    []
+  );
 
   const noteTerminalError = useCallback((message: string) => {
     socketHealthRef.current.lastErrorMessage = message;
@@ -186,43 +218,53 @@ export function useTerminal(args: {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     if (connectedAgentIdRef.current !== agentId) return false;
-    return Date.now() - socketHealthRef.current.lastHealthyAt <= TERMINAL_FRESHNESS_MS;
+    return (
+      Date.now() - socketHealthRef.current.lastHealthyAt <=
+      TERMINAL_FRESHNESS_MS
+    );
   }, []);
 
   /** Probe an open-but-stale socket: send a resize and wait for any server message. */
-  const probeSocket = useCallback((agentId: string): Promise<boolean> => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(false);
-    if (connectedAgentIdRef.current !== agentId) return Promise.resolve(false);
+  const probeSocket = useCallback(
+    (agentId: string): Promise<boolean> => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN)
+        return Promise.resolve(false);
+      if (connectedAgentIdRef.current !== agentId)
+        return Promise.resolve(false);
 
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (alive: boolean) => {
-        if (settled) return;
-        settled = true;
-        ws.removeEventListener("message", onMsg);
-        ws.removeEventListener("close", onClose);
-        clearTimeout(timer);
-        resolve(alive);
-      };
+      return new Promise((resolve) => {
+        let settled = false;
+        const settle = (alive: boolean) => {
+          if (settled) return;
+          settled = true;
+          ws.removeEventListener("message", onMsg);
+          ws.removeEventListener("close", onClose);
+          clearTimeout(timer);
+          resolve(alive);
+        };
 
-      const onMsg = () => {
-        markSocketHealthy("heartbeat");
-        settle(true);
-      };
-      const onClose = () => settle(false);
-      const timer = setTimeout(() => settle(false), SOCKET_PROBE_TIMEOUT_MS);
+        const onMsg = () => {
+          markSocketHealthy("heartbeat");
+          settle(true);
+        };
+        const onClose = () => settle(false);
+        const timer = setTimeout(() => settle(false), SOCKET_PROBE_TIMEOUT_MS);
 
-      ws.addEventListener("message", onMsg);
-      ws.addEventListener("close", onClose);
+        ws.addEventListener("message", onMsg);
+        ws.addEventListener("close", onClose);
 
-      // Trigger server activity by sending a resize.
-      const term = terminalRef.current;
-      if (term) {
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      }
-    });
-  }, [markSocketHealthy]);
+        // Trigger server activity by sending a resize.
+        const term = terminalRef.current;
+        if (term) {
+          ws.send(
+            JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+          );
+        }
+      });
+    },
+    [markSocketHealthy]
+  );
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -244,36 +286,48 @@ export function useTerminal(args: {
 
   const closeSocketTransport = useCallback(() => {
     if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
+      try {
+        wsRef.current.close();
+      } catch {}
       wsRef.current = null;
     }
     clearSocketHealth();
   }, [clearSocketHealth]);
 
-  const restoreConnectedState = useCallback((agent: Agent, mode: "tmux" | "inert", message?: string) => {
-    clearReconnectTimer();
-    reconnectAttemptsRef.current = 0;
-    setConnState("connected");
-    setConnectedAgentId(agent.id);
-    setTerminalMode(mode);
-    setTerminalPlaceholderMessage(mode === "tmux" ? null : message ?? null);
-    setStatusMessage(message ?? `Connected to session ${agent.name}`);
-  }, [clearReconnectTimer]);
+  const restoreConnectedState = useCallback(
+    (agent: Agent, mode: "tmux" | "inert", message?: string) => {
+      clearReconnectTimer();
+      reconnectAttemptsRef.current = 0;
+      setConnState("connected");
+      setConnectedAgentId(agent.id);
+      setTerminalMode(mode);
+      setTerminalPlaceholderMessage(mode === "tmux" ? null : (message ?? null));
+      setStatusMessage(message ?? `Connected to session ${agent.name}`);
+    },
+    [clearReconnectTimer]
+  );
 
-  const closeSocket = useCallback((announce = true) => {
-    closeSocketTransport();
-    setConnectedAgentId(null);
-    setTerminalMode(null);
-    setTerminalPlaceholderMessage(null);
+  const closeSocket = useCallback(
+    (announce = true) => {
+      closeSocketTransport();
+      setConnectedAgentId(null);
+      setTerminalMode(null);
+      setTerminalPlaceholderMessage(null);
 
-    if (announce) {
-      setStatusMessage("Session disconnected.");
-      setConnState("disconnected");
-    }
-  }, [closeSocketTransport]);
+      if (announce) {
+        setStatusMessage("Session disconnected.");
+        setConnState("disconnected");
+      }
+    },
+    [closeSocketTransport]
+  );
 
   const ensureTerminalConnected = useCallback(
-    async (clearScreen = false, userInitiated = false, targetAgentId?: string) => {
+    async (
+      clearScreen = false,
+      userInitiated = false,
+      targetAgentId?: string
+    ) => {
       if (userInitiated) {
         shouldKeepAttachedRef.current = true;
       }
@@ -281,7 +335,10 @@ export function useTerminal(args: {
       const resolvedAgentId = targetAgentId ?? selectedAgentId;
       if (!shouldKeepAttachedRef.current || !resolvedAgentId) return;
 
-       if (!userInitiated && reconnectInFlightRef.current?.agentId === resolvedAgentId) {
+      if (
+        !userInitiated &&
+        reconnectInFlightRef.current?.agentId === resolvedAgentId
+      ) {
         await reconnectInFlightRef.current.promise;
         return;
       }
@@ -291,7 +348,8 @@ export function useTerminal(args: {
       // handler.  Read the current value here for the in-flight guard only.
       let attemptNonce = attachNonceRef.current;
       const isCurrentAttempt = () =>
-        shouldKeepAttachedRef.current && attemptNonce === attachNonceRef.current;
+        shouldKeepAttachedRef.current &&
+        attemptNonce === attachNonceRef.current;
 
       const scheduleReconnect = (message: string) => {
         if (!isCurrentAttempt() || !shouldKeepAttachedRef.current) {
@@ -313,12 +371,15 @@ export function useTerminal(args: {
 
       const connectPromise = (async () => {
         let agent: Agent | null = userInitiated
-          ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ?? null)
+          ? (agentsRef.current.find((item) => item.id === resolvedAgentId) ??
+            null)
           : null;
 
         if (!agent || agent.status !== "running") {
           try {
-            const payload = await api<{ agent: Agent }>(`/api/v1/agents/${resolvedAgentId}?includeGitContext=false`);
+            const payload = await api<{ agent: Agent }>(
+              `/api/v1/agents/${resolvedAgentId}?includeGitContext=false`
+            );
             agent = payload.agent;
           } catch {
             if (!isCurrentAttempt()) return;
@@ -347,7 +408,10 @@ export function useTerminal(args: {
 
         // Socket is open but stale (no heartbeat during background throttle).
         // Probe it before tearing down — avoids a full reconnect cycle.
-        if (wsRef.current?.readyState === WebSocket.OPEN && connectedAgentIdRef.current === agent.id) {
+        if (
+          wsRef.current?.readyState === WebSocket.OPEN &&
+          connectedAgentIdRef.current === agent.id
+        ) {
           const alive = await probeSocket(agent.id);
           if (!isCurrentAttempt()) return;
           if (alive) {
@@ -361,7 +425,11 @@ export function useTerminal(args: {
         // invalidate any previous handler that is still attached.
         attemptNonce = ++attachNonceRef.current;
 
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && connectedAgentIdRef.current === agent.id) {
+        if (
+          wsRef.current &&
+          wsRef.current.readyState === WebSocket.OPEN &&
+          connectedAgentIdRef.current === agent.id
+        ) {
           closeSocketTransport();
         }
 
@@ -380,10 +448,10 @@ export function useTerminal(args: {
           const terminalSession = await api<
             | { mode: "tmux"; token: string; wsUrl: string }
             | { mode: "inert"; message: string }
-          >(
-            `/api/v1/agents/${agent.id}/terminal/token`,
-            { method: "POST", body: JSON.stringify({}) }
-          );
+          >(`/api/v1/agents/${agent.id}/terminal/token`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
 
           if (!isCurrentAttempt()) {
             return;
@@ -394,7 +462,8 @@ export function useTerminal(args: {
             return;
           }
 
-          const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+          const protocol =
+            window.location.protocol === "https:" ? "wss:" : "ws:";
           const term = terminalRef.current;
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
@@ -407,7 +476,9 @@ export function useTerminal(args: {
 
           ws.addEventListener("open", () => {
             if (wsRef.current !== ws || !isCurrentAttempt()) {
-              try { ws.close(); } catch {}
+              try {
+                ws.close();
+              } catch {}
               return;
             }
             markSocketHealthy("open");
@@ -419,7 +490,9 @@ export function useTerminal(args: {
             if (wsRef.current !== ws || !isCurrentAttempt()) {
               return;
             }
-            const payload = JSON.parse(String(event.data)) as TerminalSocketMessage;
+            const payload = JSON.parse(
+              String(event.data)
+            ) as TerminalSocketMessage;
 
             if (payload.type === "heartbeat") {
               markSocketHealthy("heartbeat");
@@ -463,7 +536,11 @@ export function useTerminal(args: {
               return;
             }
 
-            if (event.code === 1008 && lastErrorMessage && isRetriableTerminalFailure(lastErrorMessage)) {
+            if (
+              event.code === 1008 &&
+              lastErrorMessage &&
+              isRetriableTerminalFailure(lastErrorMessage)
+            ) {
               scheduleReconnect("Session token expired, retrying...");
               return;
             }
@@ -475,7 +552,10 @@ export function useTerminal(args: {
             return;
           }
 
-          const message = error instanceof Error ? error.message : "Session connection failed.";
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Session connection failed.";
           if (isTerminalSessionGone(message)) {
             shouldKeepAttachedRef.current = false;
             clearReconnectTimer();
@@ -494,7 +574,10 @@ export function useTerminal(args: {
         }
       })();
 
-      reconnectInFlightRef.current = { agentId: resolvedAgentId, promise: connectPromise };
+      reconnectInFlightRef.current = {
+        agentId: resolvedAgentId,
+        promise: connectPromise,
+      };
       try {
         await connectPromise;
       } finally {
@@ -529,7 +612,12 @@ export function useTerminal(args: {
     resetTerminalSurface();
     setConnState("disconnected");
     setStatusMessage("Detached from session.");
-  }, [clearReconnectTimer, closeSocket, invalidateAttachAttempt, resetTerminalSurface]);
+  }, [
+    clearReconnectTimer,
+    closeSocket,
+    invalidateAttachAttempt,
+    resetTerminalSurface,
+  ]);
 
   const sendTerminalInput = useCallback((data: string) => {
     const ws = wsRef.current;
@@ -568,7 +656,11 @@ export function useTerminal(args: {
     terminalRef.current = term;
     fitAddonRef.current = fit;
     term.loadAddon(fit);
-    try { term.loadAddon(new ClipboardAddon()); } catch (e) { console.warn("ClipboardAddon failed:", e); }
+    try {
+      term.loadAddon(new ClipboardAddon());
+    } catch (e) {
+      console.warn("ClipboardAddon failed:", e);
+    }
     term.open(host);
     fit.fit();
 
@@ -576,7 +668,10 @@ export function useTerminal(args: {
       if (term.hasSelection()) {
         e.preventDefault();
         e.stopPropagation();
-        e.clipboardData?.setData("text/plain", cleanCopiedText(term.getSelection()));
+        e.clipboardData?.setData(
+          "text/plain",
+          cleanCopiedText(term.getSelection())
+        );
       }
     };
     host.addEventListener("copy", handleCopy, true);
@@ -585,8 +680,16 @@ export function useTerminal(args: {
     // tools read it natively. This bridges the browser clipboard to the server.
     const syncClipboardImage = (blob: File): void => {
       const form = new FormData();
-      form.append("file", blob, `clipboard.${blob.type === "image/png" ? "png" : "jpg"}`);
-      fetch("/api/v1/clipboard/image", { method: "POST", body: form, credentials: "include" })
+      form.append(
+        "file",
+        blob,
+        `clipboard.${blob.type === "image/png" ? "png" : "jpg"}`
+      );
+      fetch("/api/v1/clipboard/image", {
+        method: "POST",
+        body: form,
+        credentials: "include",
+      })
         .then((res) => {
           if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
           const ws = wsRef.current;
@@ -599,8 +702,8 @@ export function useTerminal(args: {
 
     // Intercept paste events (Cmd+V) — clipboard data is available directly.
     const handlePaste = (e: ClipboardEvent) => {
-      const imageItem = Array.from(e.clipboardData?.items ?? []).find(
-        (item) => item.type.startsWith("image/"),
+      const imageItem = Array.from(e.clipboardData?.items ?? []).find((item) =>
+        item.type.startsWith("image/")
       );
       if (!imageItem) return; // no image — let xterm handle text paste normally
       const blob = imageItem.getAsFile();
@@ -630,12 +733,14 @@ export function useTerminal(args: {
       while (Math.abs(touchAccum) >= SCROLL_SENSITIVITY) {
         const direction = touchAccum > 0 ? 1 : -1;
         touchAccum -= direction * SCROLL_SENSITIVITY;
-        screenEl.dispatchEvent(new WheelEvent("wheel", {
-          deltaY: direction * 100,
-          deltaMode: 0,
-          bubbles: true,
-          cancelable: true,
-        }));
+        screenEl.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: direction * 100,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
       }
     };
     host.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -644,25 +749,28 @@ export function useTerminal(args: {
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
       if (dispatchingMouseDown) return;
-      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)
+        return;
       e.stopPropagation();
       e.preventDefault();
       dispatchingMouseDown = true;
-      (e.target as HTMLElement).dispatchEvent(new MouseEvent("mousedown", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        detail: e.detail,
-        screenX: e.screenX,
-        screenY: e.screenY,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        button: e.button,
-        buttons: e.buttons,
-        relatedTarget: e.relatedTarget,
-        shiftKey: true,
-        altKey: true,
-      }));
+      (e.target as HTMLElement).dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          detail: e.detail,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          button: e.button,
+          buttons: e.buttons,
+          relatedTarget: e.relatedTarget,
+          shiftKey: true,
+          altKey: true,
+        })
+      );
       dispatchingMouseDown = false;
     };
     if (screenEl) {
@@ -677,7 +785,12 @@ export function useTerminal(args: {
         if (code >= 65 && code <= 90) {
           ctrlPendingRef.current = false;
           window.dispatchEvent(new Event("ctrl-consumed"));
-          ws.send(JSON.stringify({ type: "input", data: String.fromCharCode(code - 64) }));
+          ws.send(
+            JSON.stringify({
+              type: "input",
+              data: String.fromCharCode(code - 64),
+            })
+          );
           return;
         }
       }
@@ -704,9 +817,12 @@ export function useTerminal(args: {
       host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
-      if (screenEl) screenEl.removeEventListener("mousedown", onMouseDown, true);
+      if (screenEl)
+        screenEl.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("resize", onResize);
-      try { wsRef.current?.close(); } catch {}
+      try {
+        wsRef.current?.close();
+      } catch {}
       wsRef.current = null;
       term.dispose();
       terminalRef.current = null;
@@ -717,7 +833,8 @@ export function useTerminal(args: {
   // Reconnect on visibility/focus.
   useEffect(() => {
     const requestForegroundReconnect = () => {
-      const targetAgentId = connectedAgentIdRef.current ?? selectedAgentId ?? undefined;
+      const targetAgentId =
+        connectedAgentIdRef.current ?? selectedAgentId ?? undefined;
       if (!targetAgentId) return;
       const now = Date.now();
       if (now - lastResumeTriggerAtRef.current < RESUME_RECONNECT_DEDUPE_MS) {
@@ -739,7 +856,11 @@ export function useTerminal(args: {
 
     const onOnline = () => {
       clearReconnectTimer();
-      void ensureTerminalConnected(false, false, connectedAgentIdRef.current ?? selectedAgentId ?? undefined);
+      void ensureTerminalConnected(
+        false,
+        false,
+        connectedAgentIdRef.current ?? selectedAgentId ?? undefined
+      );
     };
 
     document.addEventListener("visibilitychange", onVisible);
@@ -782,7 +903,9 @@ export function useTerminal(args: {
   useEffect(() => {
     if (!agentsLoaded || !restoreShellAgentId) return;
 
-    const restoreTarget = agents.find((agent) => agent.id === restoreShellAgentId);
+    const restoreTarget = agents.find(
+      (agent) => agent.id === restoreShellAgentId
+    );
     if (!restoreTarget || restoreTarget.status !== "running") {
       persistActiveShellAgentId(null);
       setRestoreShellAgentId(null);
@@ -794,8 +917,14 @@ export function useTerminal(args: {
     void ensureTerminalConnected(true, true, restoreTarget.id);
     setStatusMessage(`Restored session for ${restoreTarget.name}.`);
     setRestoreShellAgentId(null);
-  }, [agents, agentsLoaded, ensureTerminalConnected, setSelectedAgentId, refreshMedia, restoreShellAgentId]);
-
+  }, [
+    agents,
+    agentsLoaded,
+    ensureTerminalConnected,
+    setSelectedAgentId,
+    refreshMedia,
+    restoreShellAgentId,
+  ]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);
@@ -819,35 +948,44 @@ export function useTerminal(args: {
       void ensureTerminalConnected(true, true, agentId);
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [theme, connState, connectedAgentId, detachTerminal, ensureTerminalConnected]);
+  }, [
+    theme,
+    connState,
+    connectedAgentId,
+    detachTerminal,
+    ensureTerminalConnected,
+  ]);
 
   const focusTerminal = useCallback(() => {
     terminalRef.current?.focus();
   }, []);
 
-  return useMemo(() => ({
-    connState,
-    connectedAgentId,
-    terminalMode,
-    terminalPlaceholderMessage,
-    statusMessage,
-    terminalHostRef: setTerminalHostRef,
-    ctrlPendingRef,
-    focusTerminal,
-    ensureTerminalConnected,
-    detachTerminal,
-    sendTerminalInput,
-    setTerminalHostRef,
-  }), [
-    connState,
-    connectedAgentId,
-    terminalMode,
-    terminalPlaceholderMessage,
-    statusMessage,
-    focusTerminal,
-    ensureTerminalConnected,
-    detachTerminal,
-    sendTerminalInput,
-    setTerminalHostRef,
-  ]);
+  return useMemo(
+    () => ({
+      connState,
+      connectedAgentId,
+      terminalMode,
+      terminalPlaceholderMessage,
+      statusMessage,
+      terminalHostRef: setTerminalHostRef,
+      ctrlPendingRef,
+      focusTerminal,
+      ensureTerminalConnected,
+      detachTerminal,
+      sendTerminalInput,
+      setTerminalHostRef,
+    }),
+    [
+      connState,
+      connectedAgentId,
+      terminalMode,
+      terminalPlaceholderMessage,
+      statusMessage,
+      focusTerminal,
+      ensureTerminalConnected,
+      detachTerminal,
+      sendTerminalInput,
+      setTerminalHostRef,
+    ]
+  );
 }

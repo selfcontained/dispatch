@@ -31,7 +31,9 @@ export function showWebNotification(payload: {
 
 /** Derive the app icon URL from the current page's apple-touch-icon link. */
 function getAppIconUrl(): string {
-  const link = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+  const link = document.querySelector<HTMLLinkElement>(
+    'link[rel="apple-touch-icon"]'
+  );
   if (link?.href) return link.href;
   return "/icons/teal/brand-icon-192.png";
 }

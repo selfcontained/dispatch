@@ -21,7 +21,7 @@ export const TerminalPane = memo(function TerminalPane({
   terminalMode,
   terminalPlaceholderMessage,
   terminalHostRef,
-  archivePhase
+  archivePhase,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
@@ -42,11 +42,16 @@ export const TerminalPane = memo(function TerminalPane({
   const showInertState = terminalMode === "inert" && isAttached;
 
   return (
-    <div data-testid="terminal-pane" className="relative h-full min-h-0 overflow-hidden bg-terminal-bg">
+    <div
+      data-testid="terminal-pane"
+      className="relative h-full min-h-0 overflow-hidden bg-terminal-bg"
+    >
       <div
         className={cn(
           "h-full w-full",
-          (!isAttached || showInertState) && connState !== "reconnecting" && "invisible",
+          (!isAttached || showInertState) &&
+            connState !== "reconnecting" &&
+            "invisible",
           showReconnectOverlay && "blur-[1.5px]"
         )}
       >
@@ -54,7 +59,10 @@ export const TerminalPane = memo(function TerminalPane({
       </div>
 
       {showEmptyState ? (
-        <div data-testid="terminal-empty-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
+        <div
+          data-testid="terminal-empty-state"
+          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+        >
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
             <p className="text-sm">Tap an agent row to focus it.</p>
@@ -63,10 +71,15 @@ export const TerminalPane = memo(function TerminalPane({
       ) : null}
 
       {showInertState ? (
-        <div data-testid="terminal-inert-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
+        <div
+          data-testid="terminal-inert-state"
+          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+        >
           <div className="flex max-w-xl flex-col items-center gap-3 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-9 w-9 text-status-waiting" />
-            <p className="text-base font-medium text-foreground">Agent running in inert mode</p>
+            <p className="text-base font-medium text-foreground">
+              Agent running in inert mode
+            </p>
             <p className="text-sm leading-6 text-muted-foreground">
               {terminalPlaceholderMessage ??
                 "This environment does not launch a real tmux session or CLI process. Agent lifecycle flows are simulated for UI validation."}
@@ -76,20 +89,32 @@ export const TerminalPane = memo(function TerminalPane({
       ) : null}
 
       {archivePhase ? (
-        <div data-testid="terminal-archive-state" className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg">
+        <div
+          data-testid="terminal-archive-state"
+          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+        >
           <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-muted-foreground">
             <Archive className="h-9 w-9 text-orange-400" />
-            <p className="text-base font-medium text-foreground">Archiving agent</p>
+            <p className="text-base font-medium text-foreground">
+              Archiving agent
+            </p>
             <div className="flex items-center gap-2 text-sm text-orange-400">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>
-                {archivePhase === "stopping" ? "Stopping agent…" :
-                 archivePhase === "worktree-check" ? "Checking worktree…" :
-                 archivePhase === "worktree-cleanup" ? "Removing worktree…" :
-                 archivePhase === "finalizing" ? "Finalizing…" : "Archiving…"}
+                {archivePhase === "stopping"
+                  ? "Stopping agent…"
+                  : archivePhase === "worktree-check"
+                    ? "Checking worktree…"
+                    : archivePhase === "worktree-cleanup"
+                      ? "Removing worktree…"
+                      : archivePhase === "finalizing"
+                        ? "Finalizing…"
+                        : "Archiving…"}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground/70">You can switch to another agent while this completes.</p>
+            <p className="text-xs text-muted-foreground/70">
+              You can switch to another agent while this completes.
+            </p>
           </div>
         </div>
       ) : null}

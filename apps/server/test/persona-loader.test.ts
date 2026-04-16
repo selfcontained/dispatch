@@ -68,7 +68,10 @@ description: Also valid
 Body`;
 
     const result = parseFrontmatter(content);
-    expect(result.frontmatter).toEqual({ name: "Valid", description: "Also valid" });
+    expect(result.frontmatter).toEqual({
+      name: "Valid",
+      description: "Also valid",
+    });
   });
 
   it("handles values containing colons", () => {
@@ -97,7 +100,11 @@ describe("assemblePersonaPrompt", () => {
   };
 
   it("appends feedback guidelines, context, and diff", () => {
-    const result = assemblePersonaPrompt(basePersona, "Built a widget", "diff --git a/foo");
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "Built a widget",
+      "diff --git a/foo"
+    );
 
     expect(result).toContain("# You are a Test Reviewer");
     expect(result).toContain("## Feedback Guidelines (from Dispatch)");
@@ -236,7 +243,11 @@ feedbackFormat: checklist
 
   it("can be safely projected to slug/name/description without leaking body", async () => {
     const personas = await loadPersonas(tmpRoot);
-    const projected = personas.map(({ slug, name, description }) => ({ slug, name, description }));
+    const projected = personas.map(({ slug, name, description }) => ({
+      slug,
+      name,
+      description,
+    }));
 
     expect(projected).toHaveLength(2);
     for (const p of projected) {

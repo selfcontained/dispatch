@@ -35,7 +35,9 @@ function openSSEStream(baseURL: string): {
           const parts = buffer.split("\n\n");
           buffer = parts.pop()!;
           for (const part of parts) {
-            const dataLine = part.split("\n").find((l) => l.startsWith("data: "));
+            const dataLine = part
+              .split("\n")
+              .find((l) => l.startsWith("data: "));
             if (!dataLine) continue;
             try {
               const payload = JSON.parse(dataLine.slice(6));
@@ -72,7 +74,9 @@ async function waitForEvents(
 }
 
 test.describe("Web notification settings API", () => {
-  test("GET /api/v1/notifications/settings returns web notification fields", async ({ request }) => {
+  test("GET /api/v1/notifications/settings returns web notification fields", async ({
+    request,
+  }) => {
     const res = await request.get("/api/v1/notifications/settings", {
       headers: authHeader,
     });
@@ -83,7 +87,9 @@ test.describe("Web notification settings API", () => {
     expect(Array.isArray(data.webNotifyEvents)).toBe(true);
   });
 
-  test("POST /api/v1/notifications/settings saves web notification settings", async ({ request }) => {
+  test("POST /api/v1/notifications/settings saves web notification settings", async ({
+    request,
+  }) => {
     // Enable web notifications with only "done" events
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -108,11 +114,16 @@ test.describe("Web notification settings API", () => {
     // Reset
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: false,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
   });
 
-  test("POST /api/v1/notifications/settings validates webNotifyEnabled type", async ({ request }) => {
+  test("POST /api/v1/notifications/settings validates webNotifyEnabled type", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEnabled: "yes" },
@@ -120,7 +131,9 @@ test.describe("Web notification settings API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/notifications/settings validates webNotifyEvents type", async ({ request }) => {
+  test("POST /api/v1/notifications/settings validates webNotifyEvents type", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEvents: "done" },
@@ -128,7 +141,9 @@ test.describe("Web notification settings API", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/notifications/settings filters invalid event types", async ({ request }) => {
+  test("POST /api/v1/notifications/settings filters invalid event types", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
       data: { webNotifyEvents: ["done", "invalid_event", "blocked"] },
@@ -146,11 +161,16 @@ test.describe("Web notification settings API", () => {
 });
 
 test.describe("Web notification SSE events", () => {
-  test("web notification settings integrate with event pipeline", async ({ request }) => {
+  test("web notification settings integrate with event pipeline", async ({
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: true,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
 
     // Create an agent and set it to "done"
@@ -175,7 +195,9 @@ test.describe("Web notification SSE events", () => {
     });
   });
 
-  test("web notification respects event type filtering", async ({ request }) => {
+  test("web notification respects event type filtering", async ({
+    request,
+  }) => {
     // Enable web notifications for "done" only
     const res = await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -192,13 +214,18 @@ test.describe("Web notification SSE events", () => {
     // Clean up
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
-      data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+      data: {
+        webNotifyEnabled: false,
+        webNotifyEvents: ["done", "waiting_user", "blocked"],
+      },
     });
   });
 });
 
 test.describe("Web notification ack endpoint", () => {
-  test("POST /api/v1/notifications/ack accepts a valid notificationId", async ({ request }) => {
+  test("POST /api/v1/notifications/ack accepts a valid notificationId", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/ack", {
       headers: authHeader,
       data: { notificationId: "test-notification-id" },
@@ -206,7 +233,9 @@ test.describe("Web notification ack endpoint", () => {
     expect(res.status()).toBe(204);
   });
 
-  test("POST /api/v1/notifications/ack rejects missing notificationId", async ({ request }) => {
+  test("POST /api/v1/notifications/ack rejects missing notificationId", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/ack", {
       headers: authHeader,
       data: {},
@@ -214,7 +243,9 @@ test.describe("Web notification ack endpoint", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("POST /api/v1/notifications/ack rejects non-string notificationId", async ({ request }) => {
+  test("POST /api/v1/notifications/ack rejects non-string notificationId", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/notifications/ack", {
       headers: authHeader,
       data: { notificationId: 123 },
@@ -224,7 +255,9 @@ test.describe("Web notification ack endpoint", () => {
 });
 
 test.describe("Web notification SSE delivery and ack flow", () => {
-  test("SSE notification event includes notificationId when web notifications are enabled", async ({ request }) => {
+  test("SSE notification event includes notificationId when web notifications are enabled", async ({
+    request,
+  }) => {
     // Enable web notifications for "done"
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
@@ -262,12 +295,17 @@ test.describe("Web notification SSE delivery and ack flow", () => {
       sse.close();
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
-        data: { webNotifyEnabled: false, webNotifyEvents: ["done", "waiting_user", "blocked"] },
+        data: {
+          webNotifyEnabled: false,
+          webNotifyEvents: ["done", "waiting_user", "blocked"],
+        },
       });
     }
   });
 
-  test("acking a notification prevents Slack fallback (ack returns 204)", async ({ request }) => {
+  test("acking a notification prevents Slack fallback (ack returns 204)", async ({
+    request,
+  }) => {
     // Enable web notifications
     await request.post("/api/v1/notifications/settings", {
       headers: authHeader,
