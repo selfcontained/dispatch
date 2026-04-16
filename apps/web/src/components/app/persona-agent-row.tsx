@@ -1,12 +1,4 @@
-import {
-  Check,
-  ChevronRight,
-  Eye,
-  ListChecks,
-  Terminal,
-  X,
-  XCircle,
-} from "lucide-react";
+import { Check, Eye, ListChecks, Terminal, X, XCircle } from "lucide-react";
 
 import {
   reviewVerdictLabel,
@@ -140,7 +132,7 @@ export function PersonaAgentRow({
   closeOnSessionAction,
   feedbackCount,
   resolvedCount,
-  isCollapsed,
+  isCollapsed: _isCollapsed,
   hasFeedback,
   onTriage,
   triageDisabled,
@@ -159,45 +151,40 @@ export function PersonaAgentRow({
     <div
       data-testid={`agent-card-${child.id}`}
       className={cn(
-        "flex items-center gap-2 border-r-2 px-2 py-1.5 transition-colors duration-200",
+        "flex items-start gap-2.5 px-2.5 py-2 transition-colors duration-200",
         hasFeedback && "cursor-pointer hover:bg-muted/50",
         childIsStopped && child.status !== "error" && "opacity-50",
-        isSelected ? "border-r-status-done" : "border-r-transparent",
+        isSelected && "rounded-lg bg-muted/35",
         isReviewing && "persona-reviewing-row"
       )}
     >
-      {hasFeedback ? (
-        <ChevronRight
-          className={cn(
-            "h-2.5 w-2.5 shrink-0 text-muted-foreground/60 transition-transform",
-            !isCollapsed && "rotate-90"
-          )}
-        />
-      ) : null}
       <PersonaStatusIcon
         reviewStatus={reviewStatus}
         verdict={verdict}
         className="h-5 w-5"
       />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-start gap-1.5">
           <span
-            className="truncate text-xs font-medium"
+            className="min-w-0 flex-1 truncate text-xs font-medium"
             style={{ color: `hsl(${colorVar})` }}
           >
             {child.persona ?? child.name}
           </span>
-          {feedbackCount != null && feedbackCount > 0 ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">
-              {feedbackCount}
-            </span>
-          ) : resolvedCount != null && resolvedCount > 0 ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">
-              {resolvedCount}
-            </span>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-1">
+            {feedbackCount != null && feedbackCount > 0 ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-status-waiting/45 bg-status-waiting/15 px-1.5 text-[10px] font-semibold text-status-waiting">
+                {feedbackCount}
+              </span>
+            ) : null}
+            {resolvedCount != null && resolvedCount > 0 ? (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground/60">
+                {resolvedCount}
+              </span>
+            ) : null}
+          </div>
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+        <div className="mt-1 flex items-center gap-1.5 text-[10px]">
           {verdict ? (
             hasSummary && onOpenSummary ? (
               <button
@@ -235,7 +222,7 @@ export function PersonaAgentRow({
         </div>
         {child.status === "error" ? (
           <div
-            className="mt-0.5 truncate text-[10px] text-status-blocked/90"
+            className="mt-1 truncate text-[10px] text-status-blocked/90"
             title={child.lastError ?? undefined}
           >
             {child.lastError?.split("\n")[0] ?? "Error"}

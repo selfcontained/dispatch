@@ -193,8 +193,8 @@ test.describe("Worktree", () => {
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agent.name)).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // Should show standard archive confirmation (not worktree choice)
@@ -498,7 +498,7 @@ test.describe("Worktree filesystem", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
@@ -552,7 +552,7 @@ test.describe("Worktree filesystem", () => {
     const agentCard2 = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard2).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
