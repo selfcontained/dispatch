@@ -875,10 +875,10 @@ export function DashboardLayout(): JSX.Element {
                         navigate("/activity/metrics", { replace: true });
                       }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                        "flex w-full items-center gap-2.5 rounded-md mx-2 px-3 py-2.5 text-left text-sm transition-colors",
                         (activityTab ?? "metrics") === "metrics"
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "bg-white/[0.08] text-foreground border border-white/[0.1]"
+                          : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
                       )}
                     >
                       <BarChart3 className="h-3.5 w-3.5 shrink-0" />
@@ -891,10 +891,10 @@ export function DashboardLayout(): JSX.Element {
                         navigate("/activity/history", { replace: true });
                       }}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors",
+                        "flex w-full items-center gap-2.5 rounded-md mx-2 px-3 py-2.5 text-left text-sm transition-colors",
                         activityTab === "history"
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "bg-white/[0.08] text-foreground border border-white/[0.1]"
+                          : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
                       )}
                     >
                       <History className="h-3.5 w-3.5 shrink-0" />
