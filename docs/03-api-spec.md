@@ -231,6 +231,7 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 | GET    | `/notifications/settings` | Get Slack webhook URL and enabled event types |
 | POST   | `/notifications/settings` | Update webhook URL and event configuration    |
 | POST   | `/notifications/test`     | Send a test message to the configured webhook |
+| POST   | `/notifications/ack`      | Acknowledge a web notification by ID          |
 
 ### `POST /notifications/settings`
 

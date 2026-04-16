@@ -111,9 +111,12 @@ The failure log includes: timestamp, failed step, rollback status, last 50 lines
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
 
+- Format check (`pnpm run format`)
 - Type-check (`pnpm run check`)
 - Lint (`pnpm run lint:web`)
 - Build (`pnpm run build`)
+- Unit tests (`pnpm run test`)
+- E2E tests (`pnpm run test:e2e`)
 
 PRs must pass CI before merge.
 
