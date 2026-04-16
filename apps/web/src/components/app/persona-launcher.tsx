@@ -42,8 +42,7 @@ export function PersonaLauncher({
       return result.personas;
     },
   });
-
-  if (personas.length === 0) return null;
+  const hasPersonas = personas.length > 0;
 
   const reviewAgentType =
     agent.reviewAgentType ??
@@ -80,7 +79,7 @@ export function PersonaLauncher({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            disabled={disabled}
+            disabled={disabled || !hasPersonas}
             className="gap-1.5 rounded-r-none border border-white/[0.12] border-r-0 bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
             data-testid="launch-reviewer-button"
           >
@@ -88,40 +87,44 @@ export function PersonaLauncher({
               type={reviewAgentType}
               className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
             />
-            Launch Reviewer
+            Review
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          {personas.map((p, i) => {
-            const colorVar = `var(--chart-${(i % 4) + 1})`;
-            return (
-              <DropdownMenuItem
-                key={p.slug}
-                className="text-foreground"
-                onClick={() => launchPersona(p.slug)}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div
-                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: `hsl(${colorVar})` }}
-                  />
-                  <div>
+          {hasPersonas ? (
+            personas.map((p, i) => {
+              const colorVar = `var(--chart-${(i % 4) + 1})`;
+              return (
+                <DropdownMenuItem
+                  key={p.slug}
+                  className="text-foreground"
+                  onClick={() => launchPersona(p.slug)}
+                >
+                  <div className="flex items-start gap-2.5">
                     <div
-                      className="text-sm font-medium"
-                      style={{ color: `hsl(${colorVar})` }}
-                    >
-                      {p.name}
-                    </div>
-                    {p.description ? (
-                      <div className="text-xs text-muted-foreground">
-                        {p.description}
+                      className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: `hsl(${colorVar})` }}
+                    />
+                    <div>
+                      <div
+                        className="text-sm font-medium"
+                        style={{ color: `hsl(${colorVar})` }}
+                      >
+                        {p.name}
                       </div>
-                    ) : null}
+                      {p.description ? (
+                        <div className="text-xs text-muted-foreground">
+                          {p.description}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </DropdownMenuItem>
-            );
-          })}
+                </DropdownMenuItem>
+              );
+            })
+          ) : (
+            <DropdownMenuItem disabled>No reviewers available</DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -129,7 +132,7 @@ export function PersonaLauncher({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            disabled={disabled}
+            disabled={disabled || !hasPersonas}
             className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
             data-testid="launch-reviewer-type-dropdown"
           >

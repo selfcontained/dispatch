@@ -228,9 +228,6 @@ test.describe("Agent CRUD", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
 
-    await expect(agentCard.getByText("Working dir")).toBeVisible({
-      timeout: 3_000,
-    });
     await expect(agentCard.getByText("/tmp")).toBeVisible();
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
   });
@@ -259,14 +256,14 @@ test.describe("Agent CRUD", () => {
     const peekCard = page.getByTestId(`agent-card-${peekAgent.id}`);
 
     await page.getByTestId(`agent-row-${attachedAgent.id}`).click();
-    await expect(attachedCard.getByText("Working dir")).toBeVisible({
+    await expect(attachedCard.getByText("/tmp")).toBeVisible({
       timeout: 5_000,
     });
 
     await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
 
-    await expect(attachedCard.getByText("Working dir")).toBeVisible();
-    await expect(peekCard.getByText("Working dir")).toBeVisible();
+    await expect(attachedCard.getByText("/tmp")).toBeVisible();
+    await expect(peekCard.getByText("/tmp")).toBeVisible();
   });
 
   test("delete agent via overflow menu removes it from sidebar", async ({
@@ -281,8 +278,8 @@ test.describe("Agent CRUD", () => {
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agent.name)).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // Confirm the archive
@@ -307,9 +304,7 @@ test.describe("Agent CRUD", () => {
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-row-${agent.id}`).click();
-    await expect(agentCard.getByText("Working dir")).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(agentCard.getByText("/tmp")).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-archive-${agent.id}`).click();
     await page.getByTestId("delete-agent-confirm").click();

@@ -77,6 +77,22 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   ignored: { label: "Ignored", color: "text-muted-foreground/60" },
 };
 
+function StatusIcon({
+  status,
+  className,
+}: {
+  status: string;
+  className?: string;
+}): JSX.Element | null {
+  if (status === "fixed") {
+    return <CheckCircle2 className={cn("h-3.5 w-3.5", className)} />;
+  }
+  if (status === "ignored") {
+    return <Ban className={cn("h-3.5 w-3.5", className)} />;
+  }
+  return null;
+}
+
 const SEVERITY_ORDER: Record<string, number> = {
   critical: 0,
   high: 1,
@@ -382,8 +398,6 @@ export function ParentFeedbackPanel({
         .sort(bySeverity),
     [feedback]
   );
-  const activeCount = activeItems.length;
-
   const sheetIsActive =
     sheetItem &&
     (sheetItem.status === "open" || sheetItem.status === "forwarded");
@@ -493,9 +507,6 @@ export function ParentFeedbackPanel({
   return (
     <>
       <div className="mt-1.5">
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-          Reviewers{activeCount > 0 ? ` (${activeCount} findings)` : ""}
-        </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
             const agentActive = activeFeedbackByAgent.get(child.id) ?? [];
@@ -527,7 +538,10 @@ export function ParentFeedbackPanel({
                 : undefined;
 
             return (
-              <div key={child.id}>
+              <div
+                key={child.id}
+                className="rounded-xl border border-border/60 bg-background/25 px-1.5 py-1.5"
+              >
                 {getVisualState && detachTerminal && attachToAgent ? (
                   <div
                     className={cn(hasAnyFeedback && "cursor-pointer")}
@@ -589,7 +603,7 @@ export function ParentFeedbackPanel({
                             transition={{ duration: 0.2, ease: "easeOut" }}
                             className="overflow-hidden"
                           >
-                            <div className="space-y-px ml-4 mt-0.5">
+                            <div className="ml-8 mt-0.5 space-y-px">
                               {items.map((item) => {
                                 const isActionable =
                                   item.status === "open" ||
@@ -611,7 +625,7 @@ export function ParentFeedbackPanel({
                                   >
                                     <button
                                       className={cn(
-                                        "flex w-full items-center gap-1.5 px-1 py-2 md:py-1 text-left text-[11px] transition-colors",
+                                        "flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-[11px] transition-colors",
                                         "border-b-2",
                                         isSelected
                                           ? "border-primary"
@@ -654,11 +668,15 @@ export function ParentFeedbackPanel({
                                       {statusLabel && !isActionable ? (
                                         <span
                                           className={cn(
-                                            "shrink-0 text-[9px]",
+                                            "shrink-0",
                                             statusLabel.color
                                           )}
+                                          title={statusLabel.label}
                                         >
-                                          {statusLabel.label}
+                                          <StatusIcon
+                                            status={item.status}
+                                            className={statusLabel.color}
+                                          />
                                         </span>
                                       ) : null}
                                     </button>
@@ -667,7 +685,7 @@ export function ParentFeedbackPanel({
                               })}
                               {resolvedCount > 0 ? (
                                 <button
-                                  className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 hover:bg-muted/40 hover:text-muted-foreground transition-colors"
+                                  className="mt-1 rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-muted-foreground"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setShowResolvedAgents((prev) => {

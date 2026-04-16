@@ -1,25 +1,19 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   Archive,
-  ArrowRight,
-  Bot,
-  CheckCheck,
   ChevronDown,
-  CircleAlert,
   CirclePause,
-  ExternalLink,
-  FolderGit2,
-  MessageSquareText,
   Monitor,
-  MoonStar,
-  PanelRight,
-  Pin,
   Play,
   Smartphone,
   Sparkles,
-  Terminal,
 } from "lucide-react";
 
+import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
+import { formatRelativeTime } from "@/components/app/agent-event-utils";
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -28,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type ThemeId, THEMES, useTheme } from "@/hooks/use-theme";
+import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type ScenarioId =
@@ -36,7 +31,7 @@ type ScenarioId =
   | "running-no-review"
   | "paused";
 type Viewport = "desktop" | "mobile";
-type RightTab = "feedback" | "pins" | "media";
+type SidebarVariant = "current" | "summary-first" | "compact-meta";
 
 type FeedbackItem = {
   id: number;
@@ -50,57 +45,60 @@ type Reviewer = {
   id: string;
   name: string;
   verdict: "approve" | "changes_requested" | "reviewing";
-  summary: string;
   unresolved: number;
   resolved: number;
+  summary: string;
   feedback: FeedbackItem[];
 };
 
 type Scenario = {
   id: ScenarioId;
-  label: string;
-  description: string;
+  name: string;
+  agentType: AgentType;
   status: "Done" | "Working" | "Paused";
   statusTone: "done" | "working" | "paused";
-  timeAgo: string;
+  updatedAt: string;
   event: string;
   reviewHistory: boolean;
-  reviewers: Reviewer[];
+  reviewSummary?: string;
   repo: string;
   baseBranch: string;
   worktreeBranch: string;
   worktreePath: string;
-  runtime: string;
-  access: "Full access" | "Sandboxed";
-  reviewSummary?: string;
+  fullAccess: boolean;
+  reviewers: Reviewer[];
 };
 
-const prototypeScenarios: Scenario[] = [
+const now = Date.now();
+const minutesAgo = (minutes: number) =>
+  new Date(now - minutes * 60_000).toISOString();
+
+const scenarios: Scenario[] = [
   {
     id: "review-unresolved",
-    label: "Reviewed with unresolved feedback",
-    description:
-      "Target state for the redesign: reviewed agent, unresolved findings, Feedback tab first.",
+    name: "web notification ack flow",
+    agentType: "claude",
     status: "Done",
     statusTone: "done",
-    timeAgo: "2m ago",
+    updatedAt: minutesAgo(2),
     event: "Added 5 E2E tests for notification ack flow",
     reviewHistory: true,
     reviewSummary: "2 unresolved · Approved by 1 reviewer",
     repo: "dispatch",
     baseBranch: "main",
     worktreeBranch: "agt_573b28ecc432/agent-ecc432",
-    worktreePath: ".../worktrees/agt-573b28ecc432-agent-ecc432",
-    runtime: "Claude",
-    access: "Full access",
+    worktreePath:
+      "/Users/brad/dev/apps/dispatch/.dispatch/worktrees/agt-573b28ecc432-agent-ecc432",
+    fullAccess: true,
     reviewers: [
       {
-        id: "arch-review",
+        id: "architecture-review",
         name: "architecture-review",
         verdict: "approve",
-        summary: "Approved with a couple of follow-up cleanup items.",
         unresolved: 2,
         resolved: 2,
+        summary:
+          "Approved, but two issues still need attention before closing the loop.",
         feedback: [
           {
             id: 1,
@@ -119,14 +117,14 @@ const prototypeScenarios: Scenario[] = [
           {
             id: 3,
             file: "server.ts:128",
-            title: "Latest-event message text can drift from actual SSE event",
+            title: "latest-event text can drift from the SSE event source",
             severity: "low",
             status: "ignored",
           },
           {
             id: 4,
             file: "server.ts:1071",
-            title: "Issue summary should include delivery channel",
+            title: "issue summary should mention delivery channel",
             severity: "low",
             status: "fixed",
           },
@@ -136,50 +134,67 @@ const prototypeScenarios: Scenario[] = [
   },
   {
     id: "review-resolved",
-    label: "Reviewed with everything resolved",
-    description:
-      "Feedback tab still exists because review history exists, but the agent no longer needs action.",
+    name: "agent detail IA pass with extra-long realistic naming",
+    agentType: "codex",
     status: "Done",
     statusTone: "done",
-    timeAgo: "9m ago",
-    event: "Finished cleanup pass and resolved reviewer feedback",
+    updatedAt: minutesAgo(9),
+    event: "Resolved the last review note and updated the design spec doc",
     reviewHistory: true,
     reviewSummary: "Approved by 2 reviewers",
     repo: "dispatch",
     baseBranch: "release/0.14",
     worktreeBranch: "agt_release/agent-6f1441",
-    worktreePath: ".../worktrees/agt-release-agent-6f1441",
-    runtime: "Codex",
-    access: "Sandboxed",
+    worktreePath:
+      "/Users/brad/dev/apps/dispatch/.dispatch/worktrees/agt-release-agent-6f1441",
+    fullAccess: false,
     reviewers: [
       {
         id: "ux-review",
-        name: "ux-review",
+        name: "frontend-ux-review",
         verdict: "approve",
-        summary: "Interaction details look good after the second pass.",
         unresolved: 0,
         resolved: 3,
+        summary: "Interaction details look good after the second pass.",
         feedback: [
           {
             id: 5,
             file: "agent-card.tsx:42",
-            title: "Name clipping eased after moving destructive actions",
+            title: "name clipping eased after moving destructive actions",
             severity: "low",
             status: "fixed",
           },
           {
             id: 6,
             file: "feedback-panel.tsx:201",
-            title: "Badge hierarchy now matches review urgency",
+            title: "badge hierarchy now matches review urgency",
             severity: "low",
             status: "fixed",
           },
           {
             id: 7,
             file: "design-lab.tsx:88",
-            title: "Prototype controls mirror actual interaction model",
+            title: "prototype controls mirror actual interaction model",
             severity: "low",
             status: "ignored",
+          },
+        ],
+      },
+      {
+        id: "product-review",
+        name: "product-review",
+        verdict: "approve",
+        unresolved: 0,
+        resolved: 1,
+        summary:
+          "Scope looks appropriate and the information hierarchy is clearer.",
+        feedback: [
+          {
+            id: 8,
+            file: "design-lab.tsx:120",
+            title: "mode naming is clearer than before",
+            severity: "low",
+            status: "fixed",
           },
         ],
       },
@@ -187,93 +202,93 @@ const prototypeScenarios: Scenario[] = [
   },
   {
     id: "running-no-review",
-    label: "Running with no review history",
-    description:
-      "Agent is active and has no review history yet, so there is no Feedback tab.",
+    name: "design-lab-v2 prototype surface",
+    agentType: "codex",
     status: "Working",
     statusTone: "working",
-    timeAgo: "just now",
-    event: "Implementing dedicated feedback tab scaffolding",
+    updatedAt: new Date(now).toISOString(),
+    event: "Implementing sidebar-only variation surface in the design lab",
     reviewHistory: false,
     repo: "dispatch",
     baseBranch: "main",
     worktreeBranch: "agt_91d1e714/design-lab-v2",
-    worktreePath: ".../worktrees/agt-91d1e714-design-lab-v2",
-    runtime: "Codex",
-    access: "Full access",
+    worktreePath:
+      "/Users/brad/dev/apps/dispatch/.dispatch/worktrees/agt-91d1e714-design-lab-v2",
+    fullAccess: true,
     reviewers: [],
   },
   {
     id: "paused",
-    label: "Paused agent",
-    description:
-      "Collapsed card shows resume because it is the only lifecycle action that still matters at a glance.",
+    name: "migration follow-up cleanup",
+    agentType: "claude",
     status: "Paused",
     statusTone: "paused",
-    timeAgo: "14m ago",
+    updatedAt: minutesAgo(14),
     event: "Paused after hitting a failing migration locally",
     reviewHistory: false,
     repo: "dispatch",
     baseBranch: "main",
     worktreeBranch: "agt_71de23aa/db-fix",
-    worktreePath: ".../worktrees/agt-71de23aa-db-fix",
-    runtime: "Claude",
-    access: "Full access",
+    worktreePath:
+      "/Users/brad/dev/apps/dispatch/.dispatch/worktrees/agt-71de23aa-db-fix",
+    fullAccess: true,
     reviewers: [],
   },
 ];
 
-const toneClasses = {
+const variantMeta: Record<
+  SidebarVariant,
+  { title: string; description: string }
+> = {
+  current: {
+    title: "Current-ish",
+    description: "Close to today, but with the header already cleaned up.",
+  },
+  "summary-first": {
+    title: "Summary First",
+    description:
+      "Review signal moved up; metadata and session actions pushed down.",
+  },
+  "compact-meta": {
+    title: "Compact Meta",
+    description:
+      "Metadata compressed harder so status and review get more room.",
+  },
+};
+
+const allVariants: SidebarVariant[] = [
+  "current",
+  "summary-first",
+  "compact-meta",
+];
+
+const statusToneClass = {
   done: "text-status-done",
   working: "text-status-working",
   paused: "text-status-waiting",
 };
 
-const feedbackDot = {
+const severityDotClass = {
   high: "bg-status-blocked",
   medium: "bg-status-waiting",
   low: "bg-status-working",
 };
 
-function StatPill({
-  icon: Icon,
-  label,
-  tone = "default",
-}: {
-  icon: typeof Sparkles;
-  label: string;
-  tone?: "default" | "alert" | "positive";
-}) {
+function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
-        tone === "alert" && "border-status-waiting/35 bg-status-waiting/10",
-        tone === "positive" && "border-status-done/35 bg-status-done/10",
-        tone === "default" && "border-border bg-card/70"
-      )}
-    >
-      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function Label({ children }: { children: ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
+    <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
       {children}
     </div>
   );
 }
 
-function RowAction({
-  children,
+function ToolbarButton({
   active = false,
+  children,
   onClick,
 }: {
-  children: ReactNode;
   active?: boolean;
+  children: ReactNode;
   onClick?: () => void;
 }) {
   return (
@@ -281,10 +296,10 @@ function RowAction({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+        "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
         active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-card/70 text-muted-foreground hover:text-foreground"
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted text-muted-foreground hover:text-foreground"
       )}
     >
       {children}
@@ -292,549 +307,383 @@ function RowAction({
   );
 }
 
-function AgentSummaryCard({
+function SidebarHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="border-b border-border px-3 py-3">
+      <div className="text-sm font-semibold text-foreground">{title}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{description}</div>
+    </div>
+  );
+}
+
+function ReviewerSummary({
+  reviewer,
+  variant,
+}: {
+  reviewer: Reviewer;
+  variant: SidebarVariant;
+}) {
+  const openItems = reviewer.feedback.filter((item) => item.status === "open");
+  const resolvedCount = reviewer.feedback.length - openItems.length;
+  return (
+    <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">
+            {reviewer.name}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {reviewer.verdict === "reviewing"
+              ? "Reviewing"
+              : reviewer.verdict === "approve"
+                ? "Approved"
+                : "Changes requested"}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {reviewer.unresolved > 0 ? (
+            <Badge variant="stopped" className="normal-case tracking-normal">
+              {reviewer.unresolved}
+            </Badge>
+          ) : null}
+          {resolvedCount > 0 ? (
+            <Badge variant="default" className="normal-case tracking-normal">
+              {resolvedCount}
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {openItems.slice(0, variant === "compact-meta" ? 1 : 2).map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-2 rounded-lg px-1 py-1 text-[11px]"
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                severityDotClass[item.severity]
+              )}
+            />
+            <span className="shrink-0 font-mono text-muted-foreground">
+              {item.file}
+            </span>
+            <span className="min-w-0 truncate text-foreground">
+              {item.title}
+            </span>
+          </div>
+        ))}
+        {reviewer.unresolved === 0 ? (
+          <div className="text-[11px] text-muted-foreground">
+            No unresolved findings.
+          </div>
+        ) : null}
+        {resolvedCount > 0 ? (
+          <div className="text-[11px] text-muted-foreground">
+            {resolvedCount} resolved hidden by default
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RealisticAgentCard({
   scenario,
   expanded,
+  variant,
+  selected,
+  onToggle,
 }: {
   scenario: Scenario;
   expanded: boolean;
+  variant: SidebarVariant;
+  selected?: boolean;
+  onToggle: () => void;
 }) {
-  const isPaused = scenario.status === "Paused";
   const unresolvedCount = scenario.reviewers.reduce(
     (sum, reviewer) => sum + reviewer.unresolved,
     0
   );
+  const showReviewRow = scenario.reviewHistory;
+  const showCompactContext = variant === "compact-meta";
+  const showSummaryBeforeContext = variant !== "current";
 
-  return (
-    <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm backdrop-blur-sm">
-      <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-          <Bot className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-foreground">
-            web notification ack flow
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isPaused ? (
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-status-done/35 bg-status-done/10 text-status-done"
-              title="Resume"
-            >
-              <Play className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-medium text-foreground"
-              title="Connect parent session"
-            >
-              <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-              Connected
-            </button>
-          )}
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground"
-            title={expanded ? "Collapse" : "Expand"}
-          >
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform",
-                expanded && "rotate-180"
-              )}
-            />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-3 flex min-w-0 items-baseline text-xs text-muted-foreground">
+  const overview = (
+    <>
+      <div className="mt-1 flex min-w-0 items-baseline text-xs text-muted-foreground">
         <span
           className={cn(
             "shrink-0 font-medium",
-            toneClasses[scenario.statusTone]
+            statusToneClass[scenario.statusTone]
           )}
         >
           {scenario.status}
         </span>
-        <span className="mx-1.5 shrink-0 text-muted-foreground/60">•</span>
-        <span className="shrink-0">{scenario.timeAgo}</span>
-        <span className="mx-1.5 shrink-0 text-muted-foreground/60">•</span>
+        <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
+        <span className="shrink-0">
+          {formatRelativeTime(scenario.updatedAt)}
+        </span>
+        <span className="mx-1.5 shrink-0 text-muted-foreground/70">•</span>
         <span className="min-w-0 truncate">{scenario.event}</span>
       </div>
 
-      {scenario.reviewHistory ? (
-        <button
-          type="button"
-          className="mt-3 flex w-full items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-left"
-        >
-          <div className="flex items-center gap-2 text-sm">
-            {unresolvedCount > 0 ? (
-              <CircleAlert className="h-4 w-4 text-status-waiting" />
-            ) : (
-              <CheckCheck className="h-4 w-4 text-status-done" />
-            )}
-            <span className="font-medium text-foreground">
-              {scenario.reviewSummary}
+      {showReviewRow ? (
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-2 rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2">
+          <div className="min-w-0 truncate text-sm font-medium text-foreground">
+            {scenario.reviewSummary}
+          </div>
+          <Badge
+            variant={unresolvedCount > 0 ? "stopped" : "transitional"}
+            className="normal-case tracking-normal"
+          >
+            {unresolvedCount > 0 ? "Needs attention" : "Reviewed"}
+          </Badge>
+        </div>
+      ) : null}
+    </>
+  );
+
+  const contextSection = showCompactContext ? (
+    <div className="grid gap-2 rounded-xl border border-border/60 bg-background/30 p-3 text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-muted-foreground">Repo</span>
+        <span className="font-medium text-foreground">{scenario.repo}</span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-muted-foreground">Branch</span>
+        <span className="truncate text-right font-mono text-foreground">
+          {scenario.baseBranch}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-muted-foreground">Runtime</span>
+        <span className="font-medium text-foreground">
+          {AGENT_TYPE_LABELS[scenario.agentType]} ·{" "}
+          {scenario.fullAccess ? "Full access" : "Sandboxed"}
+        </span>
+      </div>
+    </div>
+  ) : (
+    <div className="grid gap-2 text-xs text-muted-foreground">
+      <AgentMeta label="Repo" value={scenario.repo} />
+      <div className="grid gap-1">
+        <SectionLabel>Branch</SectionLabel>
+        <div className="grid gap-0">
+          <div className="text-muted-foreground">
+            <FrontTruncatedValue
+              value={scenario.baseBranch}
+              mono
+              className="text-muted-foreground"
+              tooltipClassName=""
+              tooltipValue={`Base branch: ${scenario.baseBranch}`}
+            />
+          </div>
+          <div className="flex items-center gap-1 pl-1">
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">
+              └
             </span>
-          </div>
-          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
-      ) : null}
-
-      {expanded ? (
-        <div className="mt-4 space-y-4 border-t border-border/70 pt-4">
-          <div className="space-y-2">
-            <Label>Review</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground"
-              >
-                <Sparkles className="h-4 w-4 text-primary" />
-                Launch Reviewer
-              </button>
-              <div className="rounded-full border border-status-done/35 bg-status-done/10 px-2.5 py-1 text-[11px] font-medium text-status-done">
-                Parent connected
-              </div>
-              {scenario.reviewHistory ? (
-                <button
-                  type="button"
-                  className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-                >
-                  Open Feedback
-                </button>
-              ) : null}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {scenario.reviewHistory
-                ? "Feedback becomes the first detail tab once review history exists."
-                : "No review history yet, so the right pane starts with Pins."}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Context</Label>
-            <div className="grid gap-2 rounded-xl border border-border/70 bg-background/30 p-3 text-xs">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Repo</span>
-                <span className="font-medium text-foreground">
-                  {scenario.repo}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Branch</span>
-                <span className="truncate text-right font-mono text-foreground">
-                  {scenario.baseBranch}{" "}
-                  <ArrowRight className="mx-1 inline h-3 w-3" />
-                  {scenario.worktreeBranch}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Worktree</span>
-                <span className="truncate text-right font-mono text-foreground">
-                  {scenario.worktreePath}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Runtime</span>
-                <span className="font-medium text-foreground">
-                  {scenario.runtime} · {scenario.access}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Session actions</Label>
-            <div className="flex flex-wrap gap-2">
-              {isPaused ? (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-status-done/35 bg-status-done/10 px-3 py-2 text-sm font-medium text-status-done"
-                >
-                  <Play className="h-4 w-4" />
-                  Resume
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-status-waiting/35 bg-status-waiting/10 px-3 py-2 text-sm font-medium text-status-waiting"
-                >
-                  <CirclePause className="h-4 w-4" />
-                  Pause
-                </button>
-              )}
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-status-blocked/35 bg-status-blocked/10 px-3 py-2 text-sm font-medium text-status-blocked"
-              >
-                <Archive className="h-4 w-4" />
-                Archive
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function FeedbackWorkspace({
-  scenario,
-  activeTab,
-  onTabChange,
-}: {
-  scenario: Scenario;
-  activeTab: RightTab;
-  onTabChange: (tab: RightTab) => void;
-}) {
-  const tabs: RightTab[] = scenario.reviewHistory
-    ? ["feedback", "pins", "media"]
-    : ["pins", "media"];
-
-  const unresolvedCount = scenario.reviewers.reduce(
-    (sum, reviewer) => sum + reviewer.unresolved,
-    0
-  );
-  const totalReviewers = scenario.reviewers.length;
-
-  return (
-    <div className="flex h-full min-h-[620px] flex-col rounded-2xl border border-border/70 bg-card/85 shadow-sm backdrop-blur-sm">
-      <div className="border-b border-border/70 px-4 py-3">
-        <div className="flex items-center gap-2">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab;
-            const count =
-              tab === "feedback" && scenario.reviewHistory
-                ? unresolvedCount
-                : 0;
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => onTabChange(tab)}
-                className={cn(
-                  "rounded-xl px-3 py-1.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                )}
-              >
-                {tab === "feedback"
-                  ? "Feedback"
-                  : tab === "pins"
-                    ? "Pins"
-                    : "Media"}
-                {count > 0 ? ` ${count}` : ""}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === "feedback" && scenario.reviewHistory ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-border/70 bg-background/35 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <StatPill
-                  icon={MessageSquareText}
-                  label={`${unresolvedCount} unresolved`}
-                  tone={unresolvedCount > 0 ? "alert" : "positive"}
-                />
-                <StatPill
-                  icon={Sparkles}
-                  label={`${totalReviewers} reviewer${totalReviewers === 1 ? "" : "s"}`}
-                />
-                <StatPill icon={CheckCheck} label="Approved" tone="positive" />
-              </div>
-            </div>
-
-            {scenario.reviewers.map((reviewer) => (
-              <div
-                key={reviewer.id}
-                className="rounded-2xl border border-border/70 bg-background/35 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {reviewer.name}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {reviewer.verdict === "reviewing"
-                        ? "Reviewing"
-                        : reviewer.verdict === "approve"
-                          ? "Approved"
-                          : "Changes requested"}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground"
-                    >
-                      Summary
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground"
-                    >
-                      <Terminal className="mr-1 inline h-3.5 w-3.5" />
-                      Terminal
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground"
-                    >
-                      Auto-triage
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  {reviewer.feedback
-                    .filter((item) => item.status === "open")
-                    .map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card/70 px-3 py-2 text-left"
-                      >
-                        <span
-                          className={cn(
-                            "h-2 w-2 shrink-0 rounded-full",
-                            feedbackDot[item.severity]
-                          )}
-                        />
-                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                          {item.file}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                          {item.title}
-                        </span>
-                      </button>
-                    ))}
-                </div>
-
-                {reviewer.resolved > 0 ? (
-                  <div className="mt-3 rounded-xl border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
-                    Show {reviewer.resolved} resolved
-                  </div>
-                ) : null}
-              </div>
-            ))}
-
-            <div className="rounded-2xl border border-border/70 bg-background/35 p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">
-                    Feedback detail
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    This remains the focused action area for WDYT, Fix, and
-                    status changes.
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">1 / 2</div>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <Label>Description</Label>
-                  <div className="mt-1 text-sm text-foreground">
-                    Pending web notification state can linger after reconnect
-                    and keep the UI summary row stale.
-                  </div>
-                </div>
-                <div>
-                  <Label>Suggestion</Label>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Reset pending notification state after a successful ack and
-                    force the summary cache to re-read the newest SSE event.
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-                  <RowAction active>WDYT</RowAction>
-                  <RowAction>Fix</RowAction>
-                  <div className="ml-auto flex gap-2">
-                    <RowAction>Fixed</RowAction>
-                    <RowAction>Ignore</RowAction>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {activeTab === "pins" ? (
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-border/70 bg-background/35 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Pin className="h-4 w-4 text-primary" />
-                Pins stay lightweight and copy-friendly
-              </div>
-              <div className="mt-3 space-y-2 text-sm">
-                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 px-3 py-2">
-                  <span className="text-muted-foreground">Validation Web</span>
-                  <span className="font-mono text-foreground">
-                    127.0.0.1:64233
-                  </span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 px-3 py-2">
-                  <span className="text-muted-foreground">Cleanup</span>
-                  <span className="font-mono text-foreground">
-                    dispatch-dev down
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {activeTab === "media" ? (
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-border/70 bg-background/35 p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <PanelRight className="h-4 w-4 text-primary" />
-                Media remains adjacent to prototypes and review artifacts
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                {[
-                  "feedback-empty-state.png",
-                  "review-summary-wireframe.png",
-                  "mobile-feedback-sheet.png",
-                ].map((asset) => (
-                  <div
-                    key={asset}
-                    className="rounded-2xl border border-border/70 bg-card/70 p-3"
-                  >
-                    <div className="aspect-[4/3] rounded-xl border border-dashed border-border/70 bg-background/30" />
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      {asset}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function DesktopPreview({
-  scenario,
-  expanded,
-  activeTab,
-  onTabChange,
-}: {
-  scenario: Scenario;
-  expanded: boolean;
-  activeTab: RightTab;
-  onTabChange: (tab: RightTab) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-[28px] border border-border/80 bg-background shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
-      <div className="flex items-center justify-between border-b border-border/70 bg-card/50 px-5 py-3">
-        <div className="flex items-center gap-3 text-sm">
-          <div className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
-            /design-lab
-          </div>
-          <span className="text-muted-foreground">Prototype Playground</span>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          Feedback tab becomes first tab after review exists
-        </div>
-      </div>
-      <div className="grid min-h-[720px] grid-cols-[360px_minmax(0,1fr)_420px] bg-surface">
-        <div className="border-r border-border/70 p-4">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
-            <FolderGit2 className="h-4 w-4 text-primary" />
-            Agents
-          </div>
-          <AgentSummaryCard scenario={scenario} expanded={expanded} />
-        </div>
-        <div className="border-r border-border/70 bg-background/45 p-6">
-          <div className="rounded-2xl border border-dashed border-border/70 bg-card/40 p-6">
-            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Terminal className="h-4 w-4 text-primary" />
-              Main workspace stays focused on the connected agent
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-background/35 p-5 text-sm text-muted-foreground">
-              The redesign keeps the left card concise, moves reviewer workflow
-              into the right pane, and lets this central area remain the primary
-              coding workspace.
-            </div>
-          </div>
-        </div>
-        <div className="p-4">
-          <FeedbackWorkspace
-            scenario={scenario}
-            activeTab={activeTab}
-            onTabChange={onTabChange}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MobilePreview({
-  scenario,
-  activeTab,
-  onTabChange,
-}: {
-  scenario: Scenario;
-  activeTab: RightTab;
-  onTabChange: (tab: RightTab) => void;
-}) {
-  const canShowFeedback = scenario.reviewHistory;
-  return (
-    <div className="mx-auto max-w-[390px] overflow-hidden rounded-[32px] border border-border/80 bg-background shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-      <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-        <div className="text-sm font-semibold text-foreground">Dispatch</div>
-        <div className="text-xs text-muted-foreground">Mobile prototype</div>
-      </div>
-      <div className="p-4">
-        <AgentSummaryCard scenario={scenario} expanded={false} />
-      </div>
-      {canShowFeedback ? (
-        <div className="border-t border-border/70 bg-card/70 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold text-foreground">
-              Feedback
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Tapping the summary row jumps here directly
-            </div>
-          </div>
-          <div className="mb-3 flex items-center gap-2">
-            {(["feedback", "pins", "media"] as RightTab[]).map((tab) => (
-              <RowAction
-                key={tab}
-                active={activeTab === tab}
-                onClick={() => onTabChange(tab)}
-              >
-                {tab === "feedback"
-                  ? "Feedback"
-                  : tab === "pins"
-                    ? "Pins"
-                    : "Media"}
-              </RowAction>
-            ))}
-          </div>
-          <div className="max-h-[420px] overflow-y-auto">
-            <FeedbackWorkspace
-              scenario={scenario}
-              activeTab={activeTab}
-              onTabChange={onTabChange}
+            <FrontTruncatedValue
+              value={scenario.worktreeBranch}
+              mono
+              tooltipValue={`Working branch: ${scenario.worktreeBranch}`}
             />
           </div>
         </div>
+      </div>
+      <AgentMeta
+        label="Worktree"
+        value={scenario.worktreePath}
+        mono
+        truncateStart
+      />
+      <div className="flex items-center justify-between">
+        <div className="text-foreground">
+          {AGENT_TYPE_LABELS[scenario.agentType]}
+        </div>
+        <div
+          className={cn(
+            "inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px]",
+            scenario.fullAccess
+              ? "border border-status-waiting/45 bg-status-waiting/15 text-status-waiting"
+              : "text-foreground"
+          )}
+        >
+          {scenario.fullAccess ? "Full access" : "Sandboxed"}
+        </div>
+      </div>
+    </div>
+  );
+
+  const reviewSection = scenario.reviewHistory ? (
+    <div className="space-y-2">
+      <SectionLabel>
+        {variant === "current" ? "Reviewers" : "Review"}
+      </SectionLabel>
+      {variant !== "current" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="default" className="gap-2">
+            <Sparkles className="h-3.5 w-3.5" />
+            Launch Reviewer
+          </Button>
+        </div>
       ) : null}
+      <div className="space-y-2">
+        {scenario.reviewers.map((reviewer) => (
+          <ReviewerSummary
+            key={reviewer.id}
+            reviewer={reviewer}
+            variant={variant}
+          />
+        ))}
+      </div>
+    </div>
+  ) : (
+    <div className="space-y-2">
+      <SectionLabel>Review</SectionLabel>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="default" className="gap-2">
+          <Sparkles className="h-3.5 w-3.5" />
+          Launch Reviewer
+        </Button>
+        <Badge variant="default" className="normal-case tracking-normal">
+          No review history
+        </Badge>
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className={cn(
+        "border-b border-r-4 px-2 py-2 transition-colors duration-300",
+        selected ? "bg-muted/60 border-r-status-done" : "border-r-transparent"
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold">
+          <AgentTypeIcon
+            type={scenario.agentType}
+            eventType={scenario.status === "Paused" ? null : "done"}
+          />
+          <span className="truncate">{scenario.name}</span>
+        </div>
+
+        {scenario.status === "Paused" ? (
+          <Button size="icon" variant="ghost-info">
+            <Play className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+
+        <Button size="icon" variant="ghost" onClick={onToggle}>
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        </Button>
+      </div>
+
+      {overview}
+
+      {expanded ? (
+        <div className="mt-2 space-y-3 overflow-hidden px-3 pb-2 pt-1">
+          {showSummaryBeforeContext ? reviewSection : contextSection}
+          {showSummaryBeforeContext ? contextSection : reviewSection}
+
+          <div className="space-y-2">
+            <SectionLabel>Session actions</SectionLabel>
+            <div className="flex flex-wrap gap-2">
+              {scenario.status === "Paused" ? (
+                <Button size="sm" variant="ghost-info" className="gap-2">
+                  <Play className="h-3.5 w-3.5" />
+                  Resume
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost-warning" className="gap-2">
+                  <CirclePause className="h-3.5 w-3.5" />
+                  Pause
+                </Button>
+              )}
+              <Button size="sm" variant="ghost-destructive" className="gap-2">
+                <Archive className="h-3.5 w-3.5" />
+                Archive
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SidebarPane({
+  variant,
+  viewport,
+}: {
+  variant: SidebarVariant;
+  viewport: Viewport;
+}) {
+  const [expandedIds, setExpandedIds] = useState<Set<ScenarioId>>(
+    new Set(["review-unresolved", "running-no-review"])
+  );
+
+  const widthClass = viewport === "mobile" ? "w-full" : "w-[350px]";
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-2xl border border-border/70 bg-card",
+        widthClass
+      )}
+    >
+      <SidebarHeader
+        title={variantMeta[variant].title}
+        description={variantMeta[variant].description}
+      />
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+          <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Agents
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <Button size="sm" variant="default" className="gap-2">
+              <AgentTypeIcon
+                type="codex"
+                className="border-none bg-transparent p-0 text-foreground/80"
+              />
+              Create
+            </Button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {scenarios.map((scenario, index) => (
+            <RealisticAgentCard
+              key={`${variant}-${scenario.id}`}
+              scenario={scenario}
+              variant={variant}
+              selected={index === 0}
+              expanded={expandedIds.has(scenario.id)}
+              onToggle={() =>
+                setExpandedIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(scenario.id)) next.delete(scenario.id);
+                  else next.add(scenario.id);
+                  return next;
+                })
+              }
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -842,21 +691,11 @@ function MobilePreview({
 export function DesignLabPrototypePlayground(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const [viewport, setViewport] = useState<Viewport>("desktop");
-  const [scenarioId, setScenarioId] = useState<ScenarioId>("review-unresolved");
-  const [expanded, setExpanded] = useState(true);
-  const scenario = useMemo(
-    () =>
-      prototypeScenarios.find((item) => item.id === scenarioId) ??
-      prototypeScenarios[0],
-    [scenarioId]
-  );
+  const [mobileVariant, setMobileVariant] =
+    useState<SidebarVariant>("summary-first");
 
-  const defaultTab: RightTab = scenario.reviewHistory ? "feedback" : "pins";
-  const [activeTab, setActiveTab] = useState<RightTab>(defaultTab);
-
-  useEffect(() => {
-    setActiveTab(defaultTab);
-  }, [defaultTab]);
+  const visibleVariants =
+    viewport === "desktop" ? allVariants : [mobileVariant];
 
   return (
     <div className="space-y-6">
@@ -865,29 +704,34 @@ export function DesignLabPrototypePlayground(): JSX.Element {
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-primary">
               <Sparkles className="h-3.5 w-3.5" />
-              Prototype Playground
+              Sidebar Variations
             </div>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">
-              A reusable lab for mock data, rapid UI states, and theme checks
+              Realistic sidebar studies using Dispatch UI primitives
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              This mode is meant to be an agent-friendly playground. Prototypes
-              can live here with mocked states, explicit controls, and a
-              built-in way to verify layout decisions across themes and viewport
-              presets.
+              This is no longer a wireframe. Each variation uses realistic agent
+              data, real component primitives, and the same density problems the
+              actual sidebar has today so the comparisons are more trustworthy.
             </p>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3 lg:w-[520px]">
-            <StatPill icon={MoonStar} label="Theme switcher" />
-            <StatPill icon={Monitor} label="Viewport presets" />
-            <StatPill icon={MessageSquareText} label="Mock scenarios" />
+            <div className="rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs">
+              Theme switcher
+            </div>
+            <div className="rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs">
+              Desktop/mobile presets
+            </div>
+            <div className="rounded-full border border-border bg-card/70 px-3 py-1.5 text-xs">
+              State gallery
+            </div>
           </div>
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-[220px_220px_1fr]">
           <div className="space-y-2">
-            <Label>Theme</Label>
+            <SectionLabel>Theme</SectionLabel>
             <Select
               value={theme}
               onValueChange={(value) => setTheme(value as ThemeId)}
@@ -907,115 +751,61 @@ export function DesignLabPrototypePlayground(): JSX.Element {
           </div>
 
           <div className="space-y-2">
-            <Label>Scenario</Label>
-            <Select
-              value={scenarioId}
-              onValueChange={(value) => setScenarioId(value as ScenarioId)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Scenario" />
-              </SelectTrigger>
-              <SelectContent>
-                {prototypeScenarios.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Canvas controls</Label>
-            <div className="flex flex-wrap gap-2">
-              <RowAction
+            <SectionLabel>Viewport</SectionLabel>
+            <div className="flex gap-2">
+              <ToolbarButton
                 active={viewport === "desktop"}
                 onClick={() => setViewport("desktop")}
               >
                 <Monitor className="mr-1.5 inline h-3.5 w-3.5" />
                 Desktop
-              </RowAction>
-              <RowAction
+              </ToolbarButton>
+              <ToolbarButton
                 active={viewport === "mobile"}
                 onClick={() => setViewport("mobile")}
               >
                 <Smartphone className="mr-1.5 inline h-3.5 w-3.5" />
                 Mobile
-              </RowAction>
-              <RowAction
-                active={expanded}
-                onClick={() => setExpanded((value) => !value)}
-              >
-                {expanded ? "Expanded card" : "Collapsed card"}
-              </RowAction>
-              <RowAction
-                active={activeTab === defaultTab}
-                onClick={() => setActiveTab(defaultTab)}
-              >
-                Reset default tab
-              </RowAction>
+              </ToolbarButton>
             </div>
           </div>
-        </div>
 
-        <div className="mt-4 rounded-2xl border border-border/70 bg-background/40 p-4">
-          <div className="text-sm font-medium text-foreground">
-            {scenario.label}
-          </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {scenario.description}
+          <div className="space-y-2">
+            <SectionLabel>Focus</SectionLabel>
+            {viewport === "mobile" ? (
+              <div className="flex flex-wrap gap-2">
+                {allVariants.map((variant) => (
+                  <ToolbarButton
+                    key={variant}
+                    active={mobileVariant === variant}
+                    onClick={() => setMobileVariant(variant)}
+                  >
+                    {variantMeta[variant].title}
+                  </ToolbarButton>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/70 bg-background/40 px-4 py-3 text-sm text-muted-foreground">
+                Desktop shows all three sidebar variations side by side for
+                direct comparison.
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       <div className="rounded-3xl border border-border/70 bg-surface/80 p-4 lg:p-6">
-        {viewport === "desktop" ? (
-          <DesktopPreview
-            scenario={scenario}
-            expanded={expanded}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
-        ) : (
-          <MobilePreview
-            scenario={scenario}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
-        )}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <PanelRight className="h-4 w-4 text-primary" />
-            Agent-detail direction
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            Left card handles scan and triage. Expanded state holds overview,
-            review entry points, and context. Feedback becomes a dedicated
-            workspace in the right pane.
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <MoonStar className="h-4 w-4 text-primary" />
-            Prototype tooling
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            Theme switching is inline so UI prototypes can be validated across
-            the app’s existing theme matrix without leaving the mock surface.
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Sparkles className="h-4 w-4 text-primary" />
-            Future additions
-          </div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            This foundation can grow into reusable fixtures, viewport presets,
-            interaction notes, token inspectors, and exportable mock scenarios.
-          </div>
+        <div
+          className={cn(
+            "gap-4",
+            viewport === "desktop"
+              ? "grid xl:grid-cols-3"
+              : "flex justify-center"
+          )}
+        >
+          {visibleVariants.map((variant) => (
+            <SidebarPane key={variant} variant={variant} viewport={viewport} />
+          ))}
         </div>
       </div>
     </div>

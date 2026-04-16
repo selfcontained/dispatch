@@ -192,7 +192,6 @@ test.describe("Agent base branch", () => {
 
     await page.getByTestId(`agent-row-${agent.id}`).click();
 
-    await expect(agentCard.getByText("Branch")).toBeVisible({ timeout: 5_000 });
     await expect(agentCard.getByText("main", { exact: true })).toBeVisible();
     await expect(
       agentCard.getByText(agent.worktreeBranch!, { exact: true })
