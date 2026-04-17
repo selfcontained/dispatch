@@ -73,6 +73,7 @@ import {
   sanitizeEnabledAgentTypes,
 } from "@/lib/agent-types";
 import { Button } from "@/components/ui/button";
+import { AgentsWorkspace } from "@/components/app/agents-workspace";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -1410,20 +1411,4 @@ export function DashboardLayout(): JSX.Element {
       </div>
     </JobsProvider>
   );
-}
-
-function AgentsWorkspace({
-  children,
-  onUnmount,
-}: {
-  children: React.ReactNode;
-  onUnmount: () => void;
-}): JSX.Element {
-  useEffect(() => {
-    return () => {
-      onUnmount();
-    };
-  }, [onUnmount]);
-
-  return <>{children}</>;
 }
