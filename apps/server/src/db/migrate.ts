@@ -14,10 +14,15 @@ const migrationsDir = __dirname.includes("/dist/")
 
 // Arbitrary fixed key for pg_advisory_lock to prevent concurrent migrations.
 const MIGRATION_LOCK_ID = 8675309;
+const TIMESTAMP_PARSE_NOISE_RE = /^Can't determine timestamp for \d+$/;
 
 export interface MigrationOptions {
   databaseUrl?: string;
   count?: number;
+}
+
+export function shouldLogMigrationMessage(msg: string): boolean {
+  return !TIMESTAMP_PARSE_NOISE_RE.test(msg);
 }
 
 export async function runMigrations(
@@ -42,7 +47,11 @@ export async function runMigrations(
       direction: "up",
       migrationsTable: "pgmigrations",
       count: opts.count,
-      log: (msg) => console.log(`[migrate] ${msg}`),
+      log: (msg) => {
+        if (shouldLogMigrationMessage(msg)) {
+          console.log(`[migrate] ${msg}`);
+        }
+      },
     });
 
     console.log("Migrations completed.");
