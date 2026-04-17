@@ -19,6 +19,39 @@
   - `selectedAgentId` is local state in `App.tsx`.
   - `expandedAgentId`, `feedbackDetail`, and sidebar visibility are currently high in the tree, with some backed by Jotai atoms in `apps/web/src/lib/store.ts`.
 
+## Remaining Work After This Branch
+
+- The branch moved agent-specific terminal, media, feedback, and create-dialog ownership out of `App.tsx` and into `AgentsView`.
+- The branch also removed dead root-owned agent state and dead global atoms that no longer had consumers.
+- But the router/layout refactor is still incomplete:
+  - `DashboardLayout` still slices `location.pathname` to decide which top-level section is active.
+  - `DashboardLayout` still uses an `isAgentsView ? <AgentsView /> : <non-agents shell />` branch instead of letting the router own section/layout selection.
+  - The non-agents shell still renders its own `GlassSidebar` and `SidebarShell` path from `App.tsx`, which keeps the root acting as a manual view router.
+  - Settings and activity subsection selection are still derived from pathname inspection at the root instead of route-owned layouts.
+- This means the branch improved state ownership, but it did not yet complete the route ownership goal.
+
+### What Still Needs To Happen
+
+- Move top-level section selection out of `DashboardLayout` and into explicit router entries.
+- Convert the current manual section switch into route-owned layouts with `Outlet`.
+- Keep `App.tsx` limited to shared shell responsibilities:
+  - auth/theme/branding/health
+  - truly shared layout state from `useLayout`
+  - shared providers with real cross-section scope
+  - shared mobile shell behavior
+- Move section-specific route interpretation down:
+  - agents routes belong to an agents layout/route subtree
+  - settings section/subsection parsing belongs to settings routes
+  - activity tab selection belongs to activity routes
+  - jobs provider and jobs frame belong to a jobs layout
+
+### Success Criteria For The Follow-Up
+
+- `App.tsx` no longer reads `location.pathname.split("/")` to infer route meaning.
+- `App.tsx` no longer branches between agents and non-agents feature trees.
+- React Router primitives such as route elements, `useParams`, `useMatch`, and `Outlet` own route meaning instead of manual pathname parsing.
+- Each feature subtree owns its own route-derived state and layout frame.
+
 ## Target Architecture
 
 ### 1. Router owns screen selection

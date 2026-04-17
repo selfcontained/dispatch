@@ -1,5 +1,4 @@
 import { atom } from "jotai";
-import { atomFamily } from "jotai/utils";
 
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
@@ -41,23 +40,4 @@ export const mediaSidebarOpenAtom = atomWithLocalStorage(
 export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
   "dispatch:mediaSidebarTab",
   "pins"
-);
-export const expandedAgentIdAtom = atomWithLocalStorage<string | null>(
-  "dispatch:expandedAgentId",
-  null
-);
-
-/** Per-directory full-access mode preference, backed by localStorage (sync read). */
-export const fullAccessByCwdAtom = atomFamily((cwd: string) =>
-  atomWithLocalStorage(`dispatch:fullAccess:${cwd}`, false)
-);
-
-/** Per-directory last-used base branch, backed by localStorage (sync read). */
-export const baseBranchByCwdAtom = atomFamily((cwd: string) =>
-  atomWithLocalStorage(`dispatch:baseBranch:${cwd}`, "main")
-);
-
-/** Per-directory autonomous review preference, backed by localStorage (sync read). */
-export const autoReviewByCwdAtom = atomFamily((cwd: string) =>
-  atomWithLocalStorage(`dispatch:autoReview:${cwd}`, false)
 );

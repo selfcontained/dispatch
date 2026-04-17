@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 export type NavSection = "agents" | "jobs" | "activity" | "settings";
 
 type SidebarNavBarProps = {
-  activeSection: NavSection;
+  activeSection?: NavSection;
   onNavigate: (section: NavSection) => void;
   pulsingNavItem?: string | null;
   triggerNavAnimation?: (navItem: string) => void;
@@ -87,7 +87,7 @@ export function SidebarNavBar({
 }
 
 type SidebarShellProps = {
-  activeSection: NavSection;
+  activeSection?: NavSection;
   onNavigate: (section: NavSection) => void;
   onRequestClose?: () => void;
   closeButtonIcon?: "chevron" | "x";
