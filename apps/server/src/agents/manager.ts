@@ -1286,8 +1286,14 @@ export class AgentManager {
     await this.maybeCaptureTmuxInventory();
     await this.maybeMaintenanceLogs();
 
+    // Seeded demo agents (id LIKE 'seed-%') are DB-only and have no tmux
+    // session — reconcile would immediately mark them stopped and erase the
+    // carefully-chosen synthetic states. Skip them when dev-data seeding is on.
+    const skipSeeded = process.env.DISPATCH_SEED_DEV_DATA === "true";
     const result = await this.pool.query(
-      "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
+      skipSeeded
+        ? "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving') AND id NOT LIKE 'seed-%'"
+        : "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
     );
 
     const reconciled: AgentRecord[] = [];
