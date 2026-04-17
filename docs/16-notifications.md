@@ -2,7 +2,12 @@
 
 ## Overview
 
-Dispatch sends Slack notifications when agents need attention, so you don't have to watch the dashboard. Notifications are event-driven and focus-aware — you only get notified about agents you're not actively viewing.
+Dispatch can notify you when an agent reaches a notable state (`done`, `waiting_user`, `blocked`) via two channels:
+
+- **In-app browser notifications** — broadcast over the SSE stream (`GET /api/v1/events`) and surfaced by the connected web client as a native browser notification.
+- **Slack webhooks** — fallback when no browser client acknowledges within ~3 seconds, or whenever web notifications are disabled.
+
+Notifications are focus-aware — the agent you are actively viewing is suppressed.
 
 ## Slack Setup
 
@@ -11,15 +16,23 @@ Dispatch sends Slack notifications when agents need attention, so you don't have
 3. Paste the webhook URL.
 4. Use **Send test** to verify the integration.
 
+The URL must start with `https://hooks.slack.com/`; other URLs are rejected to prevent SSRF.
+
+## Web Notifications
+
+Web notifications are broadcast over the SSE event stream whenever at least one browser client is connected. The client acknowledges delivery via `POST /api/v1/notifications/ack` with the `notificationId` from the event; a successful ack suppresses the Slack fallback. If no ack arrives within 3 seconds, Dispatch falls back to Slack (assuming Slack is configured and the event type is enabled there).
+
+Web notifications have their own enable toggle and event list, independent of Slack.
+
 ## Configurable Events
 
-You can enable or disable notifications for each event type:
+Each channel has its own list of event types to notify on. Defaults:
 
-| Event          | Default  | Description                          |
-| -------------- | -------- | ------------------------------------ |
-| `done`         | Enabled  | Agent finished its task              |
-| `waiting_user` | Enabled  | Agent needs your input or a decision |
-| `blocked`      | Disabled | Agent hit an error it can't resolve  |
+| Event          | Slack default | Description                          |
+| -------------- | ------------- | ------------------------------------ |
+| `done`         | Enabled       | Agent finished its task              |
+| `waiting_user` | Enabled       | Agent needs your input or a decision |
+| `blocked`      | Disabled      | Agent hit an error it can't resolve  |
 
 ## Focus-Aware Suppression
 
@@ -37,21 +50,30 @@ Slack messages include:
 
 ## API Endpoints
 
-| Method | Path                             | Description                             |
-| ------ | -------------------------------- | --------------------------------------- |
-| GET    | `/api/v1/notifications/settings` | Get webhook URL and enabled events      |
-| POST   | `/api/v1/notifications/settings` | Update webhook URL and event config     |
-| POST   | `/api/v1/notifications/test`     | Send test message to configured webhook |
+| Method | Path                             | Description                                                        |
+| ------ | -------------------------------- | ------------------------------------------------------------------ |
+| GET    | `/api/v1/notifications/settings` | Get webhook URL, Slack event list, and web notification config     |
+| POST   | `/api/v1/notifications/settings` | Update any subset of webhook URL, event lists, or web notify state |
+| POST   | `/api/v1/notifications/test`     | Send test message to the configured (or provided) webhook          |
+| POST   | `/api/v1/notifications/ack`      | Acknowledge an in-app notification by `notificationId`             |
 
 ### `POST /api/v1/notifications/settings`
 
+All fields optional — only provided fields are updated.
+
 ```json
 {
-  "slackWebhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
-  "events": {
-    "done": true,
-    "waiting_user": true,
-    "blocked": false
-  }
+  "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+  "notifyEvents": ["done", "waiting_user"],
+  "webNotifyEnabled": true,
+  "webNotifyEvents": ["done", "waiting_user", "blocked"]
 }
 ```
+
+### `POST /api/v1/notifications/ack`
+
+```json
+{ "notificationId": "<id from the SSE event>" }
+```
+
+Returns `204` whether or not the notification was still pending.

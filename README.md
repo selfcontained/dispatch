@@ -12,7 +12,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > 2. Install system dependencies: **Node.js 22+**, **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3`/`xclip`/`xvfb` on Linux).
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
 > 4. `pnpm install && pnpm run build`
-> 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. Authentication is handled automatically — the server generates a secure token on first run and stores it in the database.
+> 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
 > 6. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
 >    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/main.js` with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
@@ -42,7 +42,9 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
   - media pane for screenshots, video, and live Playwright browser streaming
   - real-time agent status events via SSE
   - agent pins for surfacing key info (URLs, ports, PRs, files) in the sidebar
-  - iOS Simulator device assignment per agent
+  - iOS Simulator screenshot capture via `dispatch_share` (`source: "simulator"`, `xcrun simctl`)
+  - in-app browser notifications (with Slack fallback if no browser client acks)
+  - in-app docs pane covering features and MCP tools
 
 ## Prerequisites
 
@@ -191,7 +193,8 @@ These tools only work inside running agent sessions (they require agent-scoped M
 - [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Personas and Feedback](docs/15-personas-and-feedback.md) — automated code review via persona agents
-- [Notifications](docs/16-notifications.md) — Slack webhook integration
+- [Notifications](docs/16-notifications.md) — in-app and Slack notifications
+- [Jobs](docs/17-jobs.md) — scheduled/on-demand agent tasks with structured reports
 
 ## Issue Tracking
 
