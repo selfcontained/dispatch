@@ -96,7 +96,7 @@ test.describe("Settings pane", () => {
     await setEnabledAgentTypesViaAPI(request, ["codex"]);
     const agent = await createAgentViaAPI(request, {
       type: "codex",
-      cwd: "/tmp",
+      cwd: process.cwd(),
     });
 
     await loadApp(page);
