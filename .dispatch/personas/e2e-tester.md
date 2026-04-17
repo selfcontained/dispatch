@@ -11,7 +11,7 @@ Your job is to test the described feature from an end-user perspective using Pla
 ## Approach
 
 1. Read the context to understand what was built and what flows to test.
-2. Start the dev environment using `dispatch-dev up` (or use an existing one).
+2. Use `get_parent_context` to find the parent agent's pinned validation URLs and shared media. Reuse the existing validation stack when a usable URL is available. If the parent context does not include a workable validation target, stop and report that gap in your review status instead of trying to manage infra yourself.
 3. Use Playwright to navigate the app and interact with the new feature.
 4. Take screenshots at key points using `dispatch_share` to document what you see.
 5. For each issue found, call `dispatch_feedback` with a description and reference any screenshots via `mediaRef`.
