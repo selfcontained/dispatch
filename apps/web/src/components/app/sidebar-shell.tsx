@@ -7,14 +7,9 @@ import {
   X,
 } from "lucide-react";
 import React from "react";
+import { NavLink } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
@@ -23,16 +18,10 @@ export type NavSection = "agents" | "jobs" | "activity" | "settings";
 
 type SidebarNavBarProps = {
   activeSection: NavSection;
-  onNavigate: (section: NavSection) => void;
-  pulsingNavItem?: string | null;
-  triggerNavAnimation?: (navItem: string) => void;
 };
 
 export function SidebarNavBar({
   activeSection,
-  onNavigate,
-  pulsingNavItem,
-  triggerNavAnimation,
 }: SidebarNavBarProps): JSX.Element {
   const navButtonClassName = (navItem: string, active = false): string =>
     cn(
@@ -40,69 +29,48 @@ export function SidebarNavBar({
       active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
     );
 
-  const triggerNavAnimationForKey = (
-    event: React.KeyboardEvent<HTMLButtonElement>,
-    navItem: string
-  ): void => {
-    if (event.key === "Enter" || event.key === " ") {
-      triggerNavAnimation?.(navItem);
-    }
-  };
-
-  const items: Array<{ id: NavSection; icon: typeof Bot; label: string }> = [
-    { id: "agents", icon: Bot, label: "Agents" },
-    { id: "jobs", icon: AlarmClock, label: "Jobs" },
-    { id: "activity", icon: Activity, label: "Activity" },
-    { id: "settings", icon: Settings, label: "Settings" },
+  const items: Array<{
+    id: NavSection;
+    icon: typeof Bot;
+    label: string;
+    to: string;
+  }> = [
+    { id: "agents", icon: Bot, label: "Agents", to: "/" },
+    { id: "jobs", icon: AlarmClock, label: "Jobs", to: "/jobs" },
+    { id: "activity", icon: Activity, label: "Activity", to: "/activity" },
+    { id: "settings", icon: Settings, label: "Settings", to: "/settings" },
   ];
 
   return (
-    <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        {items.map(({ id, icon: Icon, label }) => (
-          <Tooltip key={id}>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.(id)}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, id)}
-                onClick={() => onNavigate(id)}
-                aria-label={label}
-                data-testid={`${id}-button`}
-                className={cn(
-                  navButtonClassName(id, activeSection === id),
-                  pulsingNavItem === id && "animate-sidebar-nav-pulse"
-                )}
-              >
-                <span className="flex items-center justify-center">
-                  <Icon className="h-5 w-5" />
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
-    </TooltipProvider>
+    <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      {items.map(({ id, icon: Icon, label, to }) => (
+        <NavLink
+          key={id}
+          to={to}
+          aria-label={label}
+          data-testid={`${id}-button`}
+          className={navButtonClassName(id, activeSection === id)}
+        >
+          <span className="flex items-center justify-center">
+            <Icon className="h-5 w-5" />
+          </span>
+        </NavLink>
+      ))}
+    </div>
   );
 }
 
 type SidebarShellProps = {
   activeSection: NavSection;
-  onNavigate: (section: NavSection) => void;
   onRequestClose?: () => void;
   closeButtonIcon?: "chevron" | "x";
-  pulsingNavItem?: string | null;
-  triggerNavAnimation?: (navItem: string) => void;
   children: React.ReactNode;
 };
 
 export function SidebarShell({
   activeSection,
-  onNavigate,
   onRequestClose,
   closeButtonIcon = "x",
-  pulsingNavItem,
-  triggerNavAnimation,
   children,
 }: SidebarShellProps): JSX.Element {
   const { iconColor } = useIconColor();
@@ -154,12 +122,7 @@ export function SidebarShell({
 
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
 
-      <SidebarNavBar
-        activeSection={activeSection}
-        onNavigate={onNavigate}
-        pulsingNavItem={pulsingNavItem}
-        triggerNavAnimation={triggerNavAnimation}
-      />
+      <SidebarNavBar activeSection={activeSection} />
     </aside>
   );
 }
