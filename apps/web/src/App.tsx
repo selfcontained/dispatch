@@ -830,7 +830,9 @@ export function DashboardLayout(): JSX.Element {
                   startAgent={startAgent}
                   sendTerminalInput={sendTerminalInput}
                   connectedAgentId={connectedAgentId}
-                  onOpenFeedbackDetail={setFeedbackDetail}
+                  onOpenFeedbackDetail={
+                    isMobile ? undefined : setFeedbackDetail
+                  }
                   feedbackDetailState={feedbackDetail}
                   onRequestClose={
                     isMobile ? () => setMobileLeftOpen(false) : undefined
