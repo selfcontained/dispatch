@@ -315,17 +315,12 @@ export function ParentFeedbackPanel({
   detachTerminal?: () => void;
   attachToAgent?: (agent: Agent) => Promise<void>;
 }): JSX.Element | null {
-  const queryClient = useQueryClient();
-  const [sheetItemId, setSheetItemId] = useState<number | null>(null);
-  const [summaryAgentId, setSummaryAgentId] = useState<string | null>(null);
-  const [copiedItemId, setCopiedItemId] = useState<number | null>(null);
   const [showResolvedAgents, setShowResolvedAgents] = useState<Set<string>>(
     new Set()
   );
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
     new Set()
   );
-  const [copied, copyText] = useCopyText();
 
   const { data: feedback = [] } = useQuery<FeedbackItem[]>({
     queryKey: ["feedback", parentAgentId, "children"],
@@ -338,51 +333,12 @@ export function ParentFeedbackPanel({
     staleTime: 0,
   });
 
-  const sheetItem =
-    sheetItemId != null
-      ? (feedback.find((f) => f.id === sheetItemId) ?? null)
-      : null;
-
   // Subscribe to agents cache reactively (query is managed by useAgents elsewhere)
   const { data: allAgents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
     enabled: false,
   });
   const parentAgent = allAgents.find((a) => a.id === parentAgentId);
-  const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
-
-  // Fetch personas directly so colors are always available, matching the
-  // same query key used by PersonaLauncher for cache sharing.
-  type PersonaSummary = { slug: string; name: string };
-  const { data: personas = [] } = useQuery<PersonaSummary[]>({
-    queryKey: ["personas", parentCwd],
-    queryFn: async () => {
-      const result = await api<{ personas: PersonaSummary[] }>(
-        `/api/v1/personas?cwd=${encodeURIComponent(parentCwd ?? "")}`
-      );
-      return result.personas;
-    },
-    enabled: !!parentCwd,
-  });
-
-  // Build agentId → persona attribution (name + color)
-  const personaAttribution = useMemo(() => {
-    const slugToIndex = new Map(personas.map((p, i) => [p.slug, i]));
-    const map = new Map<string, { name: string; color: string }>();
-    for (const agent of allAgents) {
-      if (agent.parentAgentId === parentAgentId && agent.persona) {
-        const idx = slugToIndex.get(agent.persona);
-        const colorVar =
-          idx != null ? `var(--chart-${(idx % 4) + 1})` : `var(--chart-1)`;
-        const persona = personas.find((p) => p.slug === agent.persona);
-        map.set(agent.id, {
-          name: persona?.name ?? agent.persona,
-          color: `hsl(${colorVar})`,
-        });
-      }
-    }
-    return map;
-  }, [allAgents, parentAgentId, personas]);
 
   const activeItems = useMemo(
     () =>
@@ -398,84 +354,6 @@ export function ParentFeedbackPanel({
         .sort(bySeverity),
     [feedback]
   );
-  const sheetIsActive =
-    sheetItem &&
-    (sheetItem.status === "open" || sheetItem.status === "forwarded");
-  const sheetNavItems = sheetIsActive ? activeItems : resolvedItems;
-  const sheetIndex = sheetItem
-    ? sheetNavItems.findIndex((f) => f.id === sheetItem.id)
-    : -1;
-  const prevSheetItem = sheetIndex > 0 ? sheetNavItems[sheetIndex - 1]! : null;
-  const nextSheetItem =
-    sheetIndex >= 0 && sheetIndex < sheetNavItems.length - 1
-      ? sheetNavItems[sheetIndex + 1]!
-      : null;
-
-  const updateStatus = useCallback(
-    async (item: FeedbackItem, status: string) => {
-      await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      const update = (f: FeedbackItem) =>
-        f.id === item.id
-          ? { ...f, status: status as FeedbackItem["status"] }
-          : f;
-      queryClient.setQueryData<FeedbackItem[]>(
-        ["feedback", parentAgentId, "children"],
-        (old) => old?.map(update)
-      );
-    },
-    [queryClient, parentAgentId]
-  );
-
-  const dismissUI = useCallback(() => {
-    setSheetItemId(null);
-    if (closeOnSessionAction) onRequestClose?.();
-  }, [closeOnSessionAction, onRequestClose]);
-
-  const forward = useCallback(
-    (item: FeedbackItem, mode: "wdyt" | "fix") => {
-      if (sendTerminalInput && isConnected) {
-        const prefix =
-          mode === "fix"
-            ? "Fix the following issue found by the persona reviewer:"
-            : "A persona reviewer flagged the following. What do you think — is this a real concern?";
-        const text = prefix + "\n" + formatFeedbackText(item) + "\r";
-        sendTerminalInput(text);
-        void updateStatus(item, "forwarded");
-      }
-      dismissUI();
-    },
-    [sendTerminalInput, isConnected, updateStatus, dismissUI]
-  );
-
-  const handleCopy = useCallback(
-    (item: FeedbackItem) => {
-      copyText(formatFeedbackText(item));
-      setCopiedItemId(item.id);
-    },
-    [copyText]
-  );
-
-  const handleResolve = useCallback(
-    (item: FeedbackItem, status: string) => {
-      void updateStatus(item, status);
-      // Auto-advance to the next unresolved item within the same persona
-      const samePersona = activeItems.filter((f) => f.agentId === item.agentId);
-      const idx = samePersona.findIndex((f) => f.id === item.id);
-      const remaining = samePersona.filter((f) => f.id !== item.id);
-      const nextId =
-        remaining.length > 0
-          ? remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]!.id
-          : null;
-      setSheetItemId(sheetItemId != null ? nextId : null);
-    },
-    [updateStatus, activeItems, sheetItemId]
-  );
-
-  const severityInfo = (sev: string) =>
-    SEVERITY_LABELS[sev] ?? SEVERITY_LABELS.info;
 
   if (feedback.length === 0 && childAgents.length === 0) return null;
 
@@ -589,14 +467,10 @@ export function ParentFeedbackPanel({
                           }
                           onRequestClose?.();
                         }
-                        if (onOpenDetail) {
-                          onOpenDetail({
-                            parentAgentId,
-                            summaryAgentId: child.id,
-                          });
-                        } else {
-                          setSummaryAgentId(child.id);
-                        }
+                        onOpenDetail?.({
+                          parentAgentId,
+                          summaryAgentId: child.id,
+                        });
                       }}
                     />
                   </div>
@@ -623,8 +497,7 @@ export function ParentFeedbackPanel({
                                   SEVERITY_DOT.info;
                                 const statusLabel = STATUS_LABELS[item.status];
                                 const isSelected =
-                                  item.id ===
-                                  (activeDetailItemId ?? sheetItemId);
+                                  item.id === activeDetailItemId;
 
                                 return (
                                   <div
@@ -644,8 +517,7 @@ export function ParentFeedbackPanel({
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         if (isSelected) {
-                                          if (onOpenDetail) onOpenDetail(null);
-                                          else setSheetItemId(null);
+                                          onOpenDetail?.(null);
                                           return;
                                         }
                                         if (
@@ -660,12 +532,10 @@ export function ParentFeedbackPanel({
                                           }
                                           onRequestClose?.();
                                         }
-                                        if (onOpenDetail)
-                                          onOpenDetail({
-                                            parentAgentId,
-                                            itemId: item.id,
-                                          });
-                                        else setSheetItemId(item.id);
+                                        onOpenDetail?.({
+                                          parentAgentId,
+                                          itemId: item.id,
+                                        });
                                       }}
                                     >
                                       <span
@@ -734,253 +604,6 @@ export function ParentFeedbackPanel({
           })}
         </div>
       </div>
-
-      {/* Full feedback detail sheet — only used on mobile (when onOpenDetail is not provided) */}
-      {!onOpenDetail ? (
-        <Sheet
-          open={!!sheetItem}
-          onOpenChange={(open) => {
-            if (!open) setSheetItemId(null);
-          }}
-        >
-          <SheetContent
-            side="bottom"
-            hideCloseButton
-            overlayClassName="z-[70]"
-            className="z-[70] flex min-h-[40vh] max-h-[80vh] flex-col overflow-hidden px-6 py-5"
-          >
-            {sheetItem ? (
-              <>
-                {/* Nav + close in one container so they share alignment */}
-                <div className="absolute right-4 top-4 flex items-center space-x-8 z-10">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {sheetIndex + 1}/{sheetNavItems.length}
-                      {!sheetIsActive ? " resolved" : ""}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      disabled={!prevSheetItem}
-                      onClick={() =>
-                        prevSheetItem && setSheetItemId(prevSheetItem.id)
-                      }
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      disabled={!nextSheetItem}
-                      onClick={() =>
-                        nextSheetItem && setSheetItemId(nextSheetItem.id)
-                      }
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
-                    onClick={() => setSheetItemId(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <SheetHeader className="shrink-0">
-                  <div className="flex items-center gap-2 pr-40">
-                    <Badge
-                      variant={severityInfo(sheetItem.severity).variant}
-                      className="shrink-0"
-                    >
-                      {severityInfo(sheetItem.severity).label}
-                    </Badge>
-                    <SheetDescription className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      {(() => {
-                        const attr = personaAttribution.get(sheetItem.agentId);
-                        if (attr) {
-                          return (
-                            <>
-                              <span
-                                className="h-2 w-2 shrink-0 rounded-full"
-                                style={{ backgroundColor: attr.color }}
-                              />
-                              <span style={{ color: attr.color }}>
-                                {attr.name}
-                              </span>
-                            </>
-                          );
-                        }
-                        return "From persona review";
-                      })()}
-                    </SheetDescription>
-                  </div>
-                  <SheetTitle className="break-all text-base">
-                    {sheetItem.filePath
-                      ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
-                      : "Feedback"}
-                  </SheetTitle>
-                </SheetHeader>
-
-                <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-                      Description
-                    </div>
-                    <Markdown className="text-sm text-foreground">
-                      {sheetItem.description}
-                    </Markdown>
-                  </div>
-
-                  {sheetItem.suggestion ? (
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-                        Suggestion
-                      </div>
-                      <Markdown className="text-sm text-muted-foreground">
-                        {sheetItem.suggestion}
-                      </Markdown>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="shrink-0 pt-2 border-t border-border">
-                  <FeedbackActions
-                    item={sheetItem}
-                    isConnected={isConnected}
-                    onForward={(mode) => forward(sheetItem, mode)}
-                    onCopy={() => handleCopy(sheetItem)}
-                    copied={copied && copiedItemId === sheetItem.id}
-                    onUpdateStatus={(s) => handleResolve(sheetItem, s)}
-                    isActionable={
-                      sheetItem.status === "open" ||
-                      sheetItem.status === "forwarded"
-                    }
-                    statusLabel={STATUS_LABELS[sheetItem.status]}
-                    size="default"
-                  />
-                </div>
-              </>
-            ) : null}
-          </SheetContent>
-        </Sheet>
-      ) : null}
-
-      {/* Review summary sheet */}
-      {(() => {
-        const summaryAgent = summaryAgentId
-          ? (childAgents.find((a) => a.id === summaryAgentId) ?? null)
-          : null;
-        const verdict = summaryAgent ? getVerdict(summaryAgent) : undefined;
-        const summary = summaryAgent
-          ? getReviewSummary(summaryAgent)
-          : undefined;
-        const filesReviewed = summaryAgent
-          ? getFilesReviewed(summaryAgent)
-          : undefined;
-        const attr = summaryAgent
-          ? personaAttribution.get(summaryAgent.id)
-          : undefined;
-
-        return (
-          <Sheet
-            open={!!summaryAgent}
-            onOpenChange={(open) => {
-              if (!open) setSummaryAgentId(null);
-            }}
-          >
-            <SheetContent
-              side="bottom"
-              hideCloseButton
-              overlayClassName="z-[70]"
-              className="z-[70] flex min-h-[30vh] max-h-[70vh] flex-col overflow-hidden px-6 py-5"
-            >
-              {summaryAgent ? (
-                <>
-                  <div className="absolute right-4 top-4 z-10">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
-                      onClick={() => setSummaryAgentId(null)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <SheetHeader className="shrink-0">
-                    <div className="flex items-center gap-2 pr-16">
-                      {verdict ? (
-                        <Badge
-                          variant={verdict === "approve" ? "default" : "error"}
-                        >
-                          {reviewVerdictLabel(verdict)}
-                        </Badge>
-                      ) : null}
-                      <SheetTitle className="text-base flex-1">
-                        Review Summary
-                      </SheetTitle>
-                    </div>
-                    <SheetDescription className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      {attr ? (
-                        <>
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: attr.color }}
-                          />
-                          <span style={{ color: attr.color }}>{attr.name}</span>
-                        </>
-                      ) : (
-                        <span>{summaryAgent.persona ?? summaryAgent.name}</span>
-                      )}
-                    </SheetDescription>
-                  </SheetHeader>
-
-                  <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto">
-                    {summary ? (
-                      <div>
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-                          Summary
-                        </div>
-                        <Markdown className="text-sm text-foreground">
-                          {summary}
-                        </Markdown>
-                      </div>
-                    ) : null}
-
-                    {filesReviewed && filesReviewed.length > 0 ? (
-                      <div>
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-                          Files Reviewed
-                        </div>
-                        <div className="space-y-0.5">
-                          {filesReviewed.map((f) => (
-                            <div
-                              key={f}
-                              className="font-mono text-xs text-muted-foreground"
-                            >
-                              {f}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {!summary &&
-                    (!filesReviewed || filesReviewed.length === 0) ? (
-                      <div className="text-sm text-muted-foreground">
-                        No summary available.
-                      </div>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-        );
-      })()}
     </>
   );
 }
@@ -1535,17 +1158,19 @@ export function MobileFeedbackSheet({
                 >
                   {severityInfoValue!.label}
                 </Badge>
-                <SheetDescription className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <SheetDescription className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
                   {attr ? (
                     <>
                       <span
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ backgroundColor: attr.color }}
                       />
-                      <span style={{ color: attr.color }}>{attr.name}</span>
+                      <span className="truncate" style={{ color: attr.color }}>
+                        {attr.name}
+                      </span>
                     </>
                   ) : (
-                    "From persona review"
+                    <span className="truncate">From persona review</span>
                   )}
                 </SheetDescription>
               </div>
@@ -1638,21 +1263,26 @@ export function MobileReviewSummarySheet({
         <SheetHeader className="shrink-0">
           <div className="flex items-center gap-2 pr-16">
             {verdict ? (
-              <Badge variant={verdict === "approve" ? "default" : "error"}>
+              <Badge
+                className="shrink-0"
+                variant={verdict === "approve" ? "default" : "error"}
+              >
                 {reviewVerdictLabel(verdict)}
               </Badge>
             ) : null}
-            <SheetDescription className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <SheetDescription className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
               {attr ? (
                 <>
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"
                     style={{ backgroundColor: attr.color }}
                   />
-                  <span style={{ color: attr.color }}>{attr.name}</span>
+                  <span className="truncate" style={{ color: attr.color }}>
+                    {attr.name}
+                  </span>
                 </>
               ) : (
-                <span>{agent.persona ?? agent.name}</span>
+                <span className="truncate">{agent.persona ?? agent.name}</span>
               )}
             </SheetDescription>
           </div>
