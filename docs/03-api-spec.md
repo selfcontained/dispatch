@@ -63,9 +63,13 @@
   "agentArgs": ["--model", "opus"],
   "useWorktree": true,
   "worktreeBranch": "fix-auth-bug",
-  "baseBranch": "main"
+  "baseBranch": "main",
+  "autoReview": false,
+  "initialPrompt": "Start by reading CONTRIBUTING.md..."
 }
 ```
+
+`type` defaults to `codex` if omitted. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
 
 For persona agents (launched via `dispatch_launch_persona`):
 
@@ -226,25 +230,35 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 
 ## Notifications
 
-| Method | Path                      | Description                                   |
-| ------ | ------------------------- | --------------------------------------------- |
-| GET    | `/notifications/settings` | Get Slack webhook URL and enabled event types |
-| POST   | `/notifications/settings` | Update webhook URL and event configuration    |
-| POST   | `/notifications/test`     | Send a test message to the configured webhook |
-| POST   | `/notifications/ack`      | Acknowledge a web notification by ID          |
+| Method | Path                      | Description                                                                         |
+| ------ | ------------------------- | ----------------------------------------------------------------------------------- |
+| GET    | `/notifications/settings` | Get Slack webhook URL, enabled Slack event types, and web notification config       |
+| POST   | `/notifications/settings` | Update any subset of webhook URL, event lists, or web-notify toggle                 |
+| POST   | `/notifications/test`     | Send a test message to the configured (or provided) webhook                         |
+| POST   | `/notifications/ack`      | Acknowledge a web notification by ID (suppresses the Slack fallback for that event) |
 
 ### `POST /notifications/settings`
 
+All fields are optional — the request updates only the fields it contains.
+
 ```json
 {
-  "slackWebhookUrl": "https://hooks.slack.com/services/...",
-  "events": {
-    "done": true,
-    "waiting_user": true,
-    "blocked": false
-  }
+  "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+  "notifyEvents": ["done", "waiting_user"],
+  "webNotifyEnabled": true,
+  "webNotifyEvents": ["done", "waiting_user", "blocked"]
 }
 ```
+
+`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there).
+
+### `POST /notifications/ack`
+
+```json
+{ "notificationId": "<id from the SSE event>" }
+```
+
+Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 

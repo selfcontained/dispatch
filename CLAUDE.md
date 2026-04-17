@@ -13,9 +13,9 @@ dispatch/
 │   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
-│   │   │   ├── notifications/ # Slack notifier
-│   │   │   ├── personas/      # persona loader
-│   │   │   ├── shared/        # shared utilities (git, github, mcp, run-command)
+│   │   │   ├── notifications/ # Slack + job notifiers
+│   │   │   ├── personas/      # persona loader, review-diff builder
+│   │   │   ├── shared/        # shared utilities — git/, github/, mcp/, lib/ (run-command)
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   └── web/                   # Vite React frontend (@dispatch/web)
