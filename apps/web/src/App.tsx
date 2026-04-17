@@ -41,6 +41,8 @@ import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type FeedbackDetailState,
   FeedbackDetailPanel,
+  MobileFeedbackSheet,
+  MobileReviewSummarySheet,
   ReviewSummaryPanel,
 } from "@/components/app/feedback-panel";
 import {
@@ -831,7 +833,7 @@ export function DashboardLayout(): JSX.Element {
                   sendTerminalInput={sendTerminalInput}
                   connectedAgentId={connectedAgentId}
                   onOpenFeedbackDetail={setFeedbackDetail}
-                  feedbackDetailState={feedbackDetail}
+                  feedbackDetailState={isMobile ? null : feedbackDetail}
                   onRequestClose={
                     isMobile ? () => setMobileLeftOpen(false) : undefined
                   }
@@ -1122,6 +1124,38 @@ export function DashboardLayout(): JSX.Element {
               ) : null}
             </div>
           </main>
+
+          {/* Mobile feedback sheets — rendered at App level so they
+              survive the left sidebar closing after a tap. */}
+          {isMobile && feedbackDetail ? (
+            "summaryAgentId" in feedbackDetail ? (
+              (() => {
+                const summaryAgent = agents.find(
+                  (a) => a.id === feedbackDetail.summaryAgentId
+                );
+                return summaryAgent ? (
+                  <MobileReviewSummarySheet
+                    parentAgentId={feedbackDetail.parentAgentId}
+                    agent={summaryAgent}
+                    onClose={() => setFeedbackDetail(null)}
+                  />
+                ) : null;
+              })()
+            ) : (
+              <MobileFeedbackSheet
+                parentAgentId={feedbackDetail.parentAgentId}
+                itemId={feedbackDetail.itemId}
+                isConnected={connectedAgentId === feedbackDetail.parentAgentId}
+                sendTerminalInput={sendTerminalInput}
+                onClose={() => setFeedbackDetail(null)}
+                onNavigate={(itemId) =>
+                  setFeedbackDetail((prev) =>
+                    prev ? { ...prev, itemId } : null
+                  )
+                }
+              />
+            )
+          ) : null}
 
           {/* ── Media sidebar (right, desktop only, agents view only) ── */}
           {isAgentsView ? (
