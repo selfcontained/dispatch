@@ -36,7 +36,9 @@ Options:
   --cwd <path>      Working directory (default: current directory)
   --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
-  --live            Enable live agent runtime (tmux); default is inert
+  --live            Enable live agent runtime (tmux); default is inert.
+                    Also disables the default dev-data seed.
+  --no-seed         Skip seeding demo data (seed is on by default for non-live)
   -f, --follow      Follow log output (used with logs command)
 USAGE
 }
@@ -90,6 +92,7 @@ DEV_CONTAINER_SUFFIX=${DEV_CONTAINER_SUFFIX:-}
 DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
 DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
+DEV_NO_SEED=${OPT_NO_SEED:-0}
 EOF
 }
 
@@ -243,6 +246,7 @@ cmd_up() {
     else
       export DISPATCH_AGENT_RUNTIME="inert"
     fi
+
     if [ "$OPT_NO_DB" != "1" ]; then
       export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
     fi
@@ -286,6 +290,21 @@ cmd_up() {
       health_attempts=$((health_attempts + 1))
       sleep 1
     done
+  fi
+
+  # --- Seed demo data (dev-only, explicit) ---
+  # Runs after the API is up so the UI has something to render on first load.
+  # Not invoked by the server runtime — this is the only code path that seeds.
+  # --live and --no-seed both skip it.
+  if [ "$OPT_LIVE" != "1" ] && [ "$OPT_NO_SEED" != "1" ] && [ "$OPT_NO_DB" != "1" ]; then
+    echo "Seeding demo data..."
+    (
+      cd "$cwd"
+      export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+      pnpm --filter @dispatch/server exec tsx src/db/seed/run.ts >> "$(log_dir)/seed.log" 2>&1
+    ) || {
+      echo "Warning: seed failed. See $(log_dir)/seed.log for details." >&2
+    }
   fi
 
   # --- Vite Frontend ---
@@ -448,6 +467,7 @@ cmd_logs() {
 OPT_CWD=""
 OPT_NO_DB="0"
 OPT_LIVE="0"
+OPT_NO_SEED="0"
 OPT_SUFFIX=""
 OPT_LOG_DB="0"
 OPT_LOG_VITE="0"
@@ -466,6 +486,8 @@ while [ $# -gt 0 ]; do
       OPT_NO_DB="1"; shift ;;
     --live)
       OPT_LIVE="1"; shift ;;
+    --no-seed)
+      OPT_NO_SEED="1"; shift ;;
     --suffix)
       OPT_SUFFIX="${2:-}"; shift 2 ;;
     --db)
@@ -497,6 +519,7 @@ case "$CMD" in
     if load_state 2>/dev/null; then
       [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
       [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
+      [ "$OPT_NO_SEED" = "0" ] && [ "${DEV_NO_SEED:-0}" = "1" ] && OPT_NO_SEED="1"
       [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
       # Preserve ports so restart reuses them
       RESTART_DB_PORT="${DEV_DB_PORT:-}"
