@@ -8,7 +8,7 @@
   "tools": [
     {
       "name": "dev_up",
-      "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports).",
+      "description": "Start the repo's isolated dev environment (DB + API server + Vite frontend on free ports). Seeds demo data by default; pass noSeed or live to skip seeding.",
       "command": ["./bin/dispatch-dev", "up"],
       "params": [
         {
@@ -21,13 +21,19 @@
           "name": "live",
           "type": "boolean",
           "flag": "--live",
-          "description": "Enable live agent runtime (tmux) instead of inert mode."
+          "description": "Enable live agent runtime (tmux) instead of inert mode. Also disables demo data seeding."
+        },
+        {
+          "name": "noSeed",
+          "type": "boolean",
+          "flag": "--no-seed",
+          "description": "Skip seeding demo data (seed is on by default for non-live stacks)."
         }
       ]
     },
     {
       "name": "dev_restart",
-      "description": "Restart the repo's dev environment, picking up code changes (reuses ports and DB).",
+      "description": "Restart the repo's dev environment, picking up code changes (reuses ports and DB). Preserves previous seed/live flags unless overridden.",
       "command": ["./bin/dispatch-dev", "restart"],
       "params": [
         {
@@ -40,7 +46,13 @@
           "name": "live",
           "type": "boolean",
           "flag": "--live",
-          "description": "Enable live agent runtime (tmux) instead of inert mode."
+          "description": "Enable live agent runtime (tmux) instead of inert mode. Also disables demo data seeding."
+        },
+        {
+          "name": "noSeed",
+          "type": "boolean",
+          "flag": "--no-seed",
+          "description": "Skip seeding demo data (seed is on by default for non-live stacks)."
         }
       ]
     },
