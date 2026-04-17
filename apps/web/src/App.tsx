@@ -66,7 +66,6 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import { useTemporaryState } from "@/hooks/use-temporary-state";
 import {
   AGENT_TYPES,
   type AgentType,
@@ -664,12 +663,6 @@ export function DashboardLayout(): JSX.Element {
     return "bg-status-waiting";
   };
 
-  const [pulsingNavItem, setPulsingNavItem] = useTemporaryState<string | null>(
-    null,
-    260
-  );
-  const [pendingNavPulse, setPendingNavPulse] = useState<string | null>(null);
-
   const currentNavItem = (() => {
     if (location.pathname.startsWith("/jobs")) return "jobs";
     if (location.pathname.startsWith("/activity")) return "activity";
@@ -694,34 +687,6 @@ export function DashboardLayout(): JSX.Element {
       setMobileLeftOpen(true);
     }
   }, [currentNavItem, isMobile, setMobileLeftOpen, setMobileMediaOpen]);
-
-  useEffect(() => {
-    if (!pendingNavPulse || pendingNavPulse !== currentNavItem) return;
-    setPulsingNavItem(pendingNavPulse);
-    setPendingNavPulse(null);
-  }, [currentNavItem, pendingNavPulse, setPulsingNavItem]);
-
-  const triggerNavAnimation = useCallback(
-    (navItem: string) => {
-      if (navItem === currentNavItem) {
-        setPulsingNavItem(navItem);
-        return;
-      }
-      setPendingNavPulse(navItem);
-    },
-    [currentNavItem, setPulsingNavItem]
-  );
-
-  // ── Navigation callbacks ────────────────────────────────────────────
-  const handleSidebarNavigate = useCallback(
-    (section: NavSection) => {
-      if (section === "agents") navigate("/");
-      else if (section === "jobs") navigate("/jobs");
-      else if (section === "activity") navigate("/activity");
-      else if (section === "settings") navigate("/settings");
-    },
-    [navigate]
-  );
 
   // ── Settings state ────────────────────────────────────────────────────
   const {
@@ -785,17 +750,12 @@ export function DashboardLayout(): JSX.Element {
           >
             <SidebarShell
               activeSection={currentNavItem as NavSection}
-              onNavigate={(section) => {
-                handleSidebarNavigate(section);
-              }}
               onRequestClose={
                 isMobile
                   ? () => setMobileLeftOpen(false)
                   : () => setLeftOpen(false)
               }
               closeButtonIcon={isMobile ? "x" : "chevron"}
-              pulsingNavItem={pulsingNavItem}
-              triggerNavAnimation={triggerNavAnimation}
             >
               {currentNavItem === "agents" && (
                 <AgentListContent
