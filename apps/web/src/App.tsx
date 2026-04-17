@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAtom } from "jotai";
 import "@xterm/xterm/css/xterm.css";
 import {
@@ -9,7 +9,6 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import {
-  feedbackDetailAtom,
   expandedAgentIdAtom,
   fullAccessByCwdAtom,
   baseBranchByCwdAtom,
@@ -138,9 +137,22 @@ function isFullAccessEnabled(
   );
 }
 
+function agentRoute(agentId: string): string {
+  return `/agents/${agentId}`;
+}
+
+function agentFeedbackRoute(agentId: string, itemId: number): string {
+  return `/agents/${agentId}/feedback/${itemId}`;
+}
+
+function agentReviewRoute(agentId: string, reviewAgentId: string): string {
+  return `/agents/${agentId}/review/${reviewAgentId}`;
+}
+
 export function DashboardLayout(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
+  const { agentId: routeAgentId, itemId, summaryAgentId } = useParams();
 
   // ── Route matching ───────────────────────────────────────────────────
   const pathSegments = location.pathname.split("/").filter(Boolean);
@@ -155,6 +167,7 @@ export function DashboardLayout(): JSX.Element {
     : undefined;
   const jobsOpen = pathSegments[0] === "jobs";
   const designLabOpen = pathSegments[0] === "design-lab";
+  const agentsOpen = pathSegments[0] === "agents";
 
   useEffect(() => {
     if (!legacyDocsOpen) return;
@@ -246,7 +259,18 @@ export function DashboardLayout(): JSX.Element {
   const [stopTarget, setStopTarget] = useState<Agent | null>(null);
 
   // ── Misc UI state ────────────────────────────────────────────────────
-  const [feedbackDetail, setFeedbackDetail] = useAtom(feedbackDetailAtom);
+  const feedbackItemId =
+    itemId !== undefined && Number.isInteger(Number(itemId))
+      ? Number(itemId)
+      : null;
+  const feedbackDetail =
+    agentsOpen && routeAgentId
+      ? summaryAgentId
+        ? { parentAgentId: routeAgentId, summaryAgentId }
+        : feedbackItemId !== null
+          ? { parentAgentId: routeAgentId, itemId: feedbackItemId }
+          : null
+      : null;
   // Keep last feedback detail alive during close transition so content fades out.
   const feedbackDetailStaleRef =
     useRef<NonNullable<FeedbackDetailState> | null>(null);
@@ -254,9 +278,6 @@ export function DashboardLayout(): JSX.Element {
   const feedbackDetailRendered =
     feedbackDetail ?? feedbackDetailStaleRef.current;
   const [expandedAgentId, setExpandedAgentId] = useAtom(expandedAgentIdAtom);
-
-  // ── Agent selection ────────────────────────────────────────────────────
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   // ── Agents ────────────────────────────────────────────────────────────
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
@@ -278,7 +299,12 @@ export function DashboardLayout(): JSX.Element {
     agentVisualState,
     resortAgents,
     validatedSelectedAgentId,
-  } = useAgents(sharedConnectedAgentId, sharedConnState, true, selectedAgentId);
+  } = useAgents(
+    sharedConnectedAgentId,
+    sharedConnState,
+    true,
+    routeAgentId ?? null
+  );
 
   selectedAgentIdRef.current = validatedSelectedAgentId;
 
@@ -350,15 +376,12 @@ export function DashboardLayout(): JSX.Element {
   } = useTerminal({
     authState: "authenticated",
     agents,
-    agentsLoaded,
     selectedAgentId: validatedSelectedAgentId,
     theme,
     isMobile,
     leftOpen,
     mediaOpen,
     feedbackOpen: !!feedbackDetail,
-    setSelectedAgentId,
-    refreshMedia,
   });
 
   // Sync terminal's connectedAgentId/connState into shared state for useAgents.
@@ -377,6 +400,7 @@ export function DashboardLayout(): JSX.Element {
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
+  const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
 
   // ── Focus tracking (notification suppression) ─────────────────────────
   useAgentFocus(focusedAgentId, "authenticated");
@@ -480,6 +504,88 @@ export function DashboardLayout(): JSX.Element {
     setCreateType(enabledAgentTypes[0] ?? "codex");
   }, [createType, enabledAgentTypes]);
 
+  useEffect(() => {
+    if (!agentsOpen || !routeAgentId) return;
+    if (!agentsLoaded) return;
+    if (validatedSelectedAgentId) return;
+    navigate("/agents", { replace: true });
+  }, [
+    agentsLoaded,
+    agentsOpen,
+    navigate,
+    routeAgentId,
+    validatedSelectedAgentId,
+  ]);
+
+  useEffect(() => {
+    pendingAutoAttachAgentIdRef.current = routeAgentId ?? null;
+  }, [routeAgentId]);
+
+  useEffect(() => {
+    if (!validatedSelectedAgentId) return;
+    setExpandedAgentId((current) =>
+      current === validatedSelectedAgentId ? current : validatedSelectedAgentId
+    );
+  }, [setExpandedAgentId, validatedSelectedAgentId]);
+
+  useEffect(() => {
+    if (!agentsOpen || !routeAgentId) return;
+    if (!agentsLoaded) return;
+    if (itemId !== undefined && feedbackItemId === null) {
+      navigate(agentRoute(routeAgentId), { replace: true });
+    }
+  }, [
+    agentsLoaded,
+    agentsOpen,
+    feedbackItemId,
+    itemId,
+    navigate,
+    routeAgentId,
+  ]);
+
+  useEffect(() => {
+    if (!agentsOpen || !routeAgentId || !summaryAgentId) return;
+    if (!agentsLoaded) return;
+    const summaryAgentExists = agents.some(
+      (agent) => agent.id === summaryAgentId
+    );
+    if (!summaryAgentExists) {
+      navigate(agentRoute(routeAgentId), { replace: true });
+    }
+  }, [
+    agents,
+    agentsLoaded,
+    agentsOpen,
+    navigate,
+    routeAgentId,
+    summaryAgentId,
+  ]);
+
+  useEffect(() => {
+    if (!agentsOpen) return;
+    if (!validatedSelectedAgentId) return;
+    if (connectedAgentId === validatedSelectedAgentId) {
+      pendingAutoAttachAgentIdRef.current = null;
+      return;
+    }
+    if (pendingAutoAttachAgentIdRef.current !== validatedSelectedAgentId)
+      return;
+    pendingAutoAttachAgentIdRef.current = null;
+    void ensureTerminalConnected(true, true, validatedSelectedAgentId);
+  }, [
+    agentsOpen,
+    connectedAgentId,
+    ensureTerminalConnected,
+    validatedSelectedAgentId,
+  ]);
+
+  useEffect(() => {
+    if (!agentsOpen) return;
+    if (routeAgentId) return;
+    if (!connectedAgentId) return;
+    detachTerminal();
+  }, [agentsOpen, connectedAgentId, detachTerminal, routeAgentId]);
+
   // ── Derived values ────────────────────────────────────────────────────
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const hasActiveAgent = Boolean(validatedSelectedAgentId);
@@ -510,6 +616,36 @@ export function DashboardLayout(): JSX.Element {
     [enabledAgentTypes, resolveCreateDefaultCwd]
   );
 
+  const closeFeedbackDetail = useCallback(() => {
+    if (validatedSelectedAgentId) {
+      navigate(agentRoute(validatedSelectedAgentId), { replace: true });
+      return;
+    }
+    navigate("/agents", { replace: true });
+  }, [navigate, validatedSelectedAgentId]);
+
+  const openFeedbackDetail = useCallback(
+    (state: FeedbackDetailState) => {
+      if (!state) {
+        closeFeedbackDetail();
+        return;
+      }
+      if ("summaryAgentId" in state) {
+        navigate(agentReviewRoute(state.parentAgentId, state.summaryAgentId));
+        return;
+      }
+      navigate(agentFeedbackRoute(state.parentAgentId, state.itemId));
+    },
+    [closeFeedbackDetail, navigate]
+  );
+
+  const navigateFeedbackItem = useCallback(
+    (parentAgentId: string, nextItemId: number) => {
+      navigate(agentFeedbackRoute(parentAgentId, nextItemId));
+    },
+    [navigate]
+  );
+
   const toggleAgentDetails = useCallback(
     (agentId: string) => {
       setExpandedAgentId((current) => (current === agentId ? null : agentId));
@@ -519,19 +655,19 @@ export function DashboardLayout(): JSX.Element {
 
   const attachToAgent = useCallback(
     async (agent: Agent) => {
-      setSelectedAgentId(agent.id);
+      navigate(agentRoute(agent.id));
       // Child persona agents are rendered inside their parent's expanded card,
       // so expand the parent instead of the child to keep it visible.
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
   );
 
   const startAgent = useCallback(
     async (agent: Agent) => {
-      setSelectedAgentId(agent.id);
+      navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       await api(`/api/v1/agents/${agent.id}/start`, {
         method: "POST",
@@ -540,18 +676,15 @@ export function DashboardLayout(): JSX.Element {
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, refreshMedia]
+    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
   );
 
   const detachAndClearSelection = useCallback(() => {
     detachTerminal();
-    setSelectedAgentId(null);
-  }, [detachTerminal]);
+    navigate("/agents");
+  }, [detachTerminal, navigate]);
 
-  const handleAgentsWorkspaceUnmount = useCallback(() => {
-    detachAndClearSelection();
-    setFeedbackDetail(null);
-  }, [detachAndClearSelection, setFeedbackDetail]);
+  const handleAgentsWorkspaceUnmount = useCallback(() => {}, []);
 
   const stopAgent = useCallback(
     async (agent: Agent) => {
@@ -572,9 +705,9 @@ export function DashboardLayout(): JSX.Element {
         detachTerminal();
       }
       setExpandedAgentId((current) => (current === agent.id ? null : current));
-      setFeedbackDetail((prev) =>
-        prev?.parentAgentId === agent.id ? null : prev
-      );
+      if (routeAgentId === agent.id) {
+        navigate("/agents", { replace: true });
+      }
       const params = new URLSearchParams();
       if (cleanupWorktree) {
         params.set("cleanupWorktree", cleanupWorktree);
@@ -585,7 +718,13 @@ export function DashboardLayout(): JSX.Element {
         method: "DELETE",
       });
     },
-    [connectedAgentId, detachTerminal, setExpandedAgentId, setFeedbackDetail]
+    [
+      connectedAgentId,
+      detachTerminal,
+      navigate,
+      routeAgentId,
+      setExpandedAgentId,
+    ]
   );
 
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
@@ -625,7 +764,7 @@ export function DashboardLayout(): JSX.Element {
         window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         setLastUsedAgentType(createType);
         setCwdHistory(addToCwdHistory(createCwd.trim()));
-        setSelectedAgentId(payload.agent.id);
+        navigate(agentRoute(payload.agent.id));
         ensureAuxExpanded(payload.agent.id);
         refreshMedia(payload.agent.id);
         // Small delay to let tmux session start before connecting
@@ -649,6 +788,7 @@ export function DashboardLayout(): JSX.Element {
       createWorktreeBranch,
       ensureAuxExpanded,
       ensureTerminalConnected,
+      navigate,
       refreshMedia,
     ]
   );
@@ -715,7 +855,7 @@ export function DashboardLayout(): JSX.Element {
   // ── Navigation callbacks ────────────────────────────────────────────
   const handleSidebarNavigate = useCallback(
     (section: NavSection) => {
-      if (section === "agents") navigate("/");
+      if (section === "agents") navigate("/agents");
       else if (section === "jobs") navigate("/jobs");
       else if (section === "activity") navigate("/activity");
       else if (section === "settings") navigate("/settings");
@@ -832,7 +972,7 @@ export function DashboardLayout(): JSX.Element {
                   startAgent={startAgent}
                   sendTerminalInput={sendTerminalInput}
                   connectedAgentId={connectedAgentId}
-                  onOpenFeedbackDetail={setFeedbackDetail}
+                  onOpenFeedbackDetail={openFeedbackDetail}
                   feedbackDetailState={isMobile ? null : feedbackDetail}
                   onRequestClose={
                     isMobile ? () => setMobileLeftOpen(false) : undefined
@@ -1090,7 +1230,7 @@ export function DashboardLayout(): JSX.Element {
                             key={`summary-${feedbackDetailRendered.summaryAgentId}`}
                             parentAgentId={feedbackDetailRendered.parentAgentId}
                             agent={summaryAgent}
-                            onClose={() => setFeedbackDetail(null)}
+                            onClose={closeFeedbackDetail}
                           />
                         ) : null;
                       })()
@@ -1104,10 +1244,11 @@ export function DashboardLayout(): JSX.Element {
                           feedbackDetailRendered.parentAgentId
                         }
                         sendTerminalInput={sendTerminalInput}
-                        onClose={() => setFeedbackDetail(null)}
-                        onNavigate={(itemId) =>
-                          setFeedbackDetail((prev) =>
-                            prev ? { ...prev, itemId } : null
+                        onClose={closeFeedbackDetail}
+                        onNavigate={(nextItemId) =>
+                          navigateFeedbackItem(
+                            feedbackDetailRendered.parentAgentId,
+                            nextItemId
                           )
                         }
                       />
@@ -1137,7 +1278,7 @@ export function DashboardLayout(): JSX.Element {
                   <MobileReviewSummarySheet
                     parentAgentId={feedbackDetail.parentAgentId}
                     agent={summaryAgent}
-                    onClose={() => setFeedbackDetail(null)}
+                    onClose={closeFeedbackDetail}
                   />
                 ) : null;
               })()
@@ -1147,11 +1288,9 @@ export function DashboardLayout(): JSX.Element {
                 itemId={feedbackDetail.itemId}
                 isConnected={connectedAgentId === feedbackDetail.parentAgentId}
                 sendTerminalInput={sendTerminalInput}
-                onClose={() => setFeedbackDetail(null)}
-                onNavigate={(itemId) =>
-                  setFeedbackDetail((prev) =>
-                    prev ? { ...prev, itemId } : null
-                  )
+                onClose={closeFeedbackDetail}
+                onNavigate={(nextItemId) =>
+                  navigateFeedbackItem(feedbackDetail.parentAgentId, nextItemId)
                 }
               />
             )

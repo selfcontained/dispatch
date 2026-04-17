@@ -34,6 +34,22 @@
 - Prefer shadcn/ui components over hand-rolled UI when an equivalent shadcn option exists.
 - Only hand-roll when there is no suitable shadcn primitive or composition path.
 
+## Frontend State Ownership
+
+- Default to colocating state with the smallest component that fully owns the UI and behavior.
+- Do not lift state to a route, layout, or app root unless multiple siblings must coordinate through a shared owner.
+- Treat route/layout-level state as a fallback, not a default. Those layers should not become new dumping grounds.
+- Treat global client state (including Jotai atoms) as rare and justified only for truly cross-cutting concerns.
+- If a piece of state only drives one feature subtree, keep it in that subtree even if persistence is needed. Prefer a small local persistence helper over promoting the whole state domain to global state.
+- Prefer URL state over in-memory UI state for shareable/navigation state such as selected entity, active detail pane, or tab when that state should survive reloads, deep links, or back/forward navigation.
+- Prefer React Query for server state, request lifecycle state, caching, invalidation, optimistic updates, and background refetching. Do not mirror API state into local UI state unless there is a specific UI-only derivation that cannot be computed from query data.
+- Before adding a new atom, first ask:
+  1. Is this server state? Use React Query.
+  2. Is this only used by one component or feature cluster? Keep it local.
+  3. Is this shareable navigation state? Put it in the URL.
+  4. Is this truly app-wide and cross-cutting? Only then consider Jotai.
+- `App.tsx` is a composition root, not a feature implementation file. Do not add feature-specific dialog state, selection state, or view toggles there when they can live lower in the tree.
+
 ## Pre-Completion Checks (Mandatory)
 
 Before marking any task as done, run the following checks and fix any failures:

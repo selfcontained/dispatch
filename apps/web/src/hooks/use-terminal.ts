@@ -19,7 +19,6 @@ import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 
-const ACTIVE_SHELL_AGENT_KEY = "dispatch:activeShellAgentId";
 const TERMINAL_HEARTBEAT_INTERVAL_MS = 20_000;
 const TERMINAL_LIVENESS_GRACE_MS = 5_000;
 const TERMINAL_FRESHNESS_MS =
@@ -50,21 +49,6 @@ function isRetriableTerminalFailure(message: string): boolean {
   );
 }
 
-function readActiveShellAgentId(): string | null {
-  if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(ACTIVE_SHELL_AGENT_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : null;
-}
-
-function persistActiveShellAgentId(agentId: string | null): void {
-  if (typeof window === "undefined") return;
-  if (agentId) {
-    window.localStorage.setItem(ACTIVE_SHELL_AGENT_KEY, agentId);
-    return;
-  }
-  window.localStorage.removeItem(ACTIVE_SHELL_AGENT_KEY);
-}
-
 /** Strip terminal line-wrap artifacts from copied text. */
 function cleanCopiedText(text: string): string {
   const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
@@ -80,15 +64,12 @@ function cleanCopiedText(text: string): string {
 export function useTerminal(args: {
   authState: AuthState;
   agents: Agent[];
-  agentsLoaded: boolean;
   selectedAgentId: string | null;
   theme: ThemeId;
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
   feedbackOpen: boolean;
-  setSelectedAgentId: (agentId: string) => void;
-  refreshMedia: (agentId?: string | null) => void;
 }): {
   connState: ConnState;
   connectedAgentId: string | null;
@@ -109,15 +90,12 @@ export function useTerminal(args: {
   const {
     authState,
     agents,
-    agentsLoaded,
     selectedAgentId,
     theme,
     isMobile,
     leftOpen,
     mediaOpen,
     feedbackOpen,
-    setSelectedAgentId,
-    refreshMedia,
   } = args;
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
@@ -129,9 +107,6 @@ export function useTerminal(args: {
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState("Starting...");
-  const [restoreShellAgentId, setRestoreShellAgentId] = useState<string | null>(
-    () => readActiveShellAgentId()
-  );
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
@@ -605,8 +580,6 @@ export function useTerminal(args: {
   const detachTerminal = useCallback(() => {
     shouldKeepAttachedRef.current = false;
     invalidateAttachAttempt();
-    persistActiveShellAgentId(null);
-    setRestoreShellAgentId(null);
     clearReconnectTimer();
     closeSocket(false);
     resetTerminalSurface();
@@ -885,46 +858,6 @@ export function useTerminal(args: {
     const timer = window.setTimeout(fitNow, 340);
     return () => window.clearTimeout(timer);
   }, [isMobile, leftOpen, mediaOpen, feedbackOpen, sendResize]);
-
-  // Persist active shell agent.
-  useEffect(() => {
-    if (connState === "connected" && connectedAgentId) {
-      persistActiveShellAgentId(connectedAgentId);
-      return;
-    }
-    if (connState === "disconnected" && !restoreShellAgentId) {
-      persistActiveShellAgentId(null);
-    }
-  }, [connState, connectedAgentId, restoreShellAgentId]);
-
-  // Restore session on load.
-  // Uses setSelectedAgentId (not navigate) to avoid navigating away
-  // from the current URL — important when loading on overlay routes like /settings.
-  useEffect(() => {
-    if (!agentsLoaded || !restoreShellAgentId) return;
-
-    const restoreTarget = agents.find(
-      (agent) => agent.id === restoreShellAgentId
-    );
-    if (!restoreTarget || restoreTarget.status !== "running") {
-      persistActiveShellAgentId(null);
-      setRestoreShellAgentId(null);
-      return;
-    }
-
-    setSelectedAgentId(restoreTarget.id);
-    refreshMedia(restoreTarget.id);
-    void ensureTerminalConnected(true, true, restoreTarget.id);
-    setStatusMessage(`Restored session for ${restoreTarget.name}.`);
-    setRestoreShellAgentId(null);
-  }, [
-    agents,
-    agentsLoaded,
-    ensureTerminalConnected,
-    setSelectedAgentId,
-    refreshMedia,
-    restoreShellAgentId,
-  ]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);

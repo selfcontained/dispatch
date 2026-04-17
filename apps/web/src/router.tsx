@@ -28,7 +28,11 @@ export const router = createBrowserRouter([
           {
             element: <DashboardLayout />,
             children: [
-              { index: true },
+              { index: true, element: <Navigate to="/agents" replace /> },
+              { path: "agents" },
+              { path: "agents/:agentId" },
+              { path: "agents/:agentId/feedback/:itemId" },
+              { path: "agents/:agentId/review/:summaryAgentId" },
               { path: "settings" },
               { path: "settings/:section" },
               { path: "settings/:section/:subsection" },

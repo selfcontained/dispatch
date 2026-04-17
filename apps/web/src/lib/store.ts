@@ -1,6 +1,5 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
-import type { FeedbackDetailState } from "@/components/app/feedback-panel";
 
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
@@ -42,10 +41,6 @@ export const mediaSidebarOpenAtom = atomWithLocalStorage(
 export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
   "dispatch:mediaSidebarTab",
   "pins"
-);
-export const feedbackDetailAtom = atomWithLocalStorage<FeedbackDetailState>(
-  "dispatch:feedbackDetail",
-  null
 );
 export const expandedAgentIdAtom = atomWithLocalStorage<string | null>(
   "dispatch:expandedAgentId",
