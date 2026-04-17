@@ -78,6 +78,7 @@ export function AgentListContent({
     lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
       ? lastUsedAgentType
       : (enabledAgentTypes[0] ?? "codex");
+  const showCreateTypePicker = enabledAgentTypes.length > 1;
 
   return (
     <div data-testid="agent-sidebar" className="flex h-full min-h-0 flex-col">
@@ -89,7 +90,11 @@ export function AgentListContent({
           <Button
             size="sm"
             variant="default"
-            className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
+            className={
+              showCreateTypePicker
+                ? "rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }
             onClick={() => onOpenCreateDialog(defaultCreateType)}
             data-testid="create-agent-button"
           >
@@ -99,31 +104,33 @@ export function AgentListContent({
             />
             Create
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="default"
-                className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
-                data-testid="create-agent-type-dropdown"
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {enabledAgentTypes.map((agentType) => (
-                <DropdownMenuItem
-                  key={agentType}
-                  className="text-foreground"
-                  onClick={() => onOpenCreateDialog(agentType)}
-                  data-testid={`create-agent-type-${agentType}`}
+          {showCreateTypePicker ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
+                  data-testid="create-agent-type-dropdown"
                 >
-                  <AgentTypeIcon type={agentType} className="mr-2 h-4 w-4" />
-                  {AGENT_TYPE_LABELS[agentType]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {enabledAgentTypes.map((agentType) => (
+                  <DropdownMenuItem
+                    key={agentType}
+                    className="text-foreground"
+                    onClick={() => onOpenCreateDialog(agentType)}
+                    data-testid={`create-agent-type-${agentType}`}
+                  >
+                    <AgentTypeIcon type={agentType} className="mr-2 h-4 w-4" />
+                    {AGENT_TYPE_LABELS[agentType]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
 

@@ -43,6 +43,7 @@ export function PersonaLauncher({
     },
   });
   const hasPersonas = personas.length > 0;
+  const showReviewAgentTypePicker = enabledAgentTypes.length > 1;
 
   const reviewAgentType =
     agent.reviewAgentType ??
@@ -80,7 +81,11 @@ export function PersonaLauncher({
           <Button
             variant="ghost"
             disabled={disabled || !hasPersonas}
-            className="gap-1.5 rounded-r-none border border-white/[0.12] border-r-0 bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+            className={
+              showReviewAgentTypePicker
+                ? "gap-1.5 rounded-r-none border border-white/[0.12] border-r-0 bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+                : "gap-1.5 border border-white/[0.12] bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+            }
             data-testid="launch-reviewer-button"
           >
             <AgentTypeIcon
@@ -128,37 +133,39 @@ export function PersonaLauncher({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            disabled={disabled || !hasPersonas}
-            className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-            data-testid="launch-reviewer-type-dropdown"
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {enabledAgentTypes.map((agentType) => (
-            <DropdownMenuItem
-              key={agentType}
-              className="text-foreground"
-              onClick={() => {
-                void updateReviewAgentType(agentType);
-              }}
-              data-testid={`launch-reviewer-type-${agentType}`}
+      {showReviewAgentTypePicker ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              disabled={disabled || !hasPersonas}
+              className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+              data-testid="launch-reviewer-type-dropdown"
             >
-              <span className="flex items-center gap-3">
-                <Check
-                  className={`h-3.5 w-3.5 shrink-0 ${agentType === reviewAgentType ? "opacity-100" : "opacity-0"}`}
-                />
-                <span>{AGENT_TYPE_LABELS[agentType]}</span>
-              </span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {enabledAgentTypes.map((agentType) => (
+              <DropdownMenuItem
+                key={agentType}
+                className="text-foreground"
+                onClick={() => {
+                  void updateReviewAgentType(agentType);
+                }}
+                data-testid={`launch-reviewer-type-${agentType}`}
+              >
+                <span className="flex items-center gap-3">
+                  <Check
+                    className={`h-3.5 w-3.5 shrink-0 ${agentType === reviewAgentType ? "opacity-100" : "opacity-0"}`}
+                  />
+                  <span>{AGENT_TYPE_LABELS[agentType]}</span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
