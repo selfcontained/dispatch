@@ -121,9 +121,6 @@ async function writePlaceholderMedia(
       agentId: "seed-agent-running-feature",
       fileName: "seed-screenshot-3.png",
     },
-    { agentId: "seed-agent-blocked", fileName: "seed-repro.png" },
-    { agentId: "seed-agent-history-1", fileName: "seed-history-1.png" },
-    { agentId: "seed-agent-history-1", fileName: "seed-history-2.png" },
   ];
   for (const { agentId, fileName } of placements) {
     const dir = path.join(mediaRoot, agentId);

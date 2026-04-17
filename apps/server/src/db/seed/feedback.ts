@@ -13,40 +13,9 @@ type FeedbackInput = {
   hoursAgo: number;
 };
 
+// All feedback lives on the "rich" seed agent so the sidebar shows
+// one clean agent and one with a reviewer attached + findings.
 const ITEMS: FeedbackInput[] = [
-  {
-    agentId: "seed-agent-blocked",
-    severity: "high",
-    filePath: "apps/web/src/components/FeedbackBadge.tsx",
-    lineNumber: 42,
-    description:
-      "Badge count does not update when feedback is resolved in another tab.",
-    suggestion:
-      "Subscribe to the SSE `feedback.changed` event to invalidate the query.",
-    status: "open",
-    hoursAgo: 1,
-  },
-  {
-    agentId: "seed-agent-blocked",
-    severity: "medium",
-    filePath: "apps/web/src/components/FeedbackSheet.tsx",
-    lineNumber: 180,
-    description: "Resolved feedback items still appear in the sidebar list.",
-    suggestion: "Filter by `status = 'open'` at the query boundary.",
-    status: "open",
-    hoursAgo: 2,
-  },
-  {
-    agentId: "seed-agent-blocked",
-    severity: "low",
-    filePath: "apps/web/src/hooks/useFeedback.ts",
-    lineNumber: 14,
-    description:
-      "Stale-while-revalidate window feels too short (2s) causing flicker.",
-    suggestion: "Bump to 5s or rely on SSE invalidation only.",
-    status: "dismissed",
-    hoursAgo: 24,
-  },
   {
     agentId: "seed-agent-running-feature",
     severity: "critical",
@@ -90,16 +59,6 @@ const ITEMS: FeedbackInput[] = [
       "Call `.focus()` on the trigger button in onOpenChange handler.",
     status: "open",
     hoursAgo: 6,
-  },
-  {
-    agentId: "seed-agent-history-1",
-    severity: "medium",
-    filePath: "apps/web/src/components/layout/Sheet.tsx",
-    lineNumber: 77,
-    description: "Focus trap swallows Esc when nested dialog is open.",
-    suggestion: "Only enable trap for the topmost dialog.",
-    status: "fixed",
-    hoursAgo: 60,
   },
 ];
 

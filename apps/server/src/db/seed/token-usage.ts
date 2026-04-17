@@ -15,8 +15,9 @@ type TokenUsageRow = {
   sessionEndHoursAgo: number;
 };
 
+// Token usage for the two seeded sidebar agents, mixing models so the
+// Activity page "By model" breakdown has something to render.
 const ROWS: TokenUsageRow[] = [
-  // Running main: recent activity, Opus-heavy
   {
     agentId: "seed-agent-running-main",
     sessionId: "seed-session-rm-1",
@@ -29,7 +30,6 @@ const ROWS: TokenUsageRow[] = [
     sessionStartHoursAgo: 2,
     sessionEndHoursAgo: 0.25,
   },
-  // Feature agent across two models
   {
     agentId: "seed-agent-running-feature",
     sessionId: "seed-session-rf-1",
@@ -53,57 +53,6 @@ const ROWS: TokenUsageRow[] = [
     messageCount: 17,
     sessionStartHoursAgo: 5,
     sessionEndHoursAgo: 0.5,
-  },
-  // Blocked agent
-  {
-    agentId: "seed-agent-blocked",
-    sessionId: "seed-session-blk",
-    model: "claude-opus-4-7",
-    inputTokens: 33_500,
-    cacheCreationTokens: 12_200,
-    cacheReadTokens: 80_000,
-    outputTokens: 7_100,
-    messageCount: 20,
-    sessionStartHoursAgo: 4,
-    sessionEndHoursAgo: 1,
-  },
-  // Waiting agent — smaller Haiku session
-  {
-    agentId: "seed-agent-waiting",
-    sessionId: "seed-session-wait",
-    model: "claude-haiku-4-5",
-    inputTokens: 18_000,
-    cacheCreationTokens: 4_000,
-    cacheReadTokens: 28_000,
-    outputTokens: 3_200,
-    messageCount: 11,
-    sessionStartHoursAgo: 3,
-    sessionEndHoursAgo: 1.5,
-  },
-  // History agents — show token spend on recent completed work
-  {
-    agentId: "seed-agent-history-1",
-    sessionId: "seed-session-h1-1",
-    model: "claude-opus-4-7",
-    inputTokens: 64_000,
-    cacheCreationTokens: 21_000,
-    cacheReadTokens: 140_000,
-    outputTokens: 14_800,
-    messageCount: 41,
-    sessionStartHoursAgo: 48,
-    sessionEndHoursAgo: 40,
-  },
-  {
-    agentId: "seed-agent-history-2",
-    sessionId: "seed-session-h2-1",
-    model: "claude-sonnet-4-6",
-    inputTokens: 31_000,
-    cacheCreationTokens: 9_000,
-    cacheReadTokens: 75_000,
-    outputTokens: 6_300,
-    messageCount: 19,
-    sessionStartHoursAgo: 72,
-    sessionEndHoursAgo: 68,
   },
 ];
 

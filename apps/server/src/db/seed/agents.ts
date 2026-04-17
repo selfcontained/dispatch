@@ -88,15 +88,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
   const demoCwd = "/tmp/dispatch-demo";
 
   const agents: SeedAgentInput[] = [
-    {
-      id: "seed-agent-creating",
-      name: "setup in progress",
-      type: "claude",
-      status: "creating",
-      cwd: demoCwd,
-      setupPhase: "deps",
-      createdDaysAgo: 0,
-    },
+    // Simple agent — no feedback, no reviews. Base branch set.
     {
       id: "seed-agent-running-main",
       name: "theme polish",
@@ -104,6 +96,8 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       status: "running",
       cwd: demoCwd,
       baseBranch: "main",
+      worktreePath: "/tmp/dispatch-demo/.dispatch/worktrees/seed-theme-polish",
+      worktreeBranch: "seed/theme-polish",
       latestEvent: {
         type: "working",
         message: "Tweaking sidebar spacing",
@@ -119,6 +113,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       ],
       createdDaysAgo: 1,
     },
+    // Rich agent — has persona review + feedback + media + all 7 pin types. Base branch set.
     {
       id: "seed-agent-running-feature",
       name: "add activity heatmap",
@@ -135,127 +130,6 @@ export async function seedAgents(client: PoolClient): Promise<void> {
       },
       pins: allPinTypesSample, // coverage of every pin type
       createdDaysAgo: 2,
-    },
-    {
-      id: "seed-agent-blocked",
-      name: "fix feedback badge",
-      type: "codex",
-      status: "running",
-      cwd: demoCwd,
-      baseBranch: "main",
-      latestEvent: {
-        type: "blocked",
-        message: "Waiting on review feedback",
-        ageMinutes: 35,
-      },
-      pins: [
-        {
-          label: "Draft PR",
-          type: "pr",
-          value: "https://github.com/example/dispatch/pull/1290",
-        },
-        { label: "Reviewer", type: "string", value: "ux-reviewer persona" },
-      ],
-      createdDaysAgo: 1,
-    },
-    {
-      id: "seed-agent-waiting",
-      name: "slack notifier refactor",
-      type: "opencode",
-      status: "running",
-      cwd: demoCwd,
-      baseBranch: "main",
-      latestEvent: {
-        type: "waiting_user",
-        message: "Need a product call on quiet hours default",
-        ageMinutes: 90,
-      },
-      pins: [
-        {
-          label: "Decision needed",
-          type: "string",
-          value: "Quiet hours default 22–07?",
-        },
-      ],
-      createdDaysAgo: 3,
-    },
-    {
-      id: "seed-agent-stopping",
-      name: "docs cleanup",
-      type: "claude",
-      status: "stopping",
-      cwd: demoCwd,
-      latestEvent: {
-        type: "done",
-        message: "Wrapping up session",
-        ageMinutes: 1,
-      },
-      createdDaysAgo: 1,
-    },
-    {
-      id: "seed-agent-archiving",
-      name: "worktree cleanup in flight",
-      type: "codex",
-      status: "archiving",
-      cwd: demoCwd,
-      archivePhase: "worktree-cleanup",
-      createdDaysAgo: 4,
-    },
-    {
-      id: "seed-agent-error",
-      name: "missing dependency",
-      type: "claude",
-      status: "error",
-      cwd: demoCwd,
-      lastError: "pnpm install failed: lockfile out of sync (demo seed)",
-      createdDaysAgo: 2,
-    },
-    {
-      id: "seed-agent-stopped",
-      name: "refactored metrics",
-      type: "codex",
-      status: "stopped",
-      cwd: demoCwd,
-      latestEvent: {
-        type: "done",
-        message: "Shipped — closed out",
-        ageMinutes: 60 * 24,
-      },
-      createdDaysAgo: 5,
-    },
-    {
-      id: "seed-agent-history-1",
-      name: "migrate to shadcn Sheet",
-      type: "claude",
-      status: "stopped",
-      cwd: demoCwd,
-      latestEvent: {
-        type: "done",
-        message: "Merged into main",
-        ageMinutes: 60 * 24 * 2,
-      },
-      pins: [
-        {
-          label: "Summary",
-          type: "markdown",
-          value:
-            "- Replaced hand-rolled modal with shadcn Sheet\n- Matches mobile slide-over pattern\n- Kept focus trap behavior",
-        },
-      ],
-      createdDaysAgo: 7,
-    },
-    {
-      id: "seed-agent-history-2",
-      name: "seed activity demo",
-      type: "opencode",
-      status: "stopped",
-      cwd: demoCwd,
-      latestEvent: {
-        type: "done",
-        message: "Seed fixtures landed",
-        ageMinutes: 60 * 24 * 3,
-      },
-      createdDaysAgo: 10,
     },
   ];
 

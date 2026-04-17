@@ -38,30 +38,6 @@ const ROWS: MediaRow[] = [
     description: "Empty-state treatment",
     hoursAgo: 3,
   },
-  {
-    agentId: "seed-agent-blocked",
-    fileName: "seed-repro.png",
-    source: "screenshot",
-    sizeBytes: 138,
-    description: "Repro: badge count stale after another tab resolved",
-    hoursAgo: 2,
-  },
-  {
-    agentId: "seed-agent-history-1",
-    fileName: "seed-history-1.png",
-    source: "screenshot",
-    sizeBytes: 138,
-    description: "Before: hand-rolled modal",
-    hoursAgo: 48,
-  },
-  {
-    agentId: "seed-agent-history-1",
-    fileName: "seed-history-2.png",
-    source: "screenshot",
-    sizeBytes: 138,
-    description: "After: shadcn Sheet — mobile and desktop parity",
-    hoursAgo: 44,
-  },
 ];
 
 function ago(now: Date, hours: number): Date {
