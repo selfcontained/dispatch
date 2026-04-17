@@ -18,51 +18,52 @@ type SeedOptions = {
   log?: (msg: string) => void;
 };
 
-const PROD_DATABASE_NAMES = new Set(["dispatch"]);
+// Dev databases provisioned by `dispatch-dev` are named `dispatch_<suffix>` where
+// `<suffix>` is always an agent id (`agt_<hex>`) or an auto-generated dev tag
+// (`dev-<pid>-<timestamp>` / `dev_<pid>_<timestamp>`). This allowlist matches
+// those shapes and rejects any other name — including `dispatch`, `dispatch_prod`,
+// `postgres`, and arbitrary production DBs.
+const DEV_DATABASE_NAME = /^dispatch_(agt_[A-Za-z0-9]+|dev[-_][\w-]+)$/;
 
 function log(options: SeedOptions, msg: string): void {
   (options.log ?? ((m) => console.log(`[seed] ${m}`)))(msg);
 }
 
-function assertNotProduction(databaseUrl: string): void {
+function assertSafeSeedTarget(databaseUrl: string): void {
+  let dbName: string;
   try {
     const url = new URL(databaseUrl);
-    const dbName = url.pathname.replace(/^\/+/, "");
-    if (PROD_DATABASE_NAMES.has(dbName)) {
-      throw new Error(
-        `Refusing to seed production database "${dbName}". ` +
-          `Dev seeding is only allowed against isolated dev databases.`
-      );
-    }
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message.startsWith("Refusing to seed production")
-    ) {
-      throw err;
-    }
-    // URL parse failure — let the pool connection surface that.
+    dbName = url.pathname.replace(/^\/+/, "");
+  } catch {
+    throw new Error(
+      `Refusing to seed: could not parse DATABASE_URL to verify it targets a dispatch-dev database.`
+    );
   }
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Refusing to seed: NODE_ENV=production.");
+  if (!DEV_DATABASE_NAME.test(dbName)) {
+    throw new Error(
+      `Refusing to seed database "${dbName}". ` +
+        `Dev seeding only runs against databases provisioned by dispatch-dev ` +
+        `(dispatch_agt_<id> or dispatch_dev-<tag>).`
+    );
   }
 }
 
 async function clearSeeded(client: PoolClient): Promise<void> {
   // Order matters: clear dependents first. CASCADEs handle the rest.
-  await client.query(
-    `DELETE FROM job_runs WHERE config::text LIKE '%"seed":"${SEED_TAG}"%'`
-  );
+  await client.query(`DELETE FROM job_runs WHERE config->>'seed' = $1`, [
+    SEED_TAG,
+  ]);
   await client.query(`DELETE FROM jobs WHERE id LIKE 'seed-job-%'`);
   await client.query(
     `DELETE FROM persona_reviews WHERE agent_id LIKE 'seed-%'`
   );
-  await client.query(
-    `DELETE FROM agent_events WHERE metadata::text LIKE '%"seed":"${SEED_TAG}"%'`
-  );
-  await client.query(
-    `DELETE FROM agent_events WHERE metadata::text LIKE '%"seed":"activity-demo"%'`
-  );
+  await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
+    SEED_TAG,
+  ]);
+  // Legacy e2e fixture tag — clear alongside so dev DBs don't accumulate stale rows.
+  await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
+    "activity-demo",
+  ]);
   // Deleting agents cascades to media, feedback, token usage, events, persona_reviews.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
@@ -71,7 +72,7 @@ export async function seedDevData(
   pool: Pool,
   options: SeedOptions
 ): Promise<void> {
-  assertNotProduction(options.databaseUrl);
+  assertSafeSeedTarget(options.databaseUrl);
   log(options, `Seeding dev data (tag=${SEED_TAG})...`);
 
   const client = await pool.connect();

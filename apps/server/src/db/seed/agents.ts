@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-import { seedNow } from "./constants.js";
+import { seedMetadata, seedNow } from "./constants.js";
 
 type AgentStatus =
   | "creating"
@@ -298,7 +298,7 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         agent.baseBranch ?? null,
         agent.latestEvent?.type ?? null,
         agent.latestEvent?.message ?? null,
-        agent.latestEvent ? JSON.stringify({ seed: "dev-data" }) : null,
+        agent.latestEvent ? seedMetadata() : null,
         latestEventUpdatedAt,
         JSON.stringify(agent.pins ?? []),
         created,
