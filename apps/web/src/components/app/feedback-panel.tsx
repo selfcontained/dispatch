@@ -769,11 +769,14 @@ export function ParentFeedbackPanel({
                   </Button>
                 </div>
                 <SheetHeader className="shrink-0">
-                  <div className="flex items-center gap-2 pr-32">
-                    <Badge variant={severityInfo(sheetItem.severity).variant}>
+                  <div className="flex items-start gap-2 pr-40">
+                    <Badge
+                      variant={severityInfo(sheetItem.severity).variant}
+                      className="mt-0.5 shrink-0"
+                    >
                       {severityInfo(sheetItem.severity).label}
                     </Badge>
-                    <SheetTitle className="text-base flex-1">
+                    <SheetTitle className="min-w-0 flex-1 break-all text-base">
                       {sheetItem.filePath
                         ? `${sheetItem.filePath}${sheetItem.lineNumber ? `:${sheetItem.lineNumber}` : ""}`
                         : "Feedback"}
