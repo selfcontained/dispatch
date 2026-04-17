@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { loadApp, setEnabledAgentTypesViaAPI } from "./helpers";
+import {
+  createAgentViaAPI,
+  loadApp,
+  setEnabledAgentTypesViaAPI,
+} from "./helpers";
 
 test.describe("Settings pane", () => {
   test.afterEach(async ({ request }) => {
@@ -83,5 +87,30 @@ test.describe("Settings pane", () => {
     await expect(
       page.getByRole("option", { name: "Claude" })
     ).not.toBeVisible();
+  });
+
+  test("single enabled agent type removes split buttons", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["codex"]);
+    const agent = await createAgentViaAPI(request, {
+      type: "codex",
+      cwd: process.cwd(),
+    });
+
+    await loadApp(page);
+
+    await expect(page.getByTestId("create-agent-button")).toBeVisible();
+    await expect(page.getByTestId("create-agent-type-dropdown")).toHaveCount(0);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await expect(agentCard).toBeVisible();
+    await agentCard.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+
+    await expect(agentCard.getByTestId("launch-reviewer-button")).toBeVisible();
+    await expect(
+      agentCard.getByTestId("launch-reviewer-type-dropdown")
+    ).toHaveCount(0);
   });
 });
