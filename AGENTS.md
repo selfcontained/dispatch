@@ -63,30 +63,18 @@ Before marking any task as done, run the following checks and fix any failures:
 
 - **NEVER run `pnpm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use `dispatch-dev` to manage dev environments. It spins up an isolated DB, API server, and Vite frontend, all on auto-selected free ports.
-- When `DISPATCH_AGENT_ID` is set (normal agent sessions), the suffix is derived automatically. Otherwise pass `--suffix <name>` or let the script generate one.
+- Use the repo MCP tools to manage dev environments: `repo_dev_up`, `repo_dev_restart`, `repo_dev_down`, `repo_dev_status`, and `repo_dev_logs`. They spin up an isolated DB, API server, and Vite frontend on auto-selected free ports.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
-  ```bash
-  dispatch-dev up                             # start isolated DB + API server + Vite
-  dispatch-dev up --cwd /path/to/dir          # start from a specific directory
-  dispatch-dev up --no-db                     # skip DB (use existing DATABASE_URL)
-  dispatch-dev down                           # tear down everything
-  dispatch-dev restart                        # restart the environment
-  dispatch-dev status                         # check what's running
-  dispatch-dev logs                           # API server logs
-  dispatch-dev logs --vite                    # Vite server logs
-  dispatch-dev url                            # print the API server URL
-  ```
-- `dispatch-dev up` auto-selects free ports and prints the URLs — just use the printed URLs.
+- `repo_dev_up` auto-selects free ports and prints the URLs — just use the printed URLs.
 
 ## Backend Testing Safety
 
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
-- When backend changes need local validation, use `dispatch-dev up` and point validation tooling to the printed URL.
+- When backend changes need local validation, use `repo_dev_up` and point validation tooling to the printed URL.
 - Only operate on production (`:6767`) when explicitly requested by the user.
 
 ## Development Database
 
 - Production uses the `dispatch` database. Never connect to it from dev servers.
-- `dispatch-dev up` creates an isolated Postgres container with its own port — no manual DATABASE_URL setup needed.
+- `repo_dev_up` creates an isolated Postgres container with its own port — no manual `DATABASE_URL` setup needed.
 - Migrations run automatically on API server start.
