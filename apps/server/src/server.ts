@@ -76,7 +76,6 @@ import {
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
-import { seedDevData } from "./db/seed/index.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
@@ -4253,22 +4252,6 @@ export async function initializeApp(options?: {
     await agentManager.reconcileAgents();
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
-  }
-  // Seed AFTER reconcile so synthetic running/blocked/waiting states aren't
-  // reaped by the "no tmux session = dead" reconciliation pass.
-  if (process.env.DISPATCH_SEED_DEV_DATA === "true") {
-    try {
-      await seedDevData(pool, {
-        databaseUrl: config.databaseUrl,
-        mediaRoot: config.mediaRoot,
-        log: (msg) => app.log.info({ seed: true }, msg),
-      });
-    } catch (err) {
-      app.log.error({ err }, "Dev data seeding failed");
-      throw err;
-    }
-  }
-  if (shouldReconcileState) {
     const agents = await agentManager.listAgents();
     queueGitContextRefresh(agents.map((agent) => agent.id));
     startGitContextRefreshLoop();

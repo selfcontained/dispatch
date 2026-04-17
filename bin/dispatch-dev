@@ -247,13 +247,6 @@ cmd_up() {
       export DISPATCH_AGENT_RUNTIME="inert"
     fi
 
-    # Seed demo data by default on non-live stacks so UI surfaces render
-    # something meaningful. --live and --no-seed both opt out.
-    if [ "$OPT_LIVE" != "1" ] && [ "$OPT_NO_SEED" != "1" ]; then
-      export DISPATCH_SEED_DEV_DATA="true"
-    else
-      unset DISPATCH_SEED_DEV_DATA
-    fi
     if [ "$OPT_NO_DB" != "1" ]; then
       export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
     fi
@@ -297,6 +290,21 @@ cmd_up() {
       health_attempts=$((health_attempts + 1))
       sleep 1
     done
+  fi
+
+  # --- Seed demo data (dev-only, explicit) ---
+  # Runs after the API is up so the UI has something to render on first load.
+  # Not invoked by the server runtime — this is the only code path that seeds.
+  # --live and --no-seed both skip it.
+  if [ "$OPT_LIVE" != "1" ] && [ "$OPT_NO_SEED" != "1" ] && [ "$OPT_NO_DB" != "1" ]; then
+    echo "Seeding demo data..."
+    (
+      cd "$cwd"
+      export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
+      pnpm --filter @dispatch/server exec tsx src/db/seed/run.ts >> "$(log_dir)/seed.log" 2>&1
+    ) || {
+      echo "Warning: seed failed. See $(log_dir)/seed.log for details." >&2
+    }
   fi
 
   # --- Vite Frontend ---
