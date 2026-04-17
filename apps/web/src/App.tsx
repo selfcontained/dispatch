@@ -833,7 +833,7 @@ export function DashboardLayout(): JSX.Element {
                   onOpenFeedbackDetail={
                     isMobile ? undefined : setFeedbackDetail
                   }
-                  feedbackDetailState={feedbackDetail}
+                  feedbackDetailState={isMobile ? null : feedbackDetail}
                   onRequestClose={
                     isMobile ? () => setMobileLeftOpen(false) : undefined
                   }
