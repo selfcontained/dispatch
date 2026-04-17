@@ -10,6 +10,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # ci.yml doesn't call gh/git push/private-registry work (that's release.yml).
+          # Skipping credential persist means checkout's post-run also skips the
+          # `git submodule foreach --recursive` cleanup loop, which is unnecessary
+          # with no submodules and slow on self-hosted macOS.
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:
