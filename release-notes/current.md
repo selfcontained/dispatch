@@ -1,6 +1,9 @@
 ## What's Changed
-* Make worktree badge clickable to copy path by @selfcontained in https://github.com/selfcontained/dispatch/pull/341
-* docs: update CI pipeline and add missing API endpoint by @selfcontained in https://github.com/selfcontained/dispatch/pull/340
+* Simplify single-agent action buttons by @selfcontained in https://github.com/selfcontained/dispatch/pull/342
+* fix(web): mobile feedback sheet click + long-title overflow by @selfcontained in https://github.com/selfcontained/dispatch/pull/343
+* Suppress noisy migration timestamp logs by @selfcontained in https://github.com/selfcontained/dispatch/pull/345
+* Seed dev DB with demo data on dispatch-dev startup (CRU-113) by @selfcontained in https://github.com/selfcontained/dispatch/pull/344
+* docs: sync README + docs with current codebase by @selfcontained in https://github.com/selfcontained/dispatch/pull/346
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.2...v0.16.3
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.3...v0.16.4
