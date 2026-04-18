@@ -50,44 +50,23 @@
   <body style="margin: 0; background: #141414; color: #f5f5f5">
     <script>
       // Apply saved theme before first paint to avoid flash.
+      // Each entry's `background`/`foreground` must mirror the `--background`
+      // and `--foreground` HSL tokens defined for that theme in
+      // `apps/web/src/index.css`. After the React app boots, `applyTheme`
+      // re-derives these values from the live CSS variables, so this table
+      // only needs to be correct enough to prevent flash on first paint.
       (function () {
         var theme = localStorage.getItem("dispatch:theme");
         var palette = {
-          default: {
-            background: "#141414",
-            foreground: "#f5f5f5",
-            themeColor: "#0B1220",
-          },
-          "cool-navy": {
-            background: "#10131a",
-            foreground: "#f1f3f8",
-            themeColor: "#10131a",
-          },
-          "oled-black": {
-            background: "#000000",
-            foreground: "#f0f0f0",
-            themeColor: "#000000",
-          },
-          "solarized-dark": {
-            background: "#00212b",
-            foreground: "#8ea4a9",
-            themeColor: "#00212b",
-          },
-          light: {
-            background: "#ffffff",
-            foreground: "#171717",
-            themeColor: "#ffffff",
-          },
-          vaporwave: {
-            background: "#12081e",
-            foreground: "#eddcff",
-            themeColor: "#12081e",
-          },
-          mytra: {
-            background: "#020202",
-            foreground: "#d9dde4",
-            themeColor: "#020202",
-          },
+          default: { background: "#11100e", foreground: "#f8f8f2" },
+          "cool-navy": { background: "#0f1115", foreground: "#f1f1f4" },
+          "oled-black": { background: "#000000", foreground: "#f0f0f0" },
+          "solarized-dark": { background: "#002d38", foreground: "#96a4a6" },
+          light: { background: "#e6eaef", foreground: "#1f2328" },
+          vaporwave: { background: "#0d0717", foreground: "#e6d9f2" },
+          matrix: { background: "#030504", foreground: "#d6ffe1" },
+          midnight: { background: "#000000", foreground: "#f1f1f4" },
+          mytra: { background: "#030303", foreground: "#dee2e7" },
         };
         var selected = palette[theme] || palette.default;
         if (theme && theme !== "default") {
@@ -98,7 +77,7 @@
         document.body.style.color = selected.foreground;
         var metaTheme = document.querySelector('meta[name="theme-color"]');
         if (metaTheme) {
-          metaTheme.setAttribute("content", selected.themeColor);
+          metaTheme.setAttribute("content", selected.background);
         }
       })();
     </script>
