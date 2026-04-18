@@ -201,9 +201,10 @@ const SECTIONS: SectionDef[] = [
           <H3>Defining tools</H3>
           <P>
             Each tool has a name, a description, and a command to run. Dispatch
-            automatically prefixes tool names with <Code>repo.</Code> when
-            exposing them to agents. The command executes in the repo root when
-            called.
+            automatically prefixes tool names with <Code>repo_</Code> when
+            exposing them to agents (any dots in the configured name are
+            sanitized to underscores, since MCP clients don't support dots in
+            tool names). The command executes in the repo root when called.
           </P>
           <CodeBlock>{`
 // .dispatch/tools.json
@@ -228,8 +229,8 @@ const SECTIONS: SectionDef[] = [
 }`}</CodeBlock>
           <P>
             The tools above would be available to agents as{" "}
-            <Code>repo.lint</Code>, <Code>repo.test</Code>, and{" "}
-            <Code>repo.db_reset</Code>.
+            <Code>repo_lint</Code>, <Code>repo_test</Code>, and{" "}
+            <Code>repo_db_reset</Code>.
           </P>
         </Section>
 
@@ -262,7 +263,7 @@ const SECTIONS: SectionDef[] = [
   ]
 }`}</CodeBlock>
           <P>
-            When an agent calls <Code>repo.dev_up</Code> with{" "}
+            When an agent calls <Code>repo_dev_up</Code> with{" "}
             <Code>{'{ cwd: "/path", live: true }'}</Code>, Dispatch runs{" "}
             <Code>./bin/dev up --cwd /path --live</Code>. Parameters that are
             omitted or false are skipped.
@@ -270,10 +271,34 @@ const SECTIONS: SectionDef[] = [
         </Section>
 
         <Section>
+          <H3>Limiting tool scope</H3>
+          <P>
+            By default a repo tool is exposed to every agent type. Add an
+            optional <Code>scope</Code> array to restrict where a tool shows up.
+            Valid scopes are <Code>"agent"</Code> (standard agents),{" "}
+            <Code>"reviewer"</Code> (persona reviewers), and <Code>"job"</Code>{" "}
+            (scheduled job runs). Useful for job-only maintenance commands that
+            shouldn't clutter a regular agent's toolset.
+          </P>
+          <CodeBlock>{`
+{
+  "name": "list_dev_containers",
+  "description": "List running dispatch-dev Postgres containers.",
+  "command": ["docker", "ps", "--filter", "name=dispatch-postgres-"],
+  "scope": ["job"]
+}`}</CodeBlock>
+        </Section>
+
+        <Section>
           <H3>Built-in tools</H3>
           <P>
             Dispatch also provides built-in tools that are always available,
-            regardless of repo configuration:
+            regardless of repo configuration. Standard agents see the set below.
+            Persona reviewers and scheduled jobs get tailored subsets — for
+            example, persona agents get <Code>review_status</Code> and{" "}
+            <Code>get_parent_context</Code>, and jobs get{" "}
+            <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
+            <Code>job_needs_input</Code>, and <Code>job_log</Code>.
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
@@ -283,26 +308,54 @@ const SECTIONS: SectionDef[] = [
             <li>
               <Code>get_pr_status</Code> — check CI status on a pull request
             </li>
-
             <li>
               <Code>dispatch_event</Code> — report agent status (working,
-              blocked, done)
+              blocked, waiting_user, done, idle)
             </li>
             <li>
-              <Code>dispatch_share</Code> — publish a screenshot or image to the
-              session's media stream
+              <Code>dispatch_rename_session</Code> — rename the current agent
+              session
+            </li>
+            <li>
+              <Code>dispatch_notify</Code> — send a Slack notification (rate
+              limited, supports mrkdwn)
+            </li>
+            <li>
+              <Code>dispatch_pin</Code> — pin a label/value pair to the sidebar
+              (URLs, ports, filenames, PRs, markdown summaries)
+            </li>
+            <li>
+              <Code>dispatch_share</Code> — publish a screenshot, image, video,
+              or text snippet to the session's media stream
+            </li>
+            <li>
+              <Code>dispatch_list_media</Code> — list media shared with or by
+              the current agent
             </li>
             <li>
               <Code>dispatch_feedback</Code> — submit a structured finding with
               severity, file reference, and suggestion
             </li>
             <li>
-              <Code>dispatch_get_feedback</Code> — retrieve feedback findings
-              for the current session
+              <Code>list_personas</Code> — list persona reviewers defined for
+              the current repo
             </li>
             <li>
               <Code>dispatch_launch_persona</Code> — launch a persona agent as a
               child of the current session
+            </li>
+            <li>
+              <Code>dispatch_get_feedback</Code> — retrieve feedback submitted
+              by child persona agents
+            </li>
+            <li>
+              <Code>dispatch_resolve_feedback</Code> — mark a feedback item as
+              fixed or ignored
+            </li>
+            <li>
+              <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
+              <Code>get_feedback_summary</Code> — analytics queries over recent
+              Dispatch activity
             </li>
           </ul>
         </Section>
