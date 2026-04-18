@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BarChart3, History } from "lucide-react";
+import { BarChart3, History, PanelRightOpen } from "lucide-react";
 
 import { AgentsView } from "@/components/app/agents-view";
 import { ActivityPane } from "@/components/app/activity-pane";
@@ -18,6 +18,7 @@ import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
 import { type ServiceState } from "@/components/app/types";
 import { DesignLab } from "@/components/app/design-lab";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/App";
 import { agentRoute } from "@/lib/agent-routes";
@@ -45,6 +46,7 @@ function SectionShell({
     setLeftOpen,
     setMobileLeftOpen,
     setMobileMediaOpen,
+    handleSetLeftPanelOpen,
     pulsingNavItem,
     triggerNavAnimation,
     handleSidebarNavigate,
@@ -84,11 +86,27 @@ function SectionShell({
           </SidebarShell>
         </GlassSidebar>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-          <div className="grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]">
-            <div className={cn("min-h-0 min-w-0", !leftPanelOpen && "pt-14")}>
-              {children}
+        <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+          {!leftPanelOpen ? (
+            <div className="pointer-events-none absolute left-3 top-3 z-10">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="pointer-events-auto"
+                onClick={() => handleSetLeftPanelOpen(true)}
+                title="Open sidebar"
+              >
+                <PanelRightOpen className="h-4 w-4" />
+              </Button>
             </div>
+          ) : null}
+          <div
+            className={cn(
+              "flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
+              !leftPanelOpen && "pt-14"
+            )}
+          >
+            {children}
           </div>
         </main>
       </div>
@@ -124,7 +142,8 @@ export function AgentsRoute(): JSX.Element {
 
 export function JobsRoute(): JSX.Element {
   const navigate = useNavigate();
-  const { agents, enabledAgentTypes, isMobile } = useDashboardContext();
+  const { agents, enabledAgentTypes, isMobile, setMobileLeftOpen } =
+    useDashboardContext();
   const openAgent = useCallback(
     async (agent: (typeof agents)[number]) => {
       navigate(agentRoute(agent.id));
@@ -142,7 +161,9 @@ export function JobsRoute(): JSX.Element {
       <SectionShell
         activeSection="jobs"
         sidebar={
-          <JobListContent onItemSelect={isMobile ? () => void 0 : undefined} />
+          <JobListContent
+            onItemSelect={isMobile ? () => setMobileLeftOpen(false) : undefined}
+          />
         }
       >
         <JobDetailPane />
