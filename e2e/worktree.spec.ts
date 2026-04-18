@@ -3,9 +3,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import path from "node:path";
 import { test, expect } from "@playwright/test";
 import {
   cleanupE2EAgents,
@@ -654,8 +656,16 @@ test.describe("Worktree location setting", () => {
     });
 
     expect(agent.worktreePath).toBeTruthy();
-    // Sibling: worktree is next to the repo, not inside it
-    expect(agent.worktreePath!.startsWith(repoPath)).toBe(false);
+    // Sibling: worktree is beside the repo, not inside it. The server names
+    // sibling worktrees `<repo-basename>-<branch>`, so worktreePath literally
+    // starts with repoPath as a string — a plain startsWith check only fails
+    // on macOS by accident, because /tmp resolves through /private. Use
+    // realpath + path.relative so it works on both platforms.
+    const rel = path.relative(
+      realpathSync(repoPath),
+      realpathSync(agent.worktreePath!)
+    );
+    expect(rel.split(path.sep)[0]).toBe("..");
     expect(existsSync(agent.worktreePath!)).toBe(true);
   });
 

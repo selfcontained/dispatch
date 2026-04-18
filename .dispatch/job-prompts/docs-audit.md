@@ -73,14 +73,21 @@ Treat the state file as a handoff note to a colleague, not a log.
 
 ## Phase 5: Validate, commit, PR, merge
 
+This phase is not done until **CI is green and the PR is merged**. Opening a PR is the halfway point, not the finish line. `job_complete` must only be called after a successful merge (or after `job_needs_input` if you are legitimately blocked).
+
 1. Run `pnpm run format:write` to fix any prettier drift in files you touched (`pnpm run format` only checks — it won't rewrite). CI enforces `prettier --check` and will fail the PR otherwise.
 2. If `apps/web/` changed, run `pnpm run check` (docs-only changes generally don't need it).
 3. Verify any `docs/` links in `README.md` still resolve.
 4. Commit on a new branch. Include the state file update in the same commit.
 5. Create a PR targeting `main` with a short body: what was audited, what changed, and what's deferred to next run.
-6. Wait for CI to finish on the PR. Poll `get_pr_status` until the `ci` check leaves `IN_PROGRESS`.
-   - If CI passes, merge the PR (squash merge, delete branch).
-   - If CI fails, investigate the failure: fix drift you introduced, push the fix, and wait again. Only give up after an honest attempt — do not merge a red PR.
+6. **Wait for CI.** Poll `get_pr_status` for this PR in a loop. Each check costs almost nothing; keep polling until the `ci` check's `status` leaves `IN_PROGRESS` and a `conclusion` appears. A typical CI run is 3–5 minutes — sleep ~60s between polls. Do not call `job_complete` while CI is still running.
+7. **Act on the CI result.**
+   - **`SUCCESS`** — merge the PR. Use the `create_pr` tool's companion merge path or shell out to `gh pr merge <num> --squash --delete-branch`. After merge, verify the PR's state is `MERGED` via `get_pr_status` before calling `job_complete`.
+   - **`FAILURE`** — read the failed job logs (`gh run view <id> --log-failed`). Classify the failure:
+     - **Caused by your diff** (e.g. prettier drift you missed, broken markdown link, type error in a file you edited): fix it, push, and return to step 6. Stay in the loop — don't give up.
+     - **Pre-existing flake or environmental problem** (failing tests in files you never touched; infra errors like a runner going offline; a known-flaky test that retries cleanly): first try `gh run rerun <id> --failed` and re-poll. If the retry also fails for the same unrelated reason, stop here and call `job_needs_input` with the run URL and a one-line summary of what failed. Do not merge a red PR. Do not silently abandon the PR either.
+
+If CI takes longer than 30 minutes without completing, call `job_needs_input` — something upstream is wrong.
 
 ### Bootstrap fallback
 
@@ -88,12 +95,12 @@ If the state file is missing (first run) or clearly out of sync, do a shallow pa
 
 ## Reporting
 
-Use `job_log` for phase-level progress. On completion, call `job_complete` with:
+Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately if Phase 1 scoping found genuinely nothing to change and no PR was opened). `job_complete` with:
 
 - `files_updated` — paths + brief change notes
 - `files_created` / `files_deleted`
 - `state_file_summary` — what you wrote into `backlog` / `next_focus`
-- `pr` — PR URL
+- `pr` — PR URL (the merged PR)
 - `summary` — one paragraph: what slice you audited, what you found, where you pointed the next run
 
-If you get stuck (state file unreadable, no clear next focus, conflicting diff), call `job_needs_input` with the specific question.
+If you get stuck (state file unreadable, no clear next focus, conflicting diff, CI failing for reasons outside this diff), call `job_needs_input` with the specific question and any relevant URLs — never call `job_complete` on a PR that's still open or red.
