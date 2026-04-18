@@ -68,9 +68,9 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
 
 The **release workflow** (GitHub Actions):
 
-- Runs type-check, lint, and build
-- Bumps version in `package.json` and `web/package.json`
-- Commits, creates a git tag, pushes, and publishes a GitHub Release
+- Runs type-check, lint, unit tests, and build (against an ephemeral Postgres container)
+- Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), and the lockfile
+- Commits, creates a git tag, pushes, and publishes a pre-release GitHub Release with a packed artifact (`dispatch-release.tar.gz`)
 - Outputs the tag for downstream use
 
 ## Update To A Tag

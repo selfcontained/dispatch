@@ -26,7 +26,8 @@ dispatch/
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
 │   ├── personas/              # persona definitions (*.md)
-│   └── tools.json             # repo-specific MCP tools + lifecycle hooks
+│   ├── tools.json             # repo-specific MCP tools + lifecycle hooks
+│   └── worktrees/             # per-agent git worktrees (managed automatically)
 └── docs/
 ```
 

@@ -36,10 +36,11 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Agent history with soft-delete preservation, filtering, and per-agent detail views.
 - Release management — cut releases, deploy tags, and self-update from the UI.
 - Theming with multiple color themes and per-theme terminal palettes.
+- Password-based login with first-run setup and per-device session cookies.
 - Browser UI with:
-  - interactive terminal access (xterm.js over WebSocket)
-  - agent lifecycle controls (create, start, stop, delete)
-  - media pane for screenshots, video, and live Playwright browser streaming
+  - interactive terminal access (xterm.js over WebSocket, resumable after browser reconnect)
+  - agent lifecycle controls (create, start, stop, delete — with background archive cleanup)
+  - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
   - real-time agent status events via SSE
   - agent pins for surfacing key info (URLs, ports, PRs, files) in the sidebar
   - iOS Simulator screenshot capture via `dispatch_share` (`source: "simulator"`, `xcrun simctl`)
@@ -148,7 +149,9 @@ For setting up Dispatch as a persistent service on a dedicated machine, see [doc
 
 ## MCP Tools
 
-Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. These tools are available automatically — no configuration needed:
+Every agent launched by Dispatch gets access to MCP tools via an agent-scoped endpoint. The tool set depends on the agent type — interactive agents, persona reviewers, and job runners each expose a different set, all configured automatically with no setup.
+
+### Interactive agents
 
 | Tool                        | Description                                                            |
 | --------------------------- | ---------------------------------------------------------------------- |
@@ -169,11 +172,17 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `get_agent_history`         | Get detailed agent session history                                     |
 | `get_feedback_summary`      | Aggregate persona review feedback for pattern detection                |
 
-Persona agents additionally get: `review_status`, `get_parent_context`.
+### Persona agents
 
-Job agents additionally get: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `dispatch_notify`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
+Persona agents get a narrower set focused on reviewing their parent's work: `review_status`, `get_parent_context`, `dispatch_pin`, `dispatch_share`, `dispatch_feedback`.
 
-Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo_` prefix.
+### Job agents
+
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_notify`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
+
+### Repo-specific tools
+
+Repos can define custom tools in `.dispatch/tools.json` — these are exposed to agents with a `repo_` prefix. The same file also defines lifecycle hooks (for example `stop` to tear down per-agent dev environments).
 
 These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically).
 
@@ -186,14 +195,14 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Docs
 
+User-facing documentation (agents, repo tools, worktrees, reviewers, status events, media, notifications) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
 - [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
 - [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
 - [Theming](docs/14-theming.md) — how to add and customize color themes
-- [Personas and Feedback](docs/15-personas-and-feedback.md) — automated code review via persona agents
-- [Notifications](docs/16-notifications.md) — in-app and Slack notifications
 - [Jobs](docs/17-jobs.md) — scheduled/on-demand agent tasks with structured reports
 
 ## Issue Tracking

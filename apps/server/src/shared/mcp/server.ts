@@ -162,6 +162,8 @@ const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
   "dispatch_notify",
+  "dispatch_pin",
+  "dispatch_share",
   "job_complete",
   "job_failed",
   "job_needs_input",
