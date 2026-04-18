@@ -14,25 +14,9 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  isOpen: boolean,
-  onClose: () => void
-): void {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [ref, isOpen, onClose]);
-}
 
 type PathInfo = { exists: boolean; isDirectory: boolean; isGitRepo: boolean };
 

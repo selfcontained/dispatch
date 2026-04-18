@@ -81,7 +81,7 @@ type JobsContextValue = {
   showDetailPane: boolean;
   tab: DetailTab;
   history: { data?: { runs: JobRun[] }; isLoading: boolean };
-  activeRunAgent: { agent: Agent; isActive: boolean } | null;
+  attachedAgent: { agent: Agent; isActive: boolean } | null;
   jobStats: {
     data?: import("@/hooks/use-jobs").JobStats | null;
     isLoading: boolean;
@@ -224,7 +224,7 @@ function triggerSourceLabel(run: JobRun): string {
   return run.config.triggerSource === "scheduled" ? "Scheduled" : "Manual";
 }
 
-function useActiveRun(job: Job | null, agents: Agent[]) {
+function useAttachedJobAgent(job: Job | null, agents: Agent[]) {
   return useMemo(() => {
     if (!job?.lastRunId || !job.lastRunStatus) return null;
     // Active statuses always resolve; terminal statuses only resolve when the
@@ -270,7 +270,7 @@ export function JobsProvider({
       ? routeSection
       : "configure";
   const history = useJobHistory(selectedJob);
-  const activeRunAgent = useActiveRun(selectedJob, agents);
+  const attachedAgent = useAttachedJobAgent(selectedJob, agents);
   const jobStats = useJobStats(open && !selectedJob);
 
   const selectJob = (job: Job) => {
@@ -295,7 +295,7 @@ export function JobsProvider({
     showDetailPane,
     tab,
     history,
-    activeRunAgent,
+    attachedAgent,
     jobStats,
     routeRunId,
     selectJob,
@@ -485,7 +485,7 @@ export function JobDetailPane(): JSX.Element {
     selectedJob,
     tab,
     history,
-    activeRunAgent,
+    attachedAgent,
     jobStats,
     routeRunId,
     navigate,
@@ -524,7 +524,7 @@ export function JobDetailPane(): JSX.Element {
                     : `/jobs/${selectedJob.id}/history`
                 );
               }}
-              activeRunAgent={activeRunAgent}
+              attachedAgent={attachedAgent}
               onOpenAgent={onOpenAgent}
               onRunNow={async (job) => {
                 await runNow.mutateAsync(job);
@@ -1115,15 +1115,13 @@ function AddJobFlow({
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
   const [branchName, setBranchName] = useState("");
-  const [skipAutoArchive, setSkipAutoArchive] = useState(false);
+  const [keepAgent, setKeepAgent] = useState(false);
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // Enabled is meaningless without a schedule — reset when the schedule clears.
-  useEffect(() => {
-    if (!schedule.trim() && enableImmediately) setEnableImmediately(false);
-  }, [schedule, enableImmediately]);
-  const scheduleError = cronError(schedule, enableImmediately);
+  // Enabled is only meaningful when there's a schedule — derive rather than reset.
+  const effectiveEnabled = schedule.trim() ? enableImmediately : false;
+  const scheduleError = cronError(schedule, effectiveEnabled);
   const canAdd =
     !!displayName.trim() &&
     !!directory.trim() &&
@@ -1346,9 +1344,9 @@ function AddJobFlow({
                     checked={fullAccess}
                     onCheckedChange={setFullAccess}
                   />
-                  <JobSkipAutoArchiveOption
-                    checked={skipAutoArchive}
-                    onCheckedChange={setSkipAutoArchive}
+                  <JobKeepAgentOption
+                    checked={keepAgent}
+                    onCheckedChange={setKeepAgent}
                   />
                 </div>
               </div>
@@ -1385,8 +1383,8 @@ function AddJobFlow({
               baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,
               fullAccess,
-              autoArchive: !skipAutoArchive,
-              enabled: enableImmediately,
+              autoArchive: !keepAgent,
+              enabled: effectiveEnabled,
             }).catch((error) => setSubmitError(errorMessage(error)));
           }}
         >
@@ -1405,7 +1403,7 @@ function JobDetail({
   onTabChange,
   history,
   historyLoading,
-  activeRunAgent,
+  attachedAgent,
   onOpenAgent,
   onRunNow,
   onSetEnabled,
@@ -1427,7 +1425,7 @@ function JobDetail({
   historyLoading: boolean;
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
-  activeRunAgent: { agent: Agent; isActive: boolean } | null;
+  attachedAgent: { agent: Agent; isActive: boolean } | null;
   onOpenAgent: (agent: Agent) => Promise<void>;
   onRunNow: (job: Job) => Promise<void>;
   onSetEnabled: (job: Job, enabled: boolean) => Promise<void>;
@@ -1470,11 +1468,11 @@ function JobDetail({
         </Button>
       </div>
 
-      {activeRunAgent ? (
+      {attachedAgent ? (
         <div
           className={cn(
             "mt-4 rounded-md border p-3",
-            activeRunAgent.isActive
+            attachedAgent.isActive
               ? "border-status-working/40 bg-status-working/10"
               : "border-border/70 bg-muted/30"
           )}
@@ -1484,22 +1482,22 @@ function JobDetail({
               <div
                 className={cn(
                   "text-sm font-medium",
-                  activeRunAgent.isActive
+                  attachedAgent.isActive
                     ? "text-status-working"
                     : "text-foreground"
                 )}
               >
-                {activeRunAgent.isActive
+                {attachedAgent.isActive
                   ? "Active run is attached to a live agent session."
                   : "Agent kept after completion — pick up where the run left off."}
               </div>
               <div className="truncate text-xs text-muted-foreground">
-                {activeRunAgent.agent.name}
+                {attachedAgent.agent.name}
               </div>
             </div>
             <Button
               size="sm"
-              onClick={() => void onOpenAgent(activeRunAgent.agent)}
+              onClick={() => void onOpenAgent(attachedAgent.agent)}
             >
               <Terminal className="mr-2 h-4 w-4" />
               Open session
@@ -1723,7 +1721,7 @@ function JobWorktreeOption({
   );
 }
 
-function JobSkipAutoArchiveOption({
+function JobKeepAgentOption({
   checked,
   onCheckedChange,
 }: {
@@ -1838,17 +1836,15 @@ function SettingsTab({
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
   const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
   const [branchName, setBranchName] = useState(job.branchName ?? "");
-  const [skipAutoArchive, setSkipAutoArchive] = useState(!job.autoArchive);
+  const [keepAgent, setKeepAgent] = useState(!job.autoArchive);
   const [enabled, setEnabled] = useState(job.enabled);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
-  // Enabled is meaningless without a schedule — reset when the schedule clears.
-  useEffect(() => {
-    if (!schedule.trim() && enabled) setEnabled(false);
-  }, [schedule, enabled]);
-  const scheduleError = cronError(schedule, enabled);
+  // Enabled is only meaningful when there's a schedule — derive rather than reset.
+  const effectiveEnabled = schedule.trim() ? enabled : false;
+  const scheduleError = cronError(schedule, effectiveEnabled);
   const canSave =
     !!displayName.trim() &&
     !scheduleError &&
@@ -1865,7 +1861,7 @@ function SettingsTab({
     setUseWorktree(job.useWorktree);
     setBaseBranch(job.baseBranch ?? "main");
     setBranchName(job.branchName ?? "");
-    setSkipAutoArchive(!job.autoArchive);
+    setKeepAgent(!job.autoArchive);
     setEnabled(job.enabled);
     setSaveError(null);
     setRemoveError(null);
@@ -2002,9 +1998,9 @@ function SettingsTab({
             checked={fullAccess}
             onCheckedChange={setFullAccess}
           />
-          <JobSkipAutoArchiveOption
-            checked={skipAutoArchive}
-            onCheckedChange={setSkipAutoArchive}
+          <JobKeepAgentOption
+            checked={keepAgent}
+            onCheckedChange={setKeepAgent}
           />
         </div>
         {saveError ? (
@@ -2036,8 +2032,8 @@ function SettingsTab({
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,
                 fullAccess,
-                autoArchive: !skipAutoArchive,
-                enabled,
+                autoArchive: !keepAgent,
+                enabled: effectiveEnabled,
               })
                 .then(() => {
                   setSaved(true);

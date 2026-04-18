@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -12,35 +12,24 @@ import {
   CommandLoading,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  isOpen: boolean,
-  onClose: () => void
-): void {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [ref, isOpen, onClose]);
-}
 
 export type BranchSelectProps = {
   cwd: string;
   baseBranch: string;
+  /**
+   * Fired when the user picks a branch AND when the fetched branch list
+   * doesn't include the current `baseBranch` (falls back to the first
+   * returned branch or "main"). The latter keeps the combobox honest if a
+   * previously-saved branch has been renamed/deleted on the remote.
+   */
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
   onWorktreeBranchChange: (value: string) => void;
   testIdPrefix?: string;
   worktreeBranchPlaceholder?: string;
-  onDropdownOpenChange?: (open: boolean) => void;
 };
 
 export function BranchSelect({
@@ -51,26 +40,15 @@ export function BranchSelect({
   onWorktreeBranchChange,
   testIdPrefix = "branch-select",
   worktreeBranchPlaceholder = "branch name (auto-generated if empty)",
-  onDropdownOpenChange,
 }: BranchSelectProps): JSX.Element {
-  const [dropdownOpen, setDropdownOpenState] = useState(false);
-  const setDropdownOpen = useCallback(
-    (next: boolean) => {
-      setDropdownOpenState(next);
-      onDropdownOpenChange?.(next);
-    },
-    [onDropdownOpenChange]
-  );
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
   const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const closeDropdown = useCallback(
-    () => setDropdownOpen(false),
-    [setDropdownOpen]
-  );
+  const closeDropdown = useCallback(() => setDropdownOpen(false), []);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
   const fetchBranches = useCallback(async () => {
@@ -155,6 +133,9 @@ export function BranchSelect({
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
+                  // Stop propagation so a surrounding Radix Dialog doesn't
+                  // interpret the Escape as a close-dialog request.
+                  e.stopPropagation();
                   setDropdownOpen(false);
                   requestAnimationFrame(() => triggerRef.current?.focus());
                 }

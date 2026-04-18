@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -43,23 +44,6 @@ const CWD_HISTORY_MAX = 20;
 const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
 const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
-
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  isOpen: boolean,
-  onClose: () => void
-): void {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [ref, isOpen, onClose]);
-}
 
 function readStoredString(key: string): string {
   if (typeof window === "undefined") return "";
@@ -282,8 +266,6 @@ export function CreateAgentDialog({
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
-  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
-
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
     setCwdHistory(removeCwdFromHistory(cwd));
   }, []);
@@ -340,7 +322,7 @@ export function CreateAgentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         onEscapeKeyDown={(e) => {
-          if (typeDropdownOpen || branchDropdownOpen) {
+          if (typeDropdownOpen) {
             e.preventDefault();
           }
           if (step === "prompt") {
@@ -506,7 +488,6 @@ export function CreateAgentDialog({
                           worktreeBranch={createWorktreeBranch}
                           onWorktreeBranchChange={setCreateWorktreeBranch}
                           testIdPrefix="create-agent"
-                          onDropdownOpenChange={setBranchDropdownOpen}
                         />
                       </div>
                     ) : null}
