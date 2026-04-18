@@ -90,7 +90,8 @@ const SECTIONS: SectionDef[] = [
               be enabled in Settings.
             </li>
             <li>
-              <strong>Name</strong> — optional display name for the agent.
+              <strong>Name</strong> — optional display name. Leave it blank and
+              the agent picks its own name once it has a sense of the task.
             </li>
             <li>
               <strong>Working directory</strong> — path to the repo.
@@ -108,7 +109,17 @@ const SECTIONS: SectionDef[] = [
               permissive execution mode, so the agent can run commands and edit
               files without confirmation prompts.
             </li>
+            <li>
+              <strong>Autonomous Review</strong> — when enabled, the agent
+              automatically launches one reviewer agent on completion and
+              addresses its feedback before finishing.
+            </li>
           </ul>
+          <P>
+            Click <strong>Create</strong> to start the agent immediately, or{" "}
+            <strong>Create with prompt</strong> to enter an initial prompt that
+            is sent as the agent's first message.
+          </P>
         </Section>
 
         <Section>
@@ -125,9 +136,9 @@ const SECTIONS: SectionDef[] = [
           <H3>Status indicators</H3>
           <P>
             Each agent in the sidebar shows a color-coded status from its latest
-            event: blue for <strong>working</strong>, red for{" "}
+            event: green for <strong>working</strong>, red for{" "}
             <strong>blocked</strong>, yellow for <strong>waiting</strong>, and
-            green for <strong>done</strong>. The sidebar also shows the event
+            blue for <strong>done</strong>. The sidebar also shows the event
             message and how long ago it was reported.
           </P>
         </Section>
