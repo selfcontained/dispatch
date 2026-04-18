@@ -481,10 +481,17 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <P>
             An agent calls the built-in <Code>dispatch_launch_persona</Code>{" "}
             tool, passing the persona name and a context briefing. Dispatch
-            loads the persona definition from the repo, spawns a new child agent
-            with the persona's instructions and a diff of the current branch,
-            and the child reviews the work and submits findings via{" "}
-            <Code>dispatch_feedback</Code>.
+            loads the persona definition from the repo and spawns a new child
+            agent with the persona's instructions, the parent's context, and a
+            diff of the current branch. The child then reviews the work, submits
+            findings via <Code>dispatch_feedback</Code>, and reports progress
+            through the review lifecycle with <Code>review_status</Code>.
+          </P>
+          <P>
+            Persona agents also have <Code>dispatch_pin</Code> and{" "}
+            <Code>dispatch_share</Code> for surfacing files or screenshots, and{" "}
+            <Code>get_parent_context</Code> to retrieve the parent agent's pins
+            and shared media (for example, a dev server URL to test against).
           </P>
         </Section>
 
@@ -494,9 +501,10 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             Each repo defines its own personas as markdown files in{" "}
             <Code>.dispatch/personas/</Code>. The filename (without extension)
             becomes the persona slug used when launching. Files use YAML
-            frontmatter for metadata and the body contains instructions with{" "}
-            <Code>{"{{context}}"}</Code> and <Code>{"{{diff}}"}</Code>{" "}
-            placeholders that Dispatch fills in at launch time.
+            frontmatter for metadata and the body is the persona's instructions.
+            Dispatch automatically appends the parent agent's context and the
+            current diff, plus a standard block of feedback guidance — persona
+            files should not include their own context or diff placeholders.
           </P>
           <CodeBlock>{`
 # .dispatch/personas/security-review.md
@@ -506,14 +514,9 @@ description: Reviews code for security vulnerabilities
 feedbackFormat: findings
 ---
 
-You are a security reviewer. Analyze the following changes
-for vulnerabilities, injection risks, and auth issues.
-
-## Context
-{{context}}
-
-## Diff
-{{diff}}`}</CodeBlock>
+You are a security reviewer. Analyze the changes below for
+vulnerabilities, injection risks, and auth issues. Flag only
+issues caused or worsened by this diff.`}</CodeBlock>
           <P>
             The <Code>name</Code> and <Code>description</Code> fields are shown
             in the persona picker UI. The <Code>feedbackFormat</Code> field is
@@ -522,7 +525,7 @@ for vulnerabilities, injection risks, and auth issues.
         </Section>
 
         <Section>
-          <H3>Feedback findings</H3>
+          <H3>Submitting findings</H3>
           <P>
             Persona agents submit findings with the{" "}
             <Code>dispatch_feedback</Code> tool. Each finding includes a
@@ -531,6 +534,19 @@ for vulnerabilities, injection risks, and auth issues.
             description, and optionally a file path, line number, and suggested
             fix. Findings appear in the Feedback panel where you can review and
             resolve them.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Review lifecycle</H3>
+          <P>
+            Persona agents report progress with the <Code>review_status</Code>{" "}
+            tool. They call it with <Code>status: "reviewing"</Code> and a short
+            message when they start, then with <Code>status: "complete"</Code> —
+            along with a <Code>verdict</Code> of <Code>approve</Code> or{" "}
+            <Code>request_changes</Code> and a <Code>summary</Code> — when they
+            finish. The verdict and summary show up on the review agent's card
+            in the UI.
           </P>
         </Section>
       </>
