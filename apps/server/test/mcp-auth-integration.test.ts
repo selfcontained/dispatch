@@ -28,7 +28,25 @@ let createJobMcpToken: typeof import("../src/auth.js").createJobMcpToken;
 let createSession: typeof import("../src/auth.js").createSession;
 let sessionCookie: string;
 
+// fastify's `app.inject()` gives the MCP route a LightMyRequest MockSocket
+// that lacks `destroySoon`. @hono/node-server (used internally by the MCP
+// SDK's StreamableHTTP transport) schedules an unref'd 500ms drain timer
+// that calls `socket.destroySoon()`. If the event loop is still alive when
+// the timer fires, vitest catches the resulting TypeError as an unhandled
+// exception and fails the run. Swallow just that specific teardown error.
+const uncaughtExceptionFilter = (err: Error): void => {
+  if (
+    err instanceof TypeError &&
+    err.message.includes("destroySoon is not a function")
+  ) {
+    return;
+  }
+  throw err;
+};
+
 beforeAll(async () => {
+  process.prependListener("uncaughtException", uncaughtExceptionFilter);
+
   pool = await setupTestDb();
   await runTestMigrations();
 
@@ -62,6 +80,10 @@ afterAll(async () => {
   delete process.env.DISPATCH_PORT;
   delete process.env.DISPATCH_HOST;
   await teardownTestDb();
+  // Let hono's 500ms drain timer fire (and get swallowed by the filter)
+  // before vitest starts tearing the suite down.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  process.off("uncaughtException", uncaughtExceptionFilter);
 });
 
 beforeEach(async () => {
