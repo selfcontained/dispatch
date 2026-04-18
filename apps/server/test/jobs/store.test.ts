@@ -35,7 +35,9 @@ describe("JobStore", () => {
       fullAccess: false,
       agentType: "claude",
       useWorktree: false,
+      baseBranch: null,
       branchName: null,
+      autoArchive: true,
       enabled: false,
     });
     const run = await store.createRun(job.id, {

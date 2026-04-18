@@ -24,7 +24,9 @@ const jobDefaults = {
   fullAccess: false,
   agentType: "claude" as const,
   useWorktree: false,
+  baseBranch: null,
   branchName: null,
+  autoArchive: true,
   enabled: false,
 };
 

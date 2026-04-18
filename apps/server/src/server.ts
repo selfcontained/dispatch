@@ -133,7 +133,13 @@ jobService.onRunStateChange((run) => {
   });
   // Auto-archive job agents when the run reaches a terminal state.
   // needs_input is excluded — user may need to interact with the agent.
-  if (JOB_TERMINAL_STATUSES.has(run.status) && run.agentId) {
+  // Jobs with autoArchive=false keep the agent around for post-run follow-up.
+  const shouldAutoArchive = run.config?.autoArchive ?? true;
+  if (
+    JOB_TERMINAL_STATUSES.has(run.status) &&
+    run.agentId &&
+    shouldAutoArchive
+  ) {
     void autoArchiveJobAgent(run.agentId).catch((err) => {
       app.log.warn(
         { err, agentId: run.agentId },
@@ -1201,8 +1207,10 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   needsInputTimeoutMs: z.number().int().positive().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
+  baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
+  autoArchive: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 const JobHistoryParamsSchema = z.object({

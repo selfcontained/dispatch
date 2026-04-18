@@ -19,6 +19,7 @@ import {
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { BranchSelect } from "@/components/app/branch-select";
 import { PathInput } from "@/components/app/path-input";
 import { type Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -211,7 +212,7 @@ function shortPath(value: string): string {
 }
 
 function humanSchedule(schedule: string | null): string {
-  if (!schedule) return "No schedule";
+  if (!schedule) return "On demand";
   try {
     return cronstrue.toString(schedule, { use24HourTimeFormat: false });
   } catch {
@@ -449,12 +450,18 @@ export function JobListContent({
                   <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">
-                      {job.schedule ? `Cron: ${job.schedule}` : "No schedule"}
+                      {job.schedule ? `Cron: ${job.schedule}` : "On demand"}
                     </span>
-                    <span className="shrink-0 text-muted-foreground/70">•</span>
-                    <span className="shrink-0">
-                      {job.enabled ? "enabled" : "disabled"}
-                    </span>
+                    {job.schedule ? (
+                      <>
+                        <span className="shrink-0 text-muted-foreground/70">
+                          •
+                        </span>
+                        <span className="shrink-0">
+                          {job.enabled ? "enabled" : "disabled"}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   {actionError ? (
                     <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
@@ -659,7 +666,7 @@ function JobsOverview({
           <div className="font-medium text-foreground">No jobs yet</div>
           <div className="mt-1 max-w-sm text-sm">
             Use jobs for recurring maintenance, scheduled checks, and repeatable
-            agent workflows that should run without manual prompting.
+            agent workflows — on a schedule or on demand.
           </div>
         </div>
       </div>
@@ -1106,7 +1113,9 @@ function AddJobFlow({
   );
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
+  const [baseBranch, setBaseBranch] = useState("main");
   const [branchName, setBranchName] = useState("");
+  const [skipAutoArchive, setSkipAutoArchive] = useState(false);
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1180,7 +1189,8 @@ function AddJobFlow({
                   className="text-sm text-muted-foreground"
                   htmlFor="job-schedule"
                 >
-                  Cron schedule
+                  Cron schedule{" "}
+                  <span className="text-muted-foreground/70">(optional)</span>
                 </label>
                 <Input
                   id="job-schedule"
@@ -1197,6 +1207,11 @@ function AddJobFlow({
                 {!scheduleError && schedule.trim() ? (
                   <div className="text-xs text-muted-foreground">
                     {humanSchedule(schedule)}
+                  </div>
+                ) : null}
+                {!schedule.trim() ? (
+                  <div className="text-xs text-muted-foreground">
+                    Leave blank for an on-demand job.
                   </div>
                 ) : null}
               </div>
@@ -1308,13 +1323,21 @@ function AddJobFlow({
                   </div>
                   <JobWorktreeOption
                     checked={useWorktree}
+                    cwd={directory}
+                    baseBranch={baseBranch}
                     branchName={branchName}
                     onCheckedChange={setUseWorktree}
+                    onBaseBranchChange={setBaseBranch}
                     onBranchNameChange={setBranchName}
+                    testIdPrefix="job-create"
                   />
                   <JobFullAccessOption
                     checked={fullAccess}
                     onCheckedChange={setFullAccess}
+                  />
+                  <JobSkipAutoArchiveOption
+                    checked={skipAutoArchive}
+                    onCheckedChange={setSkipAutoArchive}
                   />
                 </div>
               </div>
@@ -1348,8 +1371,10 @@ function AddJobFlow({
               needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
               agentType,
               useWorktree,
+              baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,
               fullAccess,
+              autoArchive: !skipAutoArchive,
               enabled: enableImmediately,
             }).catch((error) => setSubmitError(errorMessage(error)));
           }}
@@ -1461,7 +1486,9 @@ function JobDetail({
           <div className="mt-1 text-sm text-muted-foreground">
             {job.enabled && job.nextRun
               ? `Scheduled next run: ${formatDate(job.nextRun)}.`
-              : "This job is saved but not enabled on a schedule yet."}
+              : job.schedule
+                ? "This job is saved but not enabled on a schedule yet."
+                : "This job is on-demand — use Run once to start it."}
           </div>
           {detailActionError ? (
             <div className="mt-3 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
@@ -1614,14 +1641,22 @@ function TabButton({
 
 function JobWorktreeOption({
   checked,
+  cwd,
+  baseBranch,
   branchName,
   onCheckedChange,
+  onBaseBranchChange,
   onBranchNameChange,
+  testIdPrefix,
 }: {
   checked: boolean;
+  cwd: string;
+  baseBranch: string;
   branchName: string;
   onCheckedChange: (checked: boolean) => void;
+  onBaseBranchChange: (value: string) => void;
   onBranchNameChange: (value: string) => void;
+  testIdPrefix?: string;
 }) {
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
@@ -1644,14 +1679,45 @@ function JobWorktreeOption({
       </label>
       {checked ? (
         <div className="ml-8 w-[calc(100%-2rem)]">
-          <Input
-            value={branchName}
-            onChange={(event) => onBranchNameChange(event.target.value)}
-            placeholder="branch name (auto-generated if empty)"
+          <BranchSelect
+            cwd={cwd}
+            baseBranch={baseBranch}
+            onBaseBranchChange={onBaseBranchChange}
+            worktreeBranch={branchName}
+            onWorktreeBranchChange={onBranchNameChange}
+            testIdPrefix={testIdPrefix ?? "job-worktree"}
           />
         </div>
       ) : null}
     </div>
+  );
+}
+
+function JobSkipAutoArchiveOption({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={() => onCheckedChange(!checked)}
+        className="mt-0.5"
+        title="Keep agent after run completes"
+      />
+      <span className="space-y-1">
+        <span className="block text-sm font-medium text-foreground">
+          Keep agent after run completes
+        </span>
+        <span className="block text-xs text-muted-foreground">
+          Skip auto-archive so you can hop back into the session after the job
+          finishes.
+        </span>
+      </span>
+    </label>
   );
 }
 
@@ -1740,7 +1806,9 @@ function SettingsTab({
   const [agentType, setAgentType] = useState<AgentType>(job.agentType);
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
+  const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
   const [branchName, setBranchName] = useState(job.branchName ?? "");
+  const [skipAutoArchive, setSkipAutoArchive] = useState(!job.autoArchive);
   const [enabled, setEnabled] = useState(job.enabled);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -1761,7 +1829,9 @@ function SettingsTab({
     setAgentType(job.agentType);
     setFullAccess(job.fullAccess);
     setUseWorktree(job.useWorktree);
+    setBaseBranch(job.baseBranch ?? "main");
     setBranchName(job.branchName ?? "");
+    setSkipAutoArchive(!job.autoArchive);
     setEnabled(job.enabled);
     setSaveError(null);
     setRemoveError(null);
@@ -1808,7 +1878,8 @@ function SettingsTab({
               className="text-sm text-muted-foreground"
               htmlFor={`settings-schedule-${job.id}`}
             >
-              Cron schedule
+              Cron schedule{" "}
+              <span className="text-muted-foreground/70">(optional)</span>
             </label>
             <Input
               id={`settings-schedule-${job.id}`}
@@ -1823,6 +1894,11 @@ function SettingsTab({
             {!scheduleError && schedule.trim() ? (
               <div className="text-xs text-muted-foreground">
                 {humanSchedule(schedule)}
+              </div>
+            ) : null}
+            {!schedule.trim() ? (
+              <div className="text-xs text-muted-foreground">
+                Leave blank for an on-demand job.
               </div>
             ) : null}
           </div>
@@ -1878,13 +1954,21 @@ function SettingsTab({
         <div className="mt-4 grid gap-3">
           <JobWorktreeOption
             checked={useWorktree}
+            cwd={job.directory}
+            baseBranch={baseBranch}
             branchName={branchName}
             onCheckedChange={setUseWorktree}
+            onBaseBranchChange={setBaseBranch}
             onBranchNameChange={setBranchName}
+            testIdPrefix={`job-settings-${job.id}`}
           />
           <JobFullAccessOption
             checked={fullAccess}
             onCheckedChange={setFullAccess}
+          />
+          <JobSkipAutoArchiveOption
+            checked={skipAutoArchive}
+            onCheckedChange={setSkipAutoArchive}
           />
         </div>
         {saveError ? (
@@ -1913,8 +1997,10 @@ function SettingsTab({
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
                 agentType,
                 useWorktree,
+                baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,
                 fullAccess,
+                autoArchive: !skipAutoArchive,
                 enabled,
               })
                 .then(() => {
