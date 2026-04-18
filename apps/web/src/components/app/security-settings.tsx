@@ -6,7 +6,9 @@ type SecuritySettingsProps = {
   onLogout: () => void;
 };
 
-export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Element {
+export function SecuritySettings({
+  onLogout,
+}: SecuritySettingsProps): JSX.Element {
   const [passwordSet, setPasswordSet] = useState<boolean | null>(null);
 
   const [newPassword, setNewPassword] = useState("");
@@ -19,7 +21,9 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch("/api/v1/auth/status", { credentials: "include" });
+        const res = await fetch("/api/v1/auth/status", {
+          credentials: "include",
+        });
         if (res.ok) {
           const data = (await res.json()) as { passwordSet: boolean };
           setPasswordSet(data.passwordSet);
@@ -48,7 +52,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ password: newPassword })
+        body: JSON.stringify({ password: newPassword }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
@@ -67,7 +71,12 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
 
   const handleChangePassword = async (e: FormEvent) => {
     e.preventDefault();
-    if (!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword) return;
+    if (
+      !currentPassword ||
+      newPassword.length < 8 ||
+      newPassword !== confirmPassword
+    )
+      return;
     setError("");
     setMessage("");
     setLoading(true);
@@ -76,7 +85,7 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ currentPassword, newPassword })
+        body: JSON.stringify({ currentPassword, newPassword }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
@@ -92,12 +101,11 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
     }
   };
 
-  const mismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const mismatch =
+    confirmPassword.length > 0 && newPassword !== confirmPassword;
 
   if (passwordSet === null) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">Loading...</div>
-    );
+    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
   }
 
   return (
@@ -108,10 +116,14 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
         </h3>
         {!passwordSet && (
           <p className="mb-4 text-sm text-muted-foreground">
-            No password is set. Anyone who can reach this server has full access. Set a password to require authentication.
+            No password is set. Anyone who can reach this server has full
+            access. Set a password to require authentication.
           </p>
         )}
-        <form onSubmit={passwordSet ? handleChangePassword : handleSetPassword} className="max-w-sm space-y-3">
+        <form
+          onSubmit={passwordSet ? handleChangePassword : handleSetPassword}
+          className="max-w-sm space-y-3"
+        >
           {passwordSet && (
             <Input
               type="password"
@@ -123,7 +135,11 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
           )}
           <Input
             type="password"
-            placeholder={passwordSet ? "New password (min 8 characters)" : "Password (min 8 characters)"}
+            placeholder={
+              passwordSet
+                ? "New password (min 8 characters)"
+                : "Password (min 8 characters)"
+            }
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             data-testid="security-new-password"
@@ -135,15 +151,28 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
             onChange={(e) => setConfirmPassword(e.target.value)}
             data-testid="security-confirm-password"
           />
-          {mismatch && <p className="text-sm text-destructive">Passwords do not match.</p>}
+          {mismatch && (
+            <p className="text-sm text-destructive">Passwords do not match.</p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {message && <p className="text-sm text-status-working">{message}</p>}
           <Button
             type="submit"
             variant="primary"
-            disabled={loading || newPassword.length < 8 || newPassword !== confirmPassword || (passwordSet && !currentPassword)}
+            disabled={
+              loading ||
+              newPassword.length < 8 ||
+              newPassword !== confirmPassword ||
+              (passwordSet && !currentPassword)
+            }
           >
-            {loading ? (passwordSet ? "Changing..." : "Setting up...") : (passwordSet ? "Change password" : "Set password")}
+            {loading
+              ? passwordSet
+                ? "Changing..."
+                : "Setting up..."
+              : passwordSet
+                ? "Change password"
+                : "Set password"}
           </Button>
         </form>
       </div>
@@ -153,7 +182,11 @@ export function SecuritySettings({ onLogout }: SecuritySettingsProps): JSX.Eleme
           <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Session
           </h3>
-          <Button variant="destructive" onClick={onLogout} data-testid="logout-button">
+          <Button
+            variant="destructive"
+            onClick={onLogout}
+            data-testid="logout-button"
+          >
             Log out
           </Button>
         </div>

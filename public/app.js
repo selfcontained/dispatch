@@ -5,7 +5,7 @@ const state = {
   shouldKeepTerminalAttached: false,
   reconnectTimer: null,
   reconnectAttempts: 0,
-  activeAttachNonce: 0
+  activeAttachNonce: 0,
 };
 
 const el = {
@@ -28,7 +28,7 @@ const el = {
   lightbox: document.querySelector("[data-lightbox]"),
   lightboxImage: document.querySelector("[data-lightbox-image]"),
   lightboxCaption: document.querySelector("[data-lightbox-caption]"),
-  lightboxClose: document.querySelector("[data-lightbox-close]")
+  lightboxClose: document.querySelector("[data-lightbox-close]"),
 };
 
 const term = new window.Terminal({
@@ -38,8 +38,8 @@ const term = new window.Terminal({
   fontSize: 13,
   scrollback: 5000,
   theme: {
-    background: "#061714"
-  }
+    background: "#061714",
+  },
 });
 const fitAddon = new window.FitAddon.FitAddon();
 term.loadAddon(fitAddon);
@@ -51,9 +51,9 @@ async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: {
       ...(hasBody ? { "content-type": "application/json" } : {}),
-      ...(options.headers ?? {})
+      ...(options.headers ?? {}),
     },
-    ...options
+    ...options,
   });
 
   if (!response.ok) {
@@ -84,7 +84,9 @@ function setConnectionBadge(kind) {
 }
 
 function selectedAgent() {
-  return state.agents.find((agent) => agent.id === state.selectedAgentId) ?? null;
+  return (
+    state.agents.find((agent) => agent.id === state.selectedAgentId) ?? null
+  );
 }
 
 function renderAgents() {
@@ -129,7 +131,7 @@ function renderAgents() {
       if (agent.status !== "running") {
         await api(`/api/v1/agents/${agent.id}/start`, {
           method: "POST",
-          body: JSON.stringify({})
+          body: JSON.stringify({}),
         });
         await refreshAgents();
       }
@@ -144,7 +146,7 @@ function renderAgents() {
     stop.addEventListener("click", async () => {
       await api(`/api/v1/agents/${agent.id}/stop`, {
         method: "POST",
-        body: JSON.stringify({ force: true })
+        body: JSON.stringify({ force: true }),
       });
       if (state.selectedAgentId === agent.id) {
         closeSocket(false);
@@ -166,7 +168,7 @@ function renderAgents() {
       if (agent.status === "running") {
         await api(`/api/v1/agents/${agent.id}/stop`, {
           method: "POST",
-          body: JSON.stringify({ force: true })
+          body: JSON.stringify({ force: true }),
         });
       }
 
@@ -238,7 +240,7 @@ function sendTerminalResize() {
     JSON.stringify({
       type: "resize",
       cols: term.cols,
-      rows: term.rows
+      rows: term.rows,
     })
   );
 }
@@ -268,7 +270,7 @@ async function attachTerminal(clearScreen = true) {
 
   const tokenPayload = await api(`/api/v1/agents/${agent.id}/terminal/token`, {
     method: "POST",
-    body: JSON.stringify({})
+    body: JSON.stringify({}),
   });
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -287,7 +289,10 @@ async function attachTerminal(clearScreen = true) {
     const payload = JSON.parse(event.data);
     if (payload.type === "output" && typeof payload.data === "string") {
       term.write(payload.data);
-    } else if (payload.type === "error" && typeof payload.message === "string") {
+    } else if (
+      payload.type === "error" &&
+      typeof payload.message === "string"
+    ) {
       setStatus(`Terminal error: ${payload.message}`);
     } else if (payload.type === "exit") {
       setStatus("Terminal session ended.");
@@ -339,7 +344,10 @@ function scheduleReconnect(statusMessage) {
   }, delayMs);
 }
 
-async function ensureTerminalConnected(clearScreen = false, userInitiated = false) {
+async function ensureTerminalConnected(
+  clearScreen = false,
+  userInitiated = false
+) {
   if (userInitiated) {
     state.shouldKeepTerminalAttached = true;
   }
@@ -365,8 +373,8 @@ async function ensureTerminalConnected(clearScreen = false, userInitiated = fals
       return;
     }
 
-      await attachTerminal(clearScreen);
-      state.reconnectAttempts = 0;
+    await attachTerminal(clearScreen);
+    state.reconnectAttempts = 0;
   } catch (error) {
     setStatus(`Reconnect failed: ${error.message}`);
     scheduleReconnect("Retrying terminal reconnect...");
@@ -382,7 +390,7 @@ async function stopSelectedAgent() {
 
   await api(`/api/v1/agents/${agent.id}/stop`, {
     method: "POST",
-    body: JSON.stringify({ force: true })
+    body: JSON.stringify({ force: true }),
   });
 
   detachTerminal();
@@ -408,12 +416,12 @@ async function deleteSelectedAgent() {
   if (agent.status === "running") {
     await api(`/api/v1/agents/${agent.id}/stop`, {
       method: "POST",
-      body: JSON.stringify({ force: true })
+      body: JSON.stringify({ force: true }),
     });
   }
 
   await api(`/api/v1/agents/${agent.id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 
   if (state.selectedAgentId === agent.id) {
@@ -436,7 +444,7 @@ async function createAgent(event) {
 
   const payload = await api("/api/v1/agents", {
     method: "POST",
-    body: JSON.stringify({ name, cwd })
+    body: JSON.stringify({ name, cwd }),
   });
 
   closeCreateModal();

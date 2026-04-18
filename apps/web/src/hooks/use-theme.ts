@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type ThemeId = "default" | "cool-navy" | "oled-black" | "solarized-dark" | "light" | "vaporwave" | "matrix" | "midnight" | "mytra";
+export type ThemeId =
+  | "default"
+  | "cool-navy"
+  | "oled-black"
+  | "solarized-dark"
+  | "light"
+  | "vaporwave"
+  | "matrix"
+  | "midnight"
+  | "mytra";
 
 export type TerminalPalette = {
   minimumContrastRatio?: number;
@@ -199,7 +208,12 @@ export const THEMES: ThemeDefinition[] = [
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
-    terminal: { ...MONOKAI, background: "#0e1014", cursorAccent: "#0e1014", black: "#0e1014" },
+    terminal: {
+      ...MONOKAI,
+      background: "#0e1014",
+      cursorAccent: "#0e1014",
+      black: "#0e1014",
+    },
   },
   {
     id: "light",
@@ -227,14 +241,24 @@ export const THEMES: ThemeDefinition[] = [
     label: "Midnight",
     description: "OLED black with vibrant cyan & pink",
     swatches: ["#000000", "#58b8ff", "#ff5db1", "#f1e84f"],
-    terminal: { ...MONOKAI, background: "#000000", cursorAccent: "#000000", black: "#000000" },
+    terminal: {
+      ...MONOKAI,
+      background: "#000000",
+      cursorAccent: "#000000",
+      black: "#000000",
+    },
   },
   {
     id: "oled-black",
     label: "OLED Black",
     description: "True black for OLED screens",
     swatches: ["#000000", "#34d399", "#f0f0f0", "#222222"],
-    terminal: { ...MONOKAI, background: "#000000", cursorAccent: "#000000", black: "#000000" },
+    terminal: {
+      ...MONOKAI,
+      background: "#000000",
+      cursorAccent: "#000000",
+      black: "#000000",
+    },
   },
   {
     id: "solarized-dark",

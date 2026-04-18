@@ -42,7 +42,11 @@ export type GetPrStatusResult = {
   autoMergeEnabled: boolean;
   headRefName: string;
   baseRefName: string;
-  statusSummary: Array<{ name: string; status: string; conclusion: string | null }>;
+  statusSummary: Array<{
+    name: string;
+    status: string;
+    conclusion: string | null;
+  }>;
 };
 
 export class GitHubPrError extends Error {
@@ -61,14 +65,17 @@ export async function createPr(
 ): Promise<CreatePrResult> {
   const cwd = requireString(input.cwd, "cwd");
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
-  const baseBranch = (input.baseBranch?.trim() || "main");
+  const baseBranch = input.baseBranch?.trim() || "main";
   const branchName = await resolveCurrentBranch(repoRoot, commandRunner);
 
   if (!branchName) {
     throw new GitHubPrError("Current checkout is in detached HEAD state.", 409);
   }
   if (branchName === baseBranch) {
-    throw new GitHubPrError(`Current branch is already "${baseBranch}". Create the PR from a feature branch instead.`, 409);
+    throw new GitHubPrError(
+      `Current branch is already "${baseBranch}". Create the PR from a feature branch instead.`,
+      409
+    );
   }
 
   await ensureBaseBranchHasDiff(repoRoot, baseBranch, commandRunner);
@@ -89,10 +96,16 @@ export async function createPr(
   }
 
   if (!args.includes("--title") && !args.includes("--fill")) {
-    throw new GitHubPrError("create_pr requires title or fillFromCommits to avoid interactive gh prompts.", 400);
+    throw new GitHubPrError(
+      "create_pr requires title or fillFromCommits to avoid interactive gh prompts.",
+      400
+    );
   }
   if (!args.includes("--body") && !args.includes("--fill")) {
-    throw new GitHubPrError("create_pr requires body or fillFromCommits to avoid interactive gh prompts.", 400);
+    throw new GitHubPrError(
+      "create_pr requires body or fillFromCommits to avoid interactive gh prompts.",
+      400
+    );
   }
 
   const createResult = await commandRunner("gh", args, { cwd: repoRoot });
@@ -101,7 +114,10 @@ export async function createPr(
     throw new GitHubPrError("gh pr create did not return a PR URL.", 500);
   }
 
-  const status = await getPrStatus({ cwd: repoRoot, prNumber: undefined }, commandRunner);
+  const status = await getPrStatus(
+    { cwd: repoRoot, prNumber: undefined },
+    commandRunner
+  );
   return {
     repoRoot,
     branchName,
@@ -109,7 +125,7 @@ export async function createPr(
     prNumber: status.number,
     url,
     title: status.title,
-    isDraft: status.isDraft
+    isDraft: status.isDraft,
   };
 }
 
@@ -121,9 +137,10 @@ export async function getPrStatus(
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
 
   const args = [
-    "pr", "view",
+    "pr",
+    "view",
     "--json",
-    "number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup"
+    "number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup",
   ];
   if (input.prNumber) {
     args.splice(2, 0, String(input.prNumber));
@@ -141,24 +158,36 @@ export async function getPrStatus(
     reviewDecision: optionalStringField(parsed.reviewDecision),
     mergeStateStatus: optionalStringField(parsed.mergeStateStatus),
     mergeable: optionalStringField(parsed.mergeable),
-    autoMergeEnabled: parsed.autoMergeRequest !== null && parsed.autoMergeRequest !== undefined,
+    autoMergeEnabled:
+      parsed.autoMergeRequest !== null && parsed.autoMergeRequest !== undefined,
     headRefName: stringField(parsed.headRefName, "headRefName"),
     baseRefName: stringField(parsed.baseRefName, "baseRefName"),
-    statusSummary: parseStatusCheckRollup(parsed.statusCheckRollup)
+    statusSummary: parseStatusCheckRollup(parsed.statusCheckRollup),
   };
 }
 
-async function resolveRepoRoot(cwd: string, commandRunner: CommandRunner): Promise<string> {
+async function resolveRepoRoot(
+  cwd: string,
+  commandRunner: CommandRunner
+): Promise<string> {
   try {
     return (
-      await commandRunner("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { allowedExitCodes: [0] })
+      await commandRunner("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        allowedExitCodes: [0],
+      })
     ).stdout;
   } catch {
-    throw new GitHubPrError("No git repository found for the provided working directory.", 404);
+    throw new GitHubPrError(
+      "No git repository found for the provided working directory.",
+      404
+    );
   }
 }
 
-async function resolveCurrentBranch(repoRoot: string, commandRunner: CommandRunner): Promise<string | null> {
+async function resolveCurrentBranch(
+  repoRoot: string,
+  commandRunner: CommandRunner
+): Promise<string | null> {
   const result = await commandRunner(
     "git",
     ["-C", repoRoot, "symbolic-ref", "--short", "-q", "HEAD"],
@@ -168,25 +197,63 @@ async function resolveCurrentBranch(repoRoot: string, commandRunner: CommandRunn
   return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
-async function ensureBaseBranchHasDiff(repoRoot: string, baseBranch: string, commandRunner: CommandRunner): Promise<void> {
-  await commandRunner("git", ["-C", repoRoot, "fetch", "origin", baseBranch, "--quiet"]);
+async function ensureBaseBranchHasDiff(
+  repoRoot: string,
+  baseBranch: string,
+  commandRunner: CommandRunner
+): Promise<void> {
+  await commandRunner("git", [
+    "-C",
+    repoRoot,
+    "fetch",
+    "origin",
+    baseBranch,
+    "--quiet",
+  ]);
   const diffCount = (
-    await commandRunner("git", ["-C", repoRoot, "rev-list", "--count", `origin/${baseBranch}..HEAD`])
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "rev-list",
+      "--count",
+      `origin/${baseBranch}..HEAD`,
+    ])
   ).stdout;
   if (Number(diffCount) <= 0) {
-    throw new GitHubPrError(`Current branch has no commits ahead of origin/${baseBranch}.`, 409);
+    throw new GitHubPrError(
+      `Current branch has no commits ahead of origin/${baseBranch}.`,
+      409
+    );
   }
 }
 
-async function ensureRemoteBranch(repoRoot: string, branchName: string, commandRunner: CommandRunner): Promise<void> {
+async function ensureRemoteBranch(
+  repoRoot: string,
+  branchName: string,
+  commandRunner: CommandRunner
+): Promise<void> {
   const hasUpstream = await commandRunner(
     "git",
-    ["-C", repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    [
+      "-C",
+      repoRoot,
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{upstream}",
+    ],
     { allowedExitCodes: [0, 128] }
   );
 
   if (hasUpstream.exitCode !== 0 || !hasUpstream.stdout) {
-    await commandRunner("git", ["-C", repoRoot, "push", "--set-upstream", "origin", branchName]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "push",
+      "--set-upstream",
+      "origin",
+      branchName,
+    ]);
     return;
   }
 
@@ -202,10 +269,12 @@ function requireString(value: string | undefined, fieldName: string): string {
 }
 
 function firstNonEmptyLine(value: string): string | null {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? null;
+  return (
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? null
+  );
 }
 
 function stringField(value: unknown, fieldName: string): string {
@@ -233,7 +302,9 @@ function numberField(value: unknown, fieldName: string): number {
   return value;
 }
 
-function parseStatusCheckRollup(value: unknown): Array<{ name: string; status: string; conclusion: string | null }> {
+function parseStatusCheckRollup(
+  value: unknown
+): Array<{ name: string; status: string; conclusion: string | null }> {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -244,13 +315,16 @@ function parseStatusCheckRollup(value: unknown): Array<{ name: string; status: s
     }
 
     const record = item as Record<string, unknown>;
-    const name = typeof record.name === "string"
-      ? record.name
-      : typeof record.context === "string"
-        ? record.context
-        : "unknown";
-    const status = typeof record.status === "string" ? record.status : "UNKNOWN";
-    const conclusion = typeof record.conclusion === "string" ? record.conclusion : null;
+    const name =
+      typeof record.name === "string"
+        ? record.name
+        : typeof record.context === "string"
+          ? record.context
+          : "unknown";
+    const status =
+      typeof record.status === "string" ? record.status : "UNKNOWN";
+    const conclusion =
+      typeof record.conclusion === "string" ? record.conclusion : null;
     return [{ name, status, conclusion }];
   });
 }

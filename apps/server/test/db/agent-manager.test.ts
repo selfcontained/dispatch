@@ -1,16 +1,31 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Mock runCommand so AgentManager never touches tmux
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async (_cmd: string, args: string[]) => {
     // "has-session" check: pretend session exists after creation
     if (args[0] === "has-session") {
@@ -21,7 +36,8 @@ vi.mock("@dispatch/shared/lib/run-command.js", () => ({
 }));
 
 // We need to dynamically import AgentManager AFTER the mock is in place
-const { AgentManager, AgentError } = await import("../../src/agents/manager.js");
+const { AgentManager, AgentError } =
+  await import("../../src/agents/manager.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
@@ -80,19 +96,24 @@ beforeEach(async () => {
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM agents");
 
-  const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
-  vi.mocked(runCommand).mockImplementation(async (_cmd: string, args: string[]) => {
-    if (args[0] === "has-session") {
+  const { runCommand } = await import("../../src/shared/lib/run-command.js");
+  vi.mocked(runCommand).mockImplementation(
+    async (_cmd: string, args: string[]) => {
+      if (args[0] === "has-session") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
       return { exitCode: 0, stdout: "", stderr: "" };
     }
-    return { exitCode: 0, stdout: "", stderr: "" };
-  });
+  );
 });
 
 describe("AgentManager", () => {
   describe("createAgent", () => {
     it("should create an agent and return it", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       expect(agent.id).toMatch(/^agt_/);
       expect(agent.status).toBe("creating");
@@ -105,23 +126,48 @@ describe("AgentManager", () => {
     });
 
     it("should use a custom name when provided", async () => {
-      const agent = await manager.createAgent({ name: "my-agent", cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        name: "my-agent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.name).toBe("my-agent");
     });
 
     it("should generate a default name from ID suffix", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.name).toMatch(/^agent-/);
     });
 
     it("should support claude agent type", async () => {
-      const agent = await manager.createAgent({ type: "claude", cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        type: "claude",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.type).toBe("claude");
     });
 
     it("should support opencode agent type", async () => {
-      const agent = await manager.createAgent({ type: "opencode", cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        type: "opencode",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.type).toBe("opencode");
+    });
+
+    it("should persist reviewAgentType when provided", async () => {
+      const agent = await manager.createAgent({
+        type: "codex",
+        reviewAgentType: "claude",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      expect(agent.reviewAgentType).toBe("claude");
     });
 
     it("should store agentArgs", async () => {
@@ -142,10 +188,44 @@ describe("AgentManager", () => {
       expect(agent.fullAccess).toBe(true);
     });
 
+    it("should persist autoReview", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        autoReview: true,
+        useWorktree: false,
+      });
+      expect(agent.autoReview).toBe(true);
+    });
+
+    it("should default autoReview to false", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      expect(agent.autoReview).toBe(false);
+    });
+
+    it("should persist baseBranch when provided", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        baseBranch: "feature/foo",
+        useWorktree: false,
+      });
+      expect(agent.baseBranch).toBe("feature/foo");
+    });
+
+    it("should default baseBranch to null when not provided", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      expect(agent.baseBranch).toBeNull();
+    });
+
     it("should reject non-absolute paths", async () => {
-      await expect(manager.createAgent({ cwd: "relative/path" })).rejects.toThrow(
-        "absolute path"
-      );
+      await expect(
+        manager.createAgent({ cwd: "relative/path" })
+      ).rejects.toThrow("absolute path");
     });
 
     it("should reject non-existent directories", async () => {
@@ -155,40 +235,75 @@ describe("AgentManager", () => {
     });
 
     it("should create inert agents without invoking tmux", async () => {
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       vi.mocked(runCommand).mockClear();
 
-      const agent = await inertManager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await inertManager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       expect(agent.status).toBe("running");
       expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
     });
 
     it("should inject an agent-scoped MCP URL into Codex launches", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        useWorktree: false,
+      });
 
       // The setup script should contain the MCP configuration
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).toContain("mcp_servers.dispatch.url=");
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
-      expect(setupScript).toContain("mcp_servers.dispatch.bearer_token_env_var=");
+      expect(setupScript).toContain(
+        "mcp_servers.dispatch.bearer_token_env_var="
+      );
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
-      expect(setupScript).toContain("do not start repo work or infer a task from branch/worktree context alone");
+      expect(setupScript).toContain(
+        "do not start repo work or infer a task from branch/worktree context alone"
+      );
       expect(setupScript).toContain("dispatch_rename_session");
+      expect(setupScript).toContain("short topic/goal/feature name");
+      expect(setupScript).toContain(
+        "stable label for the task, not as a live status update"
+      );
     });
 
     it("should skip rename guidance when the user provided a custom name", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", name: "bug bash", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        name: "bug bash",
+        useWorktree: false,
+      });
 
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).not.toContain("dispatch_rename_session");
     });
 
     it("should skip rename guidance for custom names that resemble the default pattern", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "codex", name: "agent-foobar", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        name: "agent-foobar",
+        useWorktree: false,
+      });
 
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).not.toContain("dispatch_rename_session");
     });
 
@@ -201,7 +316,10 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).not.toContain("dispatch_rename_session");
     });
 
@@ -210,28 +328,50 @@ describe("AgentManager", () => {
         cwd: "/tmp",
         type: "codex",
         useWorktree: false,
-        agentArgs: ["--append-system-prompt", "Persona review instructions", "--model", "gpt-5"],
+        agentArgs: [
+          "--append-system-prompt",
+          "Persona review instructions",
+          "--model",
+          "gpt-5",
+        ],
       });
 
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).toContain("Persona review instructions");
       expect(setupScript).toContain("--model");
       expect(setupScript).not.toContain("--append-system-prompt");
     });
 
     it("should inject an agent-scoped MCP URL into Claude launches", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        useWorktree: false,
+      });
 
       // The setup script should contain the MCP configuration
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).toContain("--mcp-config");
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
     });
 
     it("should inject an agent-scoped MCP config into OpenCode launches without inline JSON quoting bugs", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "opencode", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "opencode",
+        useWorktree: false,
+      });
 
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).toContain(`MCP_ENTRY='{"type":"remote"`);
       expect(setupScript).toContain(`node --input-type=module -e`);
       expect(setupScript).toContain(`/api/mcp/${agent.id}`);
@@ -239,7 +379,9 @@ describe("AgentManager", () => {
     });
 
     it("should execute the generated OpenCode MCP config merge script", async () => {
-      const tempDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-opencode-config-"));
+      const tempDir = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-opencode-config-")
+      );
       try {
         await writeFile(
           path.join(tempDir, "opencode.json"),
@@ -251,33 +393,157 @@ describe("AgentManager", () => {
           })
         );
 
-        const agent = await manager.createAgent({ cwd: "/tmp", type: "opencode", useWorktree: false });
-        const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type: "opencode",
+          useWorktree: false,
+        });
+        const setupScript = await readFile(
+          `/tmp/dispatch_setup_${agent.id}.sh`,
+          "utf-8"
+        );
         const configBlock = setupScript.match(
           /# --- Configure opencode MCP ---\n(?<block>[\s\S]*?)\n# exec replaces this shell/
         )?.groups?.block;
         expect(configBlock).toBeTruthy();
 
-        await execFileAsync("bash", ["-c", `set -euo pipefail\nok() { :; }\nEFFECTIVE_CWD=${JSON.stringify(tempDir)}\n${configBlock}`]);
+        await execFileAsync("bash", [
+          "-c",
+          `set -euo pipefail\nok() { :; }\nEFFECTIVE_CWD=${JSON.stringify(tempDir)}\n${configBlock}`,
+        ]);
 
-        const config = JSON.parse(await readFile(path.join(tempDir, "opencode.json"), "utf-8"));
+        const config = JSON.parse(
+          await readFile(path.join(tempDir, "opencode.json"), "utf-8")
+        );
         expect(config.theme).toBe("system");
-        expect(config.mcp.existing).toEqual({ type: "local", command: ["echo", "ok"] });
+        expect(config.mcp.existing).toEqual({
+          type: "local",
+          command: ["echo", "ok"],
+        });
         expect(config.mcp.dispatch).toEqual({
           type: "remote",
           url: `http://127.0.0.1:6767/api/mcp/${agent.id}`,
-          headers: { Authorization: `Bearer ${createAgentMcpToken("test-token", agent.id)}` },
+          headers: {
+            Authorization: `Bearer ${createAgentMcpToken("test-token", agent.id)}`,
+          },
         });
       } finally {
         await rm(tempDir, { recursive: true, force: true });
       }
     });
 
+    it("should include autonomous review guidance when autoReview is true", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("list_personas");
+      expect(setupScript).toContain("dispatch_launch_persona");
+      expect(setupScript).toContain("dispatch_get_feedback");
+      expect(setupScript).toContain("launch 1 relevant reviewer");
+      expect(setupScript).not.toContain("Only launch additional reviewers");
+    });
+
+    it("should include draft PR guidance in autonomous review", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("open a draft PR via create_pr");
+      expect(setupScript).toContain("do not override baseBranch");
+    });
+
+    it("should not include autonomous review guidance when autoReview is false", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: false,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+    });
+
+    it("should not include autonomous review guidance for persona agents even if autoReview is true", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        persona: "security-review",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+    });
+
+    it("should include autonomous review guidance for Codex agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        autoReview: true,
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("list_personas");
+    });
+
+    it("should not include autonomous review guidance for job agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        autoReview: true,
+        jobRunId: "run_abc123",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).not.toContain("Autonomous Review is enabled");
+      expect(setupScript).toContain("Dispatch job startup rules");
+    });
+
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: true });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        useWorktree: true,
+      });
 
       expect(agent.setupPhase).toBe("worktree");
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).toContain("Creating git worktree");
       expect(setupScript).toContain("Copying environment files");
       expect(setupScript).toContain("Installing dependencies");
@@ -287,17 +553,27 @@ describe("AgentManager", () => {
     });
 
     it("should skip worktree steps in setup script when useWorktree is false", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", type: "claude", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "claude",
+        useWorktree: false,
+      });
 
       expect(agent.setupPhase).toBe("session");
-      const setupScript = await readFile(`/tmp/dispatch_setup_${agent.id}.sh`, "utf-8");
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(setupScript).not.toContain("Creating git worktree");
       expect(setupScript).toContain("Starting agent session");
       expect(setupScript).toContain("exec bash");
     });
 
     it("should complete setup and transition to running", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.status).toBe("creating");
 
       const updated = await manager.completeSetup(agent.id, {
@@ -321,8 +597,16 @@ describe("AgentManager", () => {
     });
 
     it("should list created agents in descending order", async () => {
-      await manager.createAgent({ name: "first", cwd: "/tmp", useWorktree: false });
-      await manager.createAgent({ name: "second", cwd: "/tmp", useWorktree: false });
+      await manager.createAgent({
+        name: "first",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.createAgent({
+        name: "second",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const agents = await manager.listAgents();
       expect(agents.length).toBe(2);
@@ -331,7 +615,11 @@ describe("AgentManager", () => {
     });
 
     it("should fetch a single agent by ID", async () => {
-      const created = await manager.createAgent({ name: "fetch-me", cwd: "/tmp", useWorktree: false });
+      const created = await manager.createAgent({
+        name: "fetch-me",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const fetched = await manager.getAgent(created.id);
 
       expect(fetched).not.toBeNull();
@@ -339,18 +627,75 @@ describe("AgentManager", () => {
       expect(fetched!.name).toBe("fetch-me");
     });
 
-    it("should rename an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+    it("should round-trip autoReview through getAgent", async () => {
+      const created = await manager.createAgent({
+        cwd: "/tmp",
+        autoReview: true,
+        useWorktree: false,
+      });
+      const fetched = await manager.getAgent(created.id);
 
-      const renamed = await manager.renameAgent(agent.id, "Investigate flaky e2e");
+      expect(fetched).not.toBeNull();
+      expect(fetched!.autoReview).toBe(true);
+    });
+
+    it("should include autoReview in listAgents results", async () => {
+      await manager.createAgent({
+        name: "review-on",
+        cwd: "/tmp",
+        autoReview: true,
+        useWorktree: false,
+      });
+      await manager.createAgent({
+        name: "review-off",
+        cwd: "/tmp",
+        autoReview: false,
+        useWorktree: false,
+      });
+
+      const agents = await manager.listAgents();
+      const reviewOn = agents.find((a) => a.name === "review-on");
+      const reviewOff = agents.find((a) => a.name === "review-off");
+
+      expect(reviewOn!.autoReview).toBe(true);
+      expect(reviewOff!.autoReview).toBe(false);
+    });
+
+    it("should rename an agent", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const renamed = await manager.renameAgent(
+        agent.id,
+        "Investigate flaky e2e"
+      );
 
       expect(renamed.name).toBe("Investigate flaky e2e");
     });
 
     it("should reject empty agent names when renaming", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
-      await expect(manager.renameAgent(agent.id, "   ")).rejects.toThrow("Agent name must not be empty.");
+      await expect(manager.renameAgent(agent.id, "   ")).rejects.toThrow(
+        "Agent name must not be empty."
+      );
+    });
+
+    it("should update reviewAgentType", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.updateReviewAgentType(agent.id, "opencode");
+      const updated = await manager.getAgent(agent.id);
+
+      expect(updated?.reviewAgentType).toBe("opencode");
     });
   });
 
@@ -368,7 +713,10 @@ describe("AgentManager", () => {
 
   describe("upsertLatestEvent", () => {
     it("should persist an event on an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const updated = await manager.upsertLatestEvent(agent.id, {
         type: "working",
@@ -382,7 +730,10 @@ describe("AgentManager", () => {
     });
 
     it("should overwrite a previous event", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       await manager.upsertLatestEvent(agent.id, {
         type: "working",
@@ -399,7 +750,10 @@ describe("AgentManager", () => {
     });
 
     it("should store metadata", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const updated = await manager.upsertLatestEvent(agent.id, {
         type: "blocked",
@@ -414,7 +768,10 @@ describe("AgentManager", () => {
     });
 
     it("should reject empty message", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       await expect(
         manager.upsertLatestEvent(agent.id, { type: "working", message: "  " })
@@ -437,7 +794,10 @@ describe("AgentManager", () => {
 
   describe("archiveAgent", () => {
     /** Helper: run the full beginArchive + executeArchive flow and wait for completion. */
-    async function archiveAgent(id: string, cleanupWorktree: "auto" | "keep" | "force" = "auto"): Promise<void> {
+    async function archiveAgent(
+      id: string,
+      cleanupWorktree: "auto" | "keep" | "force" = "auto"
+    ): Promise<void> {
       await manager.beginArchive(id, cleanupWorktree);
       await new Promise<void>((resolve, reject) => {
         void manager.executeArchive(id, {
@@ -449,7 +809,10 @@ describe("AgentManager", () => {
     }
 
     it("should soft-delete an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       // Stop first so beginArchive doesn't need force
       await manager.stopAgent(agent.id, { force: true });
@@ -460,13 +823,19 @@ describe("AgentManager", () => {
       expect(fetched).toBeNull();
 
       // But the row still exists in the database with deleted_at set
-      const row = await pool.query("SELECT deleted_at FROM agents WHERE id = $1", [agent.id]);
+      const row = await pool.query(
+        "SELECT deleted_at FROM agents WHERE id = $1",
+        [agent.id]
+      );
       expect(row.rowCount).toBe(1);
       expect(row.rows[0].deleted_at).not.toBeNull();
     });
 
     it("should exclude soft-deleted agents from listAgents", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.stopAgent(agent.id, { force: true });
       await archiveAgent(agent.id);
 
@@ -475,7 +844,10 @@ describe("AgentManager", () => {
     });
 
     it("should preserve media rows after soft delete", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       // Insert media directly
       await pool.query(
@@ -490,8 +862,14 @@ describe("AgentManager", () => {
       await archiveAgent(agent.id);
 
       // Media rows are preserved since soft delete doesn't trigger CASCADE
-      const media = await pool.query("SELECT * FROM media WHERE agent_id = $1", [agent.id]);
-      const seen = await pool.query("SELECT * FROM media_seen WHERE agent_id = $1", [agent.id]);
+      const media = await pool.query(
+        "SELECT * FROM media WHERE agent_id = $1",
+        [agent.id]
+      );
+      const seen = await pool.query(
+        "SELECT * FROM media_seen WHERE agent_id = $1",
+        [agent.id]
+      );
       expect(media.rowCount).toBe(1);
       expect(seen.rowCount).toBe(1);
     });
@@ -507,7 +885,10 @@ describe("AgentManager", () => {
     });
 
     it("should set status to archiving during beginArchive", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.stopAgent(agent.id, { force: true });
 
       const archiving = await manager.beginArchive(agent.id);
@@ -516,7 +897,10 @@ describe("AgentManager", () => {
     });
 
     it("should reject archiving an already-archiving agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.stopAgent(agent.id, { force: true });
       await manager.beginArchive(agent.id);
 
@@ -532,7 +916,10 @@ describe("AgentManager", () => {
 
   describe("stopAgent", () => {
     it("should stop an agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       expect(agent.status).toBe("creating");
 
       const stopped = await manager.stopAgent(agent.id, { force: true });
@@ -540,7 +927,10 @@ describe("AgentManager", () => {
     });
 
     it("should be a no-op for already stopped agent", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.stopAgent(agent.id, { force: true });
 
       const result = await manager.stopAgent(agent.id);
@@ -548,7 +938,8 @@ describe("AgentManager", () => {
     });
 
     it("should stop inert agents without invoking tmux", async () => {
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
       const agent = await inertManager.createAgent({ cwd: "/tmp" });
       vi.mocked(runCommand).mockClear();
@@ -562,7 +953,10 @@ describe("AgentManager", () => {
 
   describe("reconcileAgents", () => {
     it("should mark agents as stopped when tmux session is gone", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.completeSetup(agent.id, {
         effectiveCwd: "/tmp",
         worktreePath: null,
@@ -570,7 +964,8 @@ describe("AgentManager", () => {
       });
 
       // Now make tmux report no session
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -595,11 +990,18 @@ describe("AgentManager", () => {
     });
 
     it("should surface startup crashes as blocked errors with setup details", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:2");
-      await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "error: unexpected argument '--append-system-prompt' found\n");
+      await writeFile(
+        `/tmp/dispatch_setup_${agent.id}.log`,
+        "error: unexpected argument '--append-system-prompt' found\n"
+      );
 
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -623,21 +1025,32 @@ describe("AgentManager", () => {
       expect(reconciled!.status).toBe("error");
       expect(reconciled!.latestEvent?.type).toBe("blocked");
       expect(reconciled!.latestEvent?.message).toContain("Launch failed");
-      expect(reconciled!.latestEvent?.message).toContain("unexpected argument '--append-system-prompt'");
-      expect(reconciled!.lastError).toContain("unexpected argument '--append-system-prompt'");
+      expect(reconciled!.latestEvent?.message).toContain(
+        "unexpected argument '--append-system-prompt'"
+      );
+      expect(reconciled!.lastError).toContain(
+        "unexpected argument '--append-system-prompt'"
+      );
     });
 
     it("should not classify a clean exit as an error from generic stderr text", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       await manager.completeSetup(agent.id, {
         effectiveCwd: "/tmp",
         worktreePath: null,
-        worktreeBranch: null
+        worktreeBranch: null,
       });
       await writeFile(`/tmp/dispatch_${agent.tmuxSession}.exit`, "EXIT:0");
-      await writeFile(`/tmp/dispatch_setup_${agent.id}.log`, "warning: previous command printed an error banner\n");
+      await writeFile(
+        `/tmp/dispatch_setup_${agent.id}.log`,
+        "warning: previous command printed an error banner\n"
+      );
 
-      const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
       const mockRunCommand = vi.mocked(runCommand);
       mockRunCommand.mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
@@ -660,19 +1073,27 @@ describe("AgentManager", () => {
       const reconciled = await manager.getAgent(agent.id);
       expect(reconciled!.status).toBe("stopped");
       expect(reconciled!.latestEvent?.type).toBe("idle");
-      expect(reconciled!.latestEvent?.message).toContain("Session ended normally.");
+      expect(reconciled!.latestEvent?.message).toContain(
+        "Session ended normally."
+      );
       expect(reconciled!.latestEvent?.message).toContain("error banner");
     });
 
     it("should capture a missing-session diagnostic snapshot", async () => {
-      const tempHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-agent-manager-home-"));
+      const tempHome = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-agent-manager-home-")
+      );
       const previousHome = process.env.HOME;
       process.env.HOME = tempHome;
 
       try {
-        const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
 
-        const { runCommand } = await import("@dispatch/shared/lib/run-command.js");
+        const { runCommand } =
+          await import("../../src/shared/lib/run-command.js");
         const mockRunCommand = vi.mocked(runCommand);
         mockRunCommand.mockClear();
         mockRunCommand.mockImplementation(async (_cmd, args) => {
@@ -689,7 +1110,11 @@ describe("AgentManager", () => {
             return { exitCode: 0, stdout: "", stderr: "" };
           }
           if (_cmd === "ps") {
-            return { exitCode: 0, stdout: "  PID  PPID  PGID USER COMMAND\n", stderr: "" };
+            return {
+              exitCode: 0,
+              stdout: "  PID  PPID  PGID USER COMMAND\n",
+              stderr: "",
+            };
           }
           if (_cmd === "launchctl") {
             return { exitCode: 0, stdout: "launchctl snapshot", stderr: "" };
@@ -701,13 +1126,22 @@ describe("AgentManager", () => {
 
         const diagnosticsDir = path.join(tempHome, ".dispatch", "diagnostics");
         const files = await readdir(diagnosticsDir);
-        const incidentFile = files.find((file) => file.includes(`missing-session-${agent.id}.json`));
+        const incidentFile = files.find((file) =>
+          file.includes(`missing-session-${agent.id}.json`)
+        );
         expect(incidentFile).toBeTruthy();
 
-        const incidentRaw = await readFile(path.join(diagnosticsDir, incidentFile!), "utf-8");
+        const incidentRaw = await readFile(
+          path.join(diagnosticsDir, incidentFile!),
+          "utf-8"
+        );
         const incident = JSON.parse(incidentRaw) as {
           incident: string;
-          agent: { agentId: string; tmuxSession: string; exitInfo: number | null };
+          agent: {
+            agentId: string;
+            tmuxSession: string;
+            exitInfo: number | null;
+          };
           tmux: { sessions: { exitCode: number; stderr: string } };
           launchctl: { stdout: string };
         };
@@ -728,8 +1162,16 @@ describe("AgentManager", () => {
   describe("listFeedbackByParentGrouped", () => {
     it("should only return feedback from the requested parent's children", async () => {
       // Create two parent agents
-      const parentA = await manager.createAgent({ name: "parent-a", cwd: "/tmp", useWorktree: false });
-      const parentB = await manager.createAgent({ name: "parent-b", cwd: "/tmp", useWorktree: false });
+      const parentA = await manager.createAgent({
+        name: "parent-a",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const parentB = await manager.createAgent({
+        name: "parent-b",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       // Create persona children for each parent
       const childA = await manager.createAgent({
@@ -766,7 +1208,9 @@ describe("AgentManager", () => {
       expect(resultA.personas[0].persona).toBe("security-review");
       expect(resultA.personas[0].agentId).toBe(childA.id);
       expect(resultA.personas[0].feedback).toHaveLength(1);
-      expect(resultA.personas[0].feedback[0].description).toBe("SQL injection in login handler");
+      expect(resultA.personas[0].feedback[0].description).toBe(
+        "SQL injection in login handler"
+      );
 
       // Parent B should only see child B's feedback
       const resultB = await manager.listFeedbackByParentGrouped(parentB.id);
@@ -774,18 +1218,28 @@ describe("AgentManager", () => {
       expect(resultB.personas[0].persona).toBe("ux-review");
       expect(resultB.personas[0].agentId).toBe(childB.id);
       expect(resultB.personas[0].feedback).toHaveLength(1);
-      expect(resultB.personas[0].feedback[0].description).toBe("Button color contrast");
+      expect(resultB.personas[0].feedback[0].description).toBe(
+        "Button color contrast"
+      );
     });
 
     it("should return empty personas array when agent has no children", async () => {
-      const parent = await manager.createAgent({ name: "lonely-parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "lonely-parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const result = await manager.listFeedbackByParentGrouped(parent.id);
       expect(result.personas).toHaveLength(0);
     });
 
     it("should filter by persona name", async () => {
-      const parent = await manager.createAgent({ name: "multi-parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "multi-parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const secChild = await manager.createAgent({
         name: "sec-child",
@@ -805,14 +1259,21 @@ describe("AgentManager", () => {
       await manager.submitFeedback(secChild.id, { description: "sec finding" });
       await manager.submitFeedback(uxChild.id, { description: "ux finding" });
 
-      const filtered = await manager.listFeedbackByParentGrouped(parent.id, "security-review");
+      const filtered = await manager.listFeedbackByParentGrouped(
+        parent.id,
+        "security-review"
+      );
       expect(filtered.personas).toHaveLength(1);
       expect(filtered.personas[0].persona).toBe("security-review");
       expect(filtered.personas[0].feedback[0].description).toBe("sec finding");
     });
 
     it("should group multiple feedback items under the same persona", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const child = await manager.createAgent({
         name: "child",
         cwd: "/tmp",
@@ -821,8 +1282,14 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      await manager.submitFeedback(child.id, { severity: "critical", description: "finding 1" });
-      await manager.submitFeedback(child.id, { severity: "low", description: "finding 2" });
+      await manager.submitFeedback(child.id, {
+        severity: "critical",
+        description: "finding 1",
+      });
+      await manager.submitFeedback(child.id, {
+        severity: "low",
+        description: "finding 2",
+      });
 
       const result = await manager.listFeedbackByParentGrouped(parent.id);
       expect(result.personas).toHaveLength(1);
@@ -834,7 +1301,11 @@ describe("AgentManager", () => {
 
   describe("updateFeedbackStatusByParent", () => {
     it("should allow a parent to resolve its child's feedback", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const child = await manager.createAgent({
         name: "child",
         cwd: "/tmp",
@@ -848,15 +1319,27 @@ describe("AgentManager", () => {
         description: "XSS vulnerability",
       });
 
-      const updated = await manager.updateFeedbackStatusByParent(feedback.id, parent.id, "fixed");
+      const updated = await manager.updateFeedbackStatusByParent(
+        feedback.id,
+        parent.id,
+        "fixed"
+      );
       expect(updated).not.toBeNull();
       expect(updated!.id).toBe(feedback.id);
       expect(updated!.status).toBe("fixed");
     });
 
     it("should return null when parent does not own the child", async () => {
-      const parentA = await manager.createAgent({ name: "parent-a", cwd: "/tmp", useWorktree: false });
-      const parentB = await manager.createAgent({ name: "parent-b", cwd: "/tmp", useWorktree: false });
+      const parentA = await manager.createAgent({
+        name: "parent-a",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const parentB = await manager.createAgent({
+        name: "parent-b",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const child = await manager.createAgent({
         name: "child",
         cwd: "/tmp",
@@ -865,23 +1348,41 @@ describe("AgentManager", () => {
         parentAgentId: parentA.id,
       });
 
-      const feedback = await manager.submitFeedback(child.id, { description: "finding" });
+      const feedback = await manager.submitFeedback(child.id, {
+        description: "finding",
+      });
 
-      const result = await manager.updateFeedbackStatusByParent(feedback.id, parentB.id, "ignored");
+      const result = await manager.updateFeedbackStatusByParent(
+        feedback.id,
+        parentB.id,
+        "ignored"
+      );
       expect(result).toBeNull();
     });
 
     it("should return null for non-existent feedback id", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
-      const result = await manager.updateFeedbackStatusByParent(99999, parent.id, "fixed");
+      const result = await manager.updateFeedbackStatusByParent(
+        99999,
+        parent.id,
+        "fixed"
+      );
       expect(result).toBeNull();
     });
   });
 
   describe("listRecentPersonaReviews", () => {
     it("should return reviews created within the time window", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const child = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
@@ -916,7 +1417,11 @@ describe("AgentManager", () => {
 
   describe("listRecentFeedback", () => {
     it("should return feedback with persona info within the time window", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const child = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
@@ -963,13 +1468,20 @@ describe("AgentManager", () => {
     });
 
     it("should default cliSessionId to null", async () => {
-      const agent = await manager.createAgent({ cwd: "/tmp", useWorktree: false });
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       expect(agent.cliSessionId).toBeNull();
     });
 
     it("should persist cliSessionId for persona agents", async () => {
-      const parent = await manager.createAgent({ name: "parent", cwd: "/tmp", useWorktree: false });
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       const persona = await manager.createAgent({
         name: "sec-review",
         cwd: "/tmp",
@@ -981,7 +1493,9 @@ describe("AgentManager", () => {
 
       // Re-fetch to verify persistence
       const fetched = await manager.getAgent(persona.id);
-      expect(fetched!.cliSessionId).toBe("11111111-2222-3333-4444-555555555555");
+      expect(fetched!.cliSessionId).toBe(
+        "11111111-2222-3333-4444-555555555555"
+      );
       expect(fetched!.parentAgentId).toBe(parent.id);
     });
   });
@@ -998,7 +1512,8 @@ describe("AgentManager", () => {
     });
 
     it("should harvest only the persona's session for a persona agent", async () => {
-      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
       const { mkdir, writeFile } = await import("node:fs/promises");
 
       const projectDir = cwdToClaudeProjectDir(tmpDir);
@@ -1010,12 +1525,21 @@ describe("AgentManager", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-04-01T10:00:00.000Z",
         });
 
-      await writeFile(path.join(projectDir, `${parentSessionId}.jsonl`), makeEntry(1000) + "\n");
-      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(200) + "\n");
+      await writeFile(
+        path.join(projectDir, `${parentSessionId}.jsonl`),
+        makeEntry(1000) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, `${personaSessionId}.jsonl`),
+        makeEntry(200) + "\n"
+      );
 
       // Create parent + persona agents sharing the same cwd
       const parent = await manager.createAgent({
@@ -1055,7 +1579,8 @@ describe("AgentManager", () => {
     });
 
     it("should exclude persona sessions when harvesting the parent agent", async () => {
-      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
       const { mkdir, writeFile } = await import("node:fs/promises");
 
       const projectDir = cwdToClaudeProjectDir(tmpDir);
@@ -1066,7 +1591,10 @@ describe("AgentManager", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-04-01T10:00:00.000Z",
         });
 
@@ -1079,8 +1607,14 @@ describe("AgentManager", () => {
       });
 
       // Create session files using the parent's auto-generated session ID
-      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(800) + "\n");
-      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(150) + "\n");
+      await writeFile(
+        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
+        makeEntry(800) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, `${personaSessionId}.jsonl`),
+        makeEntry(150) + "\n"
+      );
 
       await manager.createAgent({
         name: "persona-child",
@@ -1112,7 +1646,8 @@ describe("AgentManager", () => {
     });
 
     it("should handle parent with multiple personas — each only gets its own session", async () => {
-      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
       const { mkdir, writeFile } = await import("node:fs/promises");
 
       const projectDir = cwdToClaudeProjectDir(tmpDir);
@@ -1124,7 +1659,10 @@ describe("AgentManager", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-04-01T10:00:00.000Z",
         });
 
@@ -1135,9 +1673,18 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(500) + "\n");
-      await writeFile(path.join(projectDir, `${persona1SessionId}.jsonl`), makeEntry(100) + "\n");
-      await writeFile(path.join(projectDir, `${persona2SessionId}.jsonl`), makeEntry(75) + "\n");
+      await writeFile(
+        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
+        makeEntry(500) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, `${persona1SessionId}.jsonl`),
+        makeEntry(100) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, `${persona2SessionId}.jsonl`),
+        makeEntry(75) + "\n"
+      );
 
       await manager.createAgent({
         name: "sec-persona",
@@ -1172,7 +1719,8 @@ describe("AgentManager", () => {
     });
 
     it("should harvest only the agent's own session file", async () => {
-      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
       const { mkdir, writeFile } = await import("node:fs/promises");
 
       const projectDir = cwdToClaudeProjectDir(tmpDir);
@@ -1181,7 +1729,10 @@ describe("AgentManager", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-04-01T10:00:00.000Z",
         });
 
@@ -1193,8 +1744,14 @@ describe("AgentManager", () => {
       });
 
       // Create the agent's session file and an unrelated one
-      await writeFile(path.join(projectDir, `${agent.cliSessionId}.jsonl`), makeEntry(300) + "\n");
-      await writeFile(path.join(projectDir, "unrelated-session.jsonl"), makeEntry(400) + "\n");
+      await writeFile(
+        path.join(projectDir, `${agent.cliSessionId}.jsonl`),
+        makeEntry(300) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, "unrelated-session.jsonl"),
+        makeEntry(400) + "\n"
+      );
 
       await manager.harvestAgentTokens(agent);
 
@@ -1215,7 +1772,8 @@ describe("AgentManager", () => {
     });
 
     it("should ignore unrelated and persona sessions in the same project dir", async () => {
-      const { cwdToClaudeProjectDir } = await import("../../src/agents/token-harvester.js");
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
       const { mkdir, writeFile } = await import("node:fs/promises");
 
       const projectDir = cwdToClaudeProjectDir(tmpDir);
@@ -1226,7 +1784,10 @@ describe("AgentManager", () => {
       const makeEntry = (tokens: number) =>
         JSON.stringify({
           type: "assistant",
-          message: { model: "claude-opus-4-6", usage: { input_tokens: tokens, output_tokens: 10 } },
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: tokens, output_tokens: 10 },
+          },
           timestamp: "2026-04-01T10:00:00.000Z",
         });
 
@@ -1238,9 +1799,18 @@ describe("AgentManager", () => {
       });
 
       // Create parent's session, a persona session, and an unrelated old session
-      await writeFile(path.join(projectDir, `${parent.cliSessionId}.jsonl`), makeEntry(300) + "\n");
-      await writeFile(path.join(projectDir, `${personaSessionId}.jsonl`), makeEntry(50) + "\n");
-      await writeFile(path.join(projectDir, "old-unrelated.jsonl"), makeEntry(999) + "\n");
+      await writeFile(
+        path.join(projectDir, `${parent.cliSessionId}.jsonl`),
+        makeEntry(300) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, `${personaSessionId}.jsonl`),
+        makeEntry(50) + "\n"
+      );
+      await writeFile(
+        path.join(projectDir, "old-unrelated.jsonl"),
+        makeEntry(999) + "\n"
+      );
 
       await manager.createAgent({
         name: "persona",

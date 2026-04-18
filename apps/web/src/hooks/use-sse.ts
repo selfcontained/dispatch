@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type Agent, type AuthState } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
+import { showWebNotification } from "@/lib/web-notifications";
 
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
@@ -14,14 +15,22 @@ type UiEvent =
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
-  | { type: "job.changed" };
+  | { type: "job.changed" }
+  | {
+      type: "notification";
+      notificationId: string;
+      agentId: string;
+      agentName: string;
+      eventType: string;
+      message: string;
+    };
 
 export function useSSE(
   authState: AuthState,
   connectedAgentIdRef: React.RefObject<string | null>,
   selectedAgentIdRef: React.RefObject<string | null>,
   setStreamingAgentIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-  markSeenInCache: (agentId: string, keys: Set<string>) => void,
+  markSeenInCache: (agentId: string, keys: Set<string>) => void
 ): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -70,7 +79,10 @@ export function useSSE(
         }
 
         if (payload.type === "media.changed") {
-          void queryClient.invalidateQueries({ queryKey: ["media", payload.agentId], exact: true });
+          void queryClient.invalidateQueries({
+            queryKey: ["media", payload.agentId],
+            exact: true,
+          });
           return;
         }
 
@@ -99,7 +111,10 @@ export function useSSE(
           return;
         }
 
-        if (payload.type === "feedback.created" || payload.type === "feedback.updated") {
+        if (
+          payload.type === "feedback.created" ||
+          payload.type === "feedback.updated"
+        ) {
           void queryClient.invalidateQueries({ queryKey: ["feedback"] });
           return;
         }
@@ -108,12 +123,28 @@ export function useSSE(
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           return;
         }
+
+        if (payload.type === "notification") {
+          const shown = showWebNotification(payload);
+          if (shown) {
+            void fetch("/api/v1/notifications/ack", {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ notificationId: payload.notificationId }),
+              keepalive: true,
+            }).catch(() => {});
+          }
+          return;
+        }
       } catch {}
     };
 
     const openSSE = () => {
       if (eventSourceRef.current) return;
-      const source = new EventSource("/api/v1/events", { withCredentials: true });
+      const source = new EventSource("/api/v1/events", {
+        withCredentials: true,
+      });
       eventSourceRef.current = source;
       source.onmessage = handleSSEMessage;
       source.onerror = () => {
@@ -146,5 +177,12 @@ export function useSSE(
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [authState, connectedAgentIdRef, markSeenInCache, queryClient, selectedAgentIdRef, setStreamingAgentIds]);
+  }, [
+    authState,
+    connectedAgentIdRef,
+    markSeenInCache,
+    queryClient,
+    selectedAgentIdRef,
+    setStreamingAgentIds,
+  ]);
 }

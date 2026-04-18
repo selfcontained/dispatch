@@ -13,24 +13,28 @@
 ## State Transitions
 
 1. Create
+
 - `creating -> running`
 - `creating -> error` on launch failure
 
 2. Stop
+
 - `running -> stopping -> stopped`
 - `running -> error` if stop command fails and process remains inconsistent
 
 3. Delete
+
 - `running|stopped -> archiving -> (soft deleted)` via archive phases: `stopping` → `worktree-check` → `worktree-cleanup` → `finalizing`
 - Returns HTTP 202 immediately; cleanup runs in the background
 
 4. Restart backend reconciliation
+
 - `unknown -> running` if tmux session exists
 - `unknown -> stopped` if session absent
 
 ## tmux Session Contract
 
-- Session name: `dispatch_agt_<agentId>_<name>`
+- Session name: `<prefix>_<agentId>_<sanitizedName>` (prefix defaults to `dispatch`, configurable via `DISPATCH_SESSION_PREFIX`)
 - Window name: `main`
 - Agent process starts in configured `cwd`
 - Closing browser terminal must only detach client, not terminate tmux
@@ -40,14 +44,10 @@
 Example launch command:
 
 ```bash
-tmux new-session -d -s dispatch_<agentId> -c "<cwd>" "codex"
+tmux new-session -d -s <sessionName> -c "<cwd>" "bash <setupScript>"
 ```
 
-Optional with args:
-
-```bash
-tmux new-session -d -s dispatch_<agentId> -c "<cwd>" "codex <args>"
-```
+The setup script sources `~/.dispatch/env`, configures the MCP server, and launches the agent CLI.
 
 ## Agent Environment
 
@@ -71,13 +71,13 @@ Standard shell profiles (`~/.bashrc`, `~/.zshrc`, etc.) are **not** sourced — 
 Preferred soft stop:
 
 ```bash
-tmux send-keys -t dispatch_<agentId> C-c
+tmux send-keys -t <sessionName> C-c
 ```
 
 Fallback hard stop:
 
 ```bash
-tmux kill-session -t dispatch_<agentId>
+tmux kill-session -t <sessionName>
 ```
 
 ## Reconciliation Routine (on startup)
@@ -85,8 +85,10 @@ tmux kill-session -t dispatch_<agentId>
 1. Load agents from DB where status in (`running`, `creating`, `unknown`).
 2. Query tmux sessions.
 3. For each agent:
+
 - session exists -> set `running`
 - session missing -> set `stopped` and clear transient pid/runtime fields
+
 4. Validate simulator reservation consistency.
 
 ## Idempotency Rules

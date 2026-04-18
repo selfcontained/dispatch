@@ -2,20 +2,36 @@ import { expect, test } from "@playwright/test";
 import { loadApp } from "./helpers";
 
 test.describe("Docs pane", () => {
-  test("opens docs from the sidebar and switches sections", async ({ page }) => {
+  test("opens docs from settings and switches sections", async ({ page }) => {
     await loadApp(page);
 
-    await page.getByTestId("docs-button").click();
+    await page.getByTestId("settings-button").click();
+    await page.getByRole("button", { name: "Help" }).click();
 
-    const docsPane = page.getByTestId("docs-pane");
-    await expect(docsPane).toBeVisible({ timeout: 3_000 });
-    await expect(docsPane.getByRole("heading", { level: 2, name: "Agents" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Agents" })
+    ).toBeVisible({ timeout: 3_000 });
 
     await page.getByRole("button", { name: "Repo Tools" }).click();
-    await expect(docsPane.getByRole("heading", { level: 2, name: "Repo Tools" })).toBeVisible();
-    await expect(docsPane.getByRole("heading", { level: 3, name: "Defining tools" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Repo Tools" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 3, name: "Defining tools" })
+    ).toBeVisible();
+  });
 
-    await page.getByRole("button", { name: "Close" }).click();
-    await expect(docsPane).not.toBeVisible({ timeout: 3_000 });
+  test("redirects legacy docs URLs into settings help deep links", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.goto("/docs/tools", { waitUntil: "domcontentloaded" });
+
+    await expect(page).toHaveURL(/\/settings\/help\/tools$/);
+    await expect(page.getByRole("button", { name: "Help" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Repo Tools" })
+    ).toBeVisible();
   });
 });

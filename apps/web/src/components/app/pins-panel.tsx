@@ -1,10 +1,20 @@
-import { Check, Copy, ExternalLink, FileText, GitPullRequest, Pin } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+  Pin,
+} from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
-import { getSafariExternalHref, isStandaloneIOSApp } from "@/lib/external-links";
+import {
+  getSafariExternalHref,
+  isStandaloneIOSApp,
+} from "@/lib/external-links";
 import { splitPinValues } from "@/lib/pins";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -17,7 +27,13 @@ function formatPrDisplay(value: string): string {
   return m ? `${m[1]}#${m[2]}` : value;
 }
 
-function CopyButton({ value, title }: { value: string; title?: string }): JSX.Element {
+function CopyButton({
+  value,
+  title,
+}: {
+  value: string;
+  title?: string;
+}): JSX.Element {
   const [copied, copyText] = useCopyText();
 
   return (
@@ -26,19 +42,34 @@ function CopyButton({ value, title }: { value: string; title?: string }): JSX.El
       className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       title={title ?? "Copy to clipboard"}
     >
-      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+      {copied ? (
+        <Check className="h-3 w-3 text-green-500" />
+      ) : (
+        <Copy className="h-3 w-3" />
+      )}
     </button>
   );
 }
 
-type ResolvedValue = { display: string; tooltip: string; href: string | null; badge: boolean; icon: "pr" | "file" | null };
+type ResolvedValue = {
+  display: string;
+  tooltip: string;
+  href: string | null;
+  badge: boolean;
+  icon: "pr" | "file" | null;
+};
 
-function trimFilenameForDisplay(value: string, workspaceRoot: string | null): { display: string; tooltip: string } {
+function trimFilenameForDisplay(
+  value: string,
+  workspaceRoot: string | null
+): { display: string; tooltip: string } {
   if (!workspaceRoot) {
     return { display: value, tooltip: value };
   }
 
-  const normalizedRoot = workspaceRoot.endsWith("/") ? workspaceRoot.slice(0, -1) : workspaceRoot;
+  const normalizedRoot = workspaceRoot.endsWith("/")
+    ? workspaceRoot.slice(0, -1)
+    : workspaceRoot;
   if (!normalizedRoot) {
     return { display: value, tooltip: value };
   }
@@ -70,6 +101,33 @@ function shouldRenderMarkdownAsPlainText(value: string): boolean {
   return unsupportedPatterns.some((pattern) => pattern.test(sanitized));
 }
 
+function normalizeExternalHref(
+  type: AgentPin["type"],
+  value: string
+): string | null {
+  if (type !== "url" && type !== "pr") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const candidate = SAFE_URL_RE.test(trimmed)
+    ? trimmed
+    : type === "url"
+      ? `http://${trimmed}`
+      : trimmed;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 function MarkdownPinBody({ value }: { value: string }): JSX.Element {
   const renderAsPlainText = shouldRenderMarkdownAsPlainText(value);
 
@@ -85,35 +143,79 @@ function MarkdownPinBody({ value }: { value: string }): JSX.Element {
             {value}
           </pre>
         ) : (
-          <Markdown variant="pin">
-            {value}
-          </Markdown>
+          <Markdown variant="pin">{value}</Markdown>
         )}
       </div>
     </ScrollArea>
   );
 }
 
-function resolveDisplayValue(type: AgentPin["type"], value: string): ResolvedValue {
-  if (type === "pr" && SAFE_URL_RE.test(value)) {
-    return { display: formatPrDisplay(value), tooltip: value, href: value, badge: false, icon: "pr" };
+function resolveDisplayValue(
+  type: AgentPin["type"],
+  value: string
+): ResolvedValue {
+  const href = normalizeExternalHref(type, value);
+  if (type === "pr" && href) {
+    return {
+      display: formatPrDisplay(href),
+      tooltip: value.trim(),
+      href,
+      badge: false,
+      icon: "pr",
+    };
   }
   if (type === "pr") {
-    return { display: value, tooltip: value, href: null, badge: false, icon: "pr" };
+    return {
+      display: value,
+      tooltip: value,
+      href: null,
+      badge: false,
+      icon: "pr",
+    };
   }
-  if (type === "url" && SAFE_URL_RE.test(value)) {
-    return { display: value, tooltip: value, href: value, badge: false, icon: null };
+  if (type === "url" && href) {
+    return {
+      display: value.trim(),
+      tooltip: value.trim(),
+      href,
+      badge: false,
+      icon: null,
+    };
   }
   if (type === "url") {
-    return { display: value, tooltip: value, href: null, badge: false, icon: null };
+    return {
+      display: value,
+      tooltip: value,
+      href: null,
+      badge: false,
+      icon: null,
+    };
   }
   if (type === "filename") {
-    return { display: value, tooltip: value, href: null, badge: true, icon: "file" };
+    return {
+      display: value,
+      tooltip: value,
+      href: null,
+      badge: true,
+      icon: "file",
+    };
   }
   if (type === "port" || type === "code") {
-    return { display: value, tooltip: value, href: null, badge: true, icon: null };
+    return {
+      display: value,
+      tooltip: value,
+      href: null,
+      badge: true,
+      icon: null,
+    };
   }
-  return { display: value, tooltip: value, href: null, badge: false, icon: null };
+  return {
+    display: value,
+    tooltip: value,
+    href: null,
+    badge: false,
+    icon: null,
+  };
 }
 
 function PinValueRow({
@@ -129,16 +231,24 @@ function PinValueRow({
     return <MarkdownPinBody value={value} />;
   }
 
-  const filenameValue = type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
-  const { display, tooltip, href, badge, icon } = resolveDisplayValue(type, filenameValue?.display ?? value);
+  const filenameValue =
+    type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
+  const { display, tooltip, href, badge, icon } = resolveDisplayValue(
+    type,
+    filenameValue?.display ?? value
+  );
   const tooltipValue = filenameValue?.tooltip ?? tooltip;
   const showSafariButton = Boolean(href) && isStandaloneIOSApp();
   const safariHref = href ? getSafariExternalHref(href) : null;
 
   return (
     <div className="flex items-center gap-1.5">
-      {icon === "pr" && <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />}
-      {icon === "file" && <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />}
+      {icon === "pr" && (
+        <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-primary" />
+      )}
+      {icon === "file" && (
+        <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+      )}
       {href ? (
         <a
           href={href}
@@ -182,6 +292,7 @@ function PinValueRow({
       {showSafariButton && safariHref && (
         <a
           href={safariHref}
+          data-testid="pin-open-link"
           className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           title="Open in Safari"
           aria-label="Open in Safari"
@@ -193,23 +304,41 @@ function PinValueRow({
   );
 }
 
-function PinItem({ pin, workspaceRoot }: { pin: AgentPin; workspaceRoot: string | null }): JSX.Element {
+function PinItem({
+  pin,
+  workspaceRoot,
+}: {
+  pin: AgentPin;
+  workspaceRoot: string | null;
+}): JSX.Element {
   const values = splitPinValues(pin.type, pin.value);
   const isMulti = values.length > 1;
 
   return (
-    <div className="px-4 py-2.5 border-b border-border last:border-b-0" data-testid="pin-item" data-pin-label={pin.label}>
+    <div
+      className="px-4 py-2.5 border-b border-border last:border-b-0"
+      data-testid="pin-item"
+      data-pin-label={pin.label}
+    >
       <div className="flex items-center gap-1">
         <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
           {pin.label}
         </div>
         <div className="ml-auto">
-          <CopyButton value={pin.value} title={isMulti ? "Copy all" : "Copy to clipboard"} />
+          <CopyButton
+            value={pin.value}
+            title={isMulti ? "Copy all" : "Copy to clipboard"}
+          />
         </div>
       </div>
       <div className="flex flex-col gap-1 mt-1">
         {values.map((v, i) => (
-          <PinValueRow key={i} type={pin.type} value={v} workspaceRoot={workspaceRoot} />
+          <PinValueRow
+            key={i}
+            type={pin.type}
+            value={v}
+            workspaceRoot={workspaceRoot}
+          />
         ))}
       </div>
     </div>
@@ -222,7 +351,11 @@ type PinsPanelProps = {
   selectedAgentWorkspaceRoot: string | null;
 };
 
-export function PinsPanel({ pins, selectedAgentName, selectedAgentWorkspaceRoot }: PinsPanelProps): JSX.Element {
+export function PinsPanel({
+  pins,
+  selectedAgentName,
+  selectedAgentWorkspaceRoot,
+}: PinsPanelProps): JSX.Element {
   if (pins.length === 0) {
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
@@ -239,9 +372,16 @@ export function PinsPanel({ pins, selectedAgentName, selectedAgentWorkspaceRoot 
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+    <div
+      data-testid="pins-panel-scroll"
+      className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+    >
       {pins.map((pin) => (
-        <PinItem key={pin.label.toLowerCase()} pin={pin} workspaceRoot={selectedAgentWorkspaceRoot} />
+        <PinItem
+          key={pin.label.toLowerCase()}
+          pin={pin}
+          workspaceRoot={selectedAgentWorkspaceRoot}
+        />
       ))}
     </div>
   );

@@ -6,7 +6,9 @@ test.describe("App shell", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("renders the main layout without dedicated header or footer chrome", async ({ page }) => {
+  test("renders the main layout without dedicated header or footer chrome", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("agent-sidebar")).toBeVisible();
@@ -15,7 +17,9 @@ test.describe("App shell", () => {
     await expect(page.getByTestId("app-header")).toHaveCount(0);
   });
 
-  test("shows the empty-state prompt when no agent is selected", async ({ page }) => {
+  test("shows the empty-state prompt when no agent is selected", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
@@ -29,22 +33,25 @@ test.describe("App shell", () => {
 
     await page.getByTestId("settings-button").click();
 
-    const dialog = page.getByRole("dialog", { name: "Settings" });
-    await expect(dialog).toBeVisible();
+    // Settings nav is now in the sidebar — service status indicators are there too
+    const sidebar = page.getByTestId("sidebar-shell");
+    await expect(sidebar).toBeVisible();
 
-    const apiDot = dialog.getByTestId("service-dot-api");
+    const apiDot = sidebar.getByTestId("service-dot-api");
     await expect(apiDot).toBeVisible();
-    const apiStatus = dialog.getByTestId("service-status-api");
+    const apiStatus = sidebar.getByTestId("service-status-api");
     await expect(apiStatus).toContainText("ok", { timeout: 10_000 });
 
-    const dbStatus = dialog.getByTestId("service-status-db");
+    const dbStatus = sidebar.getByTestId("service-status-db");
     await expect(dbStatus).toContainText("ok", { timeout: 10_000 });
   });
 
   test("sidebar shows the Dispatch logo", async ({ page }) => {
     await loadApp(page);
 
-    const title = page.getByTestId("agent-sidebar").getByText("Dispatch", { exact: true });
+    const title = page
+      .getByTestId("sidebar-shell")
+      .getByText("Dispatch", { exact: true });
     await expect(title).toBeVisible();
   });
 });

@@ -13,7 +13,7 @@ Dispatch runs as a **launchd LaunchAgent** (`com.dispatch.server`) — a macOS-n
 
 The server binary lives in a **separate checkout** at `~/.dispatch/server/` (independent from your working copy at `~/dev/apps/dispatch`). This means `git checkout`, deploys, and agent activity in the main repo never interfere with the running server.
 
-**Postgres** runs in Docker (`dispatch-postgres`, port 5432).
+**Postgres** runs via Homebrew (`brew services start postgresql@17`, port 5432). Docker is available for isolated dev databases via `dispatch-dev`.
 
 **Server port**: 6767 (set via `DISPATCH_PORT` in `~/.dispatch/server/.env`).
 
@@ -39,60 +39,54 @@ launchctl load ~/Library/LaunchAgents/com.dispatch.server.plist
 
 ## Database
 
-Postgres runs via Docker Compose. Start/stop with:
+Production uses Homebrew Postgres (native, no Docker overhead):
 
 ```bash
-docker compose up -d postgres     # start
-docker compose stop postgres      # stop (data preserved)
-docker compose down postgres      # stop + remove container (data preserved in volume)
+brew services start postgresql@17   # start (auto-starts at boot)
+brew services stop postgresql@17    # stop
+pg_isready                          # check status
 ```
 
-Data is persisted in the `dispatch_pgdata` Docker volume.
+For development, `dispatch-dev up` creates an isolated Docker Postgres container on a free port — no manual setup needed.
 
 ## Release Pipeline
 
-Releases are handled by `bin/dispatch-release`, which:
+Releases are triggered from the Dispatch UI in **Settings → Releases** (release admin only). The server handles the job internally via `POST /api/v1/release`, which:
 
 1. Verifies `main` branch is clean and up-to-date with origin
 2. Triggers the `.github/workflows/release.yml` workflow via `gh` CLI
 3. Blocks until the workflow completes (`gh run watch` — zero token cost)
-4. On workflow success: captures the produced tag and calls `bin/dispatch-deploy <tag>`
+4. On workflow success: captures the produced tag and starts the server's update flow for that tag
 5. On workflow failure: fetches failed-step logs and spawns a diagnosis agent inside Dispatch
 
 ```bash
-# Cut a patch release (e.g. 1.2.3 → 1.2.4)
-bin/dispatch-release patch
-
-# Cut a minor release (e.g. 1.2.3 → 1.3.0)
-bin/dispatch-release minor
-
-# Cut a major release (e.g. 1.2.3 → 2.0.0)
-bin/dispatch-release major
+# Trigger a patch release from the API
+curl -X POST http://127.0.0.1:6767/api/v1/release \
+  -H 'Content-Type: application/json' \
+  -d '{"versionType":"patch"}'
 ```
 
 The **release workflow** (GitHub Actions):
+
 - Runs type-check, lint, unit tests, and build (against an ephemeral Postgres container)
-- Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`, `packages/*/package.json`), and the lockfile
+- Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), and the lockfile
 - Commits, creates a git tag, pushes, and publishes a pre-release GitHub Release with a packed artifact (`dispatch-release.tar.gz`)
 - Outputs the tag for downstream use
 
-## Deploy (Specific Tag)
+## Update To A Tag
 
 ```bash
-# Deploy a specific tag (also used for rollback)
-bin/dispatch-deploy v1.2.3
-
-# Deploy the latest stable release
-bin/dispatch-deploy --latest
-
-# Deploy the latest release from the "latest" channel (includes pre-releases)
-bin/dispatch-deploy --latest --channel latest
+# Update to a specific tag (also used for rollback)
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v1.2.3"}'
 ```
 
-`bin/dispatch-deploy` operates on `~/.dispatch/server/` and:
+The server update flow operates on `~/.dispatch/server/` and:
+
 1. Records the current tag for rollback
 2. Fetches and checks out the target tag
-3. Installs deps, builds, restarts the launchd service
+3. Installs deps, builds, restarts the managed service
 4. Polls `/api/v1/health` until the server responds (or times out)
 5. On failure: writes a detailed log to `~/.dispatch/logs/last-release-failure.log`, attempts automatic rollback to the previous tag
 
@@ -100,10 +94,12 @@ bin/dispatch-deploy --latest --channel latest
 
 ```bash
 # Roll back to a previously deployed tag
-bin/dispatch-deploy v1.2.2
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v1.2.2"}'
 ```
 
-If a deploy fails mid-flight, `dispatch-deploy` attempts auto-rollback automatically. Check the failure log for details:
+If an update fails mid-flight, the server attempts auto-rollback automatically. Check the failure log for details:
 
 ```bash
 cat ~/.dispatch/logs/last-release-failure.log
@@ -114,9 +110,13 @@ The failure log includes: timestamp, failed step, rollback status, last 50 lines
 ## CI Pipeline
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
+
+- Format check (`pnpm run format`)
 - Type-check (`pnpm run check`)
 - Lint (`pnpm run lint:web`)
 - Build (`pnpm run build`)
+- Unit tests (`pnpm run test`)
+- E2E tests (`pnpm run test:e2e`)
 
 PRs must pass CI before merge.
 
@@ -133,6 +133,7 @@ bin/install-launchd --port 6767
 ```
 
 This script:
+
 1. Clones the repo to `~/.dispatch/server/`
 2. Copies `.env` (or `.env.example`) as `~/.dispatch/server/.env`
 3. Sets `DISPATCH_PORT` in the server `.env` if `--port` was specified
@@ -147,23 +148,22 @@ After installation, edit `~/.dispatch/server/.env` to set `DATABASE_URL` and any
 bin/uninstall-launchd
 ```
 
-Unloads and removes the plist. Does not remove `~/.dispatch/server/` or the Docker volume.
+Unloads and removes the plist. Does not remove `~/.dispatch/server/`, the Homebrew Postgres data directory, or any `dispatch-dev` Docker data created for isolated development environments.
 
 ## Configuration
 
 Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
-| Variable | Default | Description |
-|---|---|---|
-| `DISPATCH_HOST` | `127.0.0.1` | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
-| `DISPATCH_PORT` | `6767` | HTTP port the server listens on |
-| `DATABASE_URL` | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string |
-| `AUTH_TOKEN` | — | API authentication token for MCP endpoints (generate with `openssl rand -hex 32`) |
-| `MEDIA_ROOT` | `~/.dispatch/media` | File upload storage path |
-| `DISPATCH_AGENT_RUNTIME` | `tmux` | Agent runtime mode (`tmux` or `inert` for dev/test) |
-| `DISPATCH_COPY_DISPLAY` | — | Virtual X display for clipboard image paste on Linux (e.g. `:99`) |
-| `TLS_CERT` | — | Path to TLS certificate file (enables HTTPS when both cert and key are set) |
-| `TLS_KEY` | — | Path to TLS private key file |
+| Variable                 | Default                                                | Description                                                                                              |
+| ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `DISPATCH_HOST`          | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections. |
+| `DISPATCH_PORT`          | `6767`                                                 | HTTP port the server listens on                                                                          |
+| `DATABASE_URL`           | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                               |
+| `MEDIA_ROOT`             | `~/.dispatch/media`                                    | File upload storage path                                                                                 |
+| `DISPATCH_AGENT_RUNTIME` | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                      |
+| `DISPATCH_COPY_DISPLAY`  | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                        |
+| `TLS_CERT`               | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                              |
+| `TLS_KEY`                | —                                                      | Path to TLS private key file                                                                             |
 
 Changes to `.env` require a service restart to take effect.
 
@@ -295,12 +295,12 @@ Known limits:
 
 ## File Locations
 
-| Path | Description |
-|---|---|
-| `~/.dispatch/server/` | Server checkout (deploy target) |
-| `~/.dispatch/server/.env` | Server environment config |
-| `~/.dispatch/logs/dispatch.log` | Live server log |
-| `~/.dispatch/logs/last-release-failure.log` | Last deploy failure details |
-| `~/.dispatch/diagnostics/tmux-inventory.jsonl` | Periodic tmux inventory snapshots from reconcile |
-| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions |
-| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition |
+| Path                                                       | Description                                      |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `~/.dispatch/server/`                                      | Server checkout (deploy target)                  |
+| `~/.dispatch/server/.env`                                  | Server environment config                        |
+| `~/.dispatch/logs/dispatch.log`                            | Live server log                                  |
+| `~/.dispatch/logs/last-release-failure.log`                | Last deploy failure details                      |
+| `~/.dispatch/diagnostics/tmux-inventory.jsonl`             | Periodic tmux inventory snapshots from reconcile |
+| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions        |
+| `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition                       |

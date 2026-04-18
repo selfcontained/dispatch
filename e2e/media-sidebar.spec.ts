@@ -1,10 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { cleanupE2EAgents, createAgentViaAPI, loadApp, setAgentPinsViaDB, uploadMediaViaAPI } from "./helpers";
+import {
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  loadApp,
+  setAgentPinsViaDB,
+  uploadMediaViaAPI,
+} from "./helpers";
 
-async function openMediaSidebarForAgent(page: Page, agent: { id: string; name: string }) {
+async function openMediaSidebarForAgent(
+  page: Page,
+  agent: { id: string; name: string }
+) {
   await page.getByText(agent.name, { exact: true }).click();
-  await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveClass(/bg-muted\/60/);
+  await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveClass(
+    /bg-muted\/60/
+  );
   const toggle = page.getByTestId("toggle-media-sidebar");
   await expect(toggle).toBeVisible();
   await toggle.evaluate((el) => (el as HTMLButtonElement).click());
@@ -15,11 +26,23 @@ test.describe("Media sidebar", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("refreshes cached media when switching back to an agent", async ({ page, request }) => {
-    const firstAgent = await createAgentViaAPI(request, { name: `e2e-agent-media-a-${Date.now()}` });
-    const secondAgent = await createAgentViaAPI(request, { name: `e2e-agent-media-b-${Date.now()}` });
+  test("refreshes cached media when switching back to an agent", async ({
+    page,
+    request,
+  }) => {
+    const firstAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-media-a-${Date.now()}`,
+    });
+    const secondAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-media-b-${Date.now()}`,
+    });
 
-    await uploadMediaViaAPI(request, firstAgent.id, "First image", "first-image.png");
+    await uploadMediaViaAPI(
+      request,
+      firstAgent.id,
+      "First image",
+      "first-image.png"
+    );
 
     await loadApp(page);
 
@@ -35,19 +58,41 @@ test.describe("Media sidebar", () => {
     await page.getByText(secondAgent.name, { exact: true }).click();
     // Agent switch resets to Pins tab — switch back to Media
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
-    await uploadMediaViaAPI(request, firstAgent.id, "Second image", "second-image.png");
+    await uploadMediaViaAPI(
+      request,
+      firstAgent.id,
+      "Second image",
+      "second-image.png"
+    );
     await page.getByText(firstAgent.name, { exact: true }).click();
     // Agent switch resets to Pins tab again
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
 
-    await expect(mediaSidebar.getByText("Second image")).toBeVisible({ timeout: 10_000 });
+    await expect(mediaSidebar.getByText("Second image")).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
-  test("navigates between fullscreen media items", async ({ page, request }) => {
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-lightbox-${Date.now()}` });
+  test("navigates between fullscreen media items", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-lightbox-${Date.now()}`,
+    });
 
-    await uploadMediaViaAPI(request, agent.id, "First image", "first-image.png");
-    await uploadMediaViaAPI(request, agent.id, "Second image", "second-image.png");
+    await uploadMediaViaAPI(
+      request,
+      agent.id,
+      "First image",
+      "first-image.png"
+    );
+    await uploadMediaViaAPI(
+      request,
+      agent.id,
+      "Second image",
+      "second-image.png"
+    );
 
     await loadApp(page);
 
@@ -78,10 +123,20 @@ test.describe("Media sidebar", () => {
     await expect(lightbox).toBeHidden();
   });
 
-  test("marks visible media as seen and persists to server", async ({ page, request }) => {
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-seen-${Date.now()}` });
+  test("marks visible media as seen and persists to server", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-seen-${Date.now()}`,
+    });
 
-    await uploadMediaViaAPI(request, agent.id, "Seen test image", "seen-test.png");
+    await uploadMediaViaAPI(
+      request,
+      agent.id,
+      "Seen test image",
+      "seen-test.png"
+    );
 
     await loadApp(page);
     await openMediaSidebarForAgent(page, agent);
@@ -95,28 +150,55 @@ test.describe("Media sidebar", () => {
 
     // Verify it persisted to the server.
     const res = await request.get(`/api/v1/agents/${agent.id}/media`, {
-      headers: { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` },
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
     });
     const body = (await res.json()) as { files: Array<{ seen?: boolean }> };
     expect(body.files[0].seen).toBe(true);
   });
 
-  test("preserves string pin whitespace and splits filename pins", async ({ page, request }) => {
+  test("preserves string pin whitespace and splits filename pins", async ({
+    page,
+    request,
+  }) => {
     const workspaceRoot = process.cwd();
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pins-${Date.now()}`, cwd: workspaceRoot });
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-pins-${Date.now()}`,
+      cwd: workspaceRoot,
+    });
     await setAgentPinsViaDB(agent.id, [
       { label: "Notes", type: "string", value: "line 1\n\n  line 2" },
       {
         label: "Summary",
         type: "markdown",
-        value: "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
+        value:
+          "**Status**\n- Ready for review\n- URL: https://example.com/visible\n- Branch: `feat/log-rotation`\n- Owner: **Dispatch**\n- Marker: 🚀\n- Step: validate in sidebar\n- Step: keep lines wrapped\n\n```sh\npnpm run check\npnpm run test\npnpm run finalize:web\npnpm run test:e2e\nnpm run lint || true\n```",
       },
       { label: "Files", type: "filename", value: "one.ts,\ntwo.ts\nthree.ts" },
       { label: "Workspace root", type: "filename", value: workspaceRoot },
-      { label: "Long file", type: "filename", value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx` },
+      {
+        label: "Long file",
+        type: "filename",
+        value: `${workspaceRoot}/apps/web/src/components/app/pins-panel.tsx`,
+      },
       { label: "Ports", type: "port", value: "3000 4000,\n5000" },
-      { label: "API", type: "url", value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" },
-      { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
+      {
+        label: "API",
+        type: "url",
+        value: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins",
+      },
+      {
+        label: "Local URL",
+        type: "url",
+        value: "127.0.0.1:8788/api/v1/health",
+      },
+      { label: "Dev Web", type: "url", value: "  http://127.0.0.1:52804 \n" },
+      {
+        label: "PR",
+        type: "pr",
+        value: "https://github.com/selfcontained/dispatch/pull/123",
+      },
       { label: "Review", type: "pr", value: "Review queue" },
       { label: "Agent ID", type: "code", value: "DISPATCH_AGENT_ID=agt_123" },
     ]);
@@ -127,49 +209,99 @@ test.describe("Media sidebar", () => {
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
-    await mediaSidebar.getByRole("button", { name: "Pins" }).evaluate((el) => (el as HTMLButtonElement).click());
+    await mediaSidebar
+      .getByRole("button", { name: "Pins" })
+      .evaluate((el) => (el as HTMLButtonElement).click());
 
     const notesPre = mediaSidebar.locator("[data-pin-label='Notes'] pre");
     await expect(notesPre).toHaveText("line 1\n\n  line 2");
 
-    const markdownPin = mediaSidebar.locator("[data-pin-label='Summary'] [data-testid='markdown-pin-body']");
-    await expect(markdownPin.getByText("Status", { exact: true })).toBeVisible();
+    const markdownPin = mediaSidebar.locator(
+      "[data-pin-label='Summary'] [data-testid='markdown-pin-body']"
+    );
+    await expect(
+      markdownPin.getByText("Status", { exact: true })
+    ).toBeVisible();
     await expect(markdownPin.locator("strong").first()).toHaveText("Status");
-    await expect(markdownPin.getByText("Ready for review", { exact: true })).toBeVisible();
+    await expect(
+      markdownPin.getByText("Ready for review", { exact: true })
+    ).toBeVisible();
     await expect(markdownPin).toContainText("https://example.com/visible");
-    await expect(markdownPin.getByText("feat/log-rotation", { exact: true })).toBeVisible();
+    await expect(
+      markdownPin.getByText("feat/log-rotation", { exact: true })
+    ).toBeVisible();
     await expect(markdownPin).toContainText("pnpm run check");
     await expect(markdownPin).toContainText("pnpm run test");
     await expect(markdownPin.getByRole("link")).toHaveCount(0);
 
-    const scrollMetrics = await mediaSidebar.locator("[data-pin-label='Summary'] [data-testid='markdown-pin-scroll']").evaluate((el) => {
-      const container = el as HTMLElement;
-      return { clientHeight: container.clientHeight, scrollHeight: container.scrollHeight };
-    });
+    const scrollMetrics = await mediaSidebar
+      .locator("[data-pin-label='Summary'] [data-testid='markdown-pin-scroll']")
+      .evaluate((el) => {
+        const container = el as HTMLElement;
+        return {
+          clientHeight: container.clientHeight,
+          scrollHeight: container.scrollHeight,
+        };
+      });
     expect(scrollMetrics).not.toBeNull();
-    expect(scrollMetrics!.scrollHeight).toBeGreaterThan(scrollMetrics!.clientHeight);
+    expect(scrollMetrics!.scrollHeight).toBeGreaterThan(
+      scrollMetrics!.clientHeight
+    );
 
-    await expect(mediaSidebar.getByText("one.ts", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByText("two.ts", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByText("three.ts", { exact: true })).toBeVisible();
-    const workspaceRootPin = mediaSidebar.locator("[data-pin-label='Workspace root']");
+    await expect(
+      mediaSidebar.getByText("one.ts", { exact: true })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByText("two.ts", { exact: true })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByText("three.ts", { exact: true })
+    ).toBeVisible();
+    const workspaceRootPin = mediaSidebar.locator(
+      "[data-pin-label='Workspace root']"
+    );
     await expect(workspaceRootPin).toContainText("./");
-    await expect(workspaceRootPin.locator(`[title="${workspaceRoot}"]`)).toHaveText("./");
+    await expect(
+      workspaceRootPin.locator(`[title="${workspaceRoot}"]`)
+    ).toHaveText("./");
     const longFilePin = mediaSidebar.locator("[data-pin-label='Long file']");
     await expect(longFilePin).toContainText("pins-panel.tsx");
-    await expect(longFilePin).toContainText("apps/web/src/components/app/pins-panel.tsx");
+    await expect(longFilePin).toContainText(
+      "apps/web/src/components/app/pins-panel.tsx"
+    );
     await expect(longFilePin).not.toContainText(workspaceRoot);
     await expect(longFilePin).not.toContainText("pins-panel.tsx/");
     await expect(mediaSidebar.getByText("3000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("4000", { exact: true })).toBeVisible();
     await expect(mediaSidebar.getByText("5000", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByRole("link", { name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins" })).toBeVisible();
-    await expect(mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })).toBeVisible();
-    await expect(mediaSidebar.getByText("Review queue", { exact: true })).toBeVisible();
-    await expect(mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })).toBeVisible();
+    await expect(
+      mediaSidebar.getByRole("link", {
+        name: "http://127.0.0.1:8788/api/v1/agents?view=full&tab=pins",
+      })
+    ).toBeVisible();
+    const localUrlPin = mediaSidebar.locator("[data-pin-label='Local URL']");
+    await expect(
+      localUrlPin.getByRole("link", { name: "127.0.0.1:8788/api/v1/health" })
+    ).toHaveAttribute("href", "http://127.0.0.1:8788/api/v1/health");
+    const devWebPin = mediaSidebar.locator("[data-pin-label='Dev Web']");
+    await expect(
+      devWebPin.getByRole("link", { name: "http://127.0.0.1:52804" })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByRole("link", { name: "selfcontained/dispatch#123" })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByText("Review queue", { exact: true })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })
+    ).toBeVisible();
   });
 
-  test("shows a separate Safari handoff button for pins in standalone iOS mode", async ({ page, request }) => {
+  test("shows a separate Safari handoff button for pins in standalone iOS mode", async ({
+    page,
+    request,
+  }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window.navigator, "standalone", {
         configurable: true,
@@ -177,7 +309,8 @@ test.describe("Media sidebar", () => {
       });
       Object.defineProperty(window.navigator, "userAgent", {
         configurable: true,
-        get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        get: () =>
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
       });
       const originalMatchMedia = window.matchMedia.bind(window);
       window.matchMedia = ((query: string) => {
@@ -197,25 +330,51 @@ test.describe("Media sidebar", () => {
       }) as typeof window.matchMedia;
     });
 
-    const agent = await createAgentViaAPI(request, { name: `e2e-agent-pwa-pins-${Date.now()}` });
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-pwa-pins-${Date.now()}`,
+    });
     await setAgentPinsViaDB(agent.id, [
       { label: "API", type: "url", value: "https://example.com/docs" },
-      { label: "PR", type: "pr", value: "https://github.com/selfcontained/dispatch/pull/123" },
+      {
+        label: "PR",
+        type: "pr",
+        value: "https://github.com/selfcontained/dispatch/pull/123",
+      },
     ]);
 
     await loadApp(page);
     await openMediaSidebarForAgent(page, agent);
 
     const mediaSidebar = page.getByTestId("media-sidebar");
-    await mediaSidebar.getByRole("button", { name: "Pins" }).evaluate((el) => (el as HTMLButtonElement).click());
+    await mediaSidebar
+      .getByRole("button", { name: "Pins" })
+      .evaluate((el) => (el as HTMLButtonElement).click());
 
-    await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "https://example.com/docs" }))
-      .toHaveAttribute("href", "https://example.com/docs");
-    await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "selfcontained/dispatch#123" }))
-      .toHaveAttribute("href", "https://github.com/selfcontained/dispatch/pull/123");
-    await expect(mediaSidebar.locator("[data-pin-label='API']").getByRole("link", { name: "Open in Safari" }))
-      .toHaveAttribute("href", "x-safari-https://example.com/docs");
-    await expect(mediaSidebar.locator("[data-pin-label='PR']").getByRole("link", { name: "Open in Safari" }))
-      .toHaveAttribute("href", "x-safari-https://github.com/selfcontained/dispatch/pull/123");
+    await expect(
+      mediaSidebar
+        .locator("[data-pin-label='API']")
+        .getByRole("link", { name: "https://example.com/docs" })
+    ).toHaveAttribute("href", "https://example.com/docs");
+    await expect(
+      mediaSidebar
+        .locator("[data-pin-label='PR']")
+        .getByRole("link", { name: "selfcontained/dispatch#123" })
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/selfcontained/dispatch/pull/123"
+    );
+    await expect(
+      mediaSidebar
+        .locator("[data-pin-label='API']")
+        .getByRole("link", { name: "Open in Safari" })
+    ).toHaveAttribute("href", "x-safari-https://example.com/docs");
+    await expect(
+      mediaSidebar
+        .locator("[data-pin-label='PR']")
+        .getByRole("link", { name: "Open in Safari" })
+    ).toHaveAttribute(
+      "href",
+      "x-safari-https://github.com/selfcontained/dispatch/pull/123"
+    );
   });
 });

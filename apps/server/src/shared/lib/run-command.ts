@@ -22,7 +22,7 @@ export async function runCommand(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env ? { ...process.env, ...options.env } : process.env,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let settled = false;
@@ -95,7 +95,7 @@ export async function runCommand(
       succeed({
         exitCode,
         stdout: stdout.trim(),
-        stderr: stderr.trim()
+        stderr: stderr.trim(),
       });
     });
   });

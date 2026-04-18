@@ -6,24 +6,24 @@ Instructions for setting up Dispatch on a fresh Mac (e.g. Mac Studio, Mac mini) 
 
 The new machine needs:
 
-| Dependency | Purpose | Install |
-|---|---|---|
-| **Xcode CLI Tools** | Build tools for native npm modules (node-pty) | `xcode-select --install` |
-| **Homebrew** | Package manager | https://brew.sh |
-| **NVM** | Node version manager (Dispatch requires Node 22 LTS+) | `brew install nvm` or https://github.com/nvm-sh/nvm |
-| **PostgreSQL 17** | Database (via Homebrew, native — no Docker needed) | `brew install postgresql@17` |
-| **tmux** | Agent session management | `brew install tmux` |
-| **Git** | Source control | Included with Xcode CLI Tools |
-| **GitHub CLI** | Release automation | `brew install gh` |
-| **At least one agent CLI** | Agent runtime — install any you plan to use | See [Agent CLIs](#8-agent-clis) |
-| **Playwright browsers** | Headless Chrome for agent UI validation | `npx playwright install chromium` |
+| Dependency                 | Purpose                                               | Install                                             |
+| -------------------------- | ----------------------------------------------------- | --------------------------------------------------- |
+| **Xcode CLI Tools**        | Build tools for native npm modules (node-pty)         | `xcode-select --install`                            |
+| **Homebrew**               | Package manager                                       | https://brew.sh                                     |
+| **NVM**                    | Node version manager (Dispatch requires Node 22 LTS+) | `brew install nvm` or https://github.com/nvm-sh/nvm |
+| **PostgreSQL 17**          | Database (via Homebrew, native — no Docker needed)    | `brew install postgresql@17`                        |
+| **tmux**                   | Agent session management                              | `brew install tmux`                                 |
+| **Git**                    | Source control                                        | Included with Xcode CLI Tools                       |
+| **GitHub CLI**             | Release automation                                    | `brew install gh`                                   |
+| **At least one agent CLI** | Agent runtime — install any you plan to use           | See [Agent CLIs](#8-agent-clis)                     |
+| **Playwright browsers**    | Headless Chrome for agent UI validation               | `npx playwright install chromium`                   |
 
 ### Optional
 
-| Dependency | Purpose | Install |
-|---|---|---|
+| Dependency         | Purpose                                   | Install                      |
+| ------------------ | ----------------------------------------- | ---------------------------- |
 | **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker` |
-| **Xcode** (full) | iOS Simulator, `xcrun simctl` | App Store |
+| **Xcode** (full)   | iOS Simulator, `xcrun simctl`             | App Store                    |
 
 ## Agent Setup Prompt
 
@@ -37,7 +37,7 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
-6. Copy .env.example to .env. Generate a random AUTH_TOKEN (use openssl rand -hex 32).
+6. Copy .env.example to .env. The defaults work for local-only use.
 7. Run: nvm use && pnpm install && pnpm run build
 8. Verify locally: pnpm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
 9. Install the launchd service: bin/install-launchd --port 6767
@@ -116,20 +116,9 @@ cd dispatch
 cp .env.example .env
 ```
 
-Edit `.env` — the only value you must change is `AUTH_TOKEN` for a local-only setup:
+The defaults work for local-only use. Authentication is handled automatically — the server generates a secure token on first run and stores it in the database.
 
-```
-DISPATCH_HOST=127.0.0.1
-DISPATCH_PORT=6767
-DATABASE_URL=postgres://dispatch:dispatch@127.0.0.1:5432/dispatch
-AUTH_TOKEN=<generate-a-real-token>
-MEDIA_ROOT=~/.dispatch/media
-```
-
-Generate a token with `openssl rand -hex 32`.
-
-If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` explicitly in
-`~/.dispatch/server/.env` after installation.
+If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` in `.env` (and in `~/.dispatch/server/.env` after installation).
 
 ### 5. Build & verify locally
 
@@ -152,6 +141,7 @@ bin/install-launchd --port 6767
 ```
 
 This:
+
 - Clones the repo to `~/.dispatch/server/` (separate checkout for production)
 - Copies your `.env` to `~/.dispatch/server/.env`
 - Builds the project
@@ -166,13 +156,13 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 tail -20 ~/.dispatch/logs/dispatch.log
 ```
 
-### 7. GitHub CLI auth (for releases)
+### 7. GitHub CLI auth (for server-managed releases)
 
 ```bash
 gh auth login
 ```
 
-This is needed for `bin/dispatch-release` to trigger GitHub Actions workflows.
+This is needed for the Dispatch server's release flow to trigger GitHub Actions workflows.
 
 ### 8. Agent CLIs
 
@@ -241,33 +231,36 @@ open http://127.0.0.1:6767
 ## Deploying Updates
 
 ```bash
-# From the dev checkout (not ~/.dispatch/server):
+# Preferred: use the Dispatch UI
+# Settings -> Updates
+# Settings -> Releases
 
-# Option A: Deploy latest tag
-bin/dispatch-deploy --latest
+# API fallback: update to a specific tag
+curl -X POST http://127.0.0.1:6767/api/v1/release/update \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v0.2.4"}'
 
-# Option B: Cut a new release and deploy
-bin/dispatch-release patch   # or minor/major
-
-# Option C: Deploy specific tag
-bin/dispatch-deploy v0.2.4
+# API fallback: cut a patch release
+curl -X POST http://127.0.0.1:6767/api/v1/release \
+  -H 'Content-Type: application/json' \
+  -d '{"versionType":"patch"}'
 ```
 
-Deploy includes automatic rollback on health check failure.
+Updates include automatic rollback on health check failure.
 
 ## Key Paths Reference
 
-| Path | Purpose |
-|---|---|
-| `~/dev/apps/dispatch/` | Development checkout |
-| `~/.dispatch/server/` | Production checkout (managed by deploy scripts) |
-| `~/.dispatch/server/.env` | Production environment config |
-| `~/.dispatch/logs/dispatch.log` | Server stdout/stderr |
-| `~/.dispatch/logs/last-release-failure.log` | Deploy failure details |
-| `~/.dispatch/release.json` | Current release metadata |
-| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition |
-| `~/.dispatch/media/` | Agent media storage (default) |
-| `~/.dispatch/env` | Agent session environment (sourced on every agent launch) |
+| Path                                               | Purpose                                                   |
+| -------------------------------------------------- | --------------------------------------------------------- |
+| `~/dev/apps/dispatch/`                             | Development checkout                                      |
+| `~/.dispatch/server/`                              | Production checkout (managed by deploy scripts)           |
+| `~/.dispatch/server/.env`                          | Production environment config                             |
+| `~/.dispatch/logs/dispatch.log`                    | Server stdout/stderr                                      |
+| `~/.dispatch/logs/last-release-failure.log`        | Deploy failure details                                    |
+| `~/.dispatch/release.json`                         | Current release metadata                                  |
+| `~/Library/LaunchAgents/com.dispatch.server.plist` | launchd service definition                                |
+| `~/.dispatch/media/`                               | Agent media storage (default)                             |
+| `~/.dispatch/env`                                  | Agent session environment (sourced on every agent launch) |
 
 ### Agent environment (`~/.dispatch/env`)
 
@@ -285,12 +278,14 @@ export GH_TOKEN="ghp_..."
 ## Troubleshooting
 
 ### Server won't start
+
 ```bash
 tail -50 ~/.dispatch/logs/dispatch.log
 launchctl list com.dispatch.server   # Check exit code
 ```
 
 ### Database connection errors
+
 ```bash
 pg_isready                           # Is postgres running?
 brew services start postgresql@17    # Start it
@@ -298,19 +293,21 @@ tail -20 /opt/homebrew/var/log/postgresql@17.log  # Check logs
 ```
 
 ### node-pty build failures
+
 ```bash
 xcode-select --install               # Ensure CLI tools
 npm rebuild node-pty                  # Rebuild native module
 ```
 
 ### Agent can't use dispatch_event/dispatch_share MCP tools
+
 These tools are served via the Dispatch MCP server at `/api/mcp/:agentId`. They are available automatically to agents launched by Dispatch — no PATH or bin directory needed. If the tools are missing, verify that the Dispatch server is running and the agent's MCP config points to the correct URL.
 
 ---
 
 ## Design Decisions
 
-- **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production via `bin/dispatch-deploy <tag>`.
+- **Two separate git checkouts** (dev at `~/dev/apps/dispatch/`, production at `~/.dispatch/server/`): Intentional — keeps live service isolated from development. Updates reach production through the server-managed release/update flow.
 - **Migrations run on boot**: No explicit `db:migrate` step needed. The server runs migrations automatically on startup.
 - **Database retry on boot**: Server retries the Postgres connection up to 15 times (30s) on startup. With Homebrew Postgres (starts via launchd at boot), this is rarely needed but provides resilience.
 - **Homebrew Postgres for production, Docker for dev**: Production uses native Homebrew Postgres — no VM overhead, starts at boot via `brew services`, one fewer moving part. Docker Compose is available for isolated dev databases when needed.

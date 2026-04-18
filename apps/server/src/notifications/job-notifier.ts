@@ -58,7 +58,10 @@ export class JobNotifier {
         if (channel === "slack") {
           await this.sendSlackNotification(run, event);
         } else {
-          this.log.debug({ channel, runId: run.id }, "Unknown notification channel, skipping");
+          this.log.debug(
+            { channel, runId: run.id },
+            "Unknown notification channel, skipping"
+          );
         }
       }
     } catch (err) {
@@ -79,18 +82,27 @@ export class JobNotifier {
     }
   }
 
-  private async sendSlackNotification(run: JobRunRecord, event: JobEvent): Promise<void> {
+  private async sendSlackNotification(
+    run: JobRunRecord,
+    event: JobEvent
+  ): Promise<void> {
     const webhookUrl = await this.getCachedWebhookUrl();
     if (!webhookUrl) {
-      this.log.debug({ runId: run.id }, "No Slack webhook configured, skipping job notification");
+      this.log.debug(
+        { runId: run.id },
+        "No Slack webhook configured, skipping job notification"
+      );
       return;
     }
 
     const cfg = EVENT_CONFIG[event];
     const jobName = escapeSlackMrkdwn(run.config.name);
     const directory = run.config.directory;
-    const summary = escapeSlackMrkdwn(run.report?.summary ?? run.pendingQuestion ?? "");
-    const duration = run.durationMs != null ? this.formatDuration(run.durationMs) : null;
+    const summary = escapeSlackMrkdwn(
+      run.report?.summary ?? run.pendingQuestion ?? ""
+    );
+    const duration =
+      run.durationMs != null ? this.formatDuration(run.durationMs) : null;
 
     const statusLabel = run.status === "timed_out" ? "timed out" : run.status;
 
@@ -127,7 +139,10 @@ export class JobNotifier {
 
     if (!res.ok) {
       const body = await res.text();
-      this.log.warn({ status: res.status, body }, "Slack webhook returned error for job notification");
+      this.log.warn(
+        { status: res.status, body },
+        "Slack webhook returned error for job notification"
+      );
     }
   }
 
@@ -136,7 +151,10 @@ export class JobNotifier {
       return this.cachedWebhook.url;
     }
     const url = await getSetting(this.pool, SETTING_WEBHOOK_URL);
-    this.cachedWebhook = { url: url ?? null, expiresAt: Date.now() + CACHE_TTL_MS };
+    this.cachedWebhook = {
+      url: url ?? null,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
     return this.cachedWebhook.url;
   }
 
@@ -155,5 +173,8 @@ export class JobNotifier {
 
 /** Escape characters that Slack interprets as mrkdwn or link syntax. */
 function escapeSlackMrkdwn(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

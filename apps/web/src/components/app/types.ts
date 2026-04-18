@@ -1,4 +1,11 @@
-export type AgentStatus = "creating" | "running" | "stopping" | "stopped" | "archiving" | "error" | "unknown";
+export type AgentStatus =
+  | "creating"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "archiving"
+  | "error"
+  | "unknown";
 
 export type AgentPin = {
   label: string;
@@ -18,7 +25,12 @@ export type Agent = {
   agentArgs: string[];
   fullAccess: boolean;
   setupPhase?: "worktree" | "env" | "deps" | "session" | null;
-  archivePhase?: "stopping" | "worktree-check" | "worktree-cleanup" | "finalizing" | null;
+  archivePhase?:
+    | "stopping"
+    | "worktree-check"
+    | "worktree-cleanup"
+    | "finalizing"
+    | null;
   lastError?: string | null;
   latestEvent?: {
     type: "working" | "blocked" | "waiting_user" | "done" | "idle";
@@ -38,6 +50,7 @@ export type Agent = {
   persona?: string | null;
   parentAgentId?: string | null;
   personaContext?: string | null;
+  reviewAgentType?: "codex" | "claude" | "opencode" | null;
   review?: {
     status: string;
     message: string | null;
@@ -46,6 +59,8 @@ export type Agent = {
     filesReviewed: string[] | null;
     updatedAt: string;
   } | null;
+  baseBranch?: string | null;
+  autoReview?: boolean;
   hasStream?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -70,7 +85,7 @@ export type MediaFile = {
   updatedAt: string;
   url: string;
   seen?: boolean;
-  source?: "screenshot" | "stream" | "simulator" | "text";
+  source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   description?: string | null;
 };
 

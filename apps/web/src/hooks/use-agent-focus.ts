@@ -6,7 +6,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 /**
  * Sends periodic focus heartbeats to the server so it knows the user is
  * actively viewing a specific agent. The server uses this to suppress
- * redundant Slack notifications.
+ * redundant notifications when the user is already looking at the agent.
  *
  * Heartbeats are only sent when:
  * - The user is authenticated
@@ -18,7 +18,7 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
  */
 export function useAgentFocus(
   selectedAgentId: string | null,
-  authState: AuthState,
+  authState: AuthState
 ): void {
   const lastReportedRef = useRef<string | null>(null);
 

@@ -14,9 +14,14 @@ types.setTypeParser(20, (val) => {
 });
 
 export function createPool(config: AppConfig): Pool {
-  return new Pool({
+  const pool = new Pool({
     connectionString: config.databaseUrl,
     max: 10,
-    idleTimeoutMillis: 30_000
+    idleTimeoutMillis: 30_000,
   });
+  // Prevent unhandled 'error' events on idle clients from crashing the process.
+  // Connection errors during shutdown (e.g. pg_terminate_backend in tests) are
+  // expected and safe to ignore — the pool will reconnect if needed.
+  pool.on("error", () => {});
+  return pool;
 }

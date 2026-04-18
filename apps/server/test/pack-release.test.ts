@@ -10,8 +10,7 @@ const OUTPUT = `/tmp/dispatch-pack-release-test-${process.pid}.tar.gz`;
 
 const BUILDS_EXIST =
   existsSync(path.join(REPO_ROOT, "apps/server/dist")) &&
-  existsSync(path.join(REPO_ROOT, "apps/web/dist")) &&
-  existsSync(path.join(REPO_ROOT, "packages/shared/dist"));
+  existsSync(path.join(REPO_ROOT, "apps/web/dist"));
 
 function run(args = ""): string {
   return execSync(`${BIN} ${args}`, {
@@ -32,7 +31,6 @@ function tarList(): string[] {
 // before the build step, so we skip gracefully. The release workflow validates
 // pack-release after building.
 describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
-
   afterAll(() => {
     if (existsSync(OUTPUT)) rmSync(OUTPUT);
   });
@@ -47,7 +45,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("apps/server/dist/"))).toBe(true);
     expect(files.some((f) => f.startsWith("apps/web/dist/"))).toBe(true);
-    expect(files.some((f) => f.startsWith("packages/shared/dist/"))).toBe(true);
   });
 
   it("includes package.json files for dependency install", () => {
@@ -55,7 +52,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files).toContain("package.json");
     expect(files).toContain("apps/server/package.json");
     expect(files).toContain("apps/web/package.json");
-    expect(files).toContain("packages/shared/package.json");
   });
 
   it("includes pnpm workspace config and lockfile", () => {
@@ -72,9 +68,10 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
   it("includes bin/ scripts", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-deploy"))).toBe(true);
     expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-launchd-wrapper"))).toBe(true);
+    expect(files.some((f) => f.includes("dispatch-launchd-wrapper"))).toBe(
+      true
+    );
   });
 
   it("includes database migrations", () => {
@@ -101,9 +98,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     const tsFiles = files.filter(
       (f) =>
-        f.endsWith(".ts") &&
-        !f.endsWith(".d.ts") &&
-        !f.includes("migrations/")
+        f.endsWith(".ts") && !f.endsWith(".d.ts") && !f.includes("migrations/")
     );
     expect(tsFiles).toEqual([]);
   });
@@ -122,12 +117,15 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     writeFileSync(path.join(tmpDir, "package.json"), "{}");
 
     try {
-      execSync(`${tmpDir}/bin/pack-release --output /tmp/should-not-exist.tar.gz`, {
-        cwd: tmpDir,
-        encoding: "utf8",
-        timeout: 10_000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      execSync(
+        `${tmpDir}/bin/pack-release --output /tmp/should-not-exist.tar.gz`,
+        {
+          cwd: tmpDir,
+          encoding: "utf8",
+          timeout: 10_000,
+          stdio: ["pipe", "pipe", "pipe"],
+        }
+      );
       expect.fail("should have thrown");
     } catch (error) {
       const err = error as { stderr?: string };

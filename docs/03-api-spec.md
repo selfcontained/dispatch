@@ -32,24 +32,25 @@
 
 ## Authentication
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/auth/status` | Check auth state and whether password is configured |
-| POST | `/auth/setup` | Set initial password (first-run only) |
-| POST | `/auth/login` | Authenticate and create session cookie |
-| POST | `/auth/logout` | Invalidate session |
-| POST | `/auth/change-password` | Change password (requires valid session) |
+| Method | Path                    | Description                                         |
+| ------ | ----------------------- | --------------------------------------------------- |
+| GET    | `/auth/status`          | Check auth state and whether password is configured |
+| POST   | `/auth/setup`           | Set initial password (first-run only)               |
+| POST   | `/auth/login`           | Authenticate and create session cookie              |
+| POST   | `/auth/logout`          | Invalidate session                                  |
+| POST   | `/auth/change-password` | Change password (requires valid session)            |
 
 ## Agent Lifecycle
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/agents` | List all active agents |
-| GET | `/agents/:id` | Get agent details |
-| POST | `/agents` | Create new agent |
-| POST | `/agents/:id/start` | Start a stopped agent |
-| POST | `/agents/:id/stop` | Stop a running agent |
-| DELETE | `/agents/:id` | Delete agent (soft delete) |
+| Method | Path                            | Description                                  |
+| ------ | ------------------------------- | -------------------------------------------- |
+| GET    | `/agents`                       | List all active agents                       |
+| GET    | `/agents/:id`                   | Get agent details                            |
+| POST   | `/agents`                       | Create new agent                             |
+| POST   | `/agents/:id/start`             | Start a stopped agent                        |
+| POST   | `/agents/:id/stop`              | Stop a running agent                         |
+| PATCH  | `/agents/:id/review-agent-type` | Set preferred agent type for persona reviews |
+| DELETE | `/agents/:id`                   | Delete agent (soft delete)                   |
 
 ### `POST /agents` — Create Agent
 
@@ -62,9 +63,13 @@
   "agentArgs": ["--model", "opus"],
   "useWorktree": true,
   "worktreeBranch": "fix-auth-bug",
-  "baseBranch": "main"
+  "baseBranch": "main",
+  "autoReview": false,
+  "initialPrompt": "Start by reading CONTRIBUTING.md..."
 }
 ```
+
+`type` defaults to `codex` if omitted. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
 
 For persona agents (launched via `dispatch_launch_persona`):
 
@@ -86,16 +91,16 @@ For persona agents (launched via `dispatch_launch_persona`):
 
 ### `DELETE /agents/:id`
 
-Query params: `force=true`, `cleanupWorktree=true`
+Query params: `cleanupWorktree=auto|keep|force` (default: `auto` — cleans up worktree if no unmerged/uncommitted changes; `keep` preserves worktree; `force` always removes)
 
 ## Agent Setup
 
 Used during agent initialization to track setup progress.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/agents/:id/setup/phase` | Report setup phase (`worktree` → `env` → `deps` → `session`) |
-| POST | `/agents/:id/setup/complete` | Mark setup complete with resolved paths |
+| Method | Path                         | Description                                                  |
+| ------ | ---------------------------- | ------------------------------------------------------------ |
+| POST   | `/agents/:id/setup/phase`    | Report setup phase (`worktree` → `env` → `deps` → `session`) |
+| POST   | `/agents/:id/setup/complete` | Mark setup complete with resolved paths                      |
 
 ### `POST /agents/:id/setup/complete`
 
@@ -109,13 +114,13 @@ Used during agent initialization to track setup progress.
 
 ## Agent Events & State
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/agents/:id/latest-event` | Update agent's latest status event |
-| POST | `/focus` | Track which agent the user is viewing |
-| GET | `/events` | SSE stream of real-time UI events |
-| GET | `/agents/git-context` | Get git context for agents (filtered by `ids` query param) |
-| GET | `/agents/:id/worktree-status` | Check worktree for unmerged commits and uncommitted changes |
+| Method | Path                          | Description                                                 |
+| ------ | ----------------------------- | ----------------------------------------------------------- |
+| POST   | `/agents/:id/latest-event`    | Update agent's latest status event                          |
+| POST   | `/focus`                      | Track which agent the user is viewing                       |
+| GET    | `/events`                     | SSE stream of real-time UI events                           |
+| GET    | `/agents/git-context`         | Get git context for agents (filtered by `ids` query param)  |
+| GET    | `/agents/:id/worktree-status` | Check worktree for unmerged commits and uncommitted changes |
 
 ### `POST /agents/:id/latest-event`
 
@@ -135,46 +140,46 @@ Server-Sent Events stream. Events include agent state changes, media uploads, an
 
 ## Terminal
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/agents/:id/terminal/token` | Issue short-lived terminal access token |
-| WS | `/agents/:id/terminal/ws?token=...` | WebSocket for interactive terminal I/O |
+| Method | Path                                | Description                             |
+| ------ | ----------------------------------- | --------------------------------------- |
+| POST   | `/agents/:id/terminal/token`        | Issue short-lived terminal access token |
+| WS     | `/agents/:id/terminal/ws?token=...` | WebSocket for interactive terminal I/O  |
 
 The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session.
 
 ## Media
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/agents/:id/media` | List media files with seen/unseen status |
-| GET | `/agents/:id/media/:file` | Download a media file |
-| POST | `/agents/:id/media` | Upload media (multipart form: file + description) |
-| POST | `/agents/:id/media/seen` | Mark media files as seen |
+| Method | Path                      | Description                                       |
+| ------ | ------------------------- | ------------------------------------------------- |
+| GET    | `/agents/:id/media`       | List media files with seen/unseen status          |
+| GET    | `/agents/:id/media/:file` | Download a media file                             |
+| POST   | `/agents/:id/media`       | Upload media (multipart form: file + description) |
+| POST   | `/agents/:id/media/seen`  | Mark media files as seen                          |
 
 ## Streaming
 
 Live Playwright browser streaming via Chrome DevTools Protocol.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/agents/:id/stream` | Start or stop a screen stream |
-| GET | `/agents/:id/stream` | MJPEG stream (`multipart/x-mixed-replace`) |
-| GET | `/agents/:id/stream/viewer` | HTML viewer page for the live stream |
+| Method | Path                        | Description                                |
+| ------ | --------------------------- | ------------------------------------------ |
+| POST   | `/agents/:id/stream`        | Start or stop a screen stream              |
+| GET    | `/agents/:id/stream`        | MJPEG stream (`multipart/x-mixed-replace`) |
+| GET    | `/agents/:id/stream/viewer` | HTML viewer page for the live stream       |
 
 ## Personas
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/personas` | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`) |
+| Method | Path        | Description                                                                     |
+| ------ | ----------- | ------------------------------------------------------------------------------- |
+| GET    | `/personas` | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`) |
 
 Query params: `cwd=/path/to/repo`
 
 ## Feedback
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/agents/:id/feedback` | Get feedback findings for an agent |
-| PATCH | `/agents/:id/feedback/:feedbackId` | Update feedback status |
+| Method | Path                               | Description                        |
+| ------ | ---------------------------------- | ---------------------------------- |
+| GET    | `/agents/:id/feedback`             | Get feedback findings for an agent |
+| PATCH  | `/agents/:id/feedback/:feedbackId` | Update feedback status             |
 
 ### `GET /agents/:id/feedback`
 
@@ -190,34 +195,34 @@ Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`
 
 ## Activity & Analytics
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/activity/heatmap` | Activity heatmap data (configurable `days`, `timezone`) |
-| GET | `/activity/stats` | Aggregate stats (working/blocked/waiting time, busiest day) |
-| GET | `/activity/daily-status` | Daily status breakdown |
-| GET | `/activity/active-hours` | Events marked as working/blocked/waiting_user |
-| GET | `/activity/agents-created` | Agent creation counts over time |
-| GET | `/activity/working-time-by-project` | Working time by project directory |
+| Method | Path                                | Description                                                 |
+| ------ | ----------------------------------- | ----------------------------------------------------------- |
+| GET    | `/activity/heatmap`                 | Activity heatmap data (configurable `days`, `timezone`)     |
+| GET    | `/activity/stats`                   | Aggregate stats (working/blocked/waiting time, busiest day) |
+| GET    | `/activity/daily-status`            | Daily status breakdown                                      |
+| GET    | `/activity/active-hours`            | Events marked as working/blocked/waiting_user               |
+| GET    | `/activity/agents-created`          | Agent creation counts over time                             |
+| GET    | `/activity/working-time-by-project` | Working time by project directory                           |
 
 ## Token Usage
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/activity/token-stats` | Total token usage (input, output, cache creation, cache reads) |
-| GET | `/activity/token-daily` | Daily token usage breakdown |
-| GET | `/activity/token-by-project` | Token usage by project (top 20) |
-| GET | `/activity/token-by-model` | Token usage by model |
-| POST | `/agents/:id/harvest-tokens` | Harvest token usage from an agent's session |
+| Method | Path                         | Description                                                    |
+| ------ | ---------------------------- | -------------------------------------------------------------- |
+| GET    | `/activity/token-stats`      | Total token usage (input, output, cache creation, cache reads) |
+| GET    | `/activity/token-daily`      | Daily token usage breakdown                                    |
+| GET    | `/activity/token-by-project` | Token usage by project (top 20)                                |
+| GET    | `/activity/token-by-model`   | Token usage by model                                           |
+| POST   | `/agents/:id/harvest-tokens` | Harvest token usage from an agent's session                    |
 
 All token endpoints accept `days` and `timezone` query params.
 
 ## History
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/history/projects` | List all projects where agents have worked |
-| GET | `/history/agents` | Paginated agent history with filtering and sorting |
-| GET | `/history/agents/:id` | Detailed agent history including events, tokens, and media |
+| Method | Path                  | Description                                                |
+| ------ | --------------------- | ---------------------------------------------------------- |
+| GET    | `/history/projects`   | List all projects where agents have worked                 |
+| GET    | `/history/agents`     | Paginated agent history with filtering and sorting         |
+| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and media |
 
 ### `GET /history/agents`
 
@@ -225,97 +230,108 @@ Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
 
 ## Notifications
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/notifications/settings` | Get Slack webhook URL and enabled event types |
-| POST | `/notifications/settings` | Update webhook URL and event configuration |
-| POST | `/notifications/test` | Send a test message to the configured webhook |
+| Method | Path                      | Description                                                                         |
+| ------ | ------------------------- | ----------------------------------------------------------------------------------- |
+| GET    | `/notifications/settings` | Get Slack webhook URL, enabled Slack event types, and web notification config       |
+| POST   | `/notifications/settings` | Update any subset of webhook URL, event lists, or web-notify toggle                 |
+| POST   | `/notifications/test`     | Send a test message to the configured (or provided) webhook                         |
+| POST   | `/notifications/ack`      | Acknowledge a web notification by ID (suppresses the Slack fallback for that event) |
 
 ### `POST /notifications/settings`
 
+All fields are optional — the request updates only the fields it contains.
+
 ```json
 {
-  "slackWebhookUrl": "https://hooks.slack.com/services/...",
-  "events": {
-    "done": true,
-    "waiting_user": true,
-    "blocked": false
-  }
+  "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+  "notifyEvents": ["done", "waiting_user"],
+  "webNotifyEnabled": true,
+  "webNotifyEvents": ["done", "waiting_user", "blocked"]
 }
 ```
 
+`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there).
+
+### `POST /notifications/ack`
+
+```json
+{ "notificationId": "<id from the SSE event>" }
+```
+
+Returns `204` regardless of whether the notification was still pending.
+
 ## Settings
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/agents/settings` | Get agent settings (worktree location) |
-| POST | `/agents/settings` | Update agent settings |
-| GET | `/app/settings/agent-types` | Get enabled agent types |
-| POST | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`) |
+| Method | Path                        | Description                                             |
+| ------ | --------------------------- | ------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location)                  |
+| POST   | `/agents/settings`          | Update agent settings                                   |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                 |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`) |
 
 ## System
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Database connectivity check |
-| GET | `/app/version` | Current app version |
-| GET | `/app/branding` | App branding info (icon color) |
-| GET | `/system/defaults` | System defaults (home directory) |
-| GET | `/system/path-info` | Path validation (exists, isDirectory, isGitRepo) |
-| GET | `/system/path-completions` | Directory path autocomplete |
-| GET | `/git/branches` | List remote branches for a repo |
-| POST | `/clipboard/image` | Write browser clipboard image to macOS pasteboard |
-| POST | `/energy-report` | Report PWA energy metrics |
-| GET | `/diagnostics/git-context` | Git context refresh diagnostics |
+| Method | Path                       | Description                                       |
+| ------ | -------------------------- | ------------------------------------------------- |
+| GET    | `/health`                  | Database connectivity check                       |
+| GET    | `/app/version`             | Current app version                               |
+| GET    | `/app/branding`            | App branding info (icon color)                    |
+| GET    | `/system/defaults`         | System defaults (home directory)                  |
+| GET    | `/system/path-info`        | Path validation (exists, isDirectory, isGitRepo)  |
+| GET    | `/system/path-completions` | Directory path autocomplete                       |
+| GET    | `/git/branches`            | List remote branches for a repo                   |
+| POST   | `/clipboard/image`         | Write browser clipboard image to macOS pasteboard |
+| POST   | `/energy-report`           | Report PWA energy metrics                         |
+| GET    | `/diagnostics/git-context` | Git context refresh diagnostics                   |
 
 ## Release Management
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/release/status` | Current deployed release tag and timestamp |
-| GET | `/release/info` | Latest available version and unreleased commits |
-| GET | `/release/channel` | Get current release channel (stable or latest) |
-| POST | `/release/channel` | Set release channel |
-| GET | `/release/admin-check` | Check if current instance is a release admin |
-| POST | `/release/promote` | Promote a pre-release to stable (admin only) |
-| GET | `/releases` | List recent GitHub releases |
-| POST | `/release` | Trigger new release (`versionType`: major/minor/patch) |
-| POST | `/release/update` | Update to a specific release tag |
-| GET | `/release/stream` | SSE stream for release operation progress |
+| Method | Path                   | Description                                            |
+| ------ | ---------------------- | ------------------------------------------------------ |
+| GET    | `/release/status`      | Current deployed release tag and timestamp             |
+| GET    | `/release/info`        | Latest available version and unreleased commits        |
+| GET    | `/release/channel`     | Get current release channel (stable or latest)         |
+| POST   | `/release/channel`     | Set release channel                                    |
+| GET    | `/release/admin-check` | Check if current instance is a release admin           |
+| POST   | `/release/promote`     | Promote a pre-release to stable (admin only)           |
+| GET    | `/releases`            | List recent GitHub releases                            |
+| POST   | `/release`             | Trigger new release (`versionType`: major/minor/patch) |
+| POST   | `/release/update`      | Update to a specific release tag                       |
+| GET    | `/release/stream`      | SSE stream for release operation progress              |
 
 ## Jobs
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/jobs` | List all configured jobs |
-| POST | `/jobs` | Create a job |
-| PATCH | `/jobs` | Update a job configuration |
-| DELETE | `/jobs` | Delete a job configuration |
-| POST | `/jobs/enable` | Enable a job (registers cron schedule) |
-| POST | `/jobs/disable` | Disable a job (removes cron schedule) |
-| POST | `/jobs/run` | Manually trigger a job run |
-| GET | `/jobs/stats` | Get job run statistics |
-| GET | `/jobs/history` | Get job run history (filterable by `jobId`, `status`, `limit`, `offset`) |
+| Method | Path            | Description                                                              |
+| ------ | --------------- | ------------------------------------------------------------------------ |
+| GET    | `/jobs`         | List all configured jobs                                                 |
+| POST   | `/jobs`         | Create a job                                                             |
+| PATCH  | `/jobs`         | Update a job configuration                                               |
+| DELETE | `/jobs`         | Delete a job configuration                                               |
+| POST   | `/jobs/enable`  | Enable a job (registers cron schedule)                                   |
+| POST   | `/jobs/disable` | Disable a job (removes cron schedule)                                    |
+| POST   | `/jobs/run`     | Manually trigger a job run                                               |
+| GET    | `/jobs/stats`   | Get job run statistics                                                   |
+| GET    | `/jobs/history` | Get job run history (filterable by `jobId`, `status`, `limit`, `offset`) |
 
 ## MCP (Model Context Protocol)
 
 These endpoints use the `/api/mcp` base path (not `/api/v1`).
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/mcp` | Handle global MCP requests |
-| POST | `/api/mcp/:agentId` | Handle agent-scoped MCP requests with repo context |
-| POST | `/api/mcp/jobs/:runId/:agentId` | Handle job-scoped MCP requests (adds job lifecycle tools) |
+| Method | Path                            | Description                                               |
+| ------ | ------------------------------- | --------------------------------------------------------- |
+| POST   | `/api/mcp`                      | Handle global MCP requests                                |
+| POST   | `/api/mcp/:agentId`             | Handle agent-scoped MCP requests with repo context        |
+| POST   | `/api/mcp/jobs/:runId/:agentId` | Handle job-scoped MCP requests (adds job lifecycle tools) |
 
 Agent-scoped MCP loads repo tools from `.dispatch/tools.json` in the agent's working directory.
 
 ## Error Codes
 
-| Code | Meaning |
-|------|---------|
-| 400 | Invalid request body or parameters |
-| 401 | Not authenticated |
-| 403 | Unauthorized |
-| 404 | Agent or resource not found |
-| 409 | Lifecycle conflict (e.g., starting an already-running agent) |
-| 500 | Internal server error |
+| Code | Meaning                                                      |
+| ---- | ------------------------------------------------------------ |
+| 400  | Invalid request body or parameters                           |
+| 401  | Not authenticated                                            |
+| 403  | Unauthorized                                                 |
+| 404  | Agent or resource not found                                  |
+| 409  | Lifecycle conflict (e.g., starting an already-running agent) |
+| 500  | Internal server error                                        |

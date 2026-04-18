@@ -4,7 +4,7 @@ import {
   createPr,
   getPrStatus,
   GitHubPrError,
-} from "@dispatch/shared/github/pr.js";
+} from "../src/shared/github/pr.js";
 
 describe("github pr services", () => {
   it("creates a PR after pushing the current branch", async () => {
@@ -25,7 +25,11 @@ describe("github pr services", () => {
         case `-C ${repoRoot} push --set-upstream origin feature/pr-tools`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `pr create --base main --head feature/pr-tools --fill`:
-          return { exitCode: 0, stdout: "https://github.com/selfcontained/dispatch/pull/99", stderr: "" };
+          return {
+            exitCode: 0,
+            stdout: "https://github.com/selfcontained/dispatch/pull/99",
+            stderr: "",
+          };
         case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
           return {
             exitCode: 0,
@@ -41,23 +45,95 @@ describe("github pr services", () => {
               autoMergeRequest: null,
               headRefName: "feature/pr-tools",
               baseRefName: "main",
-              statusCheckRollup: []
+              statusCheckRollup: [],
             }),
-            stderr: ""
+            stderr: "",
           };
         default:
           throw new Error(`Unexpected command: ${key}`);
       }
     });
 
-    const result = await createPr({
-      cwd: repoRoot,
-      fillFromCommits: true
-    }, runner);
+    const result = await createPr(
+      {
+        cwd: repoRoot,
+        fillFromCommits: true,
+      },
+      runner
+    );
 
-    expect(result.url).toBe("https://github.com/selfcontained/dispatch/pull/99");
+    expect(result.url).toBe(
+      "https://github.com/selfcontained/dispatch/pull/99"
+    );
     expect(result.branchName).toBe("feature/pr-tools");
     expect(result.prNumber).toBe(99);
+  });
+
+  it("creates a PR targeting a custom base branch", async () => {
+    const repoRoot = "/tmp/repo";
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} symbolic-ref --short -q HEAD`:
+          return { exitCode: 0, stdout: "fix/bug-on-feature", stderr: "" };
+        case `-C ${repoRoot} fetch origin feature/foo --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-list --count origin/feature/foo..HEAD`:
+          return { exitCode: 0, stdout: "1", stderr: "" };
+        case `-C ${repoRoot} rev-parse --abbrev-ref --symbolic-full-name @{upstream}`:
+          return {
+            exitCode: 0,
+            stdout: "origin/fix/bug-on-feature",
+            stderr: "",
+          };
+        case `-C ${repoRoot} push origin fix/bug-on-feature`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `pr create --base feature/foo --head fix/bug-on-feature --fill`:
+          return {
+            exitCode: 0,
+            stdout: "https://github.com/selfcontained/dispatch/pull/100",
+            stderr: "",
+          };
+        case `pr view --json number,url,title,state,isDraft,reviewDecision,mergeStateStatus,mergeable,autoMergeRequest,headRefName,baseRefName,statusCheckRollup`:
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              number: 100,
+              url: "https://github.com/selfcontained/dispatch/pull/100",
+              title: "Fix bug on feature",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: null,
+              mergeStateStatus: "UNSTABLE",
+              mergeable: "MERGEABLE",
+              autoMergeRequest: null,
+              headRefName: "fix/bug-on-feature",
+              baseRefName: "feature/foo",
+              statusCheckRollup: [],
+            }),
+            stderr: "",
+          };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const result = await createPr(
+      {
+        cwd: repoRoot,
+        baseBranch: "feature/foo",
+        fillFromCommits: true,
+      },
+      runner
+    );
+
+    expect(result.url).toBe(
+      "https://github.com/selfcontained/dispatch/pull/100"
+    );
+    expect(result.baseBranch).toBe("feature/foo");
+    expect(result.branchName).toBe("fix/bug-on-feature");
   });
 
   it("rejects create_pr without non-interactive title/body settings", async () => {
@@ -82,7 +158,9 @@ describe("github pr services", () => {
       }
     });
 
-    await expect(createPr({ cwd: repoRoot }, runner)).rejects.toBeInstanceOf(GitHubPrError);
+    await expect(createPr({ cwd: repoRoot }, runner)).rejects.toBeInstanceOf(
+      GitHubPrError
+    );
   });
 
   it("reports PR status details", async () => {
@@ -108,10 +186,10 @@ describe("github pr services", () => {
               headRefName: "feature/pr-tools",
               baseRefName: "main",
               statusCheckRollup: [
-                { context: "ci", status: "COMPLETED", conclusion: "SUCCESS" }
-              ]
+                { context: "ci", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
             }),
-            stderr: ""
+            stderr: "",
           };
         default:
           throw new Error(`Unexpected command: ${key}`);
@@ -120,7 +198,8 @@ describe("github pr services", () => {
 
     const result = await getPrStatus({ cwd: repoRoot, prNumber: 99 }, runner);
     expect(result.number).toBe(99);
-    expect(result.statusSummary).toEqual([{ name: "ci", status: "COMPLETED", conclusion: "SUCCESS" }]);
+    expect(result.statusSummary).toEqual([
+      { name: "ci", status: "COMPLETED", conclusion: "SUCCESS" },
+    ]);
   });
-
 });

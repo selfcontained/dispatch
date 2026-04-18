@@ -27,15 +27,21 @@ export default tseslint.config(
       // Upgrade hook dependency warnings to errors so CI catches them
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-refresh/only-export-components": [
+        "warn",
+        { allowConstantExport: true },
+      ],
       // Empty catch blocks are used intentionally to silence expected errors (e.g. socket.close())
       "no-empty": ["error", { allowEmptyCatch: true }],
       // Allow _-prefixed names to signal intentionally unused destructured values
-      "@typescript-eslint/no-unused-vars": ["error", {
-        argsIgnorePattern: "^_",
-        varsIgnorePattern: "^_",
-        destructuredArrayIgnorePattern: "^_",
-      }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
     },
   }
 );

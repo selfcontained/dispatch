@@ -52,13 +52,20 @@ export function useAuth(): {
       }
     };
     authEvents.addEventListener("unauthenticated", onUnauthenticated);
-    return () => authEvents.removeEventListener("unauthenticated", onUnauthenticated);
+    return () =>
+      authEvents.removeEventListener("unauthenticated", onUnauthenticated);
   }, []);
 
-  const handleAuthenticated = useCallback(() => setAuthState("authenticated"), []);
+  const handleAuthenticated = useCallback(
+    () => setAuthState("authenticated"),
+    []
+  );
 
   const handleLogout = useCallback(async () => {
-    await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+    await fetch("/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
     setAuthState("needs-login");
     void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
   }, [queryClient]);

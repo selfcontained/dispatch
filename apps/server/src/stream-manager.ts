@@ -7,7 +7,11 @@ type StreamSession = {
 };
 
 type OnStateChange = (agentId: string, event: "started" | "stopped") => void;
-type OnStreamEnd = (agentId: string, lastFrame: Buffer, description: string | null) => void;
+type OnStreamEnd = (
+  agentId: string,
+  lastFrame: Buffer,
+  description: string | null
+) => void;
 
 const MJPEG_BOUNDARY = "frame";
 const FRAME_REFRESH_INTERVAL_MS = 1000;
@@ -30,7 +34,9 @@ export class StreamManager {
     // Discover CDP target URL
     const response = await fetch(`http://127.0.0.1:${port}/json`);
     if (!response.ok) {
-      throw new Error(`Failed to discover CDP targets on port ${port}: ${response.status}`);
+      throw new Error(
+        `Failed to discover CDP targets on port ${port}: ${response.status}`
+      );
     }
 
     const targets = (await response.json()) as Array<{
@@ -62,7 +68,12 @@ export class StreamManager {
         JSON.stringify({
           id: cdpId++,
           method: "Page.startScreencast",
-          params: { format: "jpeg", quality: 60, maxWidth: 1280, maxHeight: 800 },
+          params: {
+            format: "jpeg",
+            quality: 60,
+            maxWidth: 1280,
+            maxHeight: 800,
+          },
         })
       );
       // Re-push the last cached frame periodically so viewers that connect
@@ -174,7 +185,10 @@ export class StreamManager {
 
     // Send the cached frame immediately so the viewer doesn't see a blank screen
     if (session.lastFrame) {
-      this.writeFrameToViewers({ viewers: new Set([stream]) } as StreamSession, session.lastFrame);
+      this.writeFrameToViewers(
+        { viewers: new Set([stream]) } as StreamSession,
+        session.lastFrame
+      );
     }
 
     return () => {
@@ -201,7 +215,10 @@ export class StreamManager {
     this.writeFrameToViewers(session, jpegBuffer);
   }
 
-  private writeFrameToViewers(session: StreamSession, jpegBuffer: Buffer): void {
+  private writeFrameToViewers(
+    session: StreamSession,
+    jpegBuffer: Buffer
+  ): void {
     const header =
       `--${MJPEG_BOUNDARY}\r\n` +
       `Content-Type: image/jpeg\r\n` +
@@ -215,7 +232,10 @@ export class StreamManager {
 
     for (const viewer of session.viewers) {
       try {
-        const v = viewer as NodeJS.WritableStream & { writable?: boolean; flush?: () => void };
+        const v = viewer as NodeJS.WritableStream & {
+          writable?: boolean;
+          flush?: () => void;
+        };
         if (v.writable !== false) {
           v.write(frameChunk);
           if (typeof v.flush === "function") {

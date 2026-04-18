@@ -1,8 +1,8 @@
 /**
  * In-memory tracker for which agents the user is actively viewing in the UI.
- * Used to suppress redundant Slack notifications when the user is already
- * looking at the agent. State is ephemeral — server restart clears all focus,
- * which is the safe default (notifications resume).
+ * Used to suppress redundant notifications (both web and Slack) when the user
+ * is already looking at the agent. State is ephemeral — server restart clears
+ * all focus, which is the safe default (notifications resume).
  */
 
 const FOCUS_TTL_MS = 30_000;

@@ -1,9 +1,23 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { test, expect } from "@playwright/test";
-import { cleanupE2EAgents, createAgentViaAPI, deleteAgentViaAPI, getWorktreeStatusViaAPI, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  deleteAgentViaAPI,
+  getWorktreeStatusViaAPI,
+  loadApp,
+} from "./helpers";
 
-const authHeader = { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` };
+const authHeader = {
+  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+};
 
 /** Create a minimal git repo in /tmp with one commit and a local origin, returning the repo path. */
 function createTestRepo(suffix: string): string {
@@ -18,10 +32,13 @@ function createTestRepo(suffix: string): string {
 
   // Clone it as the working repo
   execSync(`git clone "${barePath}" "${repoPath}"`, { stdio: "ignore" });
-  execSync('git config user.email "test@test.com" && git config user.name "Test"', {
-    cwd: repoPath,
-    stdio: "ignore",
-  });
+  execSync(
+    'git config user.email "test@test.com" && git config user.name "Test"',
+    {
+      cwd: repoPath,
+      stdio: "ignore",
+    }
+  );
   writeFileSync(`${repoPath}/README.md`, "# test\n");
   writeFileSync(`${repoPath}/.gitignore`, ".env\n");
   execSync("git add -A && git commit -m 'initial' && git push origin main", {
@@ -36,12 +53,18 @@ function cleanupTestRepo(repoPath: string): void {
   const barePath = repoPath.replace("-repo-", "-bare-");
   // Remove any worktrees git knows about (they'll be siblings)
   try {
-    const output = execSync("git worktree list --porcelain", { cwd: repoPath, encoding: "utf-8" });
+    const output = execSync("git worktree list --porcelain", {
+      cwd: repoPath,
+      encoding: "utf-8",
+    });
     for (const line of output.split("\n")) {
       if (line.startsWith("worktree ") && !line.includes(repoPath)) {
         const wtPath = line.replace("worktree ", "").trim();
         try {
-          execSync(`git worktree remove --force "${wtPath}"`, { cwd: repoPath, stdio: "ignore" });
+          execSync(`git worktree remove --force "${wtPath}"`, {
+            cwd: repoPath,
+            stdio: "ignore",
+          });
         } catch {
           rmSync(wtPath, { recursive: true, force: true });
         }
@@ -59,7 +82,9 @@ test.describe("Worktree", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("create dialog shows worktree checkbox defaulting to checked", async ({ page }) => {
+  test("create dialog shows worktree checkbox defaulting to checked", async ({
+    page,
+  }) => {
     await loadApp(page);
 
     await page.getByTestId("create-agent-button").click();
@@ -102,7 +127,9 @@ test.describe("Worktree", () => {
     expect(agent.worktreePath).toBeNull();
   });
 
-  test("POST /api/v1/agents validates useWorktree type", async ({ request }) => {
+  test("POST /api/v1/agents validates useWorktree type", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/agents", {
       headers: authHeader,
       data: { cwd: "/tmp", useWorktree: "not-a-boolean" },
@@ -113,7 +140,9 @@ test.describe("Worktree", () => {
     expect(body.error).toContain("useWorktree");
   });
 
-  test("GET /api/v1/agents/:id/worktree-status returns status for agent without worktree", async ({ request }) => {
+  test("GET /api/v1/agents/:id/worktree-status returns status for agent without worktree", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-${Date.now()}`,
       useWorktree: false,
@@ -127,7 +156,9 @@ test.describe("Worktree", () => {
     expect(status.branchName).toBeNull();
   });
 
-  test("DELETE /api/v1/agents/:id accepts cleanupWorktree param", async ({ request }) => {
+  test("DELETE /api/v1/agents/:id accepts cleanupWorktree param", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-${Date.now()}`,
       useWorktree: false,
@@ -140,9 +171,12 @@ test.describe("Worktree", () => {
     });
 
     // Delete with cleanupWorktree=keep should succeed
-    const res = await request.delete(`/api/v1/agents/${agent.id}?cleanupWorktree=keep`, {
-      headers: authHeader,
-    });
+    const res = await request.delete(
+      `/api/v1/agents/${agent.id}?cleanupWorktree=keep`,
+      {
+        headers: authHeader,
+      }
+    );
     expect(res.status()).toBe(202);
   });
 
@@ -159,17 +193,21 @@ test.describe("Worktree", () => {
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(sidebar.getByText(agent.name)).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button on the agent card
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // Should show standard archive confirmation (not worktree choice)
-    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({
+      timeout: 3_000,
+    });
     await expect(page.getByText("removes the agent record")).toBeVisible();
 
     // Confirm deletion
     await page.getByTestId("delete-agent-confirm").click();
-    await expect(sidebar.getByText(agent.name)).not.toBeVisible({ timeout: 5_000 });
+    await expect(sidebar.getByText(agent.name)).not.toBeVisible({
+      timeout: 5_000,
+    });
   });
 });
 
@@ -212,13 +250,19 @@ test.describe("Worktree filesystem", () => {
 
     // The agent's cwd should be the worktree, not the original repo
     const agentRes = await request.get(`/api/v1/agents/${agent.id}`, {
-      headers: { Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}` },
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
     });
-    const { agent: fullAgent } = (await agentRes.json()) as { agent: { cwd: string } };
+    const { agent: fullAgent } = (await agentRes.json()) as {
+      agent: { cwd: string };
+    };
     expect(fullAgent.cwd).toBe(agent.worktreePath);
   });
 
-  test("auto-generates branch name from agent id and name", async ({ request }) => {
+  test("auto-generates branch name from agent id and name", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-autobranch-${Date.now()}`,
       cwd: repoPath,
@@ -278,7 +322,9 @@ test.describe("Worktree filesystem", () => {
     expect(content).toContain("DB_URL=localhost");
   });
 
-  test("worktree-status reports no unmerged commits for clean worktree", async ({ request }) => {
+  test("worktree-status reports no unmerged commits for clean worktree", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-clean-${Date.now()}`,
       cwd: repoPath,
@@ -293,7 +339,9 @@ test.describe("Worktree filesystem", () => {
     expect(status.worktreePath).toBe(agent.worktreePath);
   });
 
-  test("deleting agent with clean worktree removes it from disk", async ({ request }) => {
+  test("deleting agent with clean worktree removes it from disk", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-delclean-${Date.now()}`,
       cwd: repoPath,
@@ -309,7 +357,9 @@ test.describe("Worktree filesystem", () => {
     expect(existsSync(wtPath)).toBe(false);
   });
 
-  test("worktree-status reports unmerged commits after local commit", async ({ request }) => {
+  test("worktree-status reports unmerged commits after local commit", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-dirty-${Date.now()}`,
       cwd: repoPath,
@@ -329,7 +379,9 @@ test.describe("Worktree filesystem", () => {
     expect(status.changedFiles).toContain("new-file.txt");
   });
 
-  test("worktree-status reports uncommitted changes for modified files", async ({ request }) => {
+  test("worktree-status reports uncommitted changes for modified files", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-uncommitted-${Date.now()}`,
       cwd: repoPath,
@@ -337,7 +389,10 @@ test.describe("Worktree filesystem", () => {
     });
 
     // Create an unstaged file in the worktree (no commit)
-    writeFileSync(`${agent.worktreePath}/uncommitted-file.txt`, "uncommitted work\n");
+    writeFileSync(
+      `${agent.worktreePath}/uncommitted-file.txt`,
+      "uncommitted work\n"
+    );
 
     const status = await getWorktreeStatusViaAPI(request, agent.id);
     expect(status.hasWorktree).toBe(true);
@@ -346,7 +401,9 @@ test.describe("Worktree filesystem", () => {
     expect(status.uncommittedFiles).toContain("?? uncommitted-file.txt");
   });
 
-  test("deleting agent with uncommitted changes and cleanupWorktree=auto preserves worktree", async ({ request }) => {
+  test("deleting agent with uncommitted changes and cleanupWorktree=auto preserves worktree", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-keepuncommitted-${Date.now()}`,
       cwd: repoPath,
@@ -362,10 +419,14 @@ test.describe("Worktree filesystem", () => {
     expect(existsSync(wtPath)).toBe(true);
 
     // Clean up manually
-    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, { stdio: "ignore" });
+    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, {
+      stdio: "ignore",
+    });
   });
 
-  test("deleting agent with unmerged commits and cleanupWorktree=auto preserves worktree", async ({ request }) => {
+  test("deleting agent with unmerged commits and cleanupWorktree=auto preserves worktree", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-keepwt-${Date.now()}`,
       cwd: repoPath,
@@ -386,10 +447,14 @@ test.describe("Worktree filesystem", () => {
     expect(existsSync(wtPath)).toBe(true);
 
     // Clean up manually
-    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, { stdio: "ignore" });
+    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, {
+      stdio: "ignore",
+    });
   });
 
-  test("deleting agent with unmerged commits and cleanupWorktree=force removes worktree", async ({ request }) => {
+  test("deleting agent with unmerged commits and cleanupWorktree=force removes worktree", async ({
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-forcewt-${Date.now()}`,
       cwd: repoPath,
@@ -433,15 +498,19 @@ test.describe("Worktree filesystem", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
-    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({
+      timeout: 3_000,
+    });
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog should appear
-    await expect(page.getByText("Worktree Has Outstanding Changes")).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByText("Worktree Has Outstanding Changes")
+    ).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("delete-agent-keep-worktree")).toBeVisible();
     await expect(page.getByTestId("delete-agent-force-worktree")).toBeVisible();
 
@@ -456,7 +525,9 @@ test.describe("Worktree filesystem", () => {
     expect(existsSync(wtPath)).toBe(true);
 
     // Clean up manually
-    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, { stdio: "ignore" });
+    execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, {
+      stdio: "ignore",
+    });
   });
 
   test("delete dialog force-delete worktree option removes it", async ({
@@ -481,15 +552,19 @@ test.describe("Worktree filesystem", () => {
     const agentCard2 = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard2).toBeVisible({ timeout: 5_000 });
 
-    // Click the Archive button
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     await page.getByTestId(`agent-archive-${agent.id}`).click();
 
     // First step: standard archive confirmation
-    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByTestId("delete-agent-confirm")).toBeVisible({
+      timeout: 3_000,
+    });
     await page.getByTestId("delete-agent-confirm").click();
 
     // Second step: worktree choice dialog
-    await expect(page.getByText("Worktree Has Outstanding Changes")).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByText("Worktree Has Outstanding Changes")
+    ).toBeVisible({ timeout: 5_000 });
 
     // Choose "Archive and remove worktree"
     const wtPath = agent.worktreePath!;
@@ -524,14 +599,20 @@ test.describe("Worktree location setting", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("GET /api/v1/agents/settings returns default worktree location", async ({ request }) => {
-    const res = await request.get("/api/v1/agents/settings", { headers: authHeader });
+  test("GET /api/v1/agents/settings returns default worktree location", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/v1/agents/settings", {
+      headers: authHeader,
+    });
     expect(res.ok()).toBeTruthy();
     const body = (await res.json()) as { worktreeLocation: string };
     expect(body.worktreeLocation).toBe("sibling");
   });
 
-  test("POST /api/v1/agents/settings persists worktree location", async ({ request }) => {
+  test("POST /api/v1/agents/settings persists worktree location", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/agents/settings", {
       headers: authHeader,
       data: { worktreeLocation: "nested" },
@@ -541,12 +622,16 @@ test.describe("Worktree location setting", () => {
     expect(body.worktreeLocation).toBe("nested");
 
     // Verify it persisted
-    const getRes = await request.get("/api/v1/agents/settings", { headers: authHeader });
+    const getRes = await request.get("/api/v1/agents/settings", {
+      headers: authHeader,
+    });
     const getBody = (await getRes.json()) as { worktreeLocation: string };
     expect(getBody.worktreeLocation).toBe("nested");
   });
 
-  test("POST /api/v1/agents/settings validates worktree location", async ({ request }) => {
+  test("POST /api/v1/agents/settings validates worktree location", async ({
+    request,
+  }) => {
     const res = await request.post("/api/v1/agents/settings", {
       headers: authHeader,
       data: { worktreeLocation: "invalid" },
@@ -554,7 +639,9 @@ test.describe("Worktree location setting", () => {
     expect(res.status()).toBe(400);
   });
 
-  test("sibling location creates worktree next to the repo", async ({ request }) => {
+  test("sibling location creates worktree next to the repo", async ({
+    request,
+  }) => {
     await request.post("/api/v1/agents/settings", {
       headers: authHeader,
       data: { worktreeLocation: "sibling" },
@@ -572,7 +659,9 @@ test.describe("Worktree location setting", () => {
     expect(existsSync(agent.worktreePath!)).toBe(true);
   });
 
-  test("nested location creates worktree inside .dispatch/worktrees", async ({ request }) => {
+  test("nested location creates worktree inside .dispatch/worktrees", async ({
+    request,
+  }) => {
     await request.post("/api/v1/agents/settings", {
       headers: authHeader,
       data: { worktreeLocation: "nested" },
@@ -586,7 +675,9 @@ test.describe("Worktree location setting", () => {
 
     expect(agent.worktreePath).toBeTruthy();
     // Nested: worktree is inside <repoPath>/.dispatch/worktrees/
-    expect(agent.worktreePath!.startsWith(`${repoPath}/.dispatch/worktrees/`)).toBe(true);
+    expect(
+      agent.worktreePath!.startsWith(`${repoPath}/.dispatch/worktrees/`)
+    ).toBe(true);
     expect(existsSync(agent.worktreePath!)).toBe(true);
   });
 
@@ -594,9 +685,14 @@ test.describe("Worktree location setting", () => {
     await loadApp(page);
 
     await page.getByTestId("settings-button").click();
-    await page.getByRole("navigation").getByText("Agents", { exact: true }).click();
+    await page
+      .getByRole("navigation")
+      .getByText("Agents", { exact: true })
+      .click();
 
-    await expect(page.getByText("Worktree location")).toBeVisible({ timeout: 3_000 });
+    await expect(page.getByText("Worktree location")).toBeVisible({
+      timeout: 3_000,
+    });
     await expect(page.getByText("Sibling directories")).toBeVisible();
     await expect(page.getByText("Inside .dispatch/worktrees")).toBeVisible();
   });

@@ -1,4 +1,4 @@
-export type ActivityGranularity = "day" | "week" | "month";
+export type ActivityGranularity = "hour" | "day" | "week" | "month";
 
 export type ActivityEventRow = {
   agent_id: string;
@@ -23,6 +23,10 @@ function localDateString(d: Date): string {
 
 function bucketStart(timeMs: number, granularity: ActivityGranularity): string {
   const bucket = new Date(timeMs);
+  if (granularity === "hour") {
+    const h = String(bucket.getHours()).padStart(2, "0");
+    return `${localDateString(bucket)} ${h}:00`;
+  }
   if (granularity === "week") {
     const day = bucket.getDay();
     const diff = day === 0 ? -6 : 1 - day;
@@ -80,8 +84,14 @@ export function computeActivityStats(
     const currentInRange = rangeStartMs === null || t >= rangeStartMs;
     sawInRangeEvent ||= currentInRange;
 
-    if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
-      const segmentStart = rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
+    if (
+      prevType &&
+      prevTime !== null &&
+      prevType !== "done" &&
+      prevType !== "idle"
+    ) {
+      const segmentStart =
+        rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
       const dur = t - segmentStart;
       if (dur > 0) {
         stateDurations[prevType] = (stateDurations[prevType] ?? 0) + dur;
@@ -113,7 +123,9 @@ export function computeActivityStats(
   }
 
   const avg = (arr: number[]) =>
-    arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+    arr.length > 0
+      ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length)
+      : 0;
 
   return {
     totalWorkingMs: stateDurations.working ?? 0,
@@ -144,8 +156,14 @@ export function computeDailyStatus(
       continue;
     }
 
-    if (prevType && prevTime !== null && prevType !== "done" && prevType !== "idle") {
-      const segmentStart = rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
+    if (
+      prevType &&
+      prevTime !== null &&
+      prevType !== "done" &&
+      prevType !== "idle"
+    ) {
+      const segmentStart =
+        rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
       const dur = t - segmentStart;
       if (dur > 0) {
         const dayKey = bucketStart(segmentStart, granularity);
@@ -196,7 +214,8 @@ export function computeWorkingTimeByProject(
     }
 
     if (prevType === "working" && prevTime !== null && prevProject) {
-      const segmentStart = rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
+      const segmentStart =
+        rangeStartMs === null ? prevTime : Math.max(prevTime, rangeStartMs);
       const dur = t - segmentStart;
       if (dur > 0) {
         projectMap.set(prevProject, (projectMap.get(prevProject) ?? 0) + dur);

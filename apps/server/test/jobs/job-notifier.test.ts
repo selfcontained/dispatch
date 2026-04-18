@@ -1,4 +1,13 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import { JobNotifier } from "../../src/notifications/job-notifier.js";
@@ -68,7 +77,11 @@ afterEach(() => {
 
 describe("JobNotifier", () => {
   it("sends Slack notification on completed run with on_complete: [slack]", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(makeRun());
 
     expect(fetchSpy).toHaveBeenCalledOnce();
@@ -81,7 +94,11 @@ describe("JobNotifier", () => {
   });
 
   it("sends Slack notification on failed run with on_error: [slack]", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(
       makeRun({
         status: "failed",
@@ -95,7 +112,11 @@ describe("JobNotifier", () => {
   });
 
   it("sends Slack notification on needs_input with on_needs_input configured", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(
       makeRun({
         status: "needs_input",
@@ -113,7 +134,11 @@ describe("JobNotifier", () => {
   });
 
   it("does not send notification when no channels configured for event", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(
       makeRun({
         config: {
@@ -135,13 +160,21 @@ describe("JobNotifier", () => {
   });
 
   it("does not send notification for running status", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(makeRun({ status: "running" }));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("routes timed_out to on_error channels", async () => {
-    await setSetting(pool, "slack_webhook_url", "https://hooks.slack.test/test");
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
     await notifier.onJobRunStateChange(makeRun({ status: "timed_out" }));
 
     expect(fetchSpy).toHaveBeenCalledOnce();

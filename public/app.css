@@ -28,8 +28,16 @@ body {
   font-family: "Inter", "Segoe UI", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(700px 420px at 20% -10%, rgb(59 130 246 / 8%), transparent 70%),
-    radial-gradient(620px 360px at 95% 105%, rgb(139 92 246 / 8%), transparent 70%),
+    radial-gradient(
+      700px 420px at 20% -10%,
+      rgb(59 130 246 / 8%),
+      transparent 70%
+    ),
+    radial-gradient(
+      620px 360px at 95% 105%,
+      rgb(139 92 246 / 8%),
+      transparent 70%
+    ),
     linear-gradient(180deg, #0a0c10 0%, var(--bg) 100%);
 }
 
@@ -111,7 +119,10 @@ button {
   color: var(--text);
   background: #161b25;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 button:hover {
@@ -169,7 +180,11 @@ button:focus-visible {
 
 .agent--active {
   border-color: var(--accent-blue);
-  background: linear-gradient(90deg, rgb(59 130 246 / 12%) 0%, rgb(139 92 246 / 12%) 100%);
+  background: linear-gradient(
+    90deg,
+    rgb(59 130 246 / 12%) 0%,
+    rgb(139 92 246 / 12%) 100%
+  );
 }
 
 .agent-head {
@@ -268,7 +283,11 @@ button:focus-visible {
   align-items: center;
   padding: 0.75rem 0.9rem;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(90deg, rgb(139 92 246 / 8%) 0%, rgb(59 130 246 / 8%) 100%);
+  background: linear-gradient(
+    90deg,
+    rgb(139 92 246 / 8%) 0%,
+    rgb(59 130 246 / 8%) 100%
+  );
 }
 
 .conn-badge {
@@ -305,7 +324,11 @@ button:focus-visible {
   min-height: 0;
   overflow: hidden;
   background:
-    radial-gradient(1200px 300px at 50% 120%, rgb(34 197 94 / 6%), transparent 60%),
+    radial-gradient(
+      1200px 300px at 50% 120%,
+      rgb(34 197 94 / 6%),
+      transparent 60%
+    ),
     linear-gradient(180deg, #0a0f17 0%, #070b11 100%);
 }
 

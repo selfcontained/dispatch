@@ -21,7 +21,7 @@ function run(args: string, options?: { expectFail?: boolean }): string {
         ...process.env,
         // Clear agent ID so it doesn't leak into suffix
         DISPATCH_AGENT_ID: "",
-      }
+      },
     }).trim();
   } catch (error) {
     if (options?.expectFail) {
@@ -114,7 +114,7 @@ describe("dispatch-dev", () => {
       "DEV_API_PID=99999",
       "DEV_CONTAINER_SUFFIX=",
       "DEV_COMPOSE_PROJECT=",
-      "DEV_NO_DB=1"
+      "DEV_NO_DB=1",
     ].join("\n");
     require("node:fs").writeFileSync(STATE_FILE, fakeState);
 

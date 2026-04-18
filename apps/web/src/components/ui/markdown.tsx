@@ -9,7 +9,11 @@ type MarkdownProps = {
   variant?: "default" | "pin";
 };
 
-export function Markdown({ children, className, variant = "default" }: MarkdownProps): JSX.Element {
+export function Markdown({
+  children,
+  className,
+  variant = "default",
+}: MarkdownProps): JSX.Element {
   if (variant === "pin") {
     return (
       <div
@@ -24,10 +28,28 @@ export function Markdown({ children, className, variant = "default" }: MarkdownP
           "[&_table]:my-1 [&_table]:min-w-full [&_table]:border-collapse [&_table]:text-[11px]",
           "[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
           "[&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1",
-          className,
+          className
         )}
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} allowedElements={["p", "ul", "li", "strong", "em", "code", "pre", "table", "thead", "tbody", "tr", "th", "td"]} unwrapDisallowed>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          allowedElements={[
+            "p",
+            "ul",
+            "li",
+            "strong",
+            "em",
+            "code",
+            "pre",
+            "table",
+            "thead",
+            "tbody",
+            "tr",
+            "th",
+            "td",
+          ]}
+          unwrapDisallowed
+        >
           {children}
         </ReactMarkdown>
       </div>
@@ -47,10 +69,10 @@ export function Markdown({ children, className, variant = "default" }: MarkdownP
         "prose-code:before:content-none prose-code:after:content-none",
         "prose-a:text-primary prose-a:underline",
         "prose-li:text-foreground prose-li:marker:text-muted-foreground",
-        className,
+        className
       )}
     >
-      <ReactMarkdown>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
 }

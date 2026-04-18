@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 // Mock runCommand so AgentManager never touches tmux
-vi.mock("@dispatch/shared/lib/run-command.js", () => ({
+vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
@@ -106,7 +114,13 @@ async function insertEvent(
   await pool.query(
     `INSERT INTO agent_events (agent_id, event_type, message, created_at, project_dir)
      VALUES ($1, $2, $3, $4, $5)`,
-    [agentId, eventType, `Agent ${eventType}`, createdAt, opts.projectDir ?? "/projects/test"]
+    [
+      agentId,
+      eventType,
+      `Agent ${eventType}`,
+      createdAt,
+      opts.projectDir ?? "/projects/test",
+    ]
   );
 }
 
@@ -211,9 +225,21 @@ describe("getActivitySummary", () => {
     const gitB = { repoRoot: "/projects/beta" };
 
     const created = hoursAgo(2);
-    await insertAgent("a1", { gitContext: gitA, latestEventType: "done", createdAt: created });
-    await insertAgent("a2", { gitContext: gitA, latestEventType: "done", createdAt: created });
-    await insertAgent("a3", { gitContext: gitB, latestEventType: "blocked", createdAt: created });
+    await insertAgent("a1", {
+      gitContext: gitA,
+      latestEventType: "done",
+      createdAt: created,
+    });
+    await insertAgent("a2", {
+      gitContext: gitA,
+      latestEventType: "done",
+      createdAt: created,
+    });
+    await insertAgent("a3", {
+      gitContext: gitB,
+      latestEventType: "blocked",
+      createdAt: created,
+    });
     // error agent with no latest event — insert directly to avoid default
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, created_at, updated_at, git_context, pins)
@@ -228,7 +254,9 @@ describe("getActivitySummary", () => {
 
     expect(result.projects.length).toBeGreaterThanOrEqual(2);
 
-    const alpha = result.projects.find((p) => p.directory === "/projects/alpha");
+    const alpha = result.projects.find(
+      (p) => p.directory === "/projects/alpha"
+    );
     const beta = result.projects.find((p) => p.directory === "/projects/beta");
 
     expect(alpha).toBeDefined();
@@ -593,8 +621,14 @@ describe("getFeedbackSummary", () => {
 
   it("groups by persona", async () => {
     await insertAgent("parent");
-    await insertAgent("sec-rev", { persona: "security-review", parentAgentId: "parent" });
-    await insertAgent("ux-rev", { persona: "ux-review", parentAgentId: "parent" });
+    await insertAgent("sec-rev", {
+      persona: "security-review",
+      parentAgentId: "parent",
+    });
+    await insertAgent("ux-rev", {
+      persona: "ux-review",
+      parentAgentId: "parent",
+    });
 
     await insertFeedback("sec-rev", { description: "SQL injection" });
     await insertFeedback("sec-rev", { description: "XSS risk" });
@@ -645,8 +679,12 @@ describe("getFeedbackSummary", () => {
       cwd: "/projects/test",
     });
 
-    await insertFeedback("rev", { filePath: "/projects/test/src/auth/login.ts" });
-    await insertFeedback("rev", { filePath: "/projects/test/src/auth/token.ts" });
+    await insertFeedback("rev", {
+      filePath: "/projects/test/src/auth/login.ts",
+    });
+    await insertFeedback("rev", {
+      filePath: "/projects/test/src/auth/token.ts",
+    });
     await insertFeedback("rev", { filePath: "/projects/test/src/db/query.ts" });
 
     const result = await manager.getFeedbackSummary({
@@ -669,10 +707,22 @@ describe("getFeedbackSummary", () => {
     await insertAgent("rev", { persona: "sec", parentAgentId: "parent" });
 
     // Same description repeated 3 times
-    await insertFeedback("rev", { description: "Unused import", severity: "low" });
-    await insertFeedback("rev", { description: "Unused import", severity: "low" });
-    await insertFeedback("rev", { description: "Unused import", severity: "low" });
-    await insertFeedback("rev", { description: "Missing error handling", severity: "high" });
+    await insertFeedback("rev", {
+      description: "Unused import",
+      severity: "low",
+    });
+    await insertFeedback("rev", {
+      description: "Unused import",
+      severity: "low",
+    });
+    await insertFeedback("rev", {
+      description: "Unused import",
+      severity: "low",
+    });
+    await insertFeedback("rev", {
+      description: "Missing error handling",
+      severity: "high",
+    });
 
     const result = await manager.getFeedbackSummary({
       start: daysAgo(7),
@@ -717,8 +767,16 @@ describe("getFeedbackSummary", () => {
 
     await insertAgent("p1", { gitContext: gitA });
     await insertAgent("p2", { gitContext: gitB });
-    await insertAgent("r1", { persona: "sec", parentAgentId: "p1", cwd: "/projects/alpha" });
-    await insertAgent("r2", { persona: "sec", parentAgentId: "p2", cwd: "/projects/beta" });
+    await insertAgent("r1", {
+      persona: "sec",
+      parentAgentId: "p1",
+      cwd: "/projects/alpha",
+    });
+    await insertAgent("r2", {
+      persona: "sec",
+      parentAgentId: "p2",
+      cwd: "/projects/beta",
+    });
 
     await insertFeedback("r1", { description: "Alpha finding" });
     await insertFeedback("r2", { description: "Beta finding" });
@@ -760,9 +818,13 @@ describe("getFeedbackSummary", () => {
   it("includes feedback and review verdicts for archived parent agents", async () => {
     await insertAgent("parent");
     await insertAgent("reviewer", { persona: "sec", parentAgentId: "parent" });
-    await insertFeedback("reviewer", { description: "Archived parent finding" });
+    await insertFeedback("reviewer", {
+      description: "Archived parent finding",
+    });
     await insertReview("reviewer", "parent", "sec", { verdict: "approve" });
-    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'parent'");
+    await pool.query(
+      "UPDATE agents SET deleted_at = NOW() WHERE id = 'parent'"
+    );
 
     const result = await manager.getFeedbackSummary({
       start: daysAgo(7),
@@ -772,7 +834,9 @@ describe("getFeedbackSummary", () => {
 
     expect(result.totalFindings).toBe(1);
     expect(result.groups).toHaveLength(1);
-    expect(result.groups[0].topFindings[0].description).toBe("Archived parent finding");
+    expect(result.groups[0].topFindings[0].description).toBe(
+      "Archived parent finding"
+    );
     expect(result.reviewVerdicts.total).toBe(1);
     expect(result.reviewVerdicts.approved).toBe(1);
   });

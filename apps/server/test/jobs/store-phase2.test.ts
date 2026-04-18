@@ -90,7 +90,10 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     });
 
     // Create first run and complete it
-    const run1 = await store.createRun(job.id, { ...runConfig, name: "history-test" });
+    const run1 = await store.createRun(job.id, {
+      ...runConfig,
+      name: "history-test",
+    });
     await pool.query(
       `INSERT INTO agents (id, name, status, cwd) VALUES ('agent-hist-1', 'Test', 'running', '/tmp/test-repo')
        ON CONFLICT (id) DO NOTHING`
@@ -103,7 +106,10 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     });
 
     // Create second run
-    const run2 = await store.createRun(job.id, { ...runConfig, name: "history-test" });
+    const run2 = await store.createRun(job.id, {
+      ...runConfig,
+      name: "history-test",
+    });
 
     const runs = await store.listRunsForJob(job.id);
     expect(runs.length).toBe(2);
@@ -134,7 +140,10 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
       directory: "/tmp/test-repo",
       prompt: "Find me",
     });
-    const found = await store.getJobByDirectoryAndName("/tmp/test-repo", "find-by-name");
+    const found = await store.getJobByDirectoryAndName(
+      "/tmp/test-repo",
+      "find-by-name"
+    );
     expect(found).toBeDefined();
     expect(found!.name).toBe("find-by-name");
   });
@@ -177,8 +186,8 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
 
     expect(updated.name).toBe("Update Test Renamed");
     expect(updated.prompt).toBe("Updated prompt");
-    expect(updated.schedule).toBe("0 3 * * *");     // preserved
-    expect(updated.timeoutMs).toBe(300_000);          // preserved
+    expect(updated.schedule).toBe("0 3 * * *"); // preserved
+    expect(updated.timeoutMs).toBe(300_000); // preserved
   });
 
   it("listRunsForJob respects limit", async () => {

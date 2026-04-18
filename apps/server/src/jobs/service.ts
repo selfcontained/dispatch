@@ -6,9 +6,20 @@ import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
-import { runCommand } from "@dispatch/shared/lib/run-command.js";
-import { JobStore, type JobAgentType, type JobRecord, type JobRunConfig, type JobRunRecord, type JobWithLatestRun } from "./store.js";
-import { getNextRun, validateCronExpression, validateCronInterval } from "./cron.js";
+import { runCommand } from "../shared/lib/run-command.js";
+import {
+  JobStore,
+  type JobAgentType,
+  type JobRecord,
+  type JobRunConfig,
+  type JobRunRecord,
+  type JobWithLatestRun,
+} from "./store.js";
+import {
+  getNextRun,
+  validateCronExpression,
+  validateCronInterval,
+} from "./cron.js";
 
 export type JobRunCallback = (run: JobRunRecord) => void;
 
@@ -44,8 +55,17 @@ export type RunJobResult = {
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-const TERMINAL_STATUSES = new Set<JobRunRecord["status"]>(["completed", "failed", "timed_out", "crashed"]);
-const ACTIVE_RUN_STATUSES = new Set<JobRunRecord["status"]>(["started", "running", "needs_input"]);
+const TERMINAL_STATUSES = new Set<JobRunRecord["status"]>([
+  "completed",
+  "failed",
+  "timed_out",
+  "crashed",
+]);
+const ACTIVE_RUN_STATUSES = new Set<JobRunRecord["status"]>([
+  "started",
+  "running",
+  "needs_input",
+]);
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
@@ -75,7 +95,10 @@ export class JobService {
       try {
         cb(run);
       } catch (err) {
-        this.logger.warn({ err, runId: run.id }, "onRunStateChange callback error");
+        this.logger.warn(
+          { err, runId: run.id },
+          "onRunStateChange callback error"
+        );
       }
     }
   }
@@ -84,18 +107,25 @@ export class JobService {
     const job = await this.getJobOrThrow(input.directory, input.name);
 
     if (!job.prompt) {
-      throw new Error(`Job "${job.name}" has no prompt configured. Add a prompt in the job settings.`);
+      throw new Error(
+        `Job "${job.name}" has no prompt configured. Add a prompt in the job settings.`
+      );
     }
 
     // Pre-check for user-friendly error message. The DB unique index
     // (idx_job_runs_one_active_per_job) is the real guard against concurrent races.
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
-      throw new Error(`Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`);
+      throw new Error(
+        `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
+      );
     }
 
     // Everything below reads from the DB record only
-    let run = await this.store.createRun(job.id, buildRunConfig(job, input.triggerSource ?? "manual"));
+    let run = await this.store.createRun(
+      job.id,
+      buildRunConfig(job, input.triggerSource ?? "manual")
+    );
     this.emitRunStateChange(run);
     const prompt = buildJobPrompt(job, run.id);
 
@@ -108,7 +138,7 @@ export class JobService {
         fullAccess: job.fullAccess,
         useWorktree: job.useWorktree,
         worktreeBranch: job.branchName ?? undefined,
-        jobRunId: run.id
+        jobRunId: run.id,
       });
       run = await this.store.attachAgent(run.id, agent.id);
       this.emitRunStateChange(run);
@@ -121,11 +151,15 @@ export class JobService {
         runId: run.id,
         agentId: agent.id,
         status: run.status,
-        report: run.report
+        report: run.report,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const crashed = await this.markCrashed(run, `Job failed to start: ${message}`, "spawn-agent");
+      const crashed = await this.markCrashed(
+        run,
+        `Job failed to start: ${message}`,
+        "spawn-agent"
+      );
       throw new Error(`Job run ${crashed.id} failed to start: ${message}`);
     }
   }
@@ -145,21 +179,30 @@ export class JobService {
     return await this.store.getLatestRunForAgent(agentId);
   }
 
-  async completeRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
+  async completeRunForAgent(
+    agentId: string,
+    report: unknown
+  ): Promise<JobRunRecord> {
     const run = await this.store.completeRunForAgent(agentId, report);
     this.monitors.delete(run.id);
     this.emitRunStateChange(run);
     return run;
   }
 
-  async failRunForAgent(agentId: string, report: unknown): Promise<JobRunRecord> {
+  async failRunForAgent(
+    agentId: string,
+    report: unknown
+  ): Promise<JobRunRecord> {
     const run = await this.store.failRunForAgent(agentId, report);
     this.monitors.delete(run.id);
     this.emitRunStateChange(run);
     return run;
   }
 
-  async markNeedsInputForAgent(agentId: string, question: string): Promise<JobRunRecord> {
+  async markNeedsInputForAgent(
+    agentId: string,
+    question: string
+  ): Promise<JobRunRecord> {
     const run = await this.store.markNeedsInputForAgent(agentId, question);
     this.emitRunStateChange(run);
     return run;
@@ -167,7 +210,11 @@ export class JobService {
 
   async logForAgent(
     agentId: string,
-    input: { task: string; message: string; level: "debug" | "info" | "warn" | "error" }
+    input: {
+      task: string;
+      message: string;
+      level: "debug" | "info" | "warn" | "error";
+    }
   ): Promise<JobRunRecord> {
     return await this.store.logForAgent(agentId, input);
   }
@@ -176,10 +223,14 @@ export class JobService {
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
     if (schedule && !validateCronExpression(schedule)) {
-      throw new Error(`Job "${displayName}" has an invalid cron expression: "${schedule}"`);
+      throw new Error(
+        `Job "${displayName}" has an invalid cron expression: "${schedule}"`
+      );
     }
     if (input.enabled && !schedule) {
-      throw new Error(`Job "${displayName}" needs a schedule before it can be enabled.`);
+      throw new Error(
+        `Job "${displayName}" needs a schedule before it can be enabled.`
+      );
     }
 
     const job = await this.store.createJob({
@@ -188,7 +239,8 @@ export class JobService {
       prompt: input.prompt ?? null,
       schedule,
       timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      needsInputTimeoutMs: input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
+      needsInputTimeoutMs:
+        input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
       agentType: input.agentType ?? "claude",
       useWorktree: input.useWorktree ?? false,
       branchName: input.branchName ?? null,
@@ -207,28 +259,39 @@ export class JobService {
     const existing = await this.getJobOrThrow(input.directory, input.name);
 
     const schedule = input.schedule === "" ? null : input.schedule;
-    const nextSchedule = input.schedule === undefined ? existing.schedule : schedule;
+    const nextSchedule =
+      input.schedule === undefined ? existing.schedule : schedule;
     if (nextSchedule && !validateCronExpression(nextSchedule)) {
-      throw new Error(`Job "${input.displayName ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`);
+      throw new Error(
+        `Job "${input.displayName ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`
+      );
     }
     if (input.enabled && !nextSchedule) {
-      throw new Error(`Job "${input.displayName ?? existing.name}" needs a schedule before it can be enabled.`);
+      throw new Error(
+        `Job "${input.displayName ?? existing.name}" needs a schedule before it can be enabled.`
+      );
     }
 
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
     const displayName = normalizeOptionalString(input.displayName);
     const branchName = normalizeNullableString(input.branchName);
     if (displayName !== undefined && displayName !== existing.name) {
-      const conflict = await this.store.getJobByDirectoryAndName(input.directory, displayName);
+      const conflict = await this.store.getJobByDirectoryAndName(
+        input.directory,
+        displayName
+      );
       if (conflict) {
-        throw new Error(`A job named "${displayName}" already exists in directory "${input.directory}".`);
+        throw new Error(
+          `A job named "${displayName}" already exists in directory "${input.directory}".`
+        );
       }
       config.name = displayName;
     }
     if (input.prompt !== undefined) config.prompt = input.prompt;
     if (input.schedule !== undefined) config.schedule = schedule;
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
-    if (input.needsInputTimeoutMs !== undefined) config.needsInputTimeoutMs = input.needsInputTimeoutMs;
+    if (input.needsInputTimeoutMs !== undefined)
+      config.needsInputTimeoutMs = input.needsInputTimeoutMs;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (input.useWorktree !== undefined) config.useWorktree = input.useWorktree;
     if (branchName !== undefined) config.branchName = branchName;
@@ -241,18 +304,26 @@ export class JobService {
     } else {
       this.stopScheduler(updated.id);
     }
-    this.logger.info({ jobId: updated.id, name: updated.name }, "Job configuration updated");
+    this.logger.info(
+      { jobId: updated.id, name: updated.name },
+      "Job configuration updated"
+    );
     return updated;
   }
 
-  async enableJob(input: { name: string; directory: string }): Promise<JobRecord> {
+  async enableJob(input: {
+    name: string;
+    directory: string;
+  }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
     const schedule = job.schedule;
     if (!schedule) {
       throw new Error(`Job "${job.name}" has no schedule configured.`);
     }
     if (!validateCronExpression(schedule)) {
-      throw new Error(`Job "${job.name}" has an invalid cron expression: "${schedule}"`);
+      throw new Error(
+        `Job "${job.name}" has an invalid cron expression: "${schedule}"`
+      );
     }
     const intervalError = validateCronInterval(schedule);
     if (intervalError) {
@@ -260,31 +331,50 @@ export class JobService {
     }
     const updated = await this.store.setEnabled(job.id, true);
     this.scheduleJob(updated);
-    this.logger.info({ jobId: updated.id, name: updated.name, schedule }, "Job enabled with in-process scheduler");
+    this.logger.info(
+      { jobId: updated.id, name: updated.name, schedule },
+      "Job enabled with in-process scheduler"
+    );
     return updated;
   }
 
-  async disableJob(input: { name: string; directory: string }): Promise<JobRecord> {
+  async disableJob(input: {
+    name: string;
+    directory: string;
+  }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
     const updated = await this.store.setEnabled(job.id, false);
     this.stopScheduler(updated.id);
-    this.logger.info({ jobId: updated.id, name: updated.name }, "Job disabled, scheduler stopped");
+    this.logger.info(
+      { jobId: updated.id, name: updated.name },
+      "Job disabled, scheduler stopped"
+    );
     return updated;
   }
 
-  async removeJob(input: { name: string; directory: string }): Promise<JobRecord> {
+  async removeJob(input: {
+    name: string;
+    directory: string;
+  }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
-      throw new Error(`Job "${job.name}" has active run ${activeRun.id} (${activeRun.status}). Stop or complete the run before removing it.`);
+      throw new Error(
+        `Job "${job.name}" has active run ${activeRun.id} (${activeRun.status}). Stop or complete the run before removing it.`
+      );
     }
     this.stopScheduler(job.id);
     const removed = await this.store.deleteJob(job.id);
-    this.logger.info({ jobId: removed.id, name: removed.name }, "Job removed from configuration");
+    this.logger.info(
+      { jobId: removed.id, name: removed.name },
+      "Job removed from configuration"
+    );
     return removed;
   }
 
-  async listJobs(): Promise<Array<JobWithLatestRun & { nextRun: string | null }>> {
+  async listJobs(): Promise<
+    Array<JobWithLatestRun & { nextRun: string | null }>
+  > {
     const jobs = await this.store.listJobs();
     return jobs.map((job) => {
       let nextRun: string | null = null;
@@ -296,7 +386,11 @@ export class JobService {
     });
   }
 
-  async listRunsForJob(input: { name: string; directory: string; limit?: number }): Promise<{
+  async listRunsForJob(input: {
+    name: string;
+    directory: string;
+    limit?: number;
+  }): Promise<{
     job: JobRecord;
     runs: JobRunRecord[];
   }> {
@@ -306,8 +400,21 @@ export class JobService {
   }
 
   async getStats(): Promise<{
-    stats: { totalRuns: number; successCount: number; failureCount: number; avgDurationMs: number | null; daily: Array<{ day: string; completed: number; failed: number }> };
-    recentRuns: Array<{ id: string; jobId: string; status: string; startedAt: string; durationMs: number | null; jobName: string }>;
+    stats: {
+      totalRuns: number;
+      successCount: number;
+      failureCount: number;
+      avgDurationMs: number | null;
+      daily: Array<{ day: string; completed: number; failed: number }>;
+    };
+    recentRuns: Array<{
+      id: string;
+      jobId: string;
+      status: string;
+      startedAt: string;
+      durationMs: number | null;
+      jobName: string;
+    }>;
   }> {
     const [stats, recentRuns] = await Promise.all([
       this.store.getRunStats(7),
@@ -317,7 +424,10 @@ export class JobService {
   }
 
   /** Look up a job by name + directory, or throw if not found. */
-  private async getJobOrThrow(directory: string, name: string): Promise<JobRecord> {
+  private async getJobOrThrow(
+    directory: string,
+    name: string
+  ): Promise<JobRecord> {
     const job = await this.store.getJobByDirectoryAndName(directory, name);
     if (!job) {
       throw new Error(`Job "${name}" not found in directory "${directory}".`);
@@ -333,7 +443,10 @@ export class JobService {
         this.scheduleJob(job);
       }
     }
-    this.logger.info({ count: this.schedulers.size }, "Started in-process schedulers for enabled jobs");
+    this.logger.info(
+      { count: this.schedulers.size },
+      "Started in-process schedulers for enabled jobs"
+    );
   }
 
   /** Stop all in-process schedulers and signal monitors to exit. Called on server shutdown. */
@@ -364,14 +477,22 @@ export class JobService {
           );
           return;
         }
-        await this.runJob({ name: current.name, directory: current.directory, wait: false, triggerSource: "scheduled" });
+        await this.runJob({
+          name: current.name,
+          directory: current.directory,
+          wait: false,
+          triggerSource: "scheduled",
+        });
       } catch (err) {
         this.logger.error({ err, jobId }, "Scheduled job run failed");
       }
     });
 
     this.schedulers.set(jobId, cronJob);
-    this.logger.info({ jobId, name: job.name, schedule: job.schedule }, "In-process scheduler started");
+    this.logger.info(
+      { jobId, name: job.name, schedule: job.schedule },
+      "In-process scheduler started"
+    );
   }
 
   private stopScheduler(jobId: string): void {
@@ -389,7 +510,10 @@ export class JobService {
         this.logger.warn({ err: error, runId }, "Job monitor failed.");
         const run = await this.store.getRun(runId);
         if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
-          return await this.markCrashed(run, error instanceof Error ? error.message : String(error));
+          return await this.markCrashed(
+            run,
+            error instanceof Error ? error.message : String(error)
+          );
         }
         if (run) return run;
         throw error;
@@ -417,13 +541,28 @@ export class JobService {
       const startedAt = new Date(current.startedAt).getTime();
       const statusUpdatedAt = new Date(current.statusUpdatedAt).getTime();
       if (now - startedAt >= current.config.timeoutMs) {
-        return await this.markTimedOut(current, "Job execution timeout elapsed before the agent reported completion.");
+        return await this.markTimedOut(
+          current,
+          "Job execution timeout elapsed before the agent reported completion."
+        );
       }
-      if (current.status === "needs_input" && now - statusUpdatedAt >= current.config.needsInputTimeoutMs) {
-        return await this.markTimedOut(current, "Job timed out waiting for human input.");
+      if (
+        current.status === "needs_input" &&
+        now - statusUpdatedAt >= current.config.needsInputTimeoutMs
+      ) {
+        return await this.markTimedOut(
+          current,
+          "Job timed out waiting for human input."
+        );
       }
-      if (current.agentId && await this.agentSessionCrashed(current.agentId)) {
-        return await this.markCrashed(current, "Agent session ended before reporting a terminal job state.");
+      if (
+        current.agentId &&
+        (await this.agentSessionCrashed(current.agentId))
+      ) {
+        return await this.markCrashed(
+          current,
+          "Agent session ended before reporting a terminal job state."
+        );
       }
       await sleep(2_000);
       const refreshed = await this.store.getRun(runId);
@@ -432,7 +571,10 @@ export class JobService {
     }
 
     if (!TERMINAL_STATUSES.has(current.status)) {
-      this.logger.warn({ runId, status: current.status }, "Job monitor stopped on unexpected status.");
+      this.logger.warn(
+        { runId, status: current.status },
+        "Job monitor stopped on unexpected status."
+      );
     }
     return current;
   }
@@ -443,11 +585,18 @@ export class JobService {
     if (agent.status === "error" || agent.status === "stopped") return true;
     if (this.config.agentRuntime === "inert") return false;
     if (!agent.tmuxSession) return false;
-    const tmux = await runCommand("tmux", ["has-session", "-t", agent.tmuxSession], { allowedExitCodes: [0, 1] });
+    const tmux = await runCommand(
+      "tmux",
+      ["has-session", "-t", agent.tmuxSession],
+      { allowedExitCodes: [0, 1] }
+    );
     return tmux.exitCode !== 0;
   }
 
-  private async markTimedOut(run: JobRunRecord, message: string): Promise<JobRunRecord> {
+  private async markTimedOut(
+    run: JobRunRecord,
+    message: string
+  ): Promise<JobRunRecord> {
     const updated = await this.store.markTimedOut(run.id, {
       status: "failed",
       summary: message,
@@ -456,16 +605,28 @@ export class JobService {
           name: "guardrails",
           status: "error",
           summary: "The job runner timed out the execution.",
-          errors: [{ message, recoverable: true, action: "Inspect the agent session and rerun when ready." }]
-        }
-      ]
+          errors: [
+            {
+              message,
+              recoverable: true,
+              action: "Inspect the agent session and rerun when ready.",
+            },
+          ],
+        },
+      ],
     });
     this.emitRunStateChange(updated);
     return updated;
   }
 
-  private async markCrashed(run: JobRunRecord, message: string, taskName = "guardrails"): Promise<JobRunRecord> {
-    const diagnostics = run.agentId ? await this.readAgentDiagnostics(run.agentId) : "";
+  private async markCrashed(
+    run: JobRunRecord,
+    message: string,
+    taskName = "guardrails"
+  ): Promise<JobRunRecord> {
+    const diagnostics = run.agentId
+      ? await this.readAgentDiagnostics(run.agentId)
+      : "";
     const fullMessage = diagnostics ? `${message}\n\n${diagnostics}` : message;
     this.logger.warn({ runId: run.id, agentId: run.agentId }, message);
     const updated = await this.store.markCrashed(run.id, {
@@ -476,9 +637,15 @@ export class JobService {
           name: taskName,
           status: "error",
           summary: "The job runner detected an agent crash.",
-          errors: [{ message: fullMessage, recoverable: true, action: "Review the agent terminal logs and rerun the job." }]
-        }
-      ]
+          errors: [
+            {
+              message: fullMessage,
+              recoverable: true,
+              action: "Review the agent terminal logs and rerun the job.",
+            },
+          ],
+        },
+      ],
     });
     this.emitRunStateChange(updated);
     return updated;
@@ -486,16 +653,27 @@ export class JobService {
 
   private async readAgentDiagnostics(agentId: string): Promise<string> {
     const sections: string[] = [];
-    const setupLog = await readFile(`/tmp/dispatch_setup_${agentId}.log`, "utf8").catch(() => "");
+    const setupLog = await readFile(
+      `/tmp/dispatch_setup_${agentId}.log`,
+      "utf8"
+    ).catch(() => "");
     if (setupLog.trim()) {
-      sections.push(`Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`);
+      sections.push(
+        `Setup log tail:\n${setupLog.trim().split("\n").slice(-20).join("\n")}`
+      );
     }
 
     const agent = await this.agentManager.getAgent(agentId);
     if (agent?.tmuxSession) {
-      const pane = await runCommand("tmux", ["capture-pane", "-pt", agent.tmuxSession], { allowedExitCodes: [0, 1] });
+      const pane = await runCommand(
+        "tmux",
+        ["capture-pane", "-pt", agent.tmuxSession],
+        { allowedExitCodes: [0, 1] }
+      );
       if (pane.exitCode === 0 && pane.stdout.trim()) {
-        sections.push(`Terminal pane tail:\n${pane.stdout.trim().split("\n").slice(-40).join("\n")}`);
+        sections.push(
+          `Terminal pane tail:\n${pane.stdout.trim().split("\n").slice(-40).join("\n")}`
+        );
       }
     }
 
@@ -503,7 +681,11 @@ export class JobService {
   }
 }
 
-function buildAgentArgs(agentType: JobRecord["agentType"], prompt: string, fullAccess: boolean): string[] {
+function buildAgentArgs(
+  agentType: JobRecord["agentType"],
+  prompt: string,
+  fullAccess: boolean
+): string[] {
   const args = ["--append-system-prompt", prompt];
   const fullAccessArg =
     agentType === "claude"
@@ -520,13 +702,17 @@ function buildAgentArgs(agentType: JobRecord["agentType"], prompt: string, fullA
   return args;
 }
 
-function buildRunConfig(job: JobRecord, triggerSource: "manual" | "scheduled"): JobRunConfig {
+function buildRunConfig(
+  job: JobRecord,
+  triggerSource: "manual" | "scheduled"
+): JobRunConfig {
   return {
     directory: job.directory,
     name: job.name,
     schedule: job.schedule,
     timeoutMs: job.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    needsInputTimeoutMs: job.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
+    needsInputTimeoutMs:
+      job.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
     notify: job.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
     triggerSource,
   };
@@ -543,7 +729,7 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
     "Terminal completed/failed states must include a structured report with status, summary, and tasks.",
     "Use repo tools when they are relevant to the job.",
     "\nJob prompt:",
-    job.prompt!
+    job.prompt!,
   ].join("\n");
 }
 
@@ -555,12 +741,16 @@ function sanitizeAgentName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
+function normalizeOptionalString(
+  value: string | undefined
+): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeNullableString(value: string | null | undefined): string | null | undefined {
+function normalizeNullableString(
+  value: string | null | undefined
+): string | null | undefined {
   if (value === undefined) return undefined;
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;

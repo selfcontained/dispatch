@@ -3,7 +3,13 @@ import { AlertTriangle, Archive, GitBranch, Loader2 } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 
 type WorktreeStatus = {
@@ -31,10 +37,12 @@ export function DeleteAgentDialog({
   deleteTarget,
   setOpen,
   setDeleteTarget,
-  onDelete
+  onDelete,
 }: DeleteAgentDialogProps): JSX.Element {
   const [step, setStep] = useState<DeleteStep>("confirm");
-  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
+  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(
+    null
+  );
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -78,7 +86,11 @@ export function DeleteAgentDialog({
     if (!deleteTarget) return;
 
     // If there's a worktree with unmerged commits or uncommitted changes, transition to choice step
-    if (worktreeStatus?.hasWorktree && (worktreeStatus.hasUnmergedCommits || worktreeStatus.hasUncommittedChanges)) {
+    if (
+      worktreeStatus?.hasWorktree &&
+      (worktreeStatus.hasUnmergedCommits ||
+        worktreeStatus.hasUncommittedChanges)
+    ) {
       setStep("worktree-choice");
       return;
     }
@@ -116,8 +128,12 @@ export function DeleteAgentDialog({
   }, [setOpen, setDeleteTarget]);
 
   if (step === "worktree-choice" && worktreeStatus) {
-    const hasUnmerged = worktreeStatus.hasUnmergedCommits && worktreeStatus.changedFiles.length > 0;
-    const hasUncommitted = worktreeStatus.hasUncommittedChanges && worktreeStatus.uncommittedFiles.length > 0;
+    const hasUnmerged =
+      worktreeStatus.hasUnmergedCommits &&
+      worktreeStatus.changedFiles.length > 0;
+    const hasUncommitted =
+      worktreeStatus.hasUncommittedChanges &&
+      worktreeStatus.uncommittedFiles.length > 0;
 
     return (
       <Dialog open={open} onOpenChange={setOpen}>
@@ -132,8 +148,11 @@ export function DeleteAgentDialog({
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                   <span>
-                    Branch <code className="rounded bg-muted px-1 py-0.5 text-xs">{worktreeStatus.branchName}</code> has
-                    commits not merged to origin.
+                    Branch{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                      {worktreeStatus.branchName}
+                    </code>{" "}
+                    has commits not merged to origin.
                   </span>
                 </div>
                 <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
@@ -158,11 +177,18 @@ export function DeleteAgentDialog({
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground">The agent will be archived either way.</p>
+            <p className="text-sm text-muted-foreground">
+              The agent will be archived either way.
+            </p>
           </div>
 
           <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
-            <Button variant="ghost" onClick={close} disabled={deleting} className="w-full sm:w-auto">
+            <Button
+              variant="ghost"
+              onClick={close}
+              disabled={deleting}
+              className="w-full sm:w-auto"
+            >
               Cancel
             </Button>
             <Button
@@ -182,7 +208,9 @@ export function DeleteAgentDialog({
               data-testid="delete-agent-force-worktree"
               className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
-              {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              {deleting ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : null}
               Archive and remove worktree
             </Button>
           </div>
@@ -216,7 +244,11 @@ export function DeleteAgentDialog({
             disabled={loading || deleting}
             onClick={() => void handleConfirmDelete()}
           >
-            {loading || deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Archive className="mr-1.5 h-4 w-4" />}
+            {loading || deleting ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Archive className="mr-1.5 h-4 w-4" />
+            )}
             Archive
           </Button>
         </div>

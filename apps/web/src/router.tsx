@@ -1,8 +1,20 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import {
+  createBrowserRouter,
+  Navigate,
+  Outlet,
+  useParams,
+} from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthContextProvider } from "@/contexts/auth-context";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/App";
+import {
+  ActivityRoute,
+  AgentsRoute,
+  DesignLabRoute,
+  JobsRoute,
+  SettingsRoute,
+} from "@/layouts/dashboard-sections";
 import { LoginRoute } from "@/components/app/login-page";
 
 function RootLayout(): JSX.Element {
@@ -28,17 +40,84 @@ export const router = createBrowserRouter([
           {
             element: <DashboardLayout />,
             children: [
-              { index: true },
-              { path: "settings" },
-              { path: "settings/:section" },
-              { path: "docs" },
-              { path: "docs/:section" },
-              { path: "activity" },
-              { path: "activity/:tab" },
-              { path: "jobs", element: <></> },
-              { path: "jobs/:jobId", element: <></> },
-              { path: "jobs/:jobId/:section", element: <></> },
-              { path: "jobs/:jobId/:section/:runId", element: <></> },
+              { index: true, element: <Navigate to="/agents" replace /> },
+              {
+                path: "agents",
+                element: <AgentsRoute />,
+                handle: { navSection: "agents" },
+              },
+              {
+                path: "agents/:agentId",
+                element: <AgentsRoute />,
+                handle: { navSection: "agents" },
+              },
+              {
+                path: "agents/:agentId/feedback/:itemId",
+                element: <AgentsRoute />,
+                handle: { navSection: "agents" },
+              },
+              {
+                path: "agents/:agentId/review/:summaryAgentId",
+                element: <AgentsRoute />,
+                handle: { navSection: "agents" },
+              },
+              {
+                path: "settings",
+                element: <SettingsRoute />,
+                handle: { navSection: "settings" },
+              },
+              {
+                path: "settings/:section",
+                element: <SettingsRoute />,
+                handle: { navSection: "settings" },
+              },
+              {
+                path: "settings/:section/:subsection",
+                element: <SettingsRoute />,
+                handle: { navSection: "settings" },
+              },
+              {
+                path: "docs",
+                element: <Navigate to="/settings/help" replace />,
+              },
+              {
+                path: "docs/:section",
+                element: <LegacyDocsRedirect />,
+              },
+              {
+                path: "activity",
+                element: <Navigate to="/activity/metrics" replace />,
+                handle: { navSection: "activity" },
+              },
+              {
+                path: "activity/:tab",
+                element: <ActivityRoute />,
+                handle: { navSection: "activity" },
+              },
+              {
+                path: "jobs",
+                element: <JobsRoute />,
+                handle: { navSection: "jobs" },
+              },
+              {
+                path: "jobs/:jobId",
+                element: <JobsRoute />,
+                handle: { navSection: "jobs" },
+              },
+              {
+                path: "jobs/:jobId/:section",
+                element: <JobsRoute />,
+                handle: { navSection: "jobs" },
+              },
+              {
+                path: "jobs/:jobId/:section/:runId",
+                element: <JobsRoute />,
+                handle: { navSection: "jobs" },
+              },
+              {
+                path: "design-lab",
+                element: <DesignLabRoute />,
+              },
             ],
           },
         ],
@@ -50,3 +129,13 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
+
+function LegacyDocsRedirect(): JSX.Element {
+  const { section } = useParams();
+  return (
+    <Navigate
+      to={section ? `/settings/help/${section}` : "/settings/help"}
+      replace
+    />
+  );
+}

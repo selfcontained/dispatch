@@ -1,19 +1,19 @@
 {
   "name": "@dispatch/server",
-  "version": "0.11.26",
+  "version": "0.16.5",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/main.js",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
-    "@dispatch/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@fastify/cookie": "^9.4.0",
     "@fastify/multipart": "^8.3.1",
     "@fastify/rate-limit": "9",

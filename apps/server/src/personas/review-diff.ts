@@ -31,11 +31,14 @@ export async function buildPersonaReviewDiff(
   }
 
   try {
-    const [committedResult, uncommittedResult, untrackedResult] = await Promise.all([
-      runCommand("git", ["diff", `${baseBranch}...HEAD`], { cwd }),
-      runCommand("git", ["diff", "HEAD"], { cwd }),
-      runCommand("git", ["ls-files", "--others", "--exclude-standard"], { cwd }),
-    ]);
+    const [committedResult, uncommittedResult, untrackedResult] =
+      await Promise.all([
+        runCommand("git", ["diff", `${baseBranch}...HEAD`], { cwd }),
+        runCommand("git", ["diff", "HEAD"], { cwd }),
+        runCommand("git", ["ls-files", "--others", "--exclude-standard"], {
+          cwd,
+        }),
+      ]);
 
     const committedDiff = trimTrailingWhitespace(committedResult.stdout);
     const uncommittedDiff = trimTrailingWhitespace(uncommittedResult.stdout);
@@ -53,7 +56,9 @@ export async function buildPersonaReviewDiff(
     }
 
     if (committedDiff) {
-      sections.push(`### Committed changes since ${baseBranch}\n${committedDiff}`);
+      sections.push(
+        `### Committed changes since ${baseBranch}\n${committedDiff}`
+      );
     }
 
     if (uncommittedDiff) {
@@ -61,7 +66,9 @@ export async function buildPersonaReviewDiff(
     }
 
     if (untrackedFiles.length > 0) {
-      sections.push(`### Untracked files\n${untrackedFiles.map((file) => `- ${file}`).join("\n")}`);
+      sections.push(
+        `### Untracked files\n${untrackedFiles.map((file) => `- ${file}`).join("\n")}`
+      );
     }
 
     if (sections.length === 0) {

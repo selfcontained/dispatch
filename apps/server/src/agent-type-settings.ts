@@ -16,7 +16,9 @@ export function sanitizeEnabledAgentTypes(value: unknown): AgentType[] {
     return [...AGENT_TYPES];
   }
 
-  const unique = value.filter(isAgentType).filter((type, index, types) => types.indexOf(type) === index);
+  const unique = value
+    .filter(isAgentType)
+    .filter((type, index, types) => types.indexOf(type) === index);
   return unique.length > 0 ? unique : [...AGENT_TYPES];
 }
 
@@ -33,7 +35,10 @@ export async function getEnabledAgentTypes(pool: Pool): Promise<AgentType[]> {
   }
 }
 
-export async function setEnabledAgentTypes(pool: Pool, agentTypes: AgentType[]): Promise<AgentType[]> {
+export async function setEnabledAgentTypes(
+  pool: Pool,
+  agentTypes: AgentType[]
+): Promise<AgentType[]> {
   const sanitized = sanitizeEnabledAgentTypes(agentTypes);
   await setSetting(pool, ENABLED_AGENT_TYPES_KEY, JSON.stringify(sanitized));
   return sanitized;

@@ -1,7 +1,10 @@
 import type { Pool } from "pg";
 
 /** Read a single value from the settings table. Returns null if unset. */
-export async function getSetting(pool: Pool, key: string): Promise<string | null> {
+export async function getSetting(
+  pool: Pool,
+  key: string
+): Promise<string | null> {
   const result = await pool.query<{ value: string }>(
     "SELECT value FROM settings WHERE key = $1",
     [key]
@@ -10,7 +13,11 @@ export async function getSetting(pool: Pool, key: string): Promise<string | null
 }
 
 /** Upsert a value in the settings table. */
-export async function setSetting(pool: Pool, key: string, value: string): Promise<void> {
+export async function setSetting(
+  pool: Pool,
+  key: string,
+  value: string
+): Promise<void> {
   await pool.query(
     `INSERT INTO settings (key, value, updated_at)
      VALUES ($1, $2, NOW())

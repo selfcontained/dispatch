@@ -9,9 +9,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-muted text-foreground hover:bg-muted/80 border border-border",
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        default:
+          "border border-white/[0.12] bg-white/[0.06] text-foreground backdrop-blur-md shadow-[0_1px_4px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-white/[0.1] hover:border-white/[0.18]",
+        primary:
+          "bg-primary/80 text-primary-foreground backdrop-blur-md border border-white/[0.15] shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_20px_hsl(var(--primary)/0.25),inset_0_1px_0_rgba(255,255,255,0.15)] hover:bg-primary/90 hover:shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_32px_hsl(var(--primary)/0.35)]",
+        destructive:
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         ghost: "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
         "ghost-primary":
           "text-status-working hover:bg-status-working/15 hover:text-status-working",
@@ -20,23 +23,24 @@ const buttonVariants = cva(
         "ghost-destructive":
           "text-status-blocked hover:bg-status-blocked/15 hover:text-status-blocked",
         "ghost-warning":
-          "text-status-waiting hover:bg-status-waiting/15 hover:text-status-waiting"
+          "text-status-waiting hover:bg-status-waiting/15 hover:text-status-waiting",
       },
       size: {
         default: "h-9 px-3 py-2",
         sm: "h-8 rounded-md px-2.5",
-        icon: "h-8 w-8"
-      }
+        icon: "h-8 w-8",
+      },
     },
     defaultVariants: {
       variant: "default",
-      size: "default"
-    }
+      size: "default",
+    },
   }
 );
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+  extends
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
 }
@@ -44,7 +48,13 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    );
   }
 );
 Button.displayName = "Button";
