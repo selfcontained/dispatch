@@ -1,6 +1,6 @@
 ## What's Changed
-* docs: fix Repo Tools section drift in in-app docs by @selfcontained in https://github.com/selfcontained/dispatch/pull/356
-* feat(web): ActivityBars loading indicator + matching reconnect scan by @selfcontained in https://github.com/selfcontained/dispatch/pull/357
+* fix(web): ActivityBars review follow-up — light-theme contrast + small-size hardening by @selfcontained in https://github.com/selfcontained/dispatch/pull/358
+* fix(web): keep body bg + theme-color in sync with selected theme by @selfcontained in https://github.com/selfcontained/dispatch/pull/359
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.7...v0.16.8
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.8...v0.16.9
