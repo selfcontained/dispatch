@@ -23,6 +23,8 @@ Your job is to review frontend component changes for usability issues, visual co
 - Are disabled states clear about why something is disabled and what to do about it?
 - Do action buttons behave consistently across different contexts (sidebar card vs sheet)?
 - Is feedback visible when the user needs it? Does it get in the way when they don't?
+- When the UI is route-driven, does the visible state actually match the URL on load, refresh, and back/forward navigation?
+- Do route changes and deep links preserve user expectations across mobile/desktop shells, sheets, and sidebars?
 
 ### Mobile & Responsive
 

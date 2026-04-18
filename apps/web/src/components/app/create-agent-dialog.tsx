@@ -2,6 +2,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,9 +35,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import { type Agent } from "@/components/app/types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  isAgentType,
+} from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
+const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
+const CWD_HISTORY_KEY = "dispatch:cwdHistory";
+const CWD_HISTORY_MAX = 20;
+const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
+const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
+const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
 
 function useClickOutside(
   ref: React.RefObject<HTMLElement | null>,
@@ -55,93 +69,227 @@ function useClickOutside(
   }, [ref, isOpen, onClose]);
 }
 
+function readStoredString(key: string): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(key)?.trim() ?? "";
+}
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const value = window.localStorage.getItem(key);
+  if (value === null) return fallback;
+  return value === "true";
+}
+
+function readLastUsedCwd(): string {
+  return readStoredString(LAST_USED_CWD_KEY) || "~/";
+}
+
+function readLastUsedAgentType(): AgentType | null {
+  const stored = readStoredString(LAST_USED_TYPE_KEY);
+  return stored && isAgentType(stored) ? stored : null;
+}
+
+function readCwdHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(CWD_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === "string" && v.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCwdHistory(nextHistory: string[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(CWD_HISTORY_KEY, JSON.stringify(nextHistory));
+}
+
+function addToCwdHistory(cwd: string): string[] {
+  const trimmed = cwd.trim();
+  if (!trimmed) return readCwdHistory();
+  const existing = readCwdHistory().filter((entry) => entry !== trimmed);
+  const updated = [trimmed, ...existing].slice(0, CWD_HISTORY_MAX);
+  writeCwdHistory(updated);
+  return updated;
+}
+
+function removeCwdFromHistory(cwd: string): string[] {
+  const next = readCwdHistory().filter((entry) => entry !== cwd);
+  writeCwdHistory(next);
+  return next;
+}
+
+function useCreateAgentPrefs(cwd: string) {
+  const trimmedCwd = cwd.trim();
+  const [fullAccess, setFullAccess] = useState(false);
+  const [autoReview, setAutoReview] = useState(false);
+  const [baseBranch, setBaseBranch] = useState("main");
+
+  useEffect(() => {
+    if (!trimmedCwd) {
+      setFullAccess(false);
+      setAutoReview(false);
+      setBaseBranch("main");
+      return;
+    }
+    setFullAccess(
+      readStoredBoolean(`${FULL_ACCESS_PREFIX}${trimmedCwd}`, false)
+    );
+    setAutoReview(
+      readStoredBoolean(`${AUTO_REVIEW_PREFIX}${trimmedCwd}`, false)
+    );
+    setBaseBranch(
+      readStoredString(`${BASE_BRANCH_PREFIX}${trimmedCwd}`) || "main"
+    );
+  }, [trimmedCwd]);
+
+  useEffect(() => {
+    if (!trimmedCwd || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      `${FULL_ACCESS_PREFIX}${trimmedCwd}`,
+      String(fullAccess)
+    );
+  }, [fullAccess, trimmedCwd]);
+
+  useEffect(() => {
+    if (!trimmedCwd || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      `${AUTO_REVIEW_PREFIX}${trimmedCwd}`,
+      String(autoReview)
+    );
+  }, [autoReview, trimmedCwd]);
+
+  useEffect(() => {
+    if (!trimmedCwd || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      `${BASE_BRANCH_PREFIX}${trimmedCwd}`,
+      baseBranch
+    );
+  }, [baseBranch, trimmedCwd]);
+
+  return {
+    fullAccess,
+    setFullAccess,
+    autoReview,
+    setAutoReview,
+    baseBranch,
+    setBaseBranch,
+  };
+}
+
 type CreateAgentDialogProps = {
   open: boolean;
-  createName: string;
-  createType: AgentType;
-  createCwd: string;
-  createFullAccess: boolean;
-  createAutoReview: boolean;
-  createUseWorktree: boolean;
-  createWorktreeBranch: string;
-  createBaseBranch: string;
-  creating: boolean;
-  cwdHistory: string[];
   enabledAgentTypes: AgentType[];
-  initialPrompt: string;
+  initialAgentType: AgentType | null;
   setOpen: (open: boolean) => void;
-  setCreateName: (name: string) => void;
-  setCreateType: (value: AgentType) => void;
-  setCreateCwd: (cwd: string) => void;
-  setCreateFullAccess: (
-    value: boolean | ((current: boolean) => boolean)
-  ) => void;
-  setCreateAutoReview: (
-    value: boolean | ((current: boolean) => boolean)
-  ) => void;
-  setCreateUseWorktree: (
-    value: boolean | ((current: boolean) => boolean)
-  ) => void;
-  setCreateWorktreeBranch: (value: string) => void;
-  setCreateBaseBranch: (value: string) => void;
-  setInitialPrompt: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-  onRemoveCwdHistory: (dir: string) => void;
+  resolveDefaultCwd: () => string;
+  onCreated: (agent: Agent, agentType: AgentType) => Promise<void>;
 };
 
 export function CreateAgentDialog({
   open,
-  createName,
-  createType,
-  createCwd,
-  createFullAccess,
-  createAutoReview,
-  createUseWorktree,
-  createWorktreeBranch,
-  createBaseBranch,
-  creating,
-  cwdHistory,
   enabledAgentTypes,
-  initialPrompt,
+  initialAgentType,
   setOpen,
-  setCreateName,
-  setCreateType,
-  setCreateCwd,
-  setCreateFullAccess,
-  setCreateAutoReview,
-  setCreateUseWorktree,
-  setCreateWorktreeBranch,
-  setCreateBaseBranch,
-  setInitialPrompt,
-  onSubmit,
-  onRemoveCwdHistory,
+  resolveDefaultCwd,
+  onCreated,
 }: CreateAgentDialogProps): JSX.Element {
-  // --- Step state: "config" is the main form, "prompt" is the initial prompt textarea ---
   const [step, setStep] = useState<"config" | "prompt">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [createName, setCreateName] = useState("");
+  const [createType, setCreateType] = useState<AgentType>(
+    initialAgentType && enabledAgentTypes.includes(initialAgentType)
+      ? initialAgentType
+      : (enabledAgentTypes[0] ?? "codex")
+  );
+  const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
+  const [createCwdInitialized, setCreateCwdInitialized] = useState(
+    () => readLastUsedCwd().trim().length > 0
+  );
+  const [createUseWorktree, setCreateUseWorktree] = useState(true);
+  const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
+  const [initialPrompt, setInitialPrompt] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
+    readCwdHistory()
+  );
+  const {
+    fullAccess: createFullAccess,
+    setFullAccess: setCreateFullAccess,
+    autoReview: createAutoReview,
+    setAutoReview: setCreateAutoReview,
+    baseBranch: createBaseBranch,
+    setBaseBranch: setCreateBaseBranch,
+  } = useCreateAgentPrefs(createCwd);
 
-  // Reset step when dialog closes
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
       setStep("config");
+      return;
     }
-  }, [open]);
 
-  // Auto-focus textarea when entering prompt step
+    setCreateName("");
+    setCreateUseWorktree(true);
+    setCreateWorktreeBranch("");
+    setInitialPrompt("");
+    setCwdHistory(readCwdHistory());
+
+    const resolvedCwd = resolveDefaultCwd().trim();
+    const storedCwd = readLastUsedCwd();
+    const nextCwd = resolvedCwd || storedCwd;
+    setCreateCwd(nextCwd);
+    setCreateCwdInitialized(nextCwd.length > 0);
+
+    const preferredType = initialAgentType ?? readLastUsedAgentType();
+    setCreateType(
+      preferredType && enabledAgentTypes.includes(preferredType)
+        ? preferredType
+        : (enabledAgentTypes[0] ?? "codex")
+    );
+  }, [enabledAgentTypes, initialAgentType, open, resolveDefaultCwd]);
+
+  useEffect(() => {
+    if (!open || createCwdInitialized) return;
+    let cancelled = false;
+
+    void api<{ homeDir: string }>("/api/v1/system/defaults")
+      .then((payload) => {
+        if (cancelled) return;
+        setCreateCwd(payload.homeDir);
+        setCreateCwdInitialized(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCreateCwdInitialized(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [createCwdInitialized, open]);
+
+  useEffect(() => {
+    if (enabledAgentTypes.includes(createType)) return;
+    setCreateType(enabledAgentTypes[0] ?? "codex");
+  }, [createType, enabledAgentTypes]);
+
   useEffect(() => {
     if (step === "prompt") {
       requestAnimationFrame(() => promptTextareaRef.current?.focus());
     }
   }, [step]);
 
-  // --- Agent type dropdown state ---
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
-  // --- Base branch combobox state ---
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -167,7 +315,6 @@ export function CreateAgentDialog({
         `/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`
       );
       setRemoteBranches(result.branches);
-      // If the pre-selected branch doesn't exist in the fetched list, fall back to the first available branch
       if (!result.branches.includes(createBaseBranch)) {
         setCreateBaseBranch(result.branches[0] ?? "main");
       }
@@ -177,7 +324,7 @@ export function CreateAgentDialog({
       setBranchesLoading(false);
       setBranchesFetchedForCwd(cwd);
     }
-  }, [createCwd, createBaseBranch, setCreateBaseBranch]);
+  }, [createBaseBranch, createCwd, setCreateBaseBranch]);
 
   const openBranchDropdown = useCallback(() => {
     setBranchDropdownOpen(true);
@@ -185,7 +332,7 @@ export function CreateAgentDialog({
       void fetchBranches();
     }
     requestAnimationFrame(() => branchInputRef.current?.focus());
-  }, [fetchBranches, branchesFetchedForCwd, createCwd]);
+  }, [branchesFetchedForCwd, createCwd, fetchBranches]);
 
   const allBranches = useMemo(
     () =>
@@ -193,6 +340,58 @@ export function CreateAgentDialog({
         ? remoteBranches
         : ["main", ...remoteBranches],
     [remoteBranches]
+  );
+
+  const handleRemoveCwdHistory = useCallback((cwd: string) => {
+    setCwdHistory(removeCwdFromHistory(cwd));
+  }, []);
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const cwd = createCwd.trim();
+      if (!cwd) return;
+
+      setCreating(true);
+      try {
+        const payload = await api<{ agent: Agent }>("/api/v1/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            name: createName.trim(),
+            cwd,
+            type: createType,
+            fullAccess: createFullAccess,
+            autoReview: createAutoReview,
+            useWorktree: createUseWorktree,
+            worktreeBranch: createWorktreeBranch.trim() || undefined,
+            baseBranch:
+              createBaseBranch !== "main" ? createBaseBranch : undefined,
+            initialPrompt: initialPrompt.trim() || undefined,
+          }),
+        });
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(LAST_USED_CWD_KEY, cwd);
+          window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
+        }
+        setCwdHistory(addToCwdHistory(cwd));
+        await onCreated(payload.agent, createType);
+      } finally {
+        setCreating(false);
+      }
+    },
+    [
+      createAutoReview,
+      createBaseBranch,
+      createCwd,
+      createFullAccess,
+      createName,
+      createType,
+      createUseWorktree,
+      createWorktreeBranch,
+      initialPrompt,
+      onCreated,
+    ]
   );
 
   return (
@@ -220,7 +419,7 @@ export function CreateAgentDialog({
             <form
               data-testid="create-agent-form"
               className="flex min-h-0 flex-col"
-              onSubmit={(event) => void onSubmit(event)}
+              onSubmit={(event) => void handleSubmit(event)}
             >
               <div className="min-h-0 flex-1 overflow-y-auto px-1">
                 <div className="space-y-3">
@@ -246,7 +445,7 @@ export function CreateAgentDialog({
                         }
                       }}
                       className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm",
+                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
                         "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                       )}
                     >
@@ -259,7 +458,7 @@ export function CreateAgentDialog({
                       />
                     </button>
                     {typeDropdownOpen ? (
-                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
+                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
                         <Command
                           shouldFilter={false}
                           ref={(el) => {
@@ -329,7 +528,7 @@ export function CreateAgentDialog({
                     onChange={setCreateCwd}
                     label="Working directory"
                     history={cwdHistory}
-                    onRemoveHistory={onRemoveCwdHistory}
+                    onRemoveHistory={handleRemoveCwdHistory}
                     data-testid="create-agent-cwd"
                     historyItemTestId="create-agent-cwd-history-option"
                   />
@@ -385,7 +584,7 @@ export function CreateAgentDialog({
                               }
                             }}
                             className={cn(
-                              "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 font-mono text-xs",
+                              "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
                               "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                             )}
                           >
@@ -402,7 +601,7 @@ export function CreateAgentDialog({
                             )}
                           </button>
                           {branchDropdownOpen ? (
-                            <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
+                            <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
                               <Command
                                 onKeyDown={(e) => {
                                   if (e.key === "Escape") {
@@ -557,14 +756,14 @@ export function CreateAgentDialog({
             <DialogHeader>
               <DialogTitle>Initial Prompt</DialogTitle>
               <DialogDescription>
-                This prompt will be sent as the agent's first message.
+                This prompt will be sent as the agent&apos;s first message.
               </DialogDescription>
             </DialogHeader>
 
             <form
               data-testid="create-agent-prompt-form"
               className="space-y-3"
-              onSubmit={(event) => void onSubmit(event)}
+              onSubmit={(event) => void handleSubmit(event)}
             >
               <textarea
                 ref={promptTextareaRef}
@@ -573,10 +772,9 @@ export function CreateAgentDialog({
                 placeholder="Enter instructions for the agent..."
                 data-testid="create-agent-initial-prompt"
                 className={cn(
-                  "flex min-h-[200px] w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm",
+                  "flex min-h-[200px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
                   "ring-offset-background placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                  "resize-y"
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 )}
               />
 
@@ -621,7 +819,3 @@ export function CreateAgentDialog({
     </Dialog>
   );
 }
-// HMR TEST MARKER
-// test
-// poll-test
-// fswatch-test

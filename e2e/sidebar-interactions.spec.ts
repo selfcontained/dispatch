@@ -75,7 +75,7 @@ test.describe("Sidebar interactions", () => {
       timeout: 3_000,
     });
     await page.getByTestId("agents-button").click();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/agents$/);
     await expectMobileSidebarOpen(page);
   });
 });

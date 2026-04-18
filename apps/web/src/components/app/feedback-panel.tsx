@@ -117,6 +117,30 @@ function formatFeedbackText(item: FeedbackItem): string {
   return parts.join("\n");
 }
 
+function FeedbackItemNotFoundState({
+  className,
+}: {
+  className?: string;
+}): JSX.Element {
+  return (
+    <div
+      data-testid="feedback-item-not-found"
+      className={cn(
+        "flex min-h-0 flex-1 items-center justify-center px-6 py-8 text-center",
+        className
+      )}
+    >
+      <div className="max-w-sm space-y-2 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">Feedback item not found</p>
+        <p>
+          The URL points to a feedback item that is no longer available for this
+          review agent.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function FeedbackActions({
   item: _item,
   isConnected,
@@ -333,10 +357,13 @@ export function ParentFeedbackPanel({
     staleTime: 0,
   });
 
-  // Subscribe to agents cache reactively (query is managed by useAgents elsewhere)
   const { data: allAgents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
-    enabled: false,
+    queryFn: async () => {
+      const result = await api<{ agents: Agent[] }>("/api/v1/agents");
+      return result.agents;
+    },
+    staleTime: 30_000,
   });
   const parentAgent = allAgents.find((a) => a.id === parentAgentId);
 
@@ -628,7 +655,11 @@ function useFeedbackData(parentAgentId: string) {
 
   const { data: allAgents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
-    enabled: false,
+    queryFn: async () => {
+      const result = await api<{ agents: Agent[] }>("/api/v1/agents");
+      return result.agents;
+    },
+    staleTime: 30_000,
   });
   const parentAgent = allAgents.find((a) => a.id === parentAgentId);
   const parentCwd = parentAgent?.worktreePath ?? parentAgent?.cwd;
@@ -786,7 +817,13 @@ export function FeedbackDetailPanel({
     [updateStatus, activeItems, resolvedItems, onNavigate, onClose]
   );
 
-  if (!item) return null;
+  if (!item) {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-hidden border-t border-white/[0.12] bg-[hsl(var(--card))] px-6 py-4 outline-none">
+        <FeedbackItemNotFoundState />
+      </div>
+    );
+  }
 
   const isActionable = item.status === "open" || item.status === "forwarded";
   const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
@@ -1103,7 +1140,7 @@ export function MobileFeedbackSheet({
 
   return (
     <Sheet
-      open={!!item}
+      open
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
@@ -1216,7 +1253,27 @@ export function MobileFeedbackSheet({
               />
             </div>
           </>
-        ) : null}
+        ) : (
+          <>
+            <div className="absolute right-4 top-4 z-10">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                onClick={onClose}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <SheetHeader className="shrink-0">
+              <SheetTitle className="text-base">Feedback</SheetTitle>
+              <SheetDescription>
+                The requested feedback item could not be found.
+              </SheetDescription>
+            </SheetHeader>
+            <FeedbackItemNotFoundState className="mt-4" />
+          </>
+        )}
       </SheetContent>
     </Sheet>
   );
