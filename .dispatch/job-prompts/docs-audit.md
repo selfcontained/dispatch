@@ -73,7 +73,7 @@ Treat the state file as a handoff note to a colleague, not a log.
 
 ## Phase 5: Validate, commit, PR, merge
 
-1. Run `pnpm run format` to fix any prettier drift in files you touched. CI enforces `prettier --check` and will fail the PR otherwise.
+1. Run `pnpm run format:write` to fix any prettier drift in files you touched (`pnpm run format` only checks — it won't rewrite). CI enforces `prettier --check` and will fail the PR otherwise.
 2. If `apps/web/` changed, run `pnpm run check` (docs-only changes generally don't need it).
 3. Verify any `docs/` links in `README.md` still resolve.
 4. Commit on a new branch. Include the state file update in the same commit.
