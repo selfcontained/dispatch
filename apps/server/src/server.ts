@@ -1284,6 +1284,9 @@ async function registerRoutes() {
       repoRoot,
       worktreeRoot,
       sendNotify: mcpSendNotify,
+      shareMedia: mcpShareMedia,
+      upsertPin: mcpUpsertPin,
+      deletePin: mcpDeletePin,
       toolScope: "job",
       jobTools: {
         complete: mcpJobComplete,

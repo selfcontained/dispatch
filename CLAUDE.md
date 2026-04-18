@@ -30,9 +30,9 @@ dispatch/
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
-│   ├── jobs/                  # job prompt templates (*.md)
 │   ├── personas/              # persona definitions (*.md)
-│   └── tools.json             # repo-specific MCP tools + lifecycle hooks
+│   ├── tools.json             # repo-specific MCP tools + lifecycle hooks
+│   └── worktrees/             # per-agent git worktrees (managed automatically)
 └── docs/
 ```
 - Use `pnpm` (not npm) for all package management.
