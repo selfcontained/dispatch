@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CheckCircle2,
   ExternalLink,
-  Loader2,
   ShieldCheck,
   Sparkles,
   Zap,
@@ -384,7 +383,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                       disabled={promotingTag === r.tag}
                     >
                       {promotingTag === r.tag ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <ActivityBars size={12} />
                       ) : (
                         "Promote"
                       )}

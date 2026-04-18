@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
-import { Loader2, Pause } from "lucide-react";
+import { Pause } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -78,7 +79,7 @@ export function StopAgentDialog({
             onClick={() => void handleConfirmStop()}
           >
             {stopping ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              <ActivityBars size={16} className="mr-1.5" />
             ) : (
               <Pause className="mr-1.5 h-4 w-4" />
             )}

@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
@@ -64,7 +63,7 @@ export function PhaseProgress({
                   {PHASE_LABELS[phase as ReleasePhase] ?? phase}
                 </span>
                 {current && isRestarting && phase === "restarting" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  <ActivityBars size={12} />
                 )}
               </div>
             );

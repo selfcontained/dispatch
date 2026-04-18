@@ -8,8 +8,6 @@ import {
   Clock,
   GitBranch,
   History,
-  Loader2,
-  LoaderCircle,
   MessageSquareText,
   Play,
   Settings,
@@ -149,7 +147,7 @@ function statusIcon(status: JobRunStatus | null): JSX.Element | null {
   if (status === "failed" || status === "timed_out" || status === "crashed")
     return <XCircle className="h-3.5 w-3.5" />;
   if (status === "started" || status === "running" || status === "needs_input")
-    return <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" />;
+    return <ActivityBars size={14} className="shrink-0" />;
   return null;
 }
 
@@ -1356,7 +1354,7 @@ function AddJobFlow({
             }).catch((error) => setSubmitError(errorMessage(error)));
           }}
         >
-          {isAdding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          {isAdding ? <ActivityBars size={16} className="mr-2" /> : null}
           Add job
         </Button>
       </div>
@@ -1927,9 +1925,7 @@ function SettingsTab({
                 });
             }}
           >
-            {isUpdating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {isUpdating ? <ActivityBars size={16} className="mr-2" /> : null}
             Save
           </Button>
         </div>
@@ -2017,7 +2013,7 @@ function RemoveJobDialog({
               onClick={onConfirm}
             >
               {isRemoving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <ActivityBars size={16} className="mr-2" />
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
@@ -2100,9 +2096,7 @@ function PromptTab({
                 });
             }}
           >
-            {isUpdating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            {isUpdating ? <ActivityBars size={16} className="mr-2" /> : null}
             Save prompt
           </Button>
         </div>

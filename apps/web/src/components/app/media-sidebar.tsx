@@ -10,7 +10,6 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
-  Loader2,
   MonitorPlay,
   X,
   Image,
@@ -29,6 +28,7 @@ import {
   stripTimestamp,
 } from "@/components/app/media-lightbox";
 import { PinsPanel } from "@/components/app/pins-panel";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -198,7 +198,7 @@ function MediaContent({
               onClick={triggerFilePicker}
             >
               {uploading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <ActivityBars size={12} />
               ) : uploadSuccess ? (
                 <Check className="h-3 w-3" />
               ) : (
