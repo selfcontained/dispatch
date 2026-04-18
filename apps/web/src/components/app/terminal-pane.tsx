@@ -1,5 +1,5 @@
 import { memo, type RefCallback, useEffect, useState } from "react";
-import { Archive, Loader2, TerminalSquare } from "lucide-react";
+import { Archive, TerminalSquare } from "lucide-react";
 
 import { type Agent, type ConnState } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -100,7 +100,7 @@ export const TerminalPane = memo(function TerminalPane({
               Archiving agent
             </p>
             <div className="flex items-center gap-2 text-sm text-orange-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <ActivityBars size={16} />
               <span>
                 {archivePhase === "stopping"
                   ? "Stopping agent…"

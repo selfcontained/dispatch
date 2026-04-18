@@ -23,7 +23,7 @@ export function ActivityBars({
 
   return (
     <div
-      className={cn("flex items-center", className)}
+      className={cn("flex items-center justify-center", className)}
       style={{ gap, height: size, width: size }}
       role="status"
       aria-label="Loading"

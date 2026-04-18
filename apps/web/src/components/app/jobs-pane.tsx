@@ -23,6 +23,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { PathInput } from "@/components/app/path-input";
 import { type Agent } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -383,7 +384,7 @@ export function JobListContent({
           </div>
         ) : isLoading ? (
           <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...
+            <ActivityBars size={16} /> Loading jobs...
           </div>
         ) : jobs.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
@@ -673,7 +674,7 @@ function JobsOverview({
         {/* Loading */}
         {statsLoading && !metrics && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <ActivityBars size={20} />
           </div>
         )}
 
@@ -2128,7 +2129,7 @@ function HistoryTab({
     <ScrollArea className="mt-4 min-h-0 h-full pr-1">
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading history...
+          <ActivityBars size={16} /> Loading history...
         </div>
       ) : runs.length === 0 ? (
         <div className="text-sm text-muted-foreground">No runs yet.</div>
