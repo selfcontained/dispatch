@@ -81,7 +81,7 @@ type JobsContextValue = {
   showDetailPane: boolean;
   tab: DetailTab;
   history: { data?: { runs: JobRun[] }; isLoading: boolean };
-  activeRunAgent: Agent | null;
+  activeRunAgent: { agent: Agent; isActive: boolean } | null;
   jobStats: {
     data?: import("@/hooks/use-jobs").JobStats | null;
     isLoading: boolean;
@@ -226,19 +226,19 @@ function triggerSourceLabel(run: JobRun): string {
 
 function useActiveRun(job: Job | null, agents: Agent[]) {
   return useMemo(() => {
-    if (
-      !job?.lastRunId ||
-      !job.lastRunStatus ||
-      !ACTIVE_RUN_STATUSES.includes(job.lastRunStatus)
-    )
-      return null;
-    return (
+    if (!job?.lastRunId || !job.lastRunStatus) return null;
+    // Active statuses always resolve; terminal statuses only resolve when the
+    // job opted out of auto-archive so the agent should still exist.
+    const isActive = ACTIVE_RUN_STATUSES.includes(job.lastRunStatus);
+    const keepsAgent = !job.autoArchive;
+    if (!isActive && !keepsAgent) return null;
+    const match =
       agents.find(
         (agent) =>
           agent.name.startsWith(`job-${job.name}-`) ||
           agent.name.endsWith(job.lastRunId!.slice(0, 8))
-      ) ?? null
-    );
+      ) ?? null;
+    return match ? { agent: match, isActive } : null;
   }, [agents, job]);
 }
 
@@ -392,8 +392,8 @@ export function JobListContent({
                 No jobs added yet.
               </div>
               <div className="mt-1 text-xs">
-                Added jobs will appear here with schedule, status, and run
-                controls.
+                Added jobs will appear here — run them on a schedule or on
+                demand.
               </div>
             </div>
           </div>
@@ -1119,6 +1119,10 @@ function AddJobFlow({
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Enabled is meaningless without a schedule — reset when the schedule clears.
+  useEffect(() => {
+    if (!schedule.trim() && enableImmediately) setEnableImmediately(false);
+  }, [schedule, enableImmediately]);
   const scheduleError = cronError(schedule, enableImmediately);
   const canAdd =
     !!displayName.trim() &&
@@ -1132,28 +1136,35 @@ function AddJobFlow({
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
       <div className="text-lg font-semibold">Create a new job</div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Define a recurring automation with a prompt and schedule.
+        Define an automation with a prompt — on a schedule or on demand.
       </p>
 
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
           <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
-            <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-              <span>
-                <span className="block font-medium text-foreground">
-                  Enabled
+            {schedule.trim() ? (
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Enabled
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Run this job on its schedule after creating it.
+                  </span>
                 </span>
-                <span className="block text-xs text-muted-foreground">
-                  Run this job on its schedule after creating it.
-                </span>
-              </span>
-              <SwitchToggle
-                checked={enableImmediately}
-                onCheckedChange={setEnableImmediately}
-                ariaLabel="Enable job"
-              />
-            </label>
-            <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">
+                <SwitchToggle
+                  checked={enableImmediately}
+                  onCheckedChange={setEnableImmediately}
+                  ariaLabel="Enable job"
+                />
+              </label>
+            ) : null}
+            <div
+              className={cn(
+                "grid min-w-0 gap-3 md:grid-cols-2",
+                schedule.trim() ? "mt-4" : ""
+              )}
+            >
               <div className="min-w-0 space-y-1 md:col-span-2">
                 <label
                   className="text-sm text-muted-foreground"
@@ -1268,7 +1279,7 @@ function AddJobFlow({
               <div>
                 <div className="text-sm font-medium">Advanced settings</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Timeouts, worktree behavior, and permissions.
+                  Timeouts, worktree, permissions, and agent lifecycle.
                 </div>
               </div>
               <ChevronDown
@@ -1416,7 +1427,7 @@ function JobDetail({
   historyLoading: boolean;
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
-  activeRunAgent: Agent | null;
+  activeRunAgent: { agent: Agent; isActive: boolean } | null;
   onOpenAgent: (agent: Agent) => Promise<void>;
   onRunNow: (job: Job) => Promise<void>;
   onSetEnabled: (job: Job, enabled: boolean) => Promise<void>;
@@ -1455,22 +1466,41 @@ function JobDetail({
           }}
         >
           <Play className="mr-2 h-4 w-4" />
-          Run Now
+          Run now
         </Button>
       </div>
 
       {activeRunAgent ? (
-        <div className="mt-4 rounded-md border border-status-working/40 bg-status-working/10 p-3">
+        <div
+          className={cn(
+            "mt-4 rounded-md border p-3",
+            activeRunAgent.isActive
+              ? "border-status-working/40 bg-status-working/10"
+              : "border-border/70 bg-muted/30"
+          )}
+        >
           <div className="flex flex-wrap items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-status-working">
-                Active run is attached to a live agent session.
+              <div
+                className={cn(
+                  "text-sm font-medium",
+                  activeRunAgent.isActive
+                    ? "text-status-working"
+                    : "text-foreground"
+                )}
+              >
+                {activeRunAgent.isActive
+                  ? "Active run is attached to a live agent session."
+                  : "Agent kept after completion — pick up where the run left off."}
               </div>
               <div className="truncate text-xs text-muted-foreground">
-                {activeRunAgent.name}
+                {activeRunAgent.agent.name}
               </div>
             </div>
-            <Button size="sm" onClick={() => void onOpenAgent(activeRunAgent)}>
+            <Button
+              size="sm"
+              onClick={() => void onOpenAgent(activeRunAgent.agent)}
+            >
               <Terminal className="mr-2 h-4 w-4" />
               Open session
             </Button>
@@ -1488,7 +1518,7 @@ function JobDetail({
               ? `Scheduled next run: ${formatDate(job.nextRun)}.`
               : job.schedule
                 ? "This job is saved but not enabled on a schedule yet."
-                : "This job is on-demand — use Run once to start it."}
+                : "This job is on-demand — use Run now to start it."}
           </div>
           {detailActionError ? (
             <div className="mt-3 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
@@ -1507,7 +1537,7 @@ function JobDetail({
               }}
             >
               <Play className="mr-2 h-4 w-4" />
-              Run once
+              Run now
             </Button>
             {!job.enabled ? (
               <Button
@@ -1713,8 +1743,8 @@ function JobSkipAutoArchiveOption({
           Keep agent after run completes
         </span>
         <span className="block text-xs text-muted-foreground">
-          Skip auto-archive so you can hop back into the session after the job
-          finishes.
+          The agent stays in your Agents list so you can continue the session
+          after the job finishes.
         </span>
       </span>
     </label>
@@ -1814,6 +1844,10 @@ function SettingsTab({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Enabled is meaningless without a schedule — reset when the schedule clears.
+  useEffect(() => {
+    if (!schedule.trim() && enabled) setEnabled(false);
+  }, [schedule, enabled]);
   const scheduleError = cronError(schedule, enabled);
   const canSave =
     !!displayName.trim() &&
@@ -1846,19 +1880,21 @@ function SettingsTab({
         <p className="mt-1 text-xs text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
         </p>
-        <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-          <span>
-            <span className="block font-medium text-foreground">Enabled</span>
-            <span className="block text-xs text-muted-foreground">
-              Run this job on its saved schedule.
+        {schedule.trim() ? (
+          <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <span>
+              <span className="block font-medium text-foreground">Enabled</span>
+              <span className="block text-xs text-muted-foreground">
+                Run this job on its saved schedule.
+              </span>
             </span>
-          </span>
-          <SwitchToggle
-            checked={enabled}
-            onCheckedChange={setEnabled}
-            ariaLabel="Enable job"
-          />
-        </label>
+            <SwitchToggle
+              checked={enabled}
+              onCheckedChange={setEnabled}
+              ariaLabel="Enable job"
+            />
+          </label>
+        ) : null}
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
             <label
