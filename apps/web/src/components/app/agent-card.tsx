@@ -10,7 +10,6 @@ import {
   FolderGit2,
   FolderTree,
   GitBranch,
-  Loader2,
   Play,
   Pause,
 } from "lucide-react";
@@ -28,6 +27,7 @@ import {
 } from "@/components/app/feedback-panel";
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -274,7 +274,7 @@ export function AgentCard({
 
         {agent.status === "creating" && agent.setupPhase ? (
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-status-working">
-            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+            <ActivityBars size={12} className="shrink-0" />
             <span className="truncate font-medium">
               {agent.setupPhase === "worktree"
                 ? "Creating worktree…"
@@ -291,7 +291,7 @@ export function AgentCard({
 
         {agent.status === "archiving" ? (
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-orange-400">
-            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+            <ActivityBars size={12} className="shrink-0" />
             <span className="truncate font-medium">
               {agent.archivePhase === "stopping"
                 ? "Stopping agent…"

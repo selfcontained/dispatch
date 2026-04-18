@@ -4,10 +4,10 @@ import {
   CheckCircle2,
   ChevronDown,
   GitBranch,
-  Loader2,
   X,
 } from "lucide-react";
 
+import { ActivityBars } from "@/components/ui/activity-bars";
 import {
   Command,
   CommandGroup,
@@ -282,7 +282,7 @@ export function PathInput({
       {showValidation ? (
         <div className="flex h-5 items-center justify-end gap-1.5 text-xs">
           {validating ? (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            <ActivityBars size={12} />
           ) : pathValidation ? (
             pathValidation.isDirectory ? (
               <>

@@ -638,15 +638,93 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-.dispatch-reconnect-scan {
-  animation: reconnect-scan 1350ms ease-in-out infinite;
-  will-change: transform;
-}
+/* `.dispatch-reconnect-scan` is a marker class — the animation, gradient,
+   and reduced-motion behavior are Tailwind utilities on the element. This
+   class only exists so the `html[data-hidden]` rule below can pause it. */
 
-@media (prefers-reduced-motion: reduce) {
-  .dispatch-reconnect-scan {
-    animation: none;
-    transform: translateX(140%);
+/* Activity Bars loading indicator — wave travels left→right, bounces
+   off the right end, travels right→left, then rests. Bar 3 (rightmost)
+   briefly holds at peak during the turnaround, giving the bounce a
+   natural feel. Keyframes must live in CSS; the gradient, filter,
+   sizing, animation binding, and reduced-motion handling are all
+   Tailwind utilities in the ActivityBars component. */
+@keyframes dispatch-bar-wave-0 {
+  0%,
+  5%,
+  25%,
+  67%,
+  87%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  10%,
+  20%,
+  72%,
+  82% {
+    transform: scaleY(0.55);
+  }
+  15%,
+  77% {
+    transform: scaleY(1);
+  }
+}
+@keyframes dispatch-bar-wave-1 {
+  0%,
+  13%,
+  33%,
+  59%,
+  79%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  18%,
+  28%,
+  64%,
+  74% {
+    transform: scaleY(0.55);
+  }
+  23%,
+  69% {
+    transform: scaleY(1);
+  }
+}
+@keyframes dispatch-bar-wave-2 {
+  0%,
+  21%,
+  41%,
+  51%,
+  71%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  26%,
+  36%,
+  56%,
+  66% {
+    transform: scaleY(0.55);
+  }
+  31%,
+  61% {
+    transform: scaleY(1);
+  }
+}
+@keyframes dispatch-bar-wave-3 {
+  0%,
+  29%,
+  44%,
+  47%,
+  63%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  34%,
+  50%,
+  58% {
+    transform: scaleY(0.55);
+  }
+  39%,
+  53% {
+    transform: scaleY(1);
   }
 }
 
@@ -863,6 +941,10 @@ html[data-theme="matrix"] [role="button"] {
 
 /* Pause GPU-composited animations when the page is hidden to reduce energy */
 html[data-hidden] .dispatch-reconnect-scan {
+  animation-play-state: paused;
+  will-change: auto;
+}
+html[data-hidden] .dispatch-activity-bar {
   animation-play-state: paused;
   will-change: auto;
 }

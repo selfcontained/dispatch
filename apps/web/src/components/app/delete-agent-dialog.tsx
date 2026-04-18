@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Archive, GitBranch, Loader2 } from "lucide-react";
+import { AlertTriangle, Archive, GitBranch } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -208,9 +209,7 @@ export function DeleteAgentDialog({
               data-testid="delete-agent-force-worktree"
               className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
-              {deleting ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : null}
+              {deleting ? <ActivityBars size={16} className="mr-1.5" /> : null}
               Archive and remove worktree
             </Button>
           </div>
@@ -245,7 +244,7 @@ export function DeleteAgentDialog({
             onClick={() => void handleConfirmDelete()}
           >
             {loading || deleting ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              <ActivityBars size={16} className="mr-1.5" />
             ) : (
               <Archive className="mr-1.5 h-4 w-4" />
             )}

@@ -1,5 +1,5 @@
-import { Loader2 } from "lucide-react";
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
 import { cn } from "@/lib/utils";
 
@@ -63,7 +63,7 @@ export function PhaseProgress({
                   {PHASE_LABELS[phase as ReleasePhase] ?? phase}
                 </span>
                 {current && isRestarting && phase === "restarting" && (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                  <ActivityBars size={12} />
                 )}
               </div>
             );
@@ -96,7 +96,7 @@ export function OperationLog({
           ))}
         {(isRestarting || postRestartPolling) && !job.log.length && (
           <div className="flex items-center gap-2 text-[hsl(var(--log-stream-muted-foreground))]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <ActivityBars size={14} />
             Waiting for Dispatch to restart...
           </div>
         )}

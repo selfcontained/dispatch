@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CheckCircle2,
   ExternalLink,
-  Loader2,
   ShieldCheck,
   Sparkles,
   Zap,
 } from "lucide-react";
 import { OperationTakeover } from "@/components/app/release-manager";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type {
   ReleaseInfo,
@@ -226,7 +226,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
 
         {infoLoading && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <ActivityBars size={14} />
             Loading...
           </div>
         )}
@@ -346,7 +346,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
 
         {releasesLoading && releases.length === 0 && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <ActivityBars size={14} />
             Loading...
           </div>
         )}
@@ -383,7 +383,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                       disabled={promotingTag === r.tag}
                     >
                       {promotingTag === r.tag ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <ActivityBars size={12} />
                       ) : (
                         "Promote"
                       )}

@@ -7,15 +7,10 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Check,
-  ChevronDown,
-  GitBranch,
-  Loader2,
-  ChevronLeft,
-} from "lucide-react";
+import { Check, ChevronDown, GitBranch, ChevronLeft } from "lucide-react";
 
 import { PathInput } from "@/components/app/path-input";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -590,7 +585,10 @@ export function CreateAgentDialog({
                           >
                             {createBaseBranch}
                             {branchesLoading ? (
-                              <Loader2 className="ml-2 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                              <ActivityBars
+                                size={14}
+                                className="ml-2 shrink-0"
+                              />
                             ) : (
                               <ChevronDown
                                 className={cn(
@@ -622,7 +620,7 @@ export function CreateAgentDialog({
                                   {branchesLoading ? (
                                     <CommandLoading>
                                       <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
-                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        <ActivityBars size={12} />
                                         Loading branches...
                                       </div>
                                     </CommandLoading>
@@ -744,7 +742,7 @@ export function CreateAgentDialog({
                   data-testid="create-agent-submit"
                 >
                   {creating ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    <ActivityBars size={16} className="mr-1.5" />
                   ) : null}
                   Create
                 </Button>
@@ -806,7 +804,7 @@ export function CreateAgentDialog({
                     data-testid="create-agent-prompt-submit"
                   >
                     {creating ? (
-                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      <ActivityBars size={16} className="mr-1.5" />
                     ) : null}
                     Create
                   </Button>
