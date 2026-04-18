@@ -20,10 +20,10 @@ export type BranchSelectProps = {
   cwd: string;
   baseBranch: string;
   /**
-   * Fired when the user picks a branch AND when the fetched branch list
-   * doesn't include the current `baseBranch` (falls back to the first
-   * returned branch or "main"). The latter keeps the combobox honest if a
-   * previously-saved branch has been renamed/deleted on the remote.
+   * Fired when the user picks a branch. The component never overwrites
+   * `baseBranch` on its own — if a saved branch is missing from the
+   * fetched list we keep it in the dropdown with a visible flag and let
+   * the user choose a replacement.
    */
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
@@ -45,6 +45,7 @@ export function BranchSelect({
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,22 +56,22 @@ export function BranchSelect({
     const trimmed = cwd.trim();
     if (!trimmed) return;
     setBranchesLoading(true);
-    setRemoteBranches([]);
+    setFetchError(null);
     try {
       const result = await api<{ branches: string[] }>(
         `/api/v1/git/branches?cwd=${encodeURIComponent(trimmed)}`
       );
       setRemoteBranches(result.branches);
-      if (!result.branches.includes(baseBranch)) {
-        onBaseBranchChange(result.branches[0] ?? "main");
-      }
-    } catch {
+    } catch (error) {
       setRemoteBranches([]);
+      setFetchError(
+        error instanceof Error ? error.message : "Couldn't load branches."
+      );
     } finally {
       setBranchesLoading(false);
       setFetchedForCwd(trimmed);
     }
-  }, [cwd, baseBranch, onBaseBranchChange]);
+  }, [cwd]);
 
   const openDropdown = useCallback(() => {
     setDropdownOpen(true);
@@ -80,13 +81,23 @@ export function BranchSelect({
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [fetchBranches, fetchedForCwd, cwd, setDropdownOpen]);
 
-  const allBranches = useMemo(
-    () =>
-      remoteBranches.includes("main")
-        ? remoteBranches
-        : ["main", ...remoteBranches],
-    [remoteBranches]
-  );
+  // Keep the saved baseBranch selectable even if the fetched list doesn't
+  // include it (branch renamed/deleted upstream). We flag it visually in
+  // the dropdown rather than silently overwrite it.
+  const allBranches = useMemo(() => {
+    const base = remoteBranches.includes("main")
+      ? remoteBranches
+      : ["main", ...remoteBranches];
+    if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
+    return base;
+  }, [remoteBranches, baseBranch]);
+
+  const savedBranchMissing =
+    !branchesLoading &&
+    !!baseBranch &&
+    !!fetchedForCwd &&
+    remoteBranches.length > 0 &&
+    !remoteBranches.includes(baseBranch);
 
   return (
     <div className="space-y-2">
@@ -154,35 +165,63 @@ export function BranchSelect({
                 ) : null}
                 <CommandEmpty>No matching branches.</CommandEmpty>
                 <CommandGroup>
-                  {allBranches.map((branch) => (
-                    <CommandItem
-                      key={branch}
-                      value={branch}
-                      data-testid={`${testIdPrefix}-base-branch-option`}
-                      className="font-mono"
-                      onSelect={() => {
-                        onBaseBranchChange(branch);
-                        setDropdownOpen(false);
-                        requestAnimationFrame(() =>
-                          triggerRef.current?.focus()
-                        );
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-3 w-3 shrink-0",
-                          branch === baseBranch ? "opacity-100" : "opacity-0"
-                        )}
-                      />
-                      {branch}
-                    </CommandItem>
-                  ))}
+                  {allBranches.map((branch) => {
+                    const isMissing =
+                      branch === baseBranch &&
+                      remoteBranches.length > 0 &&
+                      !remoteBranches.includes(branch);
+                    return (
+                      <CommandItem
+                        key={branch}
+                        value={branch}
+                        data-testid={`${testIdPrefix}-base-branch-option`}
+                        className="font-mono"
+                        onSelect={() => {
+                          onBaseBranchChange(branch);
+                          setDropdownOpen(false);
+                          requestAnimationFrame(() =>
+                            triggerRef.current?.focus()
+                          );
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-3 w-3 shrink-0",
+                            branch === baseBranch ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        {branch}
+                        {isMissing ? (
+                          <span className="ml-2 text-[10px] uppercase tracking-wide text-status-waiting">
+                            not found
+                          </span>
+                        ) : null}
+                      </CommandItem>
+                    );
+                  })}
                 </CommandGroup>
               </CommandList>
             </Command>
           </div>
         ) : null}
       </div>
+      {fetchError ? (
+        <div className="flex items-center gap-2 text-xs text-status-blocked">
+          <span className="truncate">Couldn't load branches.</span>
+          <button
+            type="button"
+            onClick={() => void fetchBranches()}
+            className="underline underline-offset-2 hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      ) : savedBranchMissing ? (
+        <div className="text-xs text-status-waiting">
+          Saved branch <span className="font-mono">{baseBranch}</span> no longer
+          exists on the remote — pick a new one.
+        </div>
+      ) : null}
       <Input
         value={worktreeBranch}
         onChange={(event) => onWorktreeBranchChange(event.target.value)}

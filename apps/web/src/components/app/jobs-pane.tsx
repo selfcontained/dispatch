@@ -463,6 +463,14 @@ export function JobListContent({
                         </span>
                       </>
                     ) : null}
+                    {!job.autoArchive ? (
+                      <>
+                        <span className="shrink-0 text-muted-foreground/70">
+                          •
+                        </span>
+                        <span className="shrink-0">keeps agent</span>
+                      </>
+                    ) : null}
                   </div>
                   {actionError ? (
                     <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
@@ -1144,29 +1152,7 @@ function AddJobFlow({
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
           <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
-            {schedule.trim() ? (
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-                <span>
-                  <span className="block font-medium text-foreground">
-                    Enabled
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Run this job on its schedule after creating it.
-                  </span>
-                </span>
-                <SwitchToggle
-                  checked={enableImmediately}
-                  onCheckedChange={setEnableImmediately}
-                  ariaLabel="Enable job"
-                />
-              </label>
-            ) : null}
-            <div
-              className={cn(
-                "grid min-w-0 gap-3 md:grid-cols-2",
-                schedule.trim() ? "mt-4" : ""
-              )}
-            >
+            <div className="grid min-w-0 gap-3 md:grid-cols-2">
               <div className="min-w-0 space-y-1 md:col-span-2">
                 <label
                   className="text-sm text-muted-foreground"
@@ -1248,6 +1234,23 @@ function AddJobFlow({
                   </SelectContent>
                 </Select>
               </div>
+              {schedule.trim() ? (
+                <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+                  <span>
+                    <span className="block font-medium text-foreground">
+                      Enabled
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Run this job on its schedule after creating it.
+                    </span>
+                  </span>
+                  <SwitchToggle
+                    checked={enableImmediately}
+                    onCheckedChange={setEnableImmediately}
+                    ariaLabel="Enable job"
+                  />
+                </label>
+              ) : null}
             </div>
           </div>
 
@@ -1281,7 +1284,8 @@ function AddJobFlow({
               <div>
                 <div className="text-sm font-medium">Advanced settings</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Timeouts, worktree, permissions, and agent lifecycle.
+                  Timeouts, worktree, permissions, and whether the agent is kept
+                  after running.
                 </div>
               </div>
               <ChevronDown
@@ -1880,21 +1884,6 @@ function SettingsTab({
         <p className="mt-1 text-xs text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
         </p>
-        {schedule.trim() ? (
-          <label className="mt-4 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-            <span>
-              <span className="block font-medium text-foreground">Enabled</span>
-              <span className="block text-xs text-muted-foreground">
-                Run this job on its saved schedule.
-              </span>
-            </span>
-            <SwitchToggle
-              checked={enabled}
-              onCheckedChange={setEnabled}
-              ariaLabel="Enable job"
-            />
-          </label>
-        ) : null}
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
             <label
@@ -1956,6 +1945,23 @@ function SettingsTab({
               </SelectContent>
             </Select>
           </div>
+          {schedule.trim() ? (
+            <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+              <span>
+                <span className="block font-medium text-foreground">
+                  Enabled
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Run this job on its saved schedule.
+                </span>
+              </span>
+              <SwitchToggle
+                checked={enabled}
+                onCheckedChange={setEnabled}
+                ariaLabel="Enable job"
+              />
+            </label>
+          ) : null}
           <div className="space-y-1">
             <label
               className="text-sm text-muted-foreground"
