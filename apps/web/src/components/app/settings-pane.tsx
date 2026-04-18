@@ -539,10 +539,7 @@ export function SettingsNavContent({
         ))}
       </nav>
       <div className="border-t border-border px-4 pb-3 pt-4">
-        <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-          System
-        </div>
-        <div className="space-y-2 text-xs text-muted-foreground">
+        <div className="flex justify-around text-xs text-muted-foreground">
           <ServiceStatus
             icon={<Server className="h-3.5 w-3.5" />}
             label="API"
