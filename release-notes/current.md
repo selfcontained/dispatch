@@ -1,9 +1,8 @@
 ## What's Changed
-* Simplify single-agent action buttons by @selfcontained in https://github.com/selfcontained/dispatch/pull/342
-* fix(web): mobile feedback sheet click + long-title overflow by @selfcontained in https://github.com/selfcontained/dispatch/pull/343
-* Suppress noisy migration timestamp logs by @selfcontained in https://github.com/selfcontained/dispatch/pull/345
-* Seed dev DB with demo data on dispatch-dev startup (CRU-113) by @selfcontained in https://github.com/selfcontained/dispatch/pull/344
-* docs: sync README + docs with current codebase by @selfcontained in https://github.com/selfcontained/dispatch/pull/346
+* fix: pack-release SIGPIPE on Linux + remove gh-auth test by @selfcontained in https://github.com/selfcontained/dispatch/pull/348
+* docs: steer agents to repo dev MCP tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/347
+* Simplify sidebar navigation interactions by @selfcontained in https://github.com/selfcontained/dispatch/pull/349
+* [codex] Refine route-driven agent workspace by @selfcontained in https://github.com/selfcontained/dispatch/pull/350
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.3...v0.16.4
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.4...v0.16.5
