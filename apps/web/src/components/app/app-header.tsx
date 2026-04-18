@@ -82,7 +82,7 @@ export function AppHeader({
 
       {showReconnectIndicator ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-          <div className="dispatch-reconnect-scan h-full w-1/3 bg-gradient-to-r from-transparent via-status-waiting to-transparent" />
+          <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
         </div>
       ) : null}
     </header>

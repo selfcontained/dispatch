@@ -2,6 +2,7 @@ import { memo, type RefCallback, useEffect, useState } from "react";
 import { Archive, Loader2, TerminalSquare } from "lucide-react";
 
 import { type Agent, type ConnState } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
 type TerminalPaneProps = {
@@ -121,8 +122,8 @@ export const TerminalPane = memo(function TerminalPane({
 
       {showReconnectOverlay ? (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/70 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2 text-sm text-status-waiting">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div className="flex flex-col items-center gap-2 text-sm text-foreground">
+            <ActivityBars size={28} />
             <span>{statusMessage}</span>
           </div>
         </div>
