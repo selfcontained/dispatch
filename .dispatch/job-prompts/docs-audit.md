@@ -71,12 +71,16 @@ Before committing, rewrite `.dispatch/job-state/docs-audit.md` with:
 
 Treat the state file as a handoff note to a colleague, not a log.
 
-## Phase 5: Validate, commit, PR
+## Phase 5: Validate, commit, PR, merge
 
-1. If `apps/web/` changed, run `pnpm run check` (docs-only changes generally don't need it).
-2. Verify any `docs/` links in `README.md` still resolve.
-3. Commit on a new branch. Include the state file update in the same commit.
-4. Create a PR targeting `main` with a short body: what was audited, what changed, and what's deferred to next run.
+1. Run `pnpm run format` to fix any prettier drift in files you touched. CI enforces `prettier --check` and will fail the PR otherwise.
+2. If `apps/web/` changed, run `pnpm run check` (docs-only changes generally don't need it).
+3. Verify any `docs/` links in `README.md` still resolve.
+4. Commit on a new branch. Include the state file update in the same commit.
+5. Create a PR targeting `main` with a short body: what was audited, what changed, and what's deferred to next run.
+6. Wait for CI to finish on the PR. Poll `get_pr_status` until the `ci` check leaves `IN_PROGRESS`.
+   - If CI passes, merge the PR (squash merge, delete branch).
+   - If CI fails, investigate the failure: fix drift you introduced, push the fix, and wait again. Only give up after an honest attempt — do not merge a red PR.
 
 ### Bootstrap fallback
 
