@@ -35,6 +35,7 @@ import {
   isAgentType,
 } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
 
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
@@ -322,6 +323,8 @@ export function CreateAgentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         onEscapeKeyDown={(e) => {
+          swallowEscapeFromCombobox(e);
+          if (e.defaultPrevented) return;
           if (typeDropdownOpen) {
             e.preventDefault();
           }

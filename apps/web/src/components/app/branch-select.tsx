@@ -133,9 +133,6 @@ export function BranchSelect({
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  // Stop propagation so a surrounding Radix Dialog doesn't
-                  // interpret the Escape as a close-dialog request.
-                  e.stopPropagation();
                   setDropdownOpen(false);
                   requestAnimationFrame(() => triggerRef.current?.focus());
                 }

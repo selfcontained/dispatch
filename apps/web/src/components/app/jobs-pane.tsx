@@ -63,6 +63,7 @@ import {
 import { StatCard } from "@/components/app/stat-card";
 import { formatRelativeTime } from "@/lib/format";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
 
 type JobsPaneProps = {
@@ -1068,7 +1069,10 @@ function AddJobDialog({
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2">
+        <DialogPrimitive.Content
+          onEscapeKeyDown={swallowEscapeFromCombobox}
+          className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
+        >
           <DialogPrimitive.Title className="sr-only">
             Add job
           </DialogPrimitive.Title>
