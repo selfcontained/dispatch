@@ -23,8 +23,8 @@ export function ActivityBars({
 
   return (
     <div
-      className={cn("flex items-center justify-center", className)}
-      style={{ gap, height: size, width: size }}
+      className={cn("flex shrink-0 items-center", className)}
+      style={{ gap, height: size }}
       role="status"
       aria-label="Loading"
     >
