@@ -9,7 +9,7 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`01f477963d868123df7d412ff8dd0b33b7a45a82` — this is the HEAD that *preceded* the PR which introduced this stateful flow. The PR that lands this file will advance the SHA; the next run should diff from wherever HEAD is when it reads the file, not from this literal value.
+`01f477963d868123df7d412ff8dd0b33b7a45a82` — this is the HEAD that _preceded_ the PR which introduced this stateful flow. The PR that lands this file will advance the SHA; the next run should diff from wherever HEAD is when it reads the file, not from this literal value.
 
 ## next_focus
 
