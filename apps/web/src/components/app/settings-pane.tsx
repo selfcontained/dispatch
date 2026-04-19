@@ -18,13 +18,16 @@ import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
 import { type ServiceState } from "@/components/app/types";
+import { Checkbox } from "@/components/ui/checkbox";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
+import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { Input } from "@/components/ui/input";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+import { extractHostname } from "@/lib/rewrite-pin-url";
 import { cn } from "@/lib/utils";
 
 type SettingsSection =
@@ -156,6 +159,46 @@ function InstanceNameSettings(): JSX.Element {
 }
 
 // AppSettings (About) has been merged into UpdatesSection in release-manager.tsx
+
+function RewriteLocalhostPinsSettings(): JSX.Element {
+  const { enabled, setEnabled } = useRewriteLocalhostPins();
+  const host =
+    typeof window === "undefined" ? "" : extractHostname(window.location.host);
+
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Pin links
+      </div>
+      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+        Rewrite{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+          localhost
+        </code>{" "}
+        in pinned URLs to{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+          {host}
+        </code>
+        . Saved on this device.
+      </p>
+      <label
+        className={cn(
+          "flex max-w-lg items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
+          "cursor-pointer hover:bg-muted/50"
+        )}
+      >
+        <Checkbox
+          checked={enabled}
+          onCheckedChange={(v) => setEnabled(v === true)}
+          data-testid="rewrite-localhost-pins-toggle"
+        />
+        <div className="min-w-0 text-sm font-medium text-foreground">
+          Rewrite localhost in pins
+        </div>
+      </label>
+    </div>
+  );
+}
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -616,6 +659,9 @@ export function SettingsContent({
                 iconColorError={iconColorError}
                 clearIconColorError={clearIconColorError}
               />
+            </div>
+            <div className="border-t border-border p-4 md:p-6">
+              <RewriteLocalhostPinsSettings />
             </div>
             <div className="border-t border-border">
               <SecuritySettings onLogout={onLogout} />
