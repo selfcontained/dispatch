@@ -1,21 +1,10 @@
-import {
-  Check,
-  Copy,
-  ExternalLink,
-  FileText,
-  GitPullRequest,
-  Pin,
-} from "lucide-react";
+import { Check, Copy, FileText, GitPullRequest, Pin } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
-import {
-  getSafariExternalHref,
-  isStandaloneIOSApp,
-} from "@/lib/external-links";
 import { splitPinValues } from "@/lib/pins";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -240,8 +229,6 @@ function PinValueRow({
     filenameValue?.display ?? value
   );
   const tooltipValue = filenameValue?.tooltip ?? tooltip;
-  const safariHref = href ? getSafariExternalHref(href) : null;
-  const showSafariButton = Boolean(safariHref) && isStandaloneIOSApp();
 
   return (
     <div className="flex items-center gap-1.5">
@@ -290,17 +277,6 @@ function PinValueRow({
             </span>
           )}
         </ScrollArea>
-      )}
-      {showSafariButton && safariHref && (
-        <a
-          href={safariHref}
-          data-testid="pin-open-link"
-          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          title="Open in Safari"
-          aria-label="Open in Safari"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </a>
       )}
     </div>
   );
