@@ -433,11 +433,12 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
         <Section>
           <H3>Worktree location</H3>
           <P>
-            By default, worktrees are created inside the repo at{" "}
-            <Code>.dispatch/worktrees/</Code>. You can change this in{" "}
-            <strong>Settings</strong> to place them next to the repo instead (as
-            siblings). This is useful if your tooling doesn't work well with
-            nested worktrees.
+            By default, worktrees are created next to the repo as siblings (e.g.{" "}
+            <Code>../repo-branch-name</Code>). You can change this in{" "}
+            <strong>Settings</strong> to place them inside the repo at{" "}
+            <Code>.dispatch/worktrees/</Code> instead. Sibling worktrees avoid
+            nesting issues with tools that recurse into the repo; nested
+            worktrees keep everything under one directory.
           </P>
         </Section>
 
