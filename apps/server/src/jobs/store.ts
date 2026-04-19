@@ -38,8 +38,10 @@ export type JobRecord = {
   enabled: boolean;
   agentType: JobAgentType;
   useWorktree: boolean;
+  baseBranch: string | null;
   branchName: string | null;
   fullAccess: boolean;
+  autoArchive: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -82,6 +84,7 @@ export type JobRunConfig = {
   needsInputTimeoutMs: number;
   notify: JobNotifyConfig;
   triggerSource?: "manual" | "scheduled";
+  autoArchive?: boolean;
 };
 
 export type JobConfigUpdate = {
@@ -92,8 +95,10 @@ export type JobConfigUpdate = {
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
   useWorktree?: boolean;
+  baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
+  autoArchive?: boolean;
   enabled?: boolean;
 };
 
@@ -109,16 +114,18 @@ export class JobStore {
     needsInputTimeoutMs: number;
     agentType: JobAgentType;
     useWorktree: boolean;
+    baseBranch: string | null;
     branchName: string | null;
     fullAccess: boolean;
+    autoArchive: boolean;
     enabled: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, branch_name, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -132,7 +139,9 @@ export class JobStore {
           input.fullAccess,
           input.agentType,
           input.useWorktree,
+          input.baseBranch,
           input.branchName,
+          input.autoArchive,
           input.enabled,
         ]
       );
@@ -360,8 +369,10 @@ export class JobStore {
         j.enabled,
         j.agent_type AS "agentType",
         j.use_worktree AS "useWorktree",
+        j.base_branch AS "baseBranch",
         j.branch_name AS "branchName",
         j.full_access AS "fullAccess",
+        j.auto_archive AS "autoArchive",
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -532,6 +543,8 @@ export class JobStore {
             branch_name = CASE WHEN $11 THEN $12 ELSE branch_name END,
             full_access = COALESCE($13, full_access),
             enabled = COALESCE($14, enabled),
+            base_branch = CASE WHEN $15 THEN $16 ELSE base_branch END,
+            auto_archive = COALESCE($17, auto_archive),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -551,6 +564,9 @@ export class JobStore {
           input.branchName ?? null,
           input.fullAccess,
           input.enabled,
+          Object.prototype.hasOwnProperty.call(input, "baseBranch"),
+          input.baseBranch ?? null,
+          input.autoArchive,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -629,8 +645,10 @@ export class JobStore {
       enabled,
       agent_type AS "agentType",
       use_worktree AS "useWorktree",
+      base_branch AS "baseBranch",
       branch_name AS "branchName",
       full_access AS "fullAccess",
+      auto_archive AS "autoArchive",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

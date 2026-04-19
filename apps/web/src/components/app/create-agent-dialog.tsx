@@ -3,24 +3,21 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { Check, ChevronDown, GitBranch, ChevronLeft } from "lucide-react";
 
+import { BranchSelect } from "@/components/app/branch-select";
 import { PathInput } from "@/components/app/path-input";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
-  CommandLoading,
 } from "@/components/ui/command";
 import {
   Dialog,
@@ -31,12 +28,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
+import { useClickOutside } from "@/hooks/use-click-outside";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
   isAgentType,
 } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
 
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
@@ -46,23 +45,6 @@ const CWD_HISTORY_MAX = 20;
 const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
 const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
-
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  isOpen: boolean,
-  onClose: () => void
-): void {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [ref, isOpen, onClose]);
-}
 
 function readStoredString(key: string): string {
   if (typeof window === "undefined") return "";
@@ -285,58 +267,6 @@ export function CreateAgentDialog({
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
-  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
-  const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [branchesFetchedForCwd, setBranchesFetchedForCwd] = useState<
-    string | null
-  >(null);
-  const branchCmdRef = useRef<HTMLDivElement>(null);
-  const branchTriggerRef = useRef<HTMLButtonElement>(null);
-  const branchInputRef = useRef<HTMLInputElement>(null);
-  const closeBranchDropdown = useCallback(
-    () => setBranchDropdownOpen(false),
-    []
-  );
-  useClickOutside(branchCmdRef, branchDropdownOpen, closeBranchDropdown);
-
-  const fetchBranches = useCallback(async () => {
-    const cwd = createCwd.trim();
-    if (!cwd) return;
-    setBranchesLoading(true);
-    setRemoteBranches([]);
-    try {
-      const result = await api<{ branches: string[] }>(
-        `/api/v1/git/branches?cwd=${encodeURIComponent(cwd)}`
-      );
-      setRemoteBranches(result.branches);
-      if (!result.branches.includes(createBaseBranch)) {
-        setCreateBaseBranch(result.branches[0] ?? "main");
-      }
-    } catch {
-      setRemoteBranches([]);
-    } finally {
-      setBranchesLoading(false);
-      setBranchesFetchedForCwd(cwd);
-    }
-  }, [createBaseBranch, createCwd, setCreateBaseBranch]);
-
-  const openBranchDropdown = useCallback(() => {
-    setBranchDropdownOpen(true);
-    if (branchesFetchedForCwd !== createCwd.trim()) {
-      void fetchBranches();
-    }
-    requestAnimationFrame(() => branchInputRef.current?.focus());
-  }, [branchesFetchedForCwd, createCwd, fetchBranches]);
-
-  const allBranches = useMemo(
-    () =>
-      remoteBranches.includes("main")
-        ? remoteBranches
-        : ["main", ...remoteBranches],
-    [remoteBranches]
-  );
-
   const handleRemoveCwdHistory = useCallback((cwd: string) => {
     setCwdHistory(removeCwdFromHistory(cwd));
   }, []);
@@ -393,7 +323,9 @@ export function CreateAgentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         onEscapeKeyDown={(e) => {
-          if (typeDropdownOpen || branchDropdownOpen) {
+          swallowEscapeFromCombobox(e);
+          if (e.defaultPrevented) return;
+          if (typeDropdownOpen) {
             e.preventDefault();
           }
           if (step === "prompt") {
@@ -551,122 +483,14 @@ export function CreateAgentDialog({
                       </span>
                     </label>
                     {createUseWorktree ? (
-                      <div className="ml-8 w-[calc(100%-2rem)] space-y-2">
-                        <div className="relative" ref={branchCmdRef}>
-                          <label className="mb-1 block text-xs text-muted-foreground">
-                            Base branch
-                          </label>
-                          <button
-                            ref={branchTriggerRef}
-                            type="button"
-                            role="combobox"
-                            tabIndex={0}
-                            aria-expanded={branchDropdownOpen}
-                            data-testid="create-agent-base-branch"
-                            onClick={() =>
-                              branchDropdownOpen
-                                ? setBranchDropdownOpen(false)
-                                : openBranchDropdown()
-                            }
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === "ArrowDown" ||
-                                e.key === "Enter" ||
-                                e.key === " "
-                              ) {
-                                e.preventDefault();
-                                if (!branchDropdownOpen) openBranchDropdown();
-                              }
-                            }}
-                            className={cn(
-                              "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                              "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-                            )}
-                          >
-                            {createBaseBranch}
-                            {branchesLoading ? (
-                              <ActivityBars
-                                size={14}
-                                className="ml-2 shrink-0"
-                              />
-                            ) : (
-                              <ChevronDown
-                                className={cn(
-                                  "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                                  branchDropdownOpen && "rotate-180"
-                                )}
-                              />
-                            )}
-                          </button>
-                          {branchDropdownOpen ? (
-                            <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-                              <Command
-                                onKeyDown={(e) => {
-                                  if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    setBranchDropdownOpen(false);
-                                    requestAnimationFrame(() =>
-                                      branchTriggerRef.current?.focus()
-                                    );
-                                  }
-                                }}
-                              >
-                                <CommandInput
-                                  ref={branchInputRef}
-                                  placeholder="Search branches..."
-                                  className="font-mono text-xs"
-                                />
-                                <CommandList>
-                                  {branchesLoading ? (
-                                    <CommandLoading>
-                                      <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
-                                        <ActivityBars size={12} />
-                                        Loading branches...
-                                      </div>
-                                    </CommandLoading>
-                                  ) : null}
-                                  <CommandEmpty>
-                                    No matching branches.
-                                  </CommandEmpty>
-                                  <CommandGroup>
-                                    {allBranches.map((branch) => (
-                                      <CommandItem
-                                        key={branch}
-                                        value={branch}
-                                        data-testid="create-agent-base-branch-option"
-                                        className="font-mono"
-                                        onSelect={() => {
-                                          setCreateBaseBranch(branch);
-                                          setBranchDropdownOpen(false);
-                                          requestAnimationFrame(() =>
-                                            branchTriggerRef.current?.focus()
-                                          );
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-3 w-3 shrink-0",
-                                            branch === createBaseBranch
-                                              ? "opacity-100"
-                                              : "opacity-0"
-                                          )}
-                                        />
-                                        {branch}
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </div>
-                          ) : null}
-                        </div>
-                        <Input
-                          value={createWorktreeBranch}
-                          onChange={(event) =>
-                            setCreateWorktreeBranch(event.target.value)
-                          }
-                          placeholder="branch name (auto-generated if empty)"
-                          data-testid="create-agent-worktree-branch"
+                      <div className="ml-8 w-[calc(100%-2rem)]">
+                        <BranchSelect
+                          cwd={createCwd}
+                          baseBranch={createBaseBranch}
+                          onBaseBranchChange={setCreateBaseBranch}
+                          worktreeBranch={createWorktreeBranch}
+                          onWorktreeBranchChange={setCreateWorktreeBranch}
+                          testIdPrefix="create-agent"
                         />
                       </div>
                     ) : null}

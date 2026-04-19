@@ -40,8 +40,10 @@ export type AddJobInput = {
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
   useWorktree?: boolean;
+  baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
+  autoArchive?: boolean;
   enabled?: boolean;
 };
 
@@ -137,6 +139,7 @@ export class JobService {
         agentArgs: buildAgentArgs(job.agentType, prompt, job.fullAccess),
         fullAccess: job.fullAccess,
         useWorktree: job.useWorktree,
+        baseBranch: job.baseBranch ?? undefined,
         worktreeBranch: job.branchName ?? undefined,
         jobRunId: run.id,
       });
@@ -243,8 +246,10 @@ export class JobService {
         input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
       agentType: input.agentType ?? "claude",
       useWorktree: input.useWorktree ?? false,
+      baseBranch: input.baseBranch ?? null,
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
+      autoArchive: input.autoArchive ?? true,
       enabled: input.enabled ?? false,
     });
 
@@ -275,6 +280,7 @@ export class JobService {
     const config: Parameters<JobStore["updateJobConfig"]>[1] = {};
     const displayName = normalizeOptionalString(input.displayName);
     const branchName = normalizeNullableString(input.branchName);
+    const baseBranch = normalizeNullableString(input.baseBranch);
     if (displayName !== undefined && displayName !== existing.name) {
       const conflict = await this.store.getJobByDirectoryAndName(
         input.directory,
@@ -294,8 +300,10 @@ export class JobService {
       config.needsInputTimeoutMs = input.needsInputTimeoutMs;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (input.useWorktree !== undefined) config.useWorktree = input.useWorktree;
+    if (baseBranch !== undefined) config.baseBranch = baseBranch;
     if (branchName !== undefined) config.branchName = branchName;
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
+    if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
@@ -715,6 +723,7 @@ function buildRunConfig(
       job.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
     notify: job.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
     triggerSource,
+    autoArchive: job.autoArchive,
   };
 }
 

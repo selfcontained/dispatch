@@ -47,8 +47,10 @@ export type Job = {
   enabled: boolean;
   agentType: JobAgentType;
   useWorktree: boolean;
+  baseBranch: string | null;
   branchName: string | null;
   fullAccess: boolean;
+  autoArchive: boolean;
   createdAt: string;
   updatedAt: string;
   lastRunId: string | null;
@@ -93,8 +95,10 @@ export type AddJobConfig = {
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
   useWorktree?: boolean;
+  baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
+  autoArchive?: boolean;
   enabled?: boolean;
 };
 
