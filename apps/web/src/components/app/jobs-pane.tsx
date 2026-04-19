@@ -1213,6 +1213,23 @@ function AddJobFlow({
                     Leave blank for an on-demand job.
                   </div>
                 ) : null}
+                {schedule.trim() ? (
+                  <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                    <span>
+                      <span className="block font-medium text-foreground">
+                        Enabled
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Run this job on its schedule after creating it.
+                      </span>
+                    </span>
+                    <SwitchToggle
+                      checked={enableImmediately}
+                      onCheckedChange={setEnableImmediately}
+                      ariaLabel="Enable job"
+                    />
+                  </label>
+                ) : null}
               </div>
               <div className="min-w-0 space-y-1">
                 <label className="text-sm text-muted-foreground">
@@ -1234,23 +1251,6 @@ function AddJobFlow({
                   </SelectContent>
                 </Select>
               </div>
-              {schedule.trim() ? (
-                <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
-                  <span>
-                    <span className="block font-medium text-foreground">
-                      Enabled
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Run this job on its schedule after creating it.
-                    </span>
-                  </span>
-                  <SwitchToggle
-                    checked={enableImmediately}
-                    onCheckedChange={setEnableImmediately}
-                    ariaLabel="Enable job"
-                  />
-                </label>
-              ) : null}
             </div>
           </div>
 
@@ -1926,6 +1926,23 @@ function SettingsTab({
                 Leave blank for an on-demand job.
               </div>
             ) : null}
+            {schedule.trim() ? (
+              <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Enabled
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Run this job on its saved schedule.
+                  </span>
+                </span>
+                <SwitchToggle
+                  checked={enabled}
+                  onCheckedChange={setEnabled}
+                  ariaLabel="Enable job"
+                />
+              </label>
+            ) : null}
           </div>
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Agent type</label>
@@ -1945,23 +1962,6 @@ function SettingsTab({
               </SelectContent>
             </Select>
           </div>
-          {schedule.trim() ? (
-            <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
-              <span>
-                <span className="block font-medium text-foreground">
-                  Enabled
-                </span>
-                <span className="block text-xs text-muted-foreground">
-                  Run this job on its saved schedule.
-                </span>
-              </span>
-              <SwitchToggle
-                checked={enabled}
-                onCheckedChange={setEnabled}
-                ariaLabel="Enable job"
-              />
-            </label>
-          ) : null}
           <div className="space-y-1">
             <label
               className="text-sm text-muted-foreground"
