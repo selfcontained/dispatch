@@ -43,6 +43,7 @@ function DesktopSidebar({
   "open" | "side" | "width" | "className" | "children"
 >) {
   const borderSide = side === "left" ? "border-r" : "border-l";
+  const innerRadius = side === "left" ? "rounded-r-lg" : "rounded-l-lg";
 
   return (
     <div
@@ -51,7 +52,7 @@ function DesktopSidebar({
     >
       <div
         className={cn(
-          `flex h-full min-h-0 flex-col ${borderSide} text-foreground`,
+          `flex h-full min-h-0 flex-col ${borderSide} ${innerRadius} text-foreground`,
           glassPanel,
           className
         )}

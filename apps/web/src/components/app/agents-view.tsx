@@ -498,7 +498,7 @@ export function AgentsView({
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
-      <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+      <div className="flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <GlassSidebar
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {
@@ -570,12 +570,7 @@ export function AgentsView({
           </SidebarShell>
         </GlassSidebar>
 
-        <main
-          className={cn(
-            "min-h-0 min-w-0 flex-1 overflow-hidden",
-            mediaOpen && !isMobile && "border-r-2 border-border"
-          )}
-        >
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
             className={cn(
               "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
