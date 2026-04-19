@@ -229,27 +229,19 @@ function PinValueRow({
   value: string;
   workspaceRoot: string | null;
 }): JSX.Element {
-  const { enabled: rewriteLocalhost } = useRewriteLocalhostPins();
-
   if (type === "markdown") {
     return <MarkdownPinBody value={value} />;
   }
 
-  const rewrittenValue =
-    rewriteLocalhost && type === "url"
-      ? rewritePinUrl(value, window.location.host)
-      : value;
   const filenameValue =
-    type === "filename"
-      ? trimFilenameForDisplay(rewrittenValue, workspaceRoot)
-      : null;
+    type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(
     type,
-    filenameValue?.display ?? rewrittenValue
+    filenameValue?.display ?? value
   );
   const tooltipValue = filenameValue?.tooltip ?? tooltip;
-  const showSafariButton = Boolean(href) && isStandaloneIOSApp();
   const safariHref = href ? getSafariExternalHref(href) : null;
+  const showSafariButton = Boolean(safariHref) && isStandaloneIOSApp();
 
   return (
     <div className="flex items-center gap-1.5">
@@ -321,7 +313,12 @@ function PinItem({
   pin: AgentPin;
   workspaceRoot: string | null;
 }): JSX.Element {
-  const values = splitPinValues(pin.type, pin.value);
+  const { enabled: rewriteLocalhost } = useRewriteLocalhostPins();
+  const effectiveValue =
+    rewriteLocalhost && pin.type === "url"
+      ? rewritePinUrl(pin.value, window.location.host)
+      : pin.value;
+  const values = splitPinValues(pin.type, effectiveValue);
   const isMulti = values.length > 1;
 
   return (
@@ -336,7 +333,7 @@ function PinItem({
         </div>
         <div className="ml-auto">
           <CopyButton
-            value={pin.value}
+            value={effectiveValue}
             title={isMulti ? "Copy all" : "Copy to clipboard"}
           />
         </div>

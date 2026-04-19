@@ -20,17 +20,22 @@ export function isStandaloneIOSApp(): boolean {
   return isIOSDevice() && isStandaloneApp();
 }
 
-export function getSafariExternalHref(href: string): string {
+/**
+ * Build a URL that, when opened from inside an iOS PWA, hands off to Safari.
+ * The `x-safari-` scheme hack only resolves for `https:` URLs — passing an
+ * `http:` URL produces "invalid link" on modern iOS. Returns null when no
+ * reliable escape exists; callers should hide the external-open affordance
+ * in that case.
+ */
+export function getSafariExternalHref(href: string): string | null {
   let resolved: URL;
   try {
     resolved = new URL(href, window.location.href);
   } catch {
-    return href;
+    return null;
   }
 
-  if (resolved.protocol !== "http:" && resolved.protocol !== "https:") {
-    return resolved.toString();
-  }
+  if (resolved.protocol !== "https:") return null;
 
   return `x-safari-${resolved.toString()}`;
 }
