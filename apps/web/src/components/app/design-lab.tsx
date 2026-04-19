@@ -1,5 +1,7 @@
+import { Eye, Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { THEMES, useTheme, type ThemeId } from "@/hooks/use-theme";
+import { cn } from "@/lib/utils";
 
 // -- Keyframes ----------------------------------------------------------------
 
@@ -43,6 +45,77 @@ const SPINNER_KEYFRAMES = `
   0%   { transform: translateX(-100%) scaleX(0.4); }
   50%  { transform: translateX(0%)    scaleX(0.6); }
   100% { transform: translateX(100%)  scaleX(0.4); }
+}
+
+/* Reviewing card — chasing border variants.
+   Uses @property to animate the conic gradient from-angle smoothly.
+   A thin padded wrapper holds the rotating conic; an opaque inner child
+   masks the center so only the padded ring reads as a moving border. */
+@property --dl-chase-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes dl-chase-border-spin {
+  to { --dl-chase-angle: 360deg; }
+}
+.dl-chase-border {
+  position: relative;
+  border-radius: 0.5rem;
+  padding: 1.5px;
+  animation: dl-chase-border-spin 2.4s linear infinite;
+}
+.dl-chase-border > .dl-chase-inner {
+  border-radius: calc(0.5rem - 1.5px);
+}
+.dl-chase-soft {
+  background: conic-gradient(
+    from var(--dl-chase-angle, 0deg),
+    transparent 0deg,
+    hsl(var(--status-blocked)) 40deg,
+    hsl(var(--status-waiting)) 70deg,
+    hsl(var(--status-working)) 100deg,
+    hsl(var(--status-done)) 130deg,
+    transparent 180deg,
+    transparent 360deg
+  );
+}
+.dl-chase-dense {
+  background: conic-gradient(
+    from var(--dl-chase-angle, 0deg),
+    hsl(var(--status-blocked)),
+    hsl(var(--status-waiting)),
+    hsl(var(--status-working)),
+    hsl(var(--status-done)),
+    hsl(var(--status-blocked))
+  );
+}
+.dl-chase-slow {
+  animation-duration: 4s;
+}
+.dl-chase-fast {
+  animation-duration: 1.6s;
+}
+
+/* Legacy green-wave animation — inlined here so the design-lab can still
+   preview it against the current chase-border. The production class has
+   been replaced; this preview-only copy lives in the lab. */
+@keyframes dl-persona-wave-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.dl-persona-wave {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--status-working) / 0.04) 40%,
+    hsl(var(--status-working) / 0.08) 50%,
+    hsl(var(--status-working) / 0.04) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: dl-persona-wave-shimmer 3s ease-in-out infinite;
+  border-radius: 0.375rem;
 }
 `;
 
@@ -693,6 +766,134 @@ function VariantPicker({
   );
 }
 
+// -- Reviewing agent card ----------------------------------------------------
+
+type ReviewingCardVariant =
+  | "baseline"
+  | "wave"
+  | "chase-soft"
+  | "chase-soft-slow"
+  | "chase-dense"
+  | "chase-dense-fast";
+
+interface ReviewingCardDef {
+  id: ReviewingCardVariant;
+  label: string;
+  description: string;
+}
+
+const reviewingCardVariants: ReviewingCardDef[] = [
+  {
+    id: "baseline",
+    label: "Baseline (no row anim)",
+    description:
+      "Reviewing state without the row animation — only the status-icon pulse.",
+  },
+  {
+    id: "wave",
+    label: "Green Wave (previous)",
+    description:
+      "Previous shipping animation — a soft left→right shimmer in the status-working color.",
+  },
+  {
+    id: "chase-soft",
+    label: "Chasing Border — Soft",
+    description:
+      "Reconnect gradient travels around the edge with a transparent tail so only a localized bright arc is visible.",
+  },
+  {
+    id: "chase-soft-slow",
+    label: "Chasing Border — Soft (slow, current)",
+    description:
+      "Current shipping animation — soft chase with a calm 4s rotation.",
+  },
+  {
+    id: "chase-dense",
+    label: "Chasing Border — Dense",
+    description:
+      "Full reconnect rainbow on the border at all times, rotating continuously.",
+  },
+  {
+    id: "chase-dense-fast",
+    label: "Chasing Border — Dense (fast)",
+    description: "Same as dense, but at a snappier 1.6s rotation.",
+  },
+];
+
+function ReviewingAgentCard({ variant }: { variant: ReviewingCardVariant }) {
+  const isChase = variant.startsWith("chase-");
+  const outerClass = cn(
+    "w-full",
+    isChase && "dl-chase-border",
+    (variant === "chase-soft" || variant === "chase-soft-slow") &&
+      "dl-chase-soft",
+    (variant === "chase-dense" || variant === "chase-dense-fast") &&
+      "dl-chase-dense",
+    variant === "chase-soft-slow" && "dl-chase-slow",
+    variant === "chase-dense-fast" && "dl-chase-fast"
+  );
+  const innerClass = cn(
+    "flex items-start gap-2.5 px-2.5 py-2",
+    isChase ? "dl-chase-inner bg-card" : "rounded-lg",
+    variant === "wave" && "dl-persona-wave"
+  );
+
+  const card = (
+    <div className={innerClass}>
+      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-status-working/50 bg-status-working/15 text-status-working animate-persona-reviewing">
+        <Eye className="h-3 w-3" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-1.5">
+          <span
+            className="min-w-0 flex-1 truncate text-xs font-medium"
+            style={{ color: "hsl(var(--chart-2))" }}
+          >
+            security-reviewer
+          </span>
+        </div>
+        <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+          <span className="font-medium text-status-working">
+            Reviewing auth flow
+          </span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button
+          className="rounded p-2 text-muted-foreground/50 hover:text-foreground"
+          aria-label="View terminal"
+        >
+          <Terminal className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+
+  if (isChase) {
+    return <div className={outerClass}>{card}</div>;
+  }
+  return card;
+}
+
+function ReviewingCardCell({ def }: { def: ReviewingCardDef }) {
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5">
+      <div>
+        <div className="text-sm font-semibold text-foreground">{def.label}</div>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+          {def.description}
+        </p>
+      </div>
+      {/* Frame mimics the sidebar surface the card lives on. */}
+      <div className="rounded-lg bg-muted/25 p-3">
+        <div className="mx-auto max-w-[260px]">
+          <ReviewingAgentCard variant={def.id} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // -- Main page ---------------------------------------------------------------
 
 export function DesignLab() {
@@ -715,15 +916,12 @@ export function DesignLab() {
       <div className="max-w-[1400px] mx-auto">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-foreground mb-1">
-            Loading Spinners
+            Design Lab
           </h1>
           <p className="text-sm text-muted-foreground">
-            Candidate replacements for the current{" "}
-            <code className="text-xs bg-muted rounded px-1 py-0.5">
-              Loader2
-            </code>{" "}
-            spinner. Try different themes and color variants to find the
-            combination that fits.
+            Sandbox for previewing component variations against different
+            themes. Use the theme picker below to see how each variant looks
+            across the supported palettes.
           </p>
         </header>
 
@@ -732,11 +930,47 @@ export function DesignLab() {
           <VariantPicker variant={variant} setVariant={setVariant} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
-          {spinners.map((def) => (
-            <SpinnerCell key={def.id} def={def} variant={variant} />
-          ))}
-        </div>
+        <section className="mb-10">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              Reviewing Agent Card
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sidebar card shown when a persona/review agent is in the{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                reviewing
+              </code>{" "}
+              state. Comparing the current green-wave row animation against
+              chasing-border variants that reuse the reconnect gradient.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {reviewingCardVariants.map((def) => (
+              <ReviewingCardCell key={def.id} def={def} />
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-4">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              Loading Spinners
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Candidate replacements for the current{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                Loader2
+              </code>{" "}
+              spinner. The color variant control above switches between mono,
+              gradient, and multi modes.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+            {spinners.map((def) => (
+              <SpinnerCell key={def.id} def={def} variant={variant} />
+            ))}
+          </div>
+        </section>
 
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-3">
