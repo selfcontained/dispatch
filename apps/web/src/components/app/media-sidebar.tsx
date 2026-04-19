@@ -30,6 +30,7 @@ import {
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
@@ -403,7 +404,7 @@ export function MediaSidebarContent({
     <aside
       data-testid="media-sidebar"
       className={cn(
-        "flex h-full min-h-0 w-full flex-col border-l border-white/[0.12] bg-[hsl(var(--card))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]",
+        "flex h-full min-h-0 w-full flex-col text-foreground",
         className
       )}
     >
@@ -525,7 +526,7 @@ export function MediaSidebar({
         hasStream={hasStream}
         onRequestClose={() => setMediaOpen(false)}
         closeButtonIcon="chevron"
-        className="w-[360px]"
+        className={cn("w-[360px] rounded-l-lg border-l", glassPanel)}
       />
     </div>
   );
