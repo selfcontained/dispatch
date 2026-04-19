@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Bell,
+  Briefcase,
   GitBranch,
   Image,
   Monitor,
@@ -16,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 export type DocsSection =
   | "agents"
   | "tools"
+  | "jobs"
   | "worktrees"
   | "personas"
   | "events"
@@ -400,6 +402,127 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             Repo tool commands and hooks also receive{" "}
             <Code>DISPATCH_AGENT_ID</Code> in their environment, so scripts can
             scope resources (databases, temp directories, ports) per agent.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "jobs",
+    label: "Jobs",
+    icon: Briefcase,
+    title: "Jobs",
+    content: (
+      <>
+        <P>
+          Jobs are saved agent prompts that you can run on a cron schedule or on
+          demand. Each run spawns a fresh agent that works in its own worktree
+          and reports progress through a small set of lifecycle tools.
+        </P>
+
+        <Section>
+          <H3>Creating a job</H3>
+          <P>
+            Open the <strong>Jobs</strong> page from the sidebar and click{" "}
+            <strong>Add job</strong>. Fill in the form:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Name</strong> — identifier used for the spawned agent and
+              in run history.
+            </li>
+            <li>
+              <strong>Working directory</strong> — repo the job runs against.
+            </li>
+            <li>
+              <strong>Prompt</strong> — the instructions sent as the agent's
+              first message. Required before a run can start.
+            </li>
+            <li>
+              <strong>Schedule</strong> — a 5-field cron expression (e.g.{" "}
+              <Code>{"*/30 * * * *"}</Code>). Leave blank for an on-demand job
+              that only runs when you click <strong>Run now</strong>.
+            </li>
+            <li>
+              <strong>Agent type</strong> — <Code>claude</Code>,{" "}
+              <Code>codex</Code>, or <Code>opencode</Code>.
+            </li>
+            <li>
+              <strong>Full access</strong> — launches the CLI in its most
+              permissive mode so the agent can run commands without prompts.
+            </li>
+            <li>
+              <strong>Use worktree</strong> — create a fresh git worktree for
+              each run. Pick a <strong>base branch</strong> the worktree
+              branches from and optionally a custom branch name.
+            </li>
+            <li>
+              <strong>Keep agent after run completes</strong> — by default the
+              agent is auto-archived once a run reaches a terminal state. Check
+              this to leave the agent (and its worktree) around for inspection.
+            </li>
+            <li>
+              <strong>Enable on schedule</strong> — when checked, the cron
+              schedule starts firing immediately after save. On-demand jobs can
+              stay disabled and still be triggered with <strong>Run now</strong>
+              .
+            </li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>On-demand runs</H3>
+          <P>
+            Every job has a <strong>Run now</strong> button on its detail pane.
+            This spawns a run immediately with{" "}
+            <Code>triggerSource: "manual"</Code> — useful for both
+            on-demand-only jobs and for kicking a scheduled job off-cycle. Only
+            one run can be active per job at a time.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Run lifecycle</H3>
+          <P>
+            A job agent is expected to drive its run to a terminal state by
+            calling one of the lifecycle tools before it stops:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <Code>job_log</Code> — append structured progress during the run
+              (task name + message, optional severity).
+            </li>
+            <li>
+              <Code>job_complete</Code> — mark the run successful with a report
+              (<Code>status</Code>, <Code>summary</Code>, <Code>tasks</Code>).
+            </li>
+            <li>
+              <Code>job_failed</Code> — mark the run failed with the same report
+              shape.
+            </li>
+            <li>
+              <Code>job_needs_input</Code> — pause the run and surface a
+              question in the UI; the job stays in <Code>needs_input</Code>{" "}
+              until someone resumes it (subject to a separate needs-input
+              timeout).
+            </li>
+          </ul>
+          <P>
+            Run statuses are <Code>started</Code>, <Code>running</Code>,{" "}
+            <Code>needs_input</Code>, <Code>completed</Code>,{" "}
+            <Code>failed</Code>, <Code>timed_out</Code>, and{" "}
+            <Code>crashed</Code>. A run that exceeds its timeout without
+            reaching a terminal tool is marked <Code>timed_out</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>History and status</H3>
+          <P>
+            Each job card shows the last run's status, when it finished, and the
+            next scheduled fire time. Open the <strong>History</strong> tab on a
+            job to browse past runs with their reports, durations, and trigger
+            source (manual vs. scheduled).
           </P>
         </Section>
       </>
