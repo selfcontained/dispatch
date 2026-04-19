@@ -48,9 +48,10 @@ const SPINNER_KEYFRAMES = `
 }
 
 /* Reviewing card — chasing border variants.
-   Uses @property to animate the conic gradient from-angle smoothly.
-   A thin padded wrapper holds the rotating conic; an opaque inner child
-   masks the center so only the padded ring reads as a moving border. */
+   Uses ::before + mask-composite (the same technique as production) so
+   the ring is transparent inside the 1.5px band and composites correctly
+   against whatever surface sits behind the row. @property animates the
+   conic gradient's from-angle smoothly. */
 @property --dl-chase-angle {
   syntax: "<angle>";
   initial-value: 0deg;
@@ -61,14 +62,22 @@ const SPINNER_KEYFRAMES = `
 }
 .dl-chase-border {
   position: relative;
-  border-radius: 0.5rem;
+}
+.dl-chase-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   padding: 1.5px;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
   animation: dl-chase-border-spin 2.4s linear infinite;
 }
-.dl-chase-border > .dl-chase-inner {
-  border-radius: calc(0.5rem - 1.5px);
-}
-.dl-chase-soft {
+.dl-chase-soft::before {
   background: conic-gradient(
     from var(--dl-chase-angle, 0deg),
     transparent 0deg,
@@ -80,7 +89,7 @@ const SPINNER_KEYFRAMES = `
     transparent 360deg
   );
 }
-.dl-chase-dense {
+.dl-chase-dense::before {
   background: conic-gradient(
     from var(--dl-chase-angle, 0deg),
     hsl(var(--status-blocked)),
@@ -90,16 +99,16 @@ const SPINNER_KEYFRAMES = `
     hsl(var(--status-blocked))
   );
 }
-.dl-chase-slow {
+.dl-chase-slow::before {
   animation-duration: 4s;
 }
-.dl-chase-fast {
+.dl-chase-fast::before {
   animation-duration: 1.6s;
 }
 
-/* Legacy green-wave animation — inlined here so the design-lab can still
-   preview it against the current chase-border. The production class has
-   been replaced; this preview-only copy lives in the lab. */
+/* Legacy green-wave animation — inlined so the design-lab can still
+   preview it against the current chase-border. Radius is left to the
+   consuming element (rounded-lg) so there's a single source of truth. */
 @keyframes dl-persona-wave-shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -115,7 +124,6 @@ const SPINNER_KEYFRAMES = `
   );
   background-size: 200% 100%;
   animation: dl-persona-wave-shimmer 3s ease-in-out infinite;
-  border-radius: 0.375rem;
 }
 `;
 
@@ -820,10 +828,35 @@ const reviewingCardVariants: ReviewingCardDef[] = [
   },
 ];
 
-function ReviewingAgentCard({ variant }: { variant: ReviewingCardVariant }) {
+type SurfaceId = "default" | "hover" | "selected";
+
+const SURFACE_OPTIONS: { id: SurfaceId; label: string; hint: string }[] = [
+  { id: "default", label: "Default", hint: "Sidebar surface, no hover" },
+  {
+    id: "hover",
+    label: "Hover",
+    hint: "With hasFeedback hover:bg-muted/50 applied",
+  },
+  {
+    id: "selected",
+    label: "Selected",
+    hint: "isSelected bg-muted/35 applied",
+  },
+];
+
+function ReviewingAgentCard({
+  variant,
+  surface,
+}: {
+  variant: ReviewingCardVariant;
+  surface: SurfaceId;
+}) {
   const isChase = variant.startsWith("chase-");
-  const outerClass = cn(
-    "w-full",
+  const className = cn(
+    "flex items-start gap-2.5 px-2.5 py-2 rounded-lg",
+    surface === "hover" && "bg-muted/50",
+    surface === "selected" && "bg-muted/35",
+    variant === "wave" && "dl-persona-wave",
     isChase && "dl-chase-border",
     (variant === "chase-soft" || variant === "chase-soft-slow") &&
       "dl-chase-soft",
@@ -832,14 +865,9 @@ function ReviewingAgentCard({ variant }: { variant: ReviewingCardVariant }) {
     variant === "chase-soft-slow" && "dl-chase-slow",
     variant === "chase-dense-fast" && "dl-chase-fast"
   );
-  const innerClass = cn(
-    "flex items-start gap-2.5 px-2.5 py-2",
-    isChase ? "dl-chase-inner bg-card" : "rounded-lg",
-    variant === "wave" && "dl-persona-wave"
-  );
 
-  const card = (
-    <div className={innerClass}>
+  return (
+    <div className={className}>
       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-status-working/50 bg-status-working/15 text-status-working animate-persona-reviewing">
         <Eye className="h-3 w-3" />
       </span>
@@ -868,14 +896,15 @@ function ReviewingAgentCard({ variant }: { variant: ReviewingCardVariant }) {
       </div>
     </div>
   );
-
-  if (isChase) {
-    return <div className={outerClass}>{card}</div>;
-  }
-  return card;
 }
 
-function ReviewingCardCell({ def }: { def: ReviewingCardDef }) {
+function ReviewingCardCell({
+  def,
+  surface,
+}: {
+  def: ReviewingCardDef;
+  surface: SurfaceId;
+}) {
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5">
       <div>
@@ -884,11 +913,44 @@ function ReviewingCardCell({ def }: { def: ReviewingCardDef }) {
           {def.description}
         </p>
       </div>
-      {/* Frame mimics the sidebar surface the card lives on. */}
+      {/* Frame mimics the sidebar background the card lives on. */}
       <div className="rounded-lg bg-muted/25 p-3">
         <div className="mx-auto max-w-[260px]">
-          <ReviewingAgentCard variant={def.id} />
+          <ReviewingAgentCard variant={def.id} surface={surface} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SurfacePicker({
+  surface,
+  setSurface,
+}: {
+  surface: SurfaceId;
+  setSurface: (s: SurfaceId) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="mr-1 text-xs uppercase tracking-wide text-muted-foreground">
+        Surface
+      </span>
+      <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+        {SURFACE_OPTIONS.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => setSurface(o.id)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              surface === o.id
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            title={o.hint}
+          >
+            {o.label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -899,6 +961,8 @@ function ReviewingCardCell({ def }: { def: ReviewingCardDef }) {
 export function DesignLab() {
   const { theme, setTheme } = useTheme();
   const [variant, setVariant] = useState<ColorVariant>("gradient");
+  const [reviewingSurface, setReviewingSurface] =
+    useState<SurfaceId>("default");
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -931,22 +995,32 @@ export function DesignLab() {
         </div>
 
         <section className="mb-10">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold tracking-tight text-foreground">
-              Reviewing Agent Card
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Sidebar card shown when a persona/review agent is in the{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                reviewing
-              </code>{" "}
-              state. Comparing the current green-wave row animation against
-              chasing-border variants that reuse the reconnect gradient.
-            </p>
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Reviewing Agent Card
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Sidebar card shown when a persona/review agent is in the{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                  reviewing
+                </code>{" "}
+                state. Toggle the surface to see how each variant composites
+                against the default, hover, and selected row backgrounds.
+              </p>
+            </div>
+            <SurfacePicker
+              surface={reviewingSurface}
+              setSurface={setReviewingSurface}
+            />
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {reviewingCardVariants.map((def) => (
-              <ReviewingCardCell key={def.id} def={def} />
+              <ReviewingCardCell
+                key={def.id}
+                def={def}
+                surface={reviewingSurface}
+              />
             ))}
           </div>
         </section>

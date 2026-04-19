@@ -154,7 +154,8 @@ export function PersonaAgentRow({
         "flex items-start gap-2.5 px-2.5 py-2 transition-colors duration-200",
         hasFeedback && "cursor-pointer hover:bg-muted/50",
         childIsStopped && child.status !== "error" && "opacity-50",
-        isSelected && "rounded-lg bg-muted/35",
+        isSelected && "bg-muted/35",
+        (isSelected || isReviewing) && "rounded-lg",
         isReviewing && "persona-reviewing-row"
       )}
     >
