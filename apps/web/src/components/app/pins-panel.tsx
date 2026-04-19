@@ -1,21 +1,10 @@
-import {
-  Check,
-  Copy,
-  ExternalLink,
-  FileText,
-  GitPullRequest,
-  Pin,
-} from "lucide-react";
+import { Check, Copy, FileText, GitPullRequest, Pin } from "lucide-react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
-import {
-  getSafariExternalHref,
-  isStandaloneIOSApp,
-} from "@/lib/external-links";
 import { splitPinValues } from "@/lib/pins";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -229,27 +218,17 @@ function PinValueRow({
   value: string;
   workspaceRoot: string | null;
 }): JSX.Element {
-  const { enabled: rewriteLocalhost } = useRewriteLocalhostPins();
-
   if (type === "markdown") {
     return <MarkdownPinBody value={value} />;
   }
 
-  const rewrittenValue =
-    rewriteLocalhost && type === "url"
-      ? rewritePinUrl(value, window.location.host)
-      : value;
   const filenameValue =
-    type === "filename"
-      ? trimFilenameForDisplay(rewrittenValue, workspaceRoot)
-      : null;
+    type === "filename" ? trimFilenameForDisplay(value, workspaceRoot) : null;
   const { display, tooltip, href, badge, icon } = resolveDisplayValue(
     type,
-    filenameValue?.display ?? rewrittenValue
+    filenameValue?.display ?? value
   );
   const tooltipValue = filenameValue?.tooltip ?? tooltip;
-  const showSafariButton = Boolean(href) && isStandaloneIOSApp();
-  const safariHref = href ? getSafariExternalHref(href) : null;
 
   return (
     <div className="flex items-center gap-1.5">
@@ -299,17 +278,6 @@ function PinValueRow({
           )}
         </ScrollArea>
       )}
-      {showSafariButton && safariHref && (
-        <a
-          href={safariHref}
-          data-testid="pin-open-link"
-          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          title="Open in Safari"
-          aria-label="Open in Safari"
-        >
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      )}
     </div>
   );
 }
@@ -321,7 +289,12 @@ function PinItem({
   pin: AgentPin;
   workspaceRoot: string | null;
 }): JSX.Element {
-  const values = splitPinValues(pin.type, pin.value);
+  const { enabled: rewriteLocalhost } = useRewriteLocalhostPins();
+  const effectiveValue =
+    rewriteLocalhost && pin.type === "url"
+      ? rewritePinUrl(pin.value, window.location.host)
+      : pin.value;
+  const values = splitPinValues(pin.type, effectiveValue);
   const isMulti = values.length > 1;
 
   return (
@@ -336,7 +309,7 @@ function PinItem({
         </div>
         <div className="ml-auto">
           <CopyButton
-            value={pin.value}
+            value={effectiveValue}
             title={isMulti ? "Copy all" : "Copy to clipboard"}
           />
         </div>
