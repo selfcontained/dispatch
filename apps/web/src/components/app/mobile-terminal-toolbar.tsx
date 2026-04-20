@@ -1,3 +1,4 @@
+import { Keyboard } from "lucide-react";
 import {
   type MutableRefObject,
   useCallback,
@@ -75,6 +76,16 @@ export function MobileTerminalToolbar({
             type="button"
             size="sm"
             variant="default"
+            className="h-8 shrink-0 px-3 text-xs"
+            aria-label="Send Escape"
+            onClick={() => sendKey("\u001b")}
+          >
+            Esc
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
             className={cn(
               "h-8 shrink-0 px-3 text-xs",
               ctrlActive && "ring-2 ring-primary bg-primary/20 text-primary"
@@ -103,16 +114,6 @@ export function MobileTerminalToolbar({
             size="sm"
             variant="default"
             className="h-8 shrink-0 px-3 text-xs"
-            aria-label="Send Escape"
-            onClick={() => sendKey("\u001b")}
-          >
-            Esc
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 shrink-0 px-3 text-xs"
             aria-label="Send Enter"
             onClick={() => sendKey("\r")}
           >
@@ -122,23 +123,11 @@ export function MobileTerminalToolbar({
             type="button"
             size="sm"
             variant="default"
-            className="h-8 shrink-0 px-3 text-xs"
+            className="h-8 min-w-0 flex-1 px-3 text-xs"
             aria-label="Open text input"
             onClick={openInput}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h8" />
-            </svg>
+            <Keyboard className="h-5 w-5" strokeWidth={2} />
           </Button>
         </div>
 
