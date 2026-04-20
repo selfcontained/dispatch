@@ -39,7 +39,6 @@ import { cn } from "@/lib/utils";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
-import { useSSE } from "@/hooks/use-sse";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -114,8 +113,6 @@ export function AgentsView({
 }: AgentsViewProps): JSX.Element {
   const navigate = useNavigate();
   const { agentId: routeAgentId, itemId, summaryAgentId } = useParams();
-  const selectedAgentIdRef = useRef<string | null>(routeAgentId ?? null);
-  selectedAgentIdRef.current = routeAgentId ?? null;
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
@@ -131,8 +128,6 @@ export function AgentsView({
     connectedAgent,
     overflowAgentId,
     setOverflowAgentId,
-    streamingAgentIds,
-    setStreamingAgentIds,
     agentVisualState,
     resortAgents,
   } = useAgents(
@@ -209,9 +204,6 @@ export function AgentsView({
     resortAgents();
   }, [connectedAgentId, resortAgents]);
 
-  const connectedAgentIdRef = useRef<string | null>(null);
-  connectedAgentIdRef.current = connectedAgentId;
-
   const focusedAgentId =
     connState === "connected" || connState === "reconnecting"
       ? (connectedAgentId ?? validatedSelectedAgentId)
@@ -230,25 +222,14 @@ export function AgentsView({
     openLightbox,
     mediaViewportRef,
     refreshMedia,
-    markSeenInCache,
   } = useMedia(focusedAgentId, mediaPanelOpen);
 
-  const focusedAgentHasStream = focusedAgentId
-    ? streamingAgentIds.has(focusedAgentId)
-    : false;
+  const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
     ? `/api/v1/agents/${focusedAgentId}/stream`
     : null;
 
   useAgentFocus(focusedAgentId, "authenticated");
-
-  useSSE(
-    "authenticated",
-    connectedAgentIdRef,
-    selectedAgentIdRef,
-    setStreamingAgentIds,
-    markSeenInCache
-  );
 
   const prevLeftOpenRef = useRef(leftPanelOpen);
   const prevMediaOpenRef = useRef(mediaPanelOpen);

@@ -224,7 +224,6 @@ export function useMedia(
       openLightbox,
       mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
       refreshMedia,
-      markSeenInCache,
     }),
     [
       mediaFiles,
@@ -235,7 +234,6 @@ export function useMedia(
       setLightboxIndex,
       openLightbox,
       refreshMedia,
-      markSeenInCache,
     ]
   );
 }

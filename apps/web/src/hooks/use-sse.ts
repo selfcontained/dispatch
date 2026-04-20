@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type Agent, type AuthState } from "@/components/app/types";
+import {
+  type Agent,
+  type AuthState,
+  type MediaFile,
+} from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -25,13 +29,19 @@ type UiEvent =
       message: string;
     };
 
-export function useSSE(
-  authState: AuthState,
-  connectedAgentIdRef: React.RefObject<string | null>,
-  selectedAgentIdRef: React.RefObject<string | null>,
-  setStreamingAgentIds: React.Dispatch<React.SetStateAction<Set<string>>>,
-  markSeenInCache: (agentId: string, keys: Set<string>) => void
+function patchAgentHasStream(
+  queryClient: ReturnType<typeof useQueryClient>,
+  agentId: string,
+  hasStream: boolean
 ): void {
+  queryClient.setQueryData<Agent[]>(["agents"], (old) =>
+    old?.map((a) =>
+      a.id === agentId && a.hasStream !== hasStream ? { ...a, hasStream } : a
+    )
+  );
+}
+
+export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -45,9 +55,6 @@ export function useSSE(
           queryClient.setQueryData<Agent[]>(
             ["agents"],
             sortAgentsByCreatedAtDesc(payload.agents)
-          );
-          setStreamingAgentIds(
-            new Set(payload.agents.filter((a) => a.hasStream).map((a) => a.id))
           );
           // A snapshot means a fresh SSE connection (initial or reconnect).
           // Invalidate job queries so they refetch — the snapshot only
@@ -87,27 +94,26 @@ export function useSSE(
         }
 
         if (payload.type === "stream.started") {
-          setStreamingAgentIds((current) => {
-            if (current.has(payload.agentId)) return current;
-            const next = new Set(current);
-            next.add(payload.agentId);
-            return next;
-          });
+          patchAgentHasStream(queryClient, payload.agentId, true);
           return;
         }
 
         if (payload.type === "stream.stopped") {
-          setStreamingAgentIds((current) => {
-            if (!current.has(payload.agentId)) return current;
-            const next = new Set(current);
-            next.delete(payload.agentId);
-            return next;
-          });
+          patchAgentHasStream(queryClient, payload.agentId, false);
           return;
         }
 
         if (payload.type === "media.seen") {
-          markSeenInCache(payload.agentId, new Set(payload.keys));
+          const seen = new Set(payload.keys);
+          queryClient.setQueryData<MediaFile[]>(
+            ["media", payload.agentId],
+            (old) =>
+              old?.map((file) =>
+                seen.has(`${file.name}:${file.updatedAt}`) && !file.seen
+                  ? { ...file, seen: true }
+                  : file
+              )
+          );
           return;
         }
 
@@ -177,12 +183,5 @@ export function useSSE(
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [
-    authState,
-    connectedAgentIdRef,
-    markSeenInCache,
-    queryClient,
-    selectedAgentIdRef,
-    setStreamingAgentIds,
-  ]);
+  }, [authState, queryClient]);
 }
