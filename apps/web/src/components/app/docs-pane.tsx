@@ -750,12 +750,35 @@ issues caused or worsened by this diff.`}</CodeBlock>
         </P>
 
         <Section>
-          <H3>Sharing media</H3>
+          <H3>Sharing files</H3>
           <P>
-            Agents call the <Code>dispatch_share</Code> tool to publish media.
-            It accepts a file path or raw text content, along with a
-            description. Supported formats include PNG, JPG, GIF, WebP images,
-            MP4 video, and text files.
+            Agents call the <Code>dispatch_share</Code> tool with a{" "}
+            <Code>filePath</Code> and a <Code>description</Code> to publish an
+            existing file. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF,
+            and a wide range of text file extensions (txt, md, json, yaml, ts,
+            py, go, rs, sh, sql, and many others).
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Sharing text snippets</H3>
+          <P>
+            Instead of writing a scratch file first, agents can pass the text
+            directly as <Code>content</Code> along with a <Code>name</Code> that
+            has an appropriate extension (e.g. <Code>snippet.ts</Code>). Content
+            is capped at 32KB — for anything larger, write the file and use{" "}
+            <Code>filePath</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Updating shared media</H3>
+          <P>
+            Every <Code>dispatch_share</Code> call returns a{" "}
+            <Code>fileName</Code>. Pass that back as the <Code>update</Code>{" "}
+            parameter on a later call to replace the existing file in place
+            instead of creating a new entry — useful for iterating on a
+            screenshot or snippet without cluttering the sidebar.
           </P>
         </Section>
 
@@ -763,9 +786,10 @@ issues caused or worsened by this diff.`}</CodeBlock>
           <H3>Simulator screenshots</H3>
           <P>
             When <Code>dispatch_share</Code> is called with{" "}
-            <Code>source: "simulator"</Code>, it automatically captures a
-            screenshot from the iOS Simulator using <Code>xcrun simctl</Code>.
-            This is useful for agents validating mobile UI changes.
+            <Code>source: "simulator"</Code>, it captures a screenshot from the
+            iOS Simulator using <Code>xcrun simctl</Code> and shares the
+            resulting PNG. <Code>simulatorUdid</Code> selects a specific
+            simulator; it defaults to the booted one.
           </P>
         </Section>
 
@@ -780,12 +804,29 @@ issues caused or worsened by this diff.`}</CodeBlock>
         </Section>
 
         <Section>
+          <H3>Listing shared media</H3>
+          <P>
+            Agents can call <Code>dispatch_list_media</Code> to enumerate the
+            files they (or the user) have shared in the current session. An
+            optional <Code>source</Code> filter narrows the results — e.g.{" "}
+            <Code>"user"</Code>, <Code>"screenshot"</Code>, <Code>"text"</Code>,{" "}
+            <Code>"simulator"</Code>, or <Code>"stream"</Code>.
+          </P>
+        </Section>
+
+        <Section>
           <H3>Media sidebar</H3>
           <P>
             Click any agent's media count badge to open the sidebar. Media items
-            are shown in reverse chronological order. Click an item to open the
-            full-screen lightbox. New items since your last visit are marked
-            with a badge.
+            are shown in reverse chronological order (most recent 50). Click an
+            item to open the full-screen lightbox. New items since your last
+            visit are marked with a badge.
+          </P>
+          <P>
+            The <strong>Share file</strong> button at the top of the sidebar
+            lets you upload a file directly to the agent's media stream (stored
+            with <Code>source: "user"</Code>). Tell the agent afterward so it
+            knows to look.
           </P>
         </Section>
       </>
