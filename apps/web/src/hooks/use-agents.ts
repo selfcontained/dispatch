@@ -19,9 +19,6 @@ export function useAgents(
   connectedAgentIdRef.current = connectedAgentId;
 
   const [overflowAgentId, setOverflowAgentId] = useState<string | null>(null);
-  const [streamingAgentIds, setStreamingAgentIds] = useState<Set<string>>(
-    new Set()
-  );
 
   const { data: agents = [], isSuccess: agentsLoaded } = useQuery<Agent[]>({
     queryKey: ["agents"],
@@ -79,8 +76,6 @@ export function useAgents(
       connectedAgent,
       overflowAgentId,
       setOverflowAgentId,
-      streamingAgentIds,
-      setStreamingAgentIds,
       agentVisualState,
       resortAgents,
     }),
@@ -91,7 +86,6 @@ export function useAgents(
       selectedAgent,
       connectedAgent,
       overflowAgentId,
-      streamingAgentIds,
       agentVisualState,
       resortAgents,
     ]

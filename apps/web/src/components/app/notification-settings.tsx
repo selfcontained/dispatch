@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAtom } from "jotai";
+import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
+import { soundCuesEnabledAtom } from "@/lib/store";
+import { CUE_INTENTS, playCueForIntent } from "@/lib/sound-cues";
 import {
   getNotificationPermission,
   requestNotificationPermission,
@@ -34,6 +38,47 @@ const EVENT_OPTIONS: Array<{
     description: "Agent hit an error or obstacle",
   },
 ];
+
+function SoundCuesSection(): JSX.Element {
+  const [enabled, setEnabled] = useAtom(soundCuesEnabledAtom);
+  return (
+    <div>
+      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Sound Cues
+      </h3>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Soft tone on agent status changes. This device only.
+      </p>
+      <div className="max-w-lg space-y-3">
+        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <Checkbox
+            checked={enabled}
+            onCheckedChange={(checked) => setEnabled(checked === true)}
+            data-testid="sound-cues-enabled"
+          />
+          <div className="text-sm font-medium text-foreground">Enable</div>
+        </label>
+        {enabled && (
+          <div className="grid grid-cols-2 gap-2 pl-1">
+            {CUE_INTENTS.map(({ intent, label }) => (
+              <Button
+                key={intent}
+                variant="default"
+                size="sm"
+                onClick={() => playCueForIntent(intent)}
+                data-testid={`sound-preview-${intent}`}
+                className="gap-1.5"
+              >
+                <Play className="h-3 w-3" />
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function NotificationSettings(): JSX.Element {
   // Slack settings
@@ -308,8 +353,10 @@ export function NotificationSettings(): JSX.Element {
 
   return (
     <div className="flex flex-col gap-8 overflow-y-auto p-6">
+      <SoundCuesSection />
+
       {/* Browser Notifications */}
-      <div>
+      <div className="border-t border-border pt-8">
         <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
           Browser Notifications
         </h3>

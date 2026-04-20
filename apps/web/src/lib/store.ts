@@ -41,3 +41,7 @@ export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
   "dispatch:mediaSidebarTab",
   "pins"
 );
+export const soundCuesEnabledAtom = atomWithLocalStorage(
+  "dispatch:soundCuesEnabled",
+  true
+);
