@@ -2,7 +2,6 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -176,17 +175,43 @@ export function CreateAgentDialog({
   resolveDefaultCwd,
   onCreated,
 }: CreateAgentDialogProps): JSX.Element {
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {open ? (
+        <CreateAgentDialogContent
+          enabledAgentTypes={enabledAgentTypes}
+          initialAgentType={initialAgentType}
+          setOpen={setOpen}
+          resolveDefaultCwd={resolveDefaultCwd}
+          onCreated={onCreated}
+        />
+      ) : null}
+    </Dialog>
+  );
+}
+
+function CreateAgentDialogContent({
+  enabledAgentTypes,
+  initialAgentType,
+  setOpen,
+  resolveDefaultCwd,
+  onCreated,
+}: Omit<CreateAgentDialogProps, "open">): JSX.Element {
   const [step, setStep] = useState<"config" | "prompt">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [createName, setCreateName] = useState("");
-  const [createType, setCreateType] = useState<AgentType>(
-    initialAgentType && enabledAgentTypes.includes(initialAgentType)
-      ? initialAgentType
-      : (enabledAgentTypes[0] ?? "codex")
-  );
-  const [createCwd, setCreateCwd] = useState(() => readLastUsedCwd());
+  const [createType, setCreateType] = useState<AgentType>(() => {
+    const preferred = initialAgentType ?? readLastUsedAgentType();
+    return preferred && enabledAgentTypes.includes(preferred)
+      ? preferred
+      : (enabledAgentTypes[0] ?? "codex");
+  });
+  const [createCwd, setCreateCwd] = useState(() => {
+    const resolved = resolveDefaultCwd().trim();
+    return resolved || readLastUsedCwd();
+  });
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
-    () => readLastUsedCwd().trim().length > 0
+    () => createCwd.trim().length > 0
   );
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
@@ -204,34 +229,8 @@ export function CreateAgentDialog({
     setBaseBranch: setCreateBaseBranch,
   } = useCreateAgentPrefs(createCwd);
 
-  useLayoutEffect(() => {
-    if (!open) {
-      setStep("config");
-      return;
-    }
-
-    setCreateName("");
-    setCreateUseWorktree(true);
-    setCreateWorktreeBranch("");
-    setInitialPrompt("");
-    setCwdHistory(readCwdHistory());
-
-    const resolvedCwd = resolveDefaultCwd().trim();
-    const storedCwd = readLastUsedCwd();
-    const nextCwd = resolvedCwd || storedCwd;
-    setCreateCwd(nextCwd);
-    setCreateCwdInitialized(nextCwd.length > 0);
-
-    const preferredType = initialAgentType ?? readLastUsedAgentType();
-    setCreateType(
-      preferredType && enabledAgentTypes.includes(preferredType)
-        ? preferredType
-        : (enabledAgentTypes[0] ?? "codex")
-    );
-  }, [enabledAgentTypes, initialAgentType, open, resolveDefaultCwd]);
-
   useEffect(() => {
-    if (!open || createCwdInitialized) return;
+    if (createCwdInitialized) return;
     let cancelled = false;
 
     void api<{ homeDir: string }>("/api/v1/system/defaults")
@@ -248,7 +247,7 @@ export function CreateAgentDialog({
     return () => {
       cancelled = true;
     };
-  }, [createCwdInitialized, open]);
+  }, [createCwdInitialized]);
 
   useEffect(() => {
     if (enabledAgentTypes.includes(createType)) return;
@@ -320,250 +319,306 @@ export function CreateAgentDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent
-        onEscapeKeyDown={(e) => {
-          swallowEscapeFromCombobox(e);
-          if (e.defaultPrevented) return;
-          if (typeDropdownOpen) {
-            e.preventDefault();
-          }
-          if (step === "prompt") {
-            e.preventDefault();
-            setStep("config");
-          }
-        }}
-      >
-        {step === "config" ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>Create Agent</DialogTitle>
-              <DialogDescription>
-                Name, type, and working directory for a new agent session.
-              </DialogDescription>
-            </DialogHeader>
+    <DialogContent
+      onEscapeKeyDown={(e) => {
+        swallowEscapeFromCombobox(e);
+        if (e.defaultPrevented) return;
+        if (typeDropdownOpen) {
+          e.preventDefault();
+        }
+        if (step === "prompt") {
+          e.preventDefault();
+          setStep("config");
+        }
+      }}
+    >
+      {step === "config" ? (
+        <>
+          <DialogHeader>
+            <DialogTitle>Create Agent</DialogTitle>
+            <DialogDescription>
+              Name, type, and working directory for a new agent session.
+            </DialogDescription>
+          </DialogHeader>
 
-            <form
-              data-testid="create-agent-form"
-              className="flex min-h-0 flex-col"
-              onSubmit={(event) => void handleSubmit(event)}
-            >
-              <div className="min-h-0 flex-1 overflow-y-auto px-1">
-                <div className="space-y-3">
-                  <div className="relative space-y-1" ref={typeCmdRef}>
-                    <label className="text-sm text-muted-foreground">
-                      Type
-                    </label>
-                    <button
-                      ref={typeTriggerRef}
-                      type="button"
-                      role="combobox"
-                      tabIndex={0}
-                      aria-expanded={typeDropdownOpen}
-                      onClick={() => setTypeDropdownOpen((prev) => !prev)}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "ArrowDown" ||
-                          e.key === "Enter" ||
-                          e.key === " "
-                        ) {
-                          e.preventDefault();
-                          if (!typeDropdownOpen) setTypeDropdownOpen(true);
-                        }
-                      }}
+          <form
+            data-testid="create-agent-form"
+            className="flex min-h-0 flex-col"
+            onSubmit={(event) => void handleSubmit(event)}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-1">
+              <div className="space-y-3">
+                <div className="relative space-y-1" ref={typeCmdRef}>
+                  <label className="text-sm text-muted-foreground">Type</label>
+                  <button
+                    ref={typeTriggerRef}
+                    type="button"
+                    role="combobox"
+                    tabIndex={0}
+                    aria-expanded={typeDropdownOpen}
+                    onClick={() => setTypeDropdownOpen((prev) => !prev)}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "ArrowDown" ||
+                        e.key === "Enter" ||
+                        e.key === " "
+                      ) {
+                        e.preventDefault();
+                        if (!typeDropdownOpen) setTypeDropdownOpen(true);
+                      }
+                    }}
+                    className={cn(
+                      "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                      "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    )}
+                  >
+                    {AGENT_TYPE_LABELS[createType]}
+                    <ChevronDown
                       className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                        "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        "h-4 w-4 text-muted-foreground transition-transform",
+                        typeDropdownOpen && "rotate-180"
                       )}
-                    >
-                      {AGENT_TYPE_LABELS[createType]}
-                      <ChevronDown
-                        className={cn(
-                          "h-4 w-4 text-muted-foreground transition-transform",
-                          typeDropdownOpen && "rotate-180"
-                        )}
-                      />
-                    </button>
-                    {typeDropdownOpen ? (
-                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-                        <Command
-                          shouldFilter={false}
-                          ref={(el) => {
-                            if (el) requestAnimationFrame(() => el.focus());
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setTypeDropdownOpen(false);
-                              requestAnimationFrame(() =>
-                                typeTriggerRef.current?.focus()
-                              );
-                            }
-                          }}
-                        >
-                          <CommandList>
-                            <CommandGroup>
-                              {enabledAgentTypes.map((agentType) => (
-                                <CommandItem
-                                  key={agentType}
-                                  value={agentType}
-                                  onSelect={() => {
-                                    setCreateType(agentType);
-                                    setTypeDropdownOpen(false);
-                                    requestAnimationFrame(() =>
-                                      typeTriggerRef.current?.focus()
-                                    );
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-3 w-3 shrink-0",
-                                      agentType === createType
-                                        ? "opacity-100"
-                                        : "opacity-0"
-                                    )}
-                                  />
-                                  {AGENT_TYPE_LABELS[agentType]}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-sm text-muted-foreground">
-                      Name
-                    </label>
-                    <Input
-                      autoFocus
-                      value={createName}
-                      onChange={(event) => setCreateName(event.target.value)}
-                      placeholder="agent name"
-                      data-testid="create-agent-name"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Leave blank and the agent will set its own name based on
-                      the task.
-                    </p>
-                  </div>
-
-                  <PathInput
-                    value={createCwd}
-                    onChange={setCreateCwd}
-                    label="Working directory"
-                    history={cwdHistory}
-                    onRemoveHistory={handleRemoveCwdHistory}
-                    data-testid="create-agent-cwd"
-                    historyItemTestId="create-agent-cwd-history-option"
-                  />
-
-                  <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                    <label className="flex cursor-pointer items-start gap-3">
-                      <Checkbox
-                        checked={createUseWorktree}
-                        onCheckedChange={() =>
-                          setCreateUseWorktree((current) => !current)
-                        }
-                        className="mt-0.5"
-                        title="Toggle git worktree"
-                        data-testid="create-agent-worktree"
-                      />
-                      <span className="space-y-1">
-                        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                          <GitBranch className="h-3.5 w-3.5" />
-                          Create git worktree
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          Creates an isolated worktree and branch for this
-                          agent.
-                        </span>
-                      </span>
-                    </label>
-                    {createUseWorktree ? (
-                      <div className="ml-8 w-[calc(100%-2rem)]">
-                        <BranchSelect
-                          cwd={createCwd}
-                          baseBranch={createBaseBranch}
-                          onBaseBranchChange={setCreateBaseBranch}
-                          worktreeBranch={createWorktreeBranch}
-                          onWorktreeBranchChange={setCreateWorktreeBranch}
-                          testIdPrefix="create-agent"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                    <Checkbox
-                      checked={createFullAccess}
-                      onCheckedChange={() =>
-                        setCreateFullAccess((current) => !current)
-                      }
-                      className="mt-0.5"
-                      title="Toggle full access"
-                    />
-                    <span className="space-y-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        Start in full access mode
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Starts the selected agent with its most permissive
-                        supported execution mode.
-                      </span>
-                    </span>
-                  </label>
-
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                    <Checkbox
-                      checked={createAutoReview}
-                      onCheckedChange={() =>
-                        setCreateAutoReview((current) => !current)
-                      }
-                      className="mt-0.5"
-                      title="Toggle autonomous review"
-                      data-testid="create-agent-auto-review"
-                    />
-                    <span className="space-y-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        Autonomous Review
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Agent will launch one review agent and address feedback
-                        before completing.
-                      </span>
-                    </span>
-                  </label>
+                  </button>
+                  {typeDropdownOpen ? (
+                    <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+                      <Command
+                        shouldFilter={false}
+                        ref={(el) => {
+                          if (el) requestAnimationFrame(() => el.focus());
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setTypeDropdownOpen(false);
+                            requestAnimationFrame(() =>
+                              typeTriggerRef.current?.focus()
+                            );
+                          }
+                        }}
+                      >
+                        <CommandList>
+                          <CommandGroup>
+                            {enabledAgentTypes.map((agentType) => (
+                              <CommandItem
+                                key={agentType}
+                                value={agentType}
+                                onSelect={() => {
+                                  setCreateType(agentType);
+                                  setTypeDropdownOpen(false);
+                                  requestAnimationFrame(() =>
+                                    typeTriggerRef.current?.focus()
+                                  );
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-3 w-3 shrink-0",
+                                    agentType === createType
+                                      ? "opacity-100"
+                                      : "opacity-0"
+                                  )}
+                                />
+                                {AGENT_TYPE_LABELS[agentType]}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </div>
+                  ) : null}
                 </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-muted-foreground">Name</label>
+                  <Input
+                    autoFocus
+                    value={createName}
+                    onChange={(event) => setCreateName(event.target.value)}
+                    placeholder="agent name"
+                    data-testid="create-agent-name"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank and the agent will set its own name based on the
+                    task.
+                  </p>
+                </div>
+
+                <PathInput
+                  value={createCwd}
+                  onChange={setCreateCwd}
+                  label="Working directory"
+                  history={cwdHistory}
+                  onRemoveHistory={handleRemoveCwdHistory}
+                  data-testid="create-agent-cwd"
+                  historyItemTestId="create-agent-cwd-history-option"
+                />
+
+                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <Checkbox
+                      checked={createUseWorktree}
+                      onCheckedChange={() =>
+                        setCreateUseWorktree((current) => !current)
+                      }
+                      className="mt-0.5"
+                      title="Toggle git worktree"
+                      data-testid="create-agent-worktree"
+                    />
+                    <span className="space-y-1">
+                      <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        <GitBranch className="h-3.5 w-3.5" />
+                        Create git worktree
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Creates an isolated worktree and branch for this agent.
+                      </span>
+                    </span>
+                  </label>
+                  {createUseWorktree ? (
+                    <div className="ml-8 w-[calc(100%-2rem)]">
+                      <BranchSelect
+                        cwd={createCwd}
+                        baseBranch={createBaseBranch}
+                        onBaseBranchChange={setCreateBaseBranch}
+                        worktreeBranch={createWorktreeBranch}
+                        onWorktreeBranchChange={setCreateWorktreeBranch}
+                        testIdPrefix="create-agent"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <Checkbox
+                    checked={createFullAccess}
+                    onCheckedChange={() =>
+                      setCreateFullAccess((current) => !current)
+                    }
+                    className="mt-0.5"
+                    title="Toggle full access"
+                  />
+                  <span className="space-y-1">
+                    <span className="block text-sm font-medium text-foreground">
+                      Start in full access mode
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Starts the selected agent with its most permissive
+                      supported execution mode.
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <Checkbox
+                    checked={createAutoReview}
+                    onCheckedChange={() =>
+                      setCreateAutoReview((current) => !current)
+                    }
+                    className="mt-0.5"
+                    title="Toggle autonomous review"
+                    data-testid="create-agent-auto-review"
+                  />
+                  <span className="space-y-1">
+                    <span className="block text-sm font-medium text-foreground">
+                      Autonomous Review
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Agent will launch one review agent and address feedback
+                      before completing.
+                    </span>
+                  </span>
+                </label>
               </div>
-              <div className="flex justify-end gap-2 pt-3">
+            </div>
+            <div className="flex justify-end gap-2 pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                tabIndex={0}
+                onClick={() => setOpen(false)}
+                data-testid="create-agent-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                tabIndex={0}
+                disabled={creating || !createCwd.trim()}
+                data-testid="create-agent-with-prompt"
+                onClick={() => setStep("prompt")}
+              >
+                Create with prompt
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                tabIndex={0}
+                disabled={creating}
+                data-testid="create-agent-submit"
+              >
+                {creating ? (
+                  <ActivityBars size={16} className="mr-1.5" />
+                ) : null}
+                Create
+              </Button>
+            </div>
+          </form>
+        </>
+      ) : (
+        <>
+          <DialogHeader>
+            <DialogTitle>Initial Prompt</DialogTitle>
+            <DialogDescription>
+              This prompt will be sent as the agent&apos;s first message.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            data-testid="create-agent-prompt-form"
+            className="space-y-3"
+            onSubmit={(event) => void handleSubmit(event)}
+          >
+            <textarea
+              ref={promptTextareaRef}
+              value={initialPrompt}
+              onChange={(event) => setInitialPrompt(event.target.value)}
+              placeholder="Enter instructions for the agent..."
+              data-testid="create-agent-initial-prompt"
+              className={cn(
+                "flex min-h-[200px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                "ring-offset-background placeholder:text-muted-foreground",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              )}
+            />
+
+            <div className="flex justify-between pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                tabIndex={0}
+                onClick={() => setStep("config")}
+                data-testid="create-agent-prompt-back"
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Back
+              </Button>
+              <div className="flex gap-2">
                 <Button
                   type="button"
                   variant="ghost"
                   tabIndex={0}
                   onClick={() => setOpen(false)}
-                  data-testid="create-agent-cancel"
                 >
                   Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="default"
-                  tabIndex={0}
-                  disabled={creating || !createCwd.trim()}
-                  data-testid="create-agent-with-prompt"
-                  onClick={() => setStep("prompt")}
-                >
-                  Create with prompt
                 </Button>
                 <Button
                   type="submit"
                   variant="primary"
                   tabIndex={0}
                   disabled={creating}
-                  data-testid="create-agent-submit"
+                  data-testid="create-agent-prompt-submit"
                 >
                   {creating ? (
                     <ActivityBars size={16} className="mr-1.5" />
@@ -571,73 +626,10 @@ export function CreateAgentDialog({
                   Create
                 </Button>
               </div>
-            </form>
-          </>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>Initial Prompt</DialogTitle>
-              <DialogDescription>
-                This prompt will be sent as the agent&apos;s first message.
-              </DialogDescription>
-            </DialogHeader>
-
-            <form
-              data-testid="create-agent-prompt-form"
-              className="space-y-3"
-              onSubmit={(event) => void handleSubmit(event)}
-            >
-              <textarea
-                ref={promptTextareaRef}
-                value={initialPrompt}
-                onChange={(event) => setInitialPrompt(event.target.value)}
-                placeholder="Enter instructions for the agent..."
-                data-testid="create-agent-initial-prompt"
-                className={cn(
-                  "flex min-h-[200px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                  "ring-offset-background placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                )}
-              />
-
-              <div className="flex justify-between pt-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  tabIndex={0}
-                  onClick={() => setStep("config")}
-                  data-testid="create-agent-prompt-back"
-                >
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  Back
-                </Button>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    tabIndex={0}
-                    onClick={() => setOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    tabIndex={0}
-                    disabled={creating}
-                    data-testid="create-agent-prompt-submit"
-                  >
-                    {creating ? (
-                      <ActivityBars size={16} className="mr-1.5" />
-                    ) : null}
-                    Create
-                  </Button>
-                </div>
-              </div>
-            </form>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+            </div>
+          </form>
+        </>
+      )}
+    </DialogContent>
   );
 }
