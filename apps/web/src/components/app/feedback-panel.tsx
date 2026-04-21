@@ -511,9 +511,9 @@ export function ParentFeedbackPanel({
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
                       Parent's response
                     </div>
-                    <div className="whitespace-pre-wrap break-words text-xs text-foreground">
+                    <Markdown className="text-xs text-foreground">
                       {childResolution.summary}
-                    </div>
+                    </Markdown>
                     {childResolution.resolutionCommit ? (
                       <div className="mt-1 text-[10px] text-muted-foreground/70">
                         at{" "}
@@ -622,7 +622,8 @@ export function ParentFeedbackPanel({
                                           </span>
                                         ) : null}
                                       </div>
-                                      {item.resolutionReason ? (
+                                      {!isActionable &&
+                                      item.resolutionReason ? (
                                         <div
                                           className="ml-4 truncate pl-0.5 text-[10px] italic text-muted-foreground/70"
                                           title={item.resolutionReason}
@@ -804,9 +805,8 @@ function IgnoreReasonInput({
     if (canSubmit) onSubmit(trimmed);
   };
   const inputClass =
-    size === "sm" ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs";
-  const btnClass =
-    size === "sm" ? "h-7 px-2 text-[11px]" : "h-8 px-2.5 text-xs";
+    size === "sm" ? "h-7 px-2 text-[11px]" : "h-11 px-3 text-sm";
+  const btnClass = size === "sm" ? "h-7 px-2 text-[11px]" : "h-11 px-3 text-sm";
   return (
     <div
       className={cn(
@@ -819,11 +819,15 @@ function IgnoreReasonInput({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
+          // stopPropagation so the outer panel/sheet Esc handler doesn't
+          // also fire and close the whole panel on cancel.
           if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
             submit();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             onCancel();
           }
         }}
@@ -970,12 +974,15 @@ export function FeedbackDetailPanel({
   const isActionable = item.status === "open" || item.status === "forwarded";
   const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
   const attr = personaAttribution.get(item.agentId);
+  const isIgnoring = ignoreTarget === item.id;
 
   return (
     <div
       ref={panelRef}
       tabIndex={-1}
       onKeyDown={(e) => {
+        // Skip when the inline ignore input is open — it owns Esc to cancel.
+        if (isIgnoring) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           onClose();
@@ -1011,7 +1018,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0"
-            disabled={!prevItem}
+            disabled={!prevItem || isIgnoring}
             onClick={() => prevItem && onNavigate(prevItem.id)}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -1020,7 +1027,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0"
-            disabled={!nextItem}
+            disabled={!nextItem || isIgnoring}
             onClick={() => nextItem && onNavigate(nextItem.id)}
           >
             <ChevronRight className="h-4 w-4" />
@@ -1029,6 +1036,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 ml-4 opacity-70 hover:opacity-100"
+            disabled={isIgnoring}
             onClick={onClose}
           >
             <X className="h-4 w-4" />
@@ -1317,12 +1325,15 @@ export function MobileFeedbackSheet({
   const attr = item ? personaAttribution.get(item.agentId) : undefined;
   const isActionable =
     item && (item.status === "open" || item.status === "forwarded");
+  const isIgnoring = !!item && ignoreTarget === item.id;
 
   return (
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        // Block the overlay/Esc close path from the Radix Sheet while the
+        // inline reason input is open so the user doesn't lose their place.
+        if (!open && !isIgnoring) onClose();
       }}
     >
       <SheetContent
@@ -1343,7 +1354,7 @@ export function MobileFeedbackSheet({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  disabled={!prevItem}
+                  disabled={!prevItem || isIgnoring}
                   onClick={() => prevItem && onNavigate(prevItem.id)}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -1352,7 +1363,7 @@ export function MobileFeedbackSheet({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  disabled={!nextItem}
+                  disabled={!nextItem || isIgnoring}
                   onClick={() => nextItem && onNavigate(nextItem.id)}
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1362,6 +1373,7 @@ export function MobileFeedbackSheet({
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                disabled={isIgnoring}
                 onClick={onClose}
               >
                 <X className="h-4 w-4" />

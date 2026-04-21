@@ -193,7 +193,7 @@ export function PersonaAgentRow({
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[10px]">
           {hasResolution ? (
-            (hasSummary || resolution?.summary) && onOpenSummary ? (
+            onOpenSummary ? (
               <button
                 data-agent-control="true"
                 className="font-medium text-muted-foreground underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-solid"
