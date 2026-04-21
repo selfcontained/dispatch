@@ -96,32 +96,6 @@ const SOLARIZED_DARK: TerminalPalette = {
   brightWhite: "#fdf6e3",
 };
 
-const LIGHT: TerminalPalette = {
-  minimumContrastRatio: 4.5,
-  foreground: "#1f2328",
-  background: "#eff2f5",
-  cursor: "#1f2328",
-  cursorAccent: "#eff2f5",
-  selectionBackground: "#d1d9e0",
-  selectionInactiveBackground: "#dae0e7",
-  black: "#1f2328",
-  red: "#c7243a",
-  green: "#2a7e4f",
-  yellow: "#9a6700",
-  blue: "#0842a0",
-  magenta: "#8b3fc7",
-  cyan: "#0f7b8a",
-  white: "#59636e",
-  brightBlack: "#818b98",
-  brightRed: "#b91c33",
-  brightGreen: "#1a6b3c",
-  brightYellow: "#8a5d00",
-  brightBlue: "#0842a0",
-  brightMagenta: "#7132a8",
-  brightCyan: "#0b6674",
-  brightWhite: "#393f46",
-};
-
 /** Vaporwave — neon pink, cyan & purple on deep purple-black */
 const VAPORWAVE: TerminalPalette = {
   foreground: "#e0d0f0",
@@ -220,7 +194,7 @@ export const THEMES: ThemeDefinition[] = [
     label: "Light",
     description: "Primer-inspired IDE light theme",
     swatches: ["#e6eaef", "#0d7d4d", "#1f2328", "#d1d9e0"],
-    terminal: LIGHT,
+    terminal: MONOKAI,
   },
   {
     id: "matrix",

@@ -48,10 +48,11 @@ These control agent state indicators, badges, buttons, and status dots throughou
 
 ### Surface tokens
 
-| Variable        | Purpose                                                                      |
-| --------------- | ---------------------------------------------------------------------------- |
-| `--surface`     | Header, footer, and toolbar background (slightly darker than `--background`) |
-| `--terminal-bg` | Terminal pane and xterm background                                           |
+| Variable    | Purpose                                                                      |
+| ----------- | ---------------------------------------------------------------------------- |
+| `--surface` | Header, footer, and toolbar background (slightly darker than `--background`) |
+
+The terminal pane paints its own background from the theme's `TerminalPalette.background` field (see [Step 2](#step-2-register-the-theme-in-use-themets)). There is no separate CSS variable to keep in sync.
 
 ### Value format
 
@@ -84,7 +85,7 @@ This means you can use standard Tailwind patterns:
 <span className="border-status-blocked/50" />       // 50% opacity border
 ```
 
-The `surface` and `terminal-bg` colors are also available as `bg-surface` and `bg-terminal-bg`.
+The `surface` color is also available as `bg-surface`.
 
 ## How to add a new theme
 
@@ -122,7 +123,6 @@ Add a new `[data-theme="your-theme-id"]` block in `apps/web/src/index.css`. You 
 
   /* Surface tokens */
   --surface: 240 20% 3%;
-  --terminal-bg: 240 20% 3%;
 }
 ```
 
@@ -146,7 +146,9 @@ export type ThemeId = "default" | "cool-navy" | "midnight";
 },
 ```
 
-The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` and `LIGHT` in `use-theme.ts` for examples.
+The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` in `use-theme.ts` for an example.
+
+The `Light` theme intentionally reuses `MONOKAI` so terminal output from TUIs like the Claude CLI — which emit truecolor escapes tuned for dark backgrounds and bypass xterm's `minimumContrastRatio` — remains readable. Keep the terminal pane dark when authoring light UI themes.
 
 When the user switches themes, the terminal palette is updated live and the session reconnects so tmux re-sends the viewport with the correct colors.
 
@@ -164,13 +166,12 @@ That's it — the theme picker, localStorage persistence, flash-free loading, an
 - **Primary** is the most prominent accent — used on the Create button, selected states, and focus rings. Pick something that pops against the background.
 - **Status colors** should be visually distinct from each other. They appear as small dots and text labels, so they need good contrast against both `--background` and `--card`.
 - **Border** should be subtle — lightness around 18–22% works well for dark themes.
-- **Terminal background** (`--terminal-bg`) is usually the same as `--background` or `--surface`. The terminal palette's `background` field should match `--terminal-bg`.
-- **Terminal ANSI palette** — each theme defines a full 16-color ANSI palette in its `terminal` field. For dark themes, the Monokai base palette works well — just override the background to match. For light themes or distinctive palettes (Solarized), define all 16 colors. Ensure good contrast between ANSI colors and the terminal background.
+- **Terminal ANSI palette** — each theme defines a full 16-color ANSI palette in its `terminal` field. For dark themes, the Monokai base palette works well — just override the background to match. For themes with a distinctive palette (Solarized), define all 16 colors. Ensure good contrast between ANSI colors and the terminal background. Light UI themes should keep a dark terminal palette (see note above).
 
 ## What NOT to do
 
 - **Don't use hardcoded Tailwind color classes** like `text-emerald-400` or `bg-red-500` for anything that should change with the theme. Use the semantic `status-*` utilities or the base tokens (`primary`, `destructive`, etc.) instead.
-- **Don't use hardcoded hex values** for backgrounds like `bg-[#141414]`. Use `bg-terminal-bg`, `bg-surface`, or `bg-background`.
+- **Don't use hardcoded hex values** for backgrounds like `bg-[#141414]`. Use `bg-surface` or `bg-background`.
 - **Don't wrap CSS var values in `hsl()`** — the bare `H S% L%` format is required for Tailwind opacity support.
 - **Don't forget to define all variables** — a missing variable will cause that color to disappear (transparent) in your theme.
 
