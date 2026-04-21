@@ -3630,6 +3630,15 @@ export class AgentManager {
     }
 
     const trimmed = agentName?.trim();
+    if (opts.jobRunId) {
+      const jobNameSuffix = `-${opts.jobRunId.slice(0, 8)}`;
+      return (
+        !!trimmed &&
+        trimmed.startsWith("job-") &&
+        trimmed.endsWith(jobNameSuffix)
+      );
+    }
+
     return trimmed === `agent-${agentId.slice(-6)}`;
   }
 

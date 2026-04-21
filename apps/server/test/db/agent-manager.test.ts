@@ -537,6 +537,7 @@ describe("AgentManager", () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         type: "codex",
+        name: "job-rename-test-run_abc1",
         jobRunId: "run_abc123",
         useWorktree: false,
       });
