@@ -3325,19 +3325,25 @@ export class AgentManager {
       );
     }
     const result = await this.pool.query<FeedbackRecord>(
+      // resolution_reason / resolution_commit use COALESCE so that a later
+      // fixed/ignored call with a null reason (allowed for 'fixed') does not
+      // erase the audit-trail captured on the first resolving call.
+      // resolved_at is set only on the first transition into fixed/ignored so
+      // benign re-calls don't drift the timestamp forward.
       `UPDATE agent_feedback
        SET status = $2,
            resolution_reason = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN $4
+             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($4, resolution_reason)
              ELSE resolution_reason
            END,
            resolution_commit = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN $5
+             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($5, resolution_commit)
              ELSE resolution_commit
            END,
            resolved_at = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN NOW()
-             ELSE NULL
+             WHEN $2 IN ('fixed', 'ignored') AND resolved_at IS NULL THEN NOW()
+             WHEN $2 NOT IN ('fixed', 'ignored') THEN NULL
+             ELSE resolved_at
            END
        WHERE id = $1 AND agent_id = $3
        RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
@@ -3365,19 +3371,21 @@ export class AgentManager {
       );
     }
     const result = await this.pool.query<FeedbackRecord>(
+      // See updateFeedbackStatus for the COALESCE / first-transition rationale.
       `UPDATE agent_feedback af
        SET status = $2,
            resolution_reason = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN $4
+             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($4, af.resolution_reason)
              ELSE af.resolution_reason
            END,
            resolution_commit = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN $5
+             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($5, af.resolution_commit)
              ELSE af.resolution_commit
            END,
            resolved_at = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN NOW()
-             ELSE NULL
+             WHEN $2 IN ('fixed', 'ignored') AND af.resolved_at IS NULL THEN NOW()
+             WHEN $2 NOT IN ('fixed', 'ignored') THEN NULL
+             ELSE af.resolved_at
            END
        FROM agents a
        WHERE af.id = $1 AND af.agent_id = a.id AND a.parent_agent_id = $3

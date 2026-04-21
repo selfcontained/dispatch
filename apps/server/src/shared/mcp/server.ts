@@ -983,9 +983,10 @@ async function createDispatchMcpServer(
             ),
           reason: z
             .string()
+            .max(10_000)
             .optional()
             .describe(
-              "Why you chose this resolution. REQUIRED when status is 'ignored'. Optional but encouraged for 'fixed'."
+              "Why you chose this resolution. REQUIRED when status is 'ignored'. Optional but encouraged for 'fixed'. Max 10,000 characters."
             ),
         },
       },

@@ -4069,6 +4069,11 @@ async function registerRoutes() {
 
       let reason: string | null = null;
       if (typeof body.reason === "string") {
+        if (body.reason.length > 10_000) {
+          return reply
+            .code(400)
+            .send({ error: "reason exceeds 10,000 character limit." });
+        }
         reason = body.reason;
       } else if (body.reason !== undefined && body.reason !== null) {
         return reply
@@ -4084,8 +4089,13 @@ async function registerRoutes() {
 
       try {
         const agentId = params.id ?? "";
-        const agent = await agentManager.getAgent(agentId);
-        const resolutionCommit = agent ? await resolveHeadSha(agent.cwd) : null;
+        // Only compute HEAD when the update will actually record a
+        // resolution; updateFeedbackStatus discards it otherwise.
+        const isResolving =
+          body.status === "fixed" || body.status === "ignored";
+        const agent = isResolving ? await agentManager.getAgent(agentId) : null;
+        const resolutionCommit =
+          isResolving && agent ? await resolveHeadSha(agent.cwd) : null;
         const updated = await agentManager.updateFeedbackStatus(
           feedbackId,
           agentId,
@@ -4126,11 +4136,9 @@ async function registerRoutes() {
         typeof body?.summary !== "string" ||
         body.summary.trim().length === 0
       ) {
-        return reply
-          .code(400)
-          .send({
-            error: "summary is required and must be a non-empty string.",
-          });
+        return reply.code(400).send({
+          error: "summary is required and must be a non-empty string.",
+        });
       }
 
       try {
