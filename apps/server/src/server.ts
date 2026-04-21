@@ -78,6 +78,7 @@ import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
+import { resolveHeadSha } from "./shared/git/worktree.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import { StreamManager } from "./stream-manager.js";
@@ -1696,6 +1697,7 @@ async function registerRoutes() {
       launchPersona: mcpLaunchPersona,
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
+      submitResolution: mcpSubmitResolution,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
       getParentContext: mcpGetParentContext,
@@ -4038,7 +4040,10 @@ async function registerRoutes() {
     "/api/v1/agents/:id/feedback/:feedbackId",
     async (request, reply) => {
       const params = request.params as { id?: string; feedbackId?: string };
-      const body = request.body as { status?: unknown };
+      const body = request.body as {
+        status?: unknown;
+        reason?: unknown;
+      } | null;
       const feedbackId = parseInt(params.feedbackId ?? "", 10);
 
       if (isNaN(feedbackId)) {
@@ -4062,8 +4067,35 @@ async function registerRoutes() {
         });
       }
 
+      let reason: string | null = null;
+      if (typeof body.reason === "string") {
+        if (body.reason.length > 10_000) {
+          return reply
+            .code(400)
+            .send({ error: "reason exceeds 10,000 character limit." });
+        }
+        reason = body.reason;
+      } else if (body.reason !== undefined && body.reason !== null) {
+        return reply
+          .code(400)
+          .send({ error: "reason must be a string if provided." });
+      }
+
+      if (body.status === "ignored" && !(reason && reason.trim().length > 0)) {
+        return reply.code(400).send({
+          error: "A reason is required when marking feedback as ignored.",
+        });
+      }
+
       try {
         const agentId = params.id ?? "";
+        // Only compute HEAD when the update will actually record a
+        // resolution; updateFeedbackStatus discards it otherwise.
+        const isResolving =
+          body.status === "fixed" || body.status === "ignored";
+        const agent = isResolving ? await agentManager.getAgent(agentId) : null;
+        const resolutionCommit =
+          isResolving && agent ? await resolveHeadSha(agent.cwd) : null;
         const updated = await agentManager.updateFeedbackStatus(
           feedbackId,
           agentId,
@@ -4072,7 +4104,8 @@ async function registerRoutes() {
             | "dismissed"
             | "forwarded"
             | "fixed"
-            | "ignored"
+            | "ignored",
+          { reason, resolutionCommit }
         );
         if (!updated)
           return reply.code(404).send({ error: "Feedback not found." });
@@ -4082,6 +4115,57 @@ async function registerRoutes() {
           feedback: updated,
         });
         return { feedback: updated };
+      } catch (error) {
+        return handleAgentError(reply, error);
+      }
+    }
+  );
+
+  app.post(
+    "/api/v1/agents/:id/persona-reviews/:personaAgentId/resolution",
+    async (request, reply) => {
+      const params = request.params as {
+        id?: string;
+        personaAgentId?: string;
+      };
+      const body = request.body as { summary?: unknown } | null;
+      const agentId = params.id ?? "";
+      const personaAgentId = params.personaAgentId ?? "";
+
+      if (
+        typeof body?.summary !== "string" ||
+        body.summary.trim().length === 0
+      ) {
+        return reply.code(400).send({
+          error: "summary is required and must be a non-empty string.",
+        });
+      }
+
+      try {
+        const parent = await agentManager.getAgent(agentId);
+        if (!parent) return reply.code(404).send({ error: "Agent not found." });
+        const resolutionCommit = await resolveHeadSha(parent.cwd);
+        const result = await agentManager.submitReviewResolution({
+          parentAgentId: agentId,
+          personaAgentId,
+          summary: body.summary,
+          resolutionCommit,
+        });
+        const [child, parentAgent] = await Promise.all([
+          agentManager.getAgent(personaAgentId),
+          agentManager.getAgent(agentId),
+        ]);
+        if (child)
+          uiEventBroker.publish({
+            type: "agent.upsert",
+            agent: withStreamFlag(child),
+          });
+        if (parentAgent)
+          uiEventBroker.publish({
+            type: "agent.upsert",
+            agent: withStreamFlag(parentAgent),
+          });
+        return { review: result.review, resolution: result.resolution };
       } catch (error) {
         return handleAgentError(reply, error);
       }
@@ -5165,12 +5249,16 @@ async function mcpGetFeedback(
 async function mcpResolveFeedback(
   agentId: string,
   feedbackId: number,
-  status: "fixed" | "ignored"
+  status: "fixed" | "ignored",
+  options: { reason?: string | null } = {}
 ): Promise<import("./agents/manager.js").FeedbackRecord> {
+  const parent = await agentManager.getAgent(agentId);
+  const resolutionCommit = parent ? await resolveHeadSha(parent.cwd) : null;
   const record = await agentManager.updateFeedbackStatusByParent(
     feedbackId,
     agentId,
-    status
+    status,
+    { reason: options.reason ?? null, resolutionCommit }
   );
   if (!record)
     throw new Error(
@@ -5182,6 +5270,39 @@ async function mcpResolveFeedback(
     feedback: record,
   });
   return record;
+}
+
+async function mcpSubmitResolution(
+  agentId: string,
+  input: { personaAgentId: string; summary: string }
+): Promise<{
+  review: import("./agents/manager.js").PersonaReviewRecord;
+  resolution: import("./agents/manager.js").PersonaReviewResolutionRecord;
+}> {
+  const parent = await agentManager.getAgent(agentId);
+  if (!parent) throw new Error("Agent not found.");
+  const resolutionCommit = await resolveHeadSha(parent.cwd);
+  const result = await agentManager.submitReviewResolution({
+    parentAgentId: agentId,
+    personaAgentId: input.personaAgentId,
+    summary: input.summary,
+    resolutionCommit,
+  });
+  const [child, parentAgent] = await Promise.all([
+    agentManager.getAgent(input.personaAgentId),
+    agentManager.getAgent(agentId),
+  ]);
+  if (child)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(child),
+    });
+  if (parentAgent)
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(parentAgent),
+    });
+  return result;
 }
 
 async function mcpUpsertPin(
@@ -5236,7 +5357,14 @@ async function mcpCompleteReview(
     message?: string;
   }
 ): Promise<void> {
-  const review = await agentManager.completePersonaReview(agentId, input);
+  const personaAgent = await agentManager.getAgent(agentId);
+  const lastReviewedCommit = personaAgent
+    ? await resolveHeadSha(personaAgent.cwd)
+    : null;
+  const review = await agentManager.completePersonaReview(agentId, {
+    ...input,
+    lastReviewedCommit,
+  });
   const [child, parent] = await Promise.all([
     agentManager.getAgent(agentId),
     agentManager.getAgent(review.parentAgentId),
@@ -5433,11 +5561,14 @@ async function mcpLaunchPersona(
     cliSessionId,
   });
 
-  // Create the persona review record
+  // Create the persona review record. Capture parent HEAD at launch time so
+  // Phase 2 can diff round-1 findings against what the reviewer saw.
+  const launchCommit = await resolveHeadSha(parentCwd);
   await agentManager.createPersonaReview({
     agentId: agent.id,
     parentAgentId: agentId,
     persona: opts.persona,
+    lastReviewedCommit: launchCommit,
   });
 
   // Re-fetch so the SSE event includes the review subquery data

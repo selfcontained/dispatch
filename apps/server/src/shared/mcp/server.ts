@@ -153,6 +153,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
+  "dispatch_submit_resolution",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -287,8 +288,23 @@ export type McpRequestContext = {
   resolveFeedback?: (
     agentId: string,
     feedbackId: number,
-    status: "fixed" | "ignored"
+    status: "fixed" | "ignored",
+    options?: { reason?: string | null }
   ) => Promise<FeedbackItem>;
+  submitResolution?: (
+    agentId: string,
+    input: { personaAgentId: string; summary: string }
+  ) => Promise<{
+    review: { id: number; agentId: string; status: string };
+    resolution: {
+      id: number;
+      reviewId: number;
+      roundNumber: number;
+      summary: string;
+      resolutionCommit: string | null;
+      submittedAt: string;
+    };
+  }>;
   upsertPin?: (
     agentId: string,
     pin: { label: string; value: string; type: string }
@@ -953,7 +969,7 @@ async function createDispatchMcpServer(
       "dispatch_resolve_feedback",
       {
         description:
-          "Resolve a persona feedback item by marking it as fixed or ignored. Use after retrieving feedback with dispatch_get_feedback to update the status of individual items.",
+          "Mark a persona feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
         inputSchema: {
           feedbackId: z
             .number()
@@ -965,6 +981,13 @@ async function createDispatchMcpServer(
             .describe(
               "Resolution status: 'fixed' if addressed, 'ignored' if not applicable."
             ),
+          reason: z
+            .string()
+            .max(10_000)
+            .optional()
+            .describe(
+              "Why you chose this resolution. REQUIRED when status is 'ignored'. Optional but encouraged for 'fixed'. Max 10,000 characters."
+            ),
         },
       },
       async (args) => {
@@ -972,7 +995,8 @@ async function createDispatchMcpServer(
           const result = await resolveFeedback(
             agentId,
             args.feedbackId,
-            args.status
+            args.status,
+            { reason: args.reason ?? null }
           );
           return {
             content: [
@@ -981,6 +1005,57 @@ async function createDispatchMcpServer(
                 text: `Feedback #${result.id} marked as ${result.status}.`,
               },
             ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_submit_resolution ────────────────────────────────────
+  if (
+    allowed.has("dispatch_submit_resolution") &&
+    context.agent &&
+    context.submitResolution
+  ) {
+    const agentId = context.agent.id;
+    const submitResolution = context.submitResolution;
+
+    server.registerTool(
+      "dispatch_submit_resolution",
+      {
+        description:
+          "Call this after you have resolved every feedback item from a persona review. `summary` is required — 1–3 sentences describing what you addressed and what you chose to leave alone. In v1 this records your narrative response. Once the full round-trip ships, this call also triggers the reviewer's recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
+        inputSchema: {
+          personaAgentId: z
+            .string()
+            .describe(
+              "The persona agent ID whose review you are resolving (the agent you launched via dispatch_launch_persona)."
+            ),
+          summary: z
+            .string()
+            .min(1)
+            .max(10_000)
+            .describe(
+              "1–3 sentence narrative summary of what you addressed and what you left alone."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await submitResolution(agentId, {
+            personaAgentId: args.personaAgentId,
+            summary: args.summary,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Resolution submitted for review #${result.review.id} (round ${result.resolution.roundNumber}).`,
+              },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
