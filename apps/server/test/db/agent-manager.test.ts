@@ -1377,6 +1377,519 @@ describe("AgentManager", () => {
     });
   });
 
+  // CRU-128 / CRU-130 — resolution capture (reason, resolution_commit,
+  // resolved_at, persona_review_resolutions, last_reviewed_commit).
+  describe("resolution capture", () => {
+    async function seedParentChild() {
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const child = await manager.createAgent({
+        name: "child",
+        cwd: "/tmp",
+        useWorktree: false,
+        persona: "security-review",
+        parentAgentId: parent.id,
+      });
+      return { parent, child };
+    }
+
+    describe("updateFeedbackStatus (direct)", () => {
+      it("rejects ignored without a reason", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        await expect(
+          manager.updateFeedbackStatus(feedback.id, child.id, "ignored")
+        ).rejects.toThrow(/reason is required/);
+      });
+
+      it("rejects ignored with a whitespace-only reason", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        await expect(
+          manager.updateFeedbackStatus(feedback.id, child.id, "ignored", {
+            reason: "   ",
+          })
+        ).rejects.toThrow(/reason is required/);
+      });
+
+      it("persists reason, commit, and resolved_at when ignored with a reason", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const before = Date.now();
+        const updated = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "ignored",
+          { reason: "Out of scope", resolutionCommit: "abc1234" }
+        );
+        const after = Date.now();
+
+        expect(updated).not.toBeNull();
+        expect(updated!.status).toBe("ignored");
+        expect(updated!.resolutionReason).toBe("Out of scope");
+        expect(updated!.resolutionCommit).toBe("abc1234");
+        expect(updated!.resolvedAt).toBeTruthy();
+        const resolvedMs = new Date(
+          updated!.resolvedAt as unknown as string
+        ).getTime();
+        expect(resolvedMs).toBeGreaterThanOrEqual(before - 1000);
+        expect(resolvedMs).toBeLessThanOrEqual(after + 1000);
+      });
+
+      it("accepts fixed without a reason and records commit + resolved_at", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const updated = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "fixed",
+          { resolutionCommit: "deadbeef" }
+        );
+
+        expect(updated!.status).toBe("fixed");
+        expect(updated!.resolutionReason).toBeNull();
+        expect(updated!.resolutionCommit).toBe("deadbeef");
+        expect(updated!.resolvedAt).toBeTruthy();
+      });
+
+      it("persists reason when fixed with a reason", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const updated = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "fixed",
+          { reason: "Patched in request middleware" }
+        );
+
+        expect(updated!.status).toBe("fixed");
+        expect(updated!.resolutionReason).toBe("Patched in request middleware");
+      });
+
+      it("preserves reason on a benign re-resolve with no reason", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        await manager.updateFeedbackStatus(feedback.id, child.id, "ignored", {
+          reason: "Won't fix",
+          resolutionCommit: "sha1",
+        });
+        // Re-resolve as fixed without passing reason/commit — the original
+        // audit trail must be preserved (COALESCE behavior).
+        const second = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "fixed"
+        );
+
+        expect(second!.status).toBe("fixed");
+        expect(second!.resolutionReason).toBe("Won't fix");
+        expect(second!.resolutionCommit).toBe("sha1");
+      });
+
+      it("does not drift resolved_at on a benign re-resolve", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const first = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "fixed"
+        );
+        const firstResolvedAt = first!.resolvedAt;
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const second = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "ignored",
+          { reason: "changed my mind" }
+        );
+
+        expect(
+          new Date(second!.resolvedAt as unknown as string).getTime()
+        ).toBe(new Date(firstResolvedAt as unknown as string).getTime());
+      });
+
+      it("clears resolved_at when reverting to open", async () => {
+        const { child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        await manager.updateFeedbackStatus(feedback.id, child.id, "fixed");
+        const reopened = await manager.updateFeedbackStatus(
+          feedback.id,
+          child.id,
+          "open"
+        );
+
+        expect(reopened!.status).toBe("open");
+        expect(reopened!.resolvedAt).toBeNull();
+      });
+    });
+
+    describe("updateFeedbackStatusByParent (reason validation + commit)", () => {
+      it("rejects ignored without a reason", async () => {
+        const { parent, child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        await expect(
+          manager.updateFeedbackStatusByParent(
+            feedback.id,
+            parent.id,
+            "ignored"
+          )
+        ).rejects.toThrow(/reason is required/);
+      });
+
+      it("persists reason and resolution_commit when a parent ignores", async () => {
+        const { parent, child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const updated = await manager.updateFeedbackStatusByParent(
+          feedback.id,
+          parent.id,
+          "ignored",
+          {
+            reason: "Not applicable to this flow",
+            resolutionCommit: "f00dbabe",
+          }
+        );
+
+        expect(updated!.status).toBe("ignored");
+        expect(updated!.resolutionReason).toBe("Not applicable to this flow");
+        expect(updated!.resolutionCommit).toBe("f00dbabe");
+        expect(updated!.resolvedAt).toBeTruthy();
+      });
+
+      it("accepts fixed without a reason when parent resolves", async () => {
+        const { parent, child } = await seedParentChild();
+        const feedback = await manager.submitFeedback(child.id, {
+          description: "finding",
+        });
+
+        const updated = await manager.updateFeedbackStatusByParent(
+          feedback.id,
+          parent.id,
+          "fixed",
+          { resolutionCommit: "cafef00d" }
+        );
+
+        expect(updated!.status).toBe("fixed");
+        expect(updated!.resolutionCommit).toBe("cafef00d");
+        expect(updated!.resolvedAt).toBeTruthy();
+      });
+    });
+
+    describe("submitReviewResolution", () => {
+      async function seedCompletedReview(): Promise<{
+        parent: Awaited<ReturnType<typeof manager.createAgent>>;
+        child: Awaited<ReturnType<typeof manager.createAgent>>;
+      }> {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All good",
+        });
+        return { parent, child };
+      }
+
+      it("rejects an empty summary", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "",
+          })
+        ).rejects.toThrow(/summary is required/);
+      });
+
+      it("rejects a whitespace-only summary", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "   \n\t ",
+          })
+        ).rejects.toThrow(/summary is required/);
+      });
+
+      it("rejects a summary above the 10,000 character limit", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "x".repeat(10_001),
+          })
+        ).rejects.toThrow(/10,000 character/);
+      });
+
+      it("rejects when the review is not in 'complete' state", async () => {
+        const { parent, child } = await seedParentChild();
+        // Create but do NOT complete the review — status stays 'reviewing'.
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+        });
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "Addressed everything",
+          })
+        ).rejects.toThrow(/must be in status 'complete'/);
+      });
+
+      it("rejects when there are still open feedback items", async () => {
+        const { parent, child } = await seedCompletedReview();
+        const openItem = await manager.submitFeedback(child.id, {
+          description: "unresolved",
+        });
+        // Also add a resolved item to confirm only the open ones are reported.
+        const fixedItem = await manager.submitFeedback(child.id, {
+          description: "done",
+        });
+        await manager.updateFeedbackStatus(fixedItem.id, child.id, "fixed");
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "Addressed some",
+          })
+        ).rejects.toThrow(
+          new RegExp(`feedback items still open: ${openItem.id}`)
+        );
+      });
+
+      it("rejects when an ignored item is missing a reason", async () => {
+        const { parent, child } = await seedCompletedReview();
+        const item = await manager.submitFeedback(child.id, {
+          description: "maybe later",
+        });
+        // Insert a bare 'ignored' row directly — bypass the resolve API guard
+        // to prove submitReviewResolution enforces the reason rule itself.
+        await pool.query(
+          "UPDATE agent_feedback SET status = 'ignored', resolution_reason = NULL WHERE id = $1",
+          [item.id]
+        );
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "Covered the rest",
+          })
+        ).rejects.toThrow(
+          new RegExp(`ignored feedback items missing a reason: ${item.id}`)
+        );
+      });
+
+      it("returns 404 when there is no review for the parent/child pair", async () => {
+        const { parent, child } = await seedParentChild();
+        // No createPersonaReview call.
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "nothing to resolve against",
+          })
+        ).rejects.toThrow(/No persona review found/);
+      });
+
+      it("persists summary and resolution_commit on the happy path", async () => {
+        const { parent, child } = await seedCompletedReview();
+        const item = await manager.submitFeedback(child.id, {
+          description: "a thing",
+        });
+        await manager.updateFeedbackStatus(item.id, child.id, "ignored", {
+          reason: "rejected by design",
+        });
+
+        const result = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "Accepted one, rejected one.",
+          resolutionCommit: "headsha1",
+        });
+
+        expect(result.resolution.summary).toBe("Accepted one, rejected one.");
+        expect(result.resolution.resolutionCommit).toBe("headsha1");
+        expect(result.resolution.roundNumber).toBe(1);
+
+        // Confirm via a separate read path so the test also covers read APIs.
+        const resolutions = await manager.getReviewResolutions(
+          result.review.id
+        );
+        expect(resolutions).toHaveLength(1);
+        expect(resolutions[0].summary).toBe("Accepted one, rejected one.");
+        expect(resolutions[0].resolutionCommit).toBe("headsha1");
+      });
+
+      it("upserts on repeat submit, replacing summary + commit", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        const first = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "v1",
+          resolutionCommit: "sha-v1",
+        });
+        const second = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "v2 — revised",
+          resolutionCommit: "sha-v2",
+        });
+
+        expect(second.resolution.id).toBe(first.resolution.id);
+        const resolutions = await manager.getReviewResolutions(
+          second.review.id
+        );
+        expect(resolutions).toHaveLength(1);
+        expect(resolutions[0].summary).toBe("v2 — revised");
+        expect(resolutions[0].resolutionCommit).toBe("sha-v2");
+      });
+
+      it("trims leading/trailing whitespace from the stored summary", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        const result = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "   padded summary   \n",
+        });
+
+        expect(result.resolution.summary).toBe("padded summary");
+      });
+
+      it("does not persist any resolution when a precondition fails", async () => {
+        const { parent, child } = await seedCompletedReview();
+        await manager.submitFeedback(child.id, { description: "still open" });
+
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "optimistic",
+          })
+        ).rejects.toThrow();
+
+        const review = await manager.getPersonaReview(child.id);
+        const resolutions = await manager.getReviewResolutions(review!.id);
+        expect(resolutions).toHaveLength(0);
+      });
+    });
+
+    describe("persona review last_reviewed_commit", () => {
+      it("stores the launch commit on createPersonaReview", async () => {
+        const { parent, child } = await seedParentChild();
+
+        const review = await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+        });
+
+        expect(review.lastReviewedCommit).toBe("launchsha");
+        const refetched = await manager.getPersonaReview(child.id);
+        expect(refetched!.lastReviewedCommit).toBe("launchsha");
+      });
+
+      it("defaults to null when no commit is supplied at launch", async () => {
+        const { parent, child } = await seedParentChild();
+
+        const review = await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+        });
+
+        expect(review.lastReviewedCommit).toBeNull();
+      });
+
+      it("updates last_reviewed_commit on completePersonaReview", async () => {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+        });
+
+        const completed = await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "fine",
+          lastReviewedCommit: "completesha",
+        });
+
+        expect(completed.lastReviewedCommit).toBe("completesha");
+      });
+
+      it("preserves last_reviewed_commit via COALESCE when completion omits it", async () => {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+        });
+
+        const completed = await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "fine",
+          // no lastReviewedCommit
+        });
+
+        expect(completed.lastReviewedCommit).toBe("launchsha");
+      });
+    });
+  });
+
   describe("listRecentPersonaReviews", () => {
     it("should return reviews created within the time window", async () => {
       const parent = await manager.createAgent({
