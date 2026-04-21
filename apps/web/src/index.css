@@ -38,7 +38,6 @@
 
   /* Surface & terminal */
   --surface: 50 15% 5%;
-  --terminal-bg: 0 0% 8%;
   --log-stream-bg: 48 10% 10%;
   --log-stream-foreground: 145 44% 78%;
   --log-stream-muted-foreground: 42 10% 64%;
@@ -78,7 +77,6 @@
   --chart-6: 150 57% 49%;
 
   --surface: 225 16% 7%;
-  --terminal-bg: 225 16% 7%;
   --log-stream-bg: 222 16% 10%;
   --log-stream-foreground: 164 52% 76%;
   --log-stream-muted-foreground: 220 8% 67%;
@@ -118,7 +116,6 @@
   --chart-6: 45 80% 48%;
 
   --surface: 0 0% 2%;
-  --terminal-bg: 0 0% 0%;
   --log-stream-bg: 0 0% 5%;
   --log-stream-foreground: 153 55% 74%;
   --log-stream-muted-foreground: 0 0% 58%;
@@ -158,7 +155,6 @@
   --chart-6: 68 80% 25%;
 
   --surface: 192 100% 8%;
-  --terminal-bg: 192 100% 11%;
   --log-stream-bg: 192 62% 13%;
   --log-stream-foreground: 182 21% 71%;
   --log-stream-muted-foreground: 194 14% 48%;
@@ -198,7 +194,6 @@
   --chart-6: 142 60% 30%;
 
   --surface: 207 22% 90%;
-  --terminal-bg: 210 23% 95%;
   --log-stream-bg: 210 29% 97%;
   --log-stream-foreground: 153 63% 26%;
   --log-stream-muted-foreground: 211 11% 39%;
@@ -238,7 +233,6 @@
   --chart-6: 160 100% 40%;
 
   --surface: 262 52% 4%;
-  --terminal-bg: 262 52% 6%;
   --log-stream-bg: 262 38% 10%;
   --log-stream-foreground: 181 78% 78%;
   --log-stream-muted-foreground: 270 20% 58%;
@@ -278,7 +272,6 @@
   --chart-6: 150 57% 49%;
 
   --surface: 0 0% 2%;
-  --terminal-bg: 0 0% 0%;
   --log-stream-bg: 220 12% 6%;
   --log-stream-foreground: 194 90% 74%;
   --log-stream-muted-foreground: 220 8% 60%;
@@ -318,7 +311,6 @@
   --chart-6: 46 40% 44%;
 
   --surface: 145 24% 2%;
-  --terminal-bg: 150 20% 1.5%;
   --log-stream-bg: 145 32% 4%;
   --log-stream-foreground: 139 94% 82%;
   --log-stream-muted-foreground: 138 25% 58%;
@@ -358,7 +350,6 @@
   --chart-6: 222 18% 55%;
 
   --surface: 220 12% 4%;
-  --terminal-bg: 0 0% 1%;
   --log-stream-bg: 228 18% 9%;
   --log-stream-foreground: 226 28% 84%;
   --log-stream-muted-foreground: 220 12% 60%;
@@ -554,12 +545,6 @@ html.ipad-pwa .overflow-scroll {
 
 .terminal-font {
   font-family: "JetBrains Mono", Menlo, monospace;
-}
-
-.xterm,
-.xterm .xterm-viewport,
-.xterm .xterm-screen {
-  background-color: hsl(var(--terminal-bg)) !important;
 }
 
 html[data-theme="matrix"] .xterm {

@@ -45,7 +45,7 @@ export const TerminalPane = memo(function TerminalPane({
   return (
     <div
       data-testid="terminal-pane"
-      className="relative h-full min-h-0 overflow-hidden bg-terminal-bg"
+      className="relative h-full min-h-0 overflow-hidden bg-background"
     >
       <div
         className={cn(
@@ -62,7 +62,7 @@ export const TerminalPane = memo(function TerminalPane({
       {showEmptyState ? (
         <div
           data-testid="terminal-empty-state"
-          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+          className="absolute inset-0 z-20 grid place-items-center bg-background"
         >
           <div className="flex max-w-md flex-col items-center gap-2 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-8 w-8" />
@@ -74,7 +74,7 @@ export const TerminalPane = memo(function TerminalPane({
       {showInertState ? (
         <div
           data-testid="terminal-inert-state"
-          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+          className="absolute inset-0 z-20 grid place-items-center bg-background"
         >
           <div className="flex max-w-xl flex-col items-center gap-3 px-6 text-center text-muted-foreground">
             <TerminalSquare className="h-9 w-9 text-status-waiting" />
@@ -92,7 +92,7 @@ export const TerminalPane = memo(function TerminalPane({
       {archivePhase ? (
         <div
           data-testid="terminal-archive-state"
-          className="absolute inset-0 z-20 grid place-items-center bg-terminal-bg"
+          className="absolute inset-0 z-20 grid place-items-center bg-background"
         >
           <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-muted-foreground">
             <Archive className="h-9 w-9 text-orange-400" />
