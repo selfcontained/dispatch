@@ -2108,7 +2108,7 @@ export class AgentManager {
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
     const launchGuidance = jobRunId
-      ? `[dispatch:${agentId}] Dispatch job startup rules: You are running a Dispatch job run (${jobRunId}). Do not use normal agent lifecycle tools such as dispatch_event; job agents have a dedicated MCP route. Use job_log for progress, use repo tools when relevant, and call a job terminal tool when the job is complete, failed, or needs input. ` +
+      ? `[dispatch:${agentId}] Dispatch job startup rules: You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route. Use dispatch_event to keep the agent status current in the UI, use job_log for task-level run progress, use repo tools when relevant, and call a job terminal tool when the job is complete, failed, or needs input. ` +
         (suggestSessionRename
           ? "If your session still has the default generated name, wait until you understand the task, then call dispatch_rename_session once with a short topic/goal/feature name. Use the session name as a stable label for the run, not as a live status update. "
           : "")

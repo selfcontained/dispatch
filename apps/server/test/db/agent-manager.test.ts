@@ -545,6 +545,10 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
+      expect(setupScript).toContain(
+        "Use dispatch_event to keep the agent status current in the UI"
+      );
+      expect(setupScript).toContain("use job_log for task-level run progress");
       expect(setupScript).toContain("dispatch_rename_session");
       expect(setupScript).toContain("short topic/goal/feature name");
     });

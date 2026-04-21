@@ -184,7 +184,7 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("exposes dispatch_rename_session on the job-scoped MCP route", async () => {
+  it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)
        VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`
@@ -225,6 +225,7 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("dispatch_event");
     expect(response.body).toContain("dispatch_rename_session");
   });
 });
