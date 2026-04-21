@@ -1002,10 +1002,12 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "restarting");
   appendReleaseLog(job, "==> restarting service");
 
-  // Trigger the restart. On macOS, launchctl kill sends SIGKILL to this
-  // process (and its process group). KeepAlive ensures launchd restarts it
-  // with the newly built code. On Linux, restart the user service directly.
-  // The UI health-poll takes over from here.
+  // Trigger the restart. On macOS, launchctl kickstart -k atomically kills
+  // and restarts the service regardless of the launchd domain's on-demand
+  // state (launchctl kill relies on KeepAlive, which doesn't fire when the
+  // GUI domain is in on-demand-only mode and leaves the job pending).
+  // On Linux, restart the user service directly. The UI health-poll takes
+  // over from here.
   if (process.platform === "linux") {
     spawn("systemctl", ["--user", "restart", "dispatch"], {
       detached: true,
@@ -1013,7 +1015,7 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     }).unref();
   } else {
     const uid = process.getuid?.() ?? 501;
-    spawn("launchctl", ["kill", "SIGKILL", `gui/${uid}/com.dispatch.server`], {
+    spawn("launchctl", ["kickstart", "-k", `gui/${uid}/com.dispatch.server`], {
       detached: true,
       stdio: "ignore",
     }).unref();
