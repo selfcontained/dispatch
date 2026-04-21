@@ -1617,6 +1617,7 @@ async function registerRoutes() {
       repoRoot,
       worktreeRoot,
       sendNotify: mcpSendNotify,
+      renameSession: mcpRenameSession,
       shareMedia: mcpShareMedia,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,

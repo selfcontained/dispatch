@@ -92,7 +92,7 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_needs_input` | Pause the run and ask a human a question.   |
 | `job_log`         | Append a progress log to a named task.      |
 
-Job agents may also call analytics tools (`get_activity_summary`, `get_agent_history`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`), and `create_pr` / `get_pr_status` / `dispatch_notify`.
+Job agents may also call analytics tools (`get_activity_summary`, `get_agent_history`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`), and `create_pr` / `get_pr_status` / `dispatch_rename_session` / `dispatch_notify`.
 
 ## UI
 

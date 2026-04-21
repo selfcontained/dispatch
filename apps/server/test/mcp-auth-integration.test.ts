@@ -183,4 +183,48 @@ describe("MCP auth integration", () => {
     expect(jobResponse.statusCode).toBe(404);
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
+
+  it("exposes dispatch_rename_session on the job-scoped MCP route", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, full_access)
+       VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`
+    );
+    await pool.query(
+      `INSERT INTO jobs (
+          id, directory, name, enabled, agent_type, use_worktree, full_access,
+          schedule, timeout_ms, needs_input_timeout_ms, auto_archive
+        )
+        VALUES (
+          'job_rename', '/tmp', 'Rename Job', true, 'codex', false, false,
+          null, 1800000, 1800000, true
+        )`
+    );
+    await pool.query(
+      `INSERT INTO job_runs (
+          id, job_id, status, started_at, status_updated_at, agent_id
+        )
+        VALUES (
+          'run_jobrename', 'job_rename', 'running', NOW(), NOW(), 'agt_jobrename'
+        )`
+    );
+
+    const authTokenResult = await pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const authToken = authTokenResult.rows[0]!.value;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/mcp/jobs/run_jobrename/agt_jobrename",
+      headers: {
+        authorization: `Bearer ${createJobMcpToken(authToken, "run_jobrename", "agt_jobrename")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("dispatch_rename_session");
+  });
 });

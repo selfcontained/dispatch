@@ -178,7 +178,7 @@ Persona agents get a narrower set focused on reviewing their parent's work: `rev
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_notify`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_rename_session`, `dispatch_notify`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
 
 ### Repo-specific tools
 

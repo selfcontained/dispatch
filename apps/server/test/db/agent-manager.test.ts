@@ -17,6 +17,7 @@ import {
   expect,
   beforeAll,
   afterAll,
+  afterEach,
   beforeEach,
   vi,
 } from "vitest";
@@ -530,6 +531,22 @@ describe("AgentManager", () => {
       );
       expect(setupScript).not.toContain("Autonomous Review is enabled");
       expect(setupScript).toContain("Dispatch job startup rules");
+    });
+
+    it("should include rename guidance for job agents with default names", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "codex",
+        jobRunId: "run_abc123",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("dispatch_rename_session");
+      expect(setupScript).toContain("short topic/goal/feature name");
     });
 
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
