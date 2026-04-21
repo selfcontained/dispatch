@@ -696,9 +696,15 @@ function useFeedbackData(parentAgentId: string) {
 
   const updateStatus = useCallback(
     async (item: FeedbackItem, status: string) => {
+      const body: { status: string; reason?: string } = { status };
+      // Server requires a reason when ignoring. Until CRU-129 adds the
+      // inline prompt, stamp a generic reason so the UI button works.
+      if (status === "ignored") {
+        body.reason = "User's choice";
+      }
       await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       });
       const update = (f: FeedbackItem) =>
         f.id === item.id
