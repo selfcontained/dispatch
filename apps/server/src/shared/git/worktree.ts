@@ -56,6 +56,18 @@ export class GitWorktreeError extends Error {
   }
 }
 
+export async function resolveHeadSha(cwd: string): Promise<string | null> {
+  try {
+    const result = await runCommand("git", ["-C", cwd, "rev-parse", "HEAD"], {
+      allowedExitCodes: [0, 128],
+    });
+    if (result.exitCode !== 0 || !result.stdout) return null;
+    return result.stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createGitWorktree(
   input: CreateGitWorktreeInput,
   commandRunner: CommandRunner = runCommand

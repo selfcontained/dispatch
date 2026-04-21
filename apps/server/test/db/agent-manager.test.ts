@@ -1355,7 +1355,8 @@ describe("AgentManager", () => {
       const result = await manager.updateFeedbackStatusByParent(
         feedback.id,
         parentB.id,
-        "ignored"
+        "ignored",
+        { reason: "not my problem" }
       );
       expect(result).toBeNull();
     });

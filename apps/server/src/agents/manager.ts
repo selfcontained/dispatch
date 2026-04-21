@@ -186,6 +186,7 @@ export type PersonaReviewRecord = {
   verdict: string | null;
   summary: string | null;
   filesReviewed: string[] | null;
+  lastReviewedCommit: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -200,7 +201,19 @@ export type FeedbackRecord = {
   suggestion: string | null;
   mediaRef: string | null;
   status: string;
+  resolutionReason: string | null;
+  resolutionCommit: string | null;
+  resolvedAt: string | null;
   createdAt: string;
+};
+
+export type PersonaReviewResolutionRecord = {
+  id: number;
+  reviewId: number;
+  roundNumber: number;
+  summary: string;
+  resolutionCommit: string | null;
+  submittedAt: string;
 };
 
 type AgentLatestEventInput = {
@@ -2375,15 +2388,22 @@ export class AgentManager {
     agentId: string;
     parentAgentId: string;
     persona: string;
+    lastReviewedCommit?: string | null;
   }): Promise<PersonaReviewRecord> {
     const result = await this.pool.query<PersonaReviewRecord>(
-      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona)
-       VALUES ($1, $2, $3)
+      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, last_reviewed_commit)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
+                 last_reviewed_commit AS "lastReviewedCommit",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [input.agentId, input.parentAgentId, input.persona]
+      [
+        input.agentId,
+        input.parentAgentId,
+        input.persona,
+        input.lastReviewedCommit ?? null,
+      ]
     );
     return result.rows[0]!;
   }
@@ -2406,6 +2426,7 @@ export class AgentManager {
        RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
+                 last_reviewed_commit AS "lastReviewedCommit",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [agentId, input.status, input.message ?? null]
     );
@@ -2421,6 +2442,7 @@ export class AgentManager {
       summary: string;
       filesReviewed?: string[];
       message?: string;
+      lastReviewedCommit?: string | null;
     }
   ): Promise<PersonaReviewRecord> {
     const VALID_VERDICTS = ["approve", "request_changes"];
@@ -2452,11 +2474,14 @@ export class AgentManager {
     const result = await this.pool.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
        SET status = 'complete', verdict = $2, summary = $3,
-           files_reviewed = $4::jsonb, message = $5, updated_at = NOW()
+           files_reviewed = $4::jsonb, message = $5,
+           last_reviewed_commit = COALESCE($6, last_reviewed_commit),
+           updated_at = NOW()
        WHERE agent_id = $1
        RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
+                 last_reviewed_commit AS "lastReviewedCommit",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         agentId,
@@ -2464,6 +2489,7 @@ export class AgentManager {
         input.summary,
         JSON.stringify(input.filesReviewed ?? []),
         input.message ?? null,
+        input.lastReviewedCommit ?? null,
       ]
     );
     if (result.rowCount === 0)
@@ -2476,6 +2502,7 @@ export class AgentManager {
       `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
+              last_reviewed_commit AS "lastReviewedCommit",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews WHERE agent_id = $1`,
       [agentId]
@@ -2490,6 +2517,7 @@ export class AgentManager {
       `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
+              last_reviewed_commit AS "lastReviewedCommit",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews WHERE parent_agent_id = $1
        ORDER BY created_at`,
@@ -2505,6 +2533,7 @@ export class AgentManager {
       `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
+              last_reviewed_commit AS "lastReviewedCommit",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews
        WHERE created_at >= NOW() - make_interval(days => $1)
@@ -2520,7 +2549,11 @@ export class AgentManager {
     const result = await this.pool.query<FeedbackRecord & { persona: string }>(
       `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
               f.line_number AS "lineNumber", f.description, f.suggestion,
-              f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+              f.media_ref AS "mediaRef", f.status,
+              f.resolution_reason AS "resolutionReason",
+              f.resolution_commit AS "resolutionCommit",
+              f.resolved_at AS "resolvedAt",
+              f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
        WHERE f.created_at >= NOW() - make_interval(days => $1)
@@ -3175,7 +3208,11 @@ export class AgentManager {
       `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-                 description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"`,
+                 description, suggestion, media_ref AS "mediaRef", status,
+                 resolution_reason AS "resolutionReason",
+                 resolution_commit AS "resolutionCommit",
+                 resolved_at AS "resolvedAt",
+                 created_at AS "createdAt"`,
       [
         agentId,
         feedback.severity ?? "info",
@@ -3192,7 +3229,11 @@ export class AgentManager {
   async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
     const result = await this.pool.query<FeedbackRecord>(
       `SELECT id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-              description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"
+              description, suggestion, media_ref AS "mediaRef", status,
+              resolution_reason AS "resolutionReason",
+              resolution_commit AS "resolutionCommit",
+              resolved_at AS "resolvedAt",
+              created_at AS "createdAt"
        FROM agent_feedback WHERE agent_id = $1 ORDER BY created_at ASC`,
       [agentId]
     );
@@ -3202,7 +3243,11 @@ export class AgentManager {
   async listFeedbackByParent(parentAgentId: string): Promise<FeedbackRecord[]> {
     const result = await this.pool.query<FeedbackRecord>(
       `SELECT f.id, f.agent_id AS "agentId", f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
-              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status,
+              f.resolution_reason AS "resolutionReason",
+              f.resolution_commit AS "resolutionCommit",
+              f.resolved_at AS "resolvedAt",
+              f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
        WHERE a.parent_agent_id = $1
@@ -3233,7 +3278,11 @@ export class AgentManager {
 
     const result = await this.pool.query<FeedbackRecord & { persona: string }>(
       `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
-              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status, f.created_at AS "createdAt"
+              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status,
+              f.resolution_reason AS "resolutionReason",
+              f.resolution_commit AS "resolutionCommit",
+              f.resolved_at AS "resolvedAt",
+              f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
        ${whereClause}
@@ -3265,14 +3314,39 @@ export class AgentManager {
   async updateFeedbackStatus(
     feedbackId: number,
     agentId: string,
-    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
+    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
+    options: { reason?: string | null; resolutionCommit?: string | null } = {}
   ): Promise<FeedbackRecord | null> {
+    const reason = options.reason ?? null;
+    if (status === "ignored" && !(reason && reason.trim().length > 0)) {
+      throw new AgentError(
+        "A reason is required when marking feedback as ignored.",
+        400
+      );
+    }
     const result = await this.pool.query<FeedbackRecord>(
-      `UPDATE agent_feedback SET status = $2
+      `UPDATE agent_feedback
+       SET status = $2,
+           resolution_reason = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN $4
+             ELSE resolution_reason
+           END,
+           resolution_commit = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN $5
+             ELSE resolution_commit
+           END,
+           resolved_at = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN NOW()
+             ELSE NULL
+           END
        WHERE id = $1 AND agent_id = $3
        RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-                 description, suggestion, media_ref AS "mediaRef", status, created_at AS "createdAt"`,
-      [feedbackId, status, agentId]
+                 description, suggestion, media_ref AS "mediaRef", status,
+                 resolution_reason AS "resolutionReason",
+                 resolution_commit AS "resolutionCommit",
+                 resolved_at AS "resolvedAt",
+                 created_at AS "createdAt"`,
+      [feedbackId, status, agentId, reason, options.resolutionCommit ?? null]
     );
     return result.rows[0] ?? null;
   }
@@ -3280,18 +3354,174 @@ export class AgentManager {
   async updateFeedbackStatusByParent(
     feedbackId: number,
     parentAgentId: string,
-    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored"
+    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
+    options: { reason?: string | null; resolutionCommit?: string | null } = {}
   ): Promise<FeedbackRecord | null> {
+    const reason = options.reason ?? null;
+    if (status === "ignored" && !(reason && reason.trim().length > 0)) {
+      throw new AgentError(
+        "A reason is required when marking feedback as ignored.",
+        400
+      );
+    }
     const result = await this.pool.query<FeedbackRecord>(
-      `UPDATE agent_feedback af SET status = $2
+      `UPDATE agent_feedback af
+       SET status = $2,
+           resolution_reason = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN $4
+             ELSE af.resolution_reason
+           END,
+           resolution_commit = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN $5
+             ELSE af.resolution_commit
+           END,
+           resolved_at = CASE
+             WHEN $2 IN ('fixed', 'ignored') THEN NOW()
+             ELSE NULL
+           END
        FROM agents a
        WHERE af.id = $1 AND af.agent_id = a.id AND a.parent_agent_id = $3
        RETURNING af.id, af.agent_id AS "agentId", af.severity, af.file_path AS "filePath",
                  af.line_number AS "lineNumber", af.description, af.suggestion,
-                 af.media_ref AS "mediaRef", af.status, af.created_at AS "createdAt"`,
-      [feedbackId, status, parentAgentId]
+                 af.media_ref AS "mediaRef", af.status,
+                 af.resolution_reason AS "resolutionReason",
+                 af.resolution_commit AS "resolutionCommit",
+                 af.resolved_at AS "resolvedAt",
+                 af.created_at AS "createdAt"`,
+      [
+        feedbackId,
+        status,
+        parentAgentId,
+        reason,
+        options.resolutionCommit ?? null,
+      ]
     );
     return result.rows[0] ?? null;
+  }
+
+  async submitReviewResolution(input: {
+    parentAgentId: string;
+    personaAgentId: string;
+    summary: string;
+    resolutionCommit?: string | null;
+  }): Promise<{
+    review: PersonaReviewRecord;
+    resolution: PersonaReviewResolutionRecord;
+  }> {
+    const summary = input.summary.trim();
+    if (summary.length === 0) {
+      throw new AgentError("summary is required.", 400);
+    }
+    if (summary.length > 10_000) {
+      throw new AgentError("summary exceeds 10,000 character limit.", 400);
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const reviewResult = await client.query<PersonaReviewRecord>(
+        `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                persona, status, message, verdict, summary,
+                files_reviewed AS "filesReviewed",
+                last_reviewed_commit AS "lastReviewedCommit",
+                created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM persona_reviews
+         WHERE agent_id = $1 AND parent_agent_id = $2
+         FOR UPDATE`,
+        [input.personaAgentId, input.parentAgentId]
+      );
+      const review = reviewResult.rows[0];
+      if (!review) {
+        throw new AgentError(
+          `No persona review found for agent ${input.personaAgentId} under parent ${input.parentAgentId}.`,
+          404
+        );
+      }
+      if (review.status !== "complete") {
+        throw new AgentError(
+          `Review must be in status 'complete' to submit a resolution (current: ${review.status}).`,
+          409
+        );
+      }
+
+      const openOrUnresolved = await client.query<{
+        id: number;
+        status: string;
+        resolution_reason: string | null;
+      }>(
+        `SELECT id, status, resolution_reason
+         FROM agent_feedback
+         WHERE agent_id = $1
+         ORDER BY id ASC`,
+        [input.personaAgentId]
+      );
+      const openIds: number[] = [];
+      const ignoredMissingReason: number[] = [];
+      for (const row of openOrUnresolved.rows) {
+        if (row.status === "open") {
+          openIds.push(row.id);
+        } else if (
+          row.status === "ignored" &&
+          !(row.resolution_reason && row.resolution_reason.trim().length > 0)
+        ) {
+          ignoredMissingReason.push(row.id);
+        }
+      }
+      if (openIds.length > 0) {
+        throw new AgentError(
+          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}.`,
+          409
+        );
+      }
+      if (ignoredMissingReason.length > 0) {
+        throw new AgentError(
+          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}.`,
+          409
+        );
+      }
+
+      const roundNumber = 1;
+      const inserted = await client.query<PersonaReviewResolutionRecord>(
+        `INSERT INTO persona_review_resolutions
+           (review_id, round_number, summary, resolution_commit)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (review_id, round_number) DO UPDATE
+           SET summary = EXCLUDED.summary,
+               resolution_commit = EXCLUDED.resolution_commit,
+               submitted_at = NOW()
+         RETURNING id,
+                   review_id AS "reviewId",
+                   round_number AS "roundNumber",
+                   summary,
+                   resolution_commit AS "resolutionCommit",
+                   submitted_at AS "submittedAt"`,
+        [review.id, roundNumber, summary, input.resolutionCommit ?? null]
+      );
+
+      await client.query("COMMIT");
+      return { review, resolution: inserted.rows[0]! };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getReviewResolutions(
+    reviewId: number
+  ): Promise<PersonaReviewResolutionRecord[]> {
+    const result = await this.pool.query<PersonaReviewResolutionRecord>(
+      `SELECT id, review_id AS "reviewId", round_number AS "roundNumber",
+              summary, resolution_commit AS "resolutionCommit",
+              submitted_at AS "submittedAt"
+       FROM persona_review_resolutions
+       WHERE review_id = $1
+       ORDER BY round_number ASC, submitted_at ASC`,
+      [reviewId]
+    );
+    return result.rows;
   }
 
   private baseAgentSelectSql(): string {
