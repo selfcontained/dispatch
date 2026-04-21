@@ -58,6 +58,12 @@ export type Agent = {
     summary: string | null;
     filesReviewed: string[] | null;
     updatedAt: string;
+    resolution: {
+      summary: string;
+      resolutionCommit: string | null;
+      submittedAt: string;
+      roundNumber: number;
+    } | null;
   } | null;
   baseBranch?: string | null;
   autoReview?: boolean;
@@ -76,6 +82,9 @@ export type FeedbackItem = {
   suggestion: string | null;
   mediaRef: string | null;
   status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored";
+  resolutionReason: string | null;
+  resolutionCommit: string | null;
+  resolvedAt: string | null;
   createdAt: string;
 };
 

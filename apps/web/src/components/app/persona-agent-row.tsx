@@ -121,6 +121,10 @@ export function getFilesReviewed(child: Agent): string[] | undefined {
   return Array.isArray(f) ? f : undefined;
 }
 
+export function getResolution(child: Agent) {
+  return child.review?.resolution ?? undefined;
+}
+
 export function PersonaAgentRow({
   child,
   childIndex,
@@ -145,6 +149,8 @@ export function PersonaAgentRow({
   const isReviewing = reviewStatus === "reviewing";
   const verdict = getVerdict(child);
   const hasSummary = !!getReviewSummary(child);
+  const resolution = getResolution(child);
+  const hasResolution = !!resolution?.summary;
   const reviewMessage = child.review?.message?.split("\n")[0] ?? null;
 
   return (
@@ -186,7 +192,24 @@ export function PersonaAgentRow({
           </div>
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-[10px]">
-          {verdict ? (
+          {hasResolution ? (
+            (hasSummary || resolution?.summary) && onOpenSummary ? (
+              <button
+                data-agent-control="true"
+                className="font-medium text-muted-foreground underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-solid"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenSummary();
+                }}
+              >
+                Resolution submitted
+              </button>
+            ) : (
+              <span className="font-medium text-muted-foreground">
+                Resolution submitted
+              </span>
+            )
+          ) : verdict ? (
             hasSummary && onOpenSummary ? (
               <button
                 data-agent-control="true"
