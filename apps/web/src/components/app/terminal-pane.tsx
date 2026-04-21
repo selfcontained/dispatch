@@ -121,8 +121,8 @@ export const TerminalPane = memo(function TerminalPane({
       ) : null}
 
       {showReconnectOverlay ? (
-        <div className="absolute inset-0 z-30 grid place-items-center bg-black/70 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-2 text-sm text-white">
+        <div className="absolute inset-0 z-30 grid place-items-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 text-sm text-foreground">
             <ActivityBars size={28} />
             <span>{statusMessage}</span>
           </div>
