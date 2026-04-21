@@ -288,6 +288,20 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
       "cafef00dcafef00dcafef00dcafef00dcafef00d"
     );
   });
+
+  it("requires authentication", async () => {
+    const childId = await insertAgent();
+    const feedbackId = await insertFeedback(childId);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
+      headers: { "content-type": "application/json" },
+      payload: { status: "fixed" },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
 });
 
 describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", () => {
@@ -347,6 +361,22 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toMatch(/summary is required/i);
+  });
+
+  // Exercises the manager-level 10k cap through handleAgentError so a refactor
+  // that drops the cap or swallows its throw surfaces as an HTTP-layer failure.
+  it("rejects a summary above the 10,000 character limit", async () => {
+    const { parentId, childId } = await seed();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { summary: "x".repeat(10_001) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toMatch(/10,000 character/);
   });
 
   it("rejects with 409 when feedback items are still open", async () => {
@@ -416,6 +446,28 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
 
     expect(response.statusCode).toBe(404);
     expect(response.json().error).toMatch(/Agent not found/i);
+  });
+
+  // The "no persona_reviews row" 404 path throws from inside the transactional
+  // block in submitReviewResolution. Exercising it at the HTTP layer ensures
+  // handleAgentError translates the inner AgentError(..., 404) correctly.
+  it("returns 404 when no persona_reviews row exists for the parent/child pair", async () => {
+    const parentId = await insertAgent();
+    const childId = await insertAgent({
+      parentAgentId: parentId,
+      persona: "security-review",
+    });
+    // Note: no insertPersonaReview call — both agents exist but the review row is missing.
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { summary: "nothing to resolve against" },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error).toMatch(/No persona review found/i);
   });
 
   it("persists summary + HEAD sha on the happy path", async () => {
