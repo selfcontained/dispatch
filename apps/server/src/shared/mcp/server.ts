@@ -162,6 +162,8 @@ const AGENT_TOOLS = new Set([
 const JOB_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
+  "dispatch_event",
+  "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",

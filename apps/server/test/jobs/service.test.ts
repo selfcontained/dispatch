@@ -91,6 +91,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM jobs");
   await pool.query("DELETE FROM agents WHERE id LIKE 'agt_cb_%'");
   vi.mocked(mockLog.warn).mockClear();
+  vi.mocked(mockAgentManager.createAgent).mockReset();
 });
 
 describe("JobService", () => {
@@ -250,6 +251,69 @@ describe("JobService", () => {
   });
 
   describe("error paths", () => {
+    it("runJob creates a job agent with the production-generated default name", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      const job = await makeJob(store, {
+        name: "Rename Test",
+        directory: "/tmp/test-rename",
+      });
+
+      vi.mocked(mockAgentManager.createAgent).mockImplementation(async () => {
+        const createdAt = new Date().toISOString();
+        await pool.query(
+          `INSERT INTO agents (id, name, type, status, cwd, codex_args, full_access)
+           VALUES ('agt_job_rename', 'job-Rename_Test-placeholder', 'claude', 'running', '/tmp/test-rename', '[]'::jsonb, false)`
+        );
+        return {
+          id: "agt_job_rename",
+          name: "job-Rename_Test-placeholder",
+          type: "claude",
+          status: "running",
+          cwd: "/tmp/test-rename",
+          tmuxSession: null,
+          createdAt,
+          updatedAt: createdAt,
+          metadata: null,
+          codexArgs: [],
+          claudeArgs: [],
+          opencodeArgs: [],
+          latestEvent: null,
+          fullAccess: false,
+          useWorktree: false,
+          worktreePath: null,
+          worktreeBranch: null,
+          setupPhase: null,
+          parentAgentId: null,
+          persona: null,
+          autoReview: false,
+          baseBranch: null,
+        } as Awaited<ReturnType<AgentManager["createAgent"]>>;
+      });
+
+      const result = await service.runJob({
+        name: "Rename Test",
+        directory: "/tmp/test-rename",
+        wait: false,
+      });
+
+      expect(result.status).toBe("running");
+      expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobRunId: result.runId,
+          name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
+        })
+      );
+
+      service.stopAllSchedulers();
+    });
+
     it("runJob throws when job has no prompt", async () => {
       const service = new JobService(
         pool,
