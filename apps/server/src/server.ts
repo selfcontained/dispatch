@@ -1614,7 +1614,14 @@ async function registerRoutes() {
 
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
-      agent,
+      agent: {
+        id: agent.id,
+        cwd: agent.cwd,
+        persona: agent.persona,
+        parentAgentId: agent.parentAgentId,
+        baseBranch: agent.baseBranch,
+        review: null,
+      },
       repoRoot,
       worktreeRoot,
       sendNotify: mcpSendNotify,
@@ -1665,6 +1672,9 @@ async function registerRoutes() {
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
     }
+    const review = agent.persona
+      ? await agentManager.getPersonaReview(agentId)
+      : null;
     const activeJobRun = await jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
       return reply
@@ -1689,6 +1699,7 @@ async function registerRoutes() {
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
+        review: review ? { allowRecheck: review.allowRecheck } : null,
       },
       repoRoot,
       worktreeRoot,

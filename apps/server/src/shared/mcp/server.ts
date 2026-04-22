@@ -14,6 +14,9 @@ export type McpAgent = {
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
+  review?: {
+    allowRecheck?: boolean;
+  } | null;
 };
 
 export type MediaResult = {
@@ -68,6 +71,7 @@ export type AwaitRecheckResponse =
       resolutions: ReviewResolutionItem[];
       diffSincePreviousRound: string;
     }
+  | { status: "complete" }
   | { status: "cancelled" };
 
 export type PersonaFeedbackGroup = {
@@ -209,7 +213,6 @@ const JOB_TOOLS = new Set([
 const PERSONA_TOOLS = new Set([
   "review_status",
   "dispatch_complete_review",
-  "dispatch_await_recheck",
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
@@ -422,7 +425,10 @@ async function createDispatchMcpServer(
     : context.jobTools
       ? "job"
       : "agent";
-  const allowed = TOOL_SETS[agentType];
+  const allowed = new Set(TOOL_SETS[agentType]);
+  if (context.agent?.persona && context.agent.review?.allowRecheck) {
+    allowed.add("dispatch_await_recheck");
+  }
 
   // ── review_status (persona) ───────────────────────────────────────
   if (
@@ -586,6 +592,12 @@ async function createDispatchMcpServer(
           if (result.status === "cancelled") {
             return {
               content: [{ type: "text", text: "Recheck cancelled." }],
+              structuredContent: result,
+            };
+          }
+          if (result.status === "complete") {
+            return {
+              content: [{ type: "text", text: "Recheck complete." }],
               structuredContent: result,
             };
           }

@@ -184,6 +184,55 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
+  it("only exposes dispatch_await_recheck to reviewers launched with allowRecheck", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
+       VALUES
+       ('agt_parentreview', 'parent', 'codex', 'running', '/tmp', null, null, false),
+       ('agt_persona_plain', 'plain-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
+       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
+    );
+    await pool.query(
+      `INSERT INTO persona_reviews (
+          agent_id, parent_agent_id, persona, status, round_number, allow_recheck
+        )
+        VALUES
+        ('agt_persona_plain', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, false),
+        ('agt_persona_recheck', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, true)`
+    );
+
+    const authTokenResult = await pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const authToken = authTokenResult.rows[0]!.value;
+
+    const plainResponse = await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_persona_plain",
+      headers: {
+        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_persona_plain")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    expect(plainResponse.statusCode).toBe(200);
+    expect(plainResponse.body).not.toContain("dispatch_await_recheck");
+
+    const recheckResponse = await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_persona_recheck",
+      headers: {
+        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_persona_recheck")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    expect(recheckResponse.statusCode).toBe(200);
+    expect(recheckResponse.body).toContain("dispatch_await_recheck");
+  });
+
   it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)

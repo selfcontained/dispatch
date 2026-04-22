@@ -2124,6 +2124,24 @@ describe("AgentManager", () => {
         ).rejects.toThrow(/after round 2 is already complete/);
       });
 
+      it("rejects cancelling while round 1 review is still in progress", async () => {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+
+        await expect(
+          manager.cancelReviewRecheck({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+          })
+        ).rejects.toThrow(/can only be cancelled while awaiting round 2/i);
+      });
+
       it("records round 2 findings with round_number = 2", async () => {
         const { child } = await seedAwaitingRecheckReview();
 
@@ -2132,6 +2150,18 @@ describe("AgentManager", () => {
         });
 
         expect(round2Feedback.roundNumber).toBe(2);
+      });
+
+      it("returns complete once round 2 has already been submitted", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 complete",
+        });
+
+        await expect(manager.awaitReviewRecheck(child.id)).resolves.toEqual({
+          status: "complete",
+        });
       });
     });
   });

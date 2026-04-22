@@ -252,6 +252,7 @@ export type AwaitRecheckResult =
       resolution: PersonaReviewResolutionRecord;
       resolutions: PersonaReviewResolutionItem[];
     }
+  | { status: "complete" }
   | { status: "cancelled" };
 
 type AgentLatestEventInput = {
@@ -3314,45 +3315,58 @@ export class AgentManager {
     agentId: string,
     feedback: FeedbackInput
   ): Promise<FeedbackRecord> {
-    const reviewResult = await this.pool.query<{
-      status: string;
-      roundNumber: number;
-    }>(
-      `SELECT status, round_number AS "roundNumber"
-       FROM persona_reviews
-       WHERE agent_id = $1`,
-      [agentId]
-    );
-    const review = reviewResult.rows[0];
-    const feedbackRoundNumber = review
-      ? review.status === "awaiting_recheck"
-        ? review.roundNumber + 1
-        : review.roundNumber
-      : 1;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    const result = await this.pool.query<FeedbackRecord>(
-      `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref, round_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-                 description, suggestion, media_ref AS "mediaRef", status,
-                 resolution_reason AS "resolutionReason",
-                 resolution_commit AS "resolutionCommit",
-                 resolved_at AS "resolvedAt",
-                 round_number AS "roundNumber",
-                 responds_to_feedback_id AS "respondsToFeedbackId",
-                 created_at AS "createdAt"`,
-      [
-        agentId,
-        feedback.severity ?? "info",
-        feedback.filePath ?? null,
-        feedback.lineNumber ?? null,
-        feedback.description,
-        feedback.suggestion ?? null,
-        feedback.mediaRef ?? null,
-        feedbackRoundNumber,
-      ]
-    );
-    return result.rows[0]!;
+      const reviewResult = await client.query<{
+        status: string;
+        roundNumber: number;
+      }>(
+        `SELECT status, round_number AS "roundNumber"
+         FROM persona_reviews
+         WHERE agent_id = $1
+         FOR UPDATE`,
+        [agentId]
+      );
+      const review = reviewResult.rows[0];
+      const feedbackRoundNumber = review
+        ? review.status === "awaiting_recheck"
+          ? review.roundNumber + 1
+          : review.roundNumber
+        : 1;
+
+      const result = await client.query<FeedbackRecord>(
+        `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref, round_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
+                   description, suggestion, media_ref AS "mediaRef", status,
+                   resolution_reason AS "resolutionReason",
+                   resolution_commit AS "resolutionCommit",
+                   resolved_at AS "resolvedAt",
+                   round_number AS "roundNumber",
+                   responds_to_feedback_id AS "respondsToFeedbackId",
+                   created_at AS "createdAt"`,
+        [
+          agentId,
+          feedback.severity ?? "info",
+          feedback.filePath ?? null,
+          feedback.lineNumber ?? null,
+          feedback.description,
+          feedback.suggestion ?? null,
+          feedback.mediaRef ?? null,
+          feedbackRoundNumber,
+        ]
+      );
+
+      await client.query("COMMIT");
+      return result.rows[0]!;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
@@ -3742,6 +3756,15 @@ export class AgentManager {
         await client.query("COMMIT");
         return review;
       }
+      if (
+        review.status !== "awaiting_recheck" &&
+        !(review.status === "complete" && review.allowRecheck)
+      ) {
+        throw new AgentError(
+          `Recheck can only be cancelled while awaiting round 2 or while the reviewer is polling after round 1 (current: ${review.status}).`,
+          409
+        );
+      }
 
       const updatedResult = await client.query<PersonaReviewRecord>(
         `UPDATE persona_reviews
@@ -3857,7 +3880,7 @@ export class AgentManager {
       }
       if (review.roundNumber >= 2) {
         await client.query("COMMIT");
-        return { status: "cancelled" };
+        return { status: "complete" };
       }
 
       const pollCadence = pollCadenceSeconds(new Date(review.updatedAt), now);
