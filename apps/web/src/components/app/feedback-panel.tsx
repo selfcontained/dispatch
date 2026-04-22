@@ -429,7 +429,6 @@ export function ParentFeedbackPanel({
             const canTriage = isConnected && !!sendTerminalInput;
             const childVerdict = getVerdict(child);
             const childSummary = getReviewSummary(child);
-            const childResolution = child.review?.resolution ?? null;
             const handleTriage =
               unresolvedCount > 0
                 ? () => {
@@ -501,27 +500,6 @@ export function ParentFeedbackPanel({
                         });
                       }}
                     />
-                  </div>
-                ) : null}
-                {childResolution ? (
-                  <div
-                    className="ml-8 mt-1 rounded-md border border-border/60 bg-muted/20 p-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
-                      Parent's response
-                    </div>
-                    <Markdown className="text-xs text-foreground">
-                      {childResolution.summary}
-                    </Markdown>
-                    {childResolution.resolutionCommit ? (
-                      <div className="mt-1 text-[10px] text-muted-foreground/70">
-                        at{" "}
-                        <span className="font-mono text-muted-foreground">
-                          {shortSha(childResolution.resolutionCommit)}
-                        </span>
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
                 <AnimatePresence initial={false}>

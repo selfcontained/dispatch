@@ -125,6 +125,128 @@ export function getResolution(child: Agent) {
   return child.review?.resolution ?? undefined;
 }
 
+type StepColor = "orange" | "emerald" | "muted";
+
+const STEP_COLOR: Record<StepColor, string> = {
+  orange: "text-orange-500",
+  emerald: "text-emerald-500",
+  muted: "text-muted-foreground",
+};
+
+type StepDef = {
+  label: string;
+  color: StepColor;
+  filled: boolean;
+};
+
+function StepperStep({ step }: { step: StepDef }): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap font-semibold",
+        STEP_COLOR[step.color],
+        !step.filled && "opacity-60"
+      )}
+    >
+      <span
+        className={cn(
+          "h-1.5 w-1.5 shrink-0 rounded-full",
+          step.filled ? "bg-current" : "border border-current bg-transparent"
+        )}
+      />
+      <span>{step.label}</span>
+    </span>
+  );
+}
+
+/**
+ * Two-step pill showing reviewer verdict and parent-response state.
+ * Pure presentation — caller derives step primitives from the source data.
+ */
+function ReviewStepper({
+  step1,
+  step2,
+  connector,
+  round,
+  onOpen,
+}: {
+  step1: StepDef;
+  step2: StepDef;
+  connector: "solid" | "dashed";
+  round?: number;
+  onOpen?: () => void;
+}): JSX.Element {
+  const pillClass = cn(
+    "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background/40 px-2 py-0.5 text-[10px] transition-colors",
+    onOpen && "cursor-pointer hover:bg-muted/40"
+  );
+
+  const inner = (
+    <>
+      <StepperStep step={step1} />
+      <span
+        aria-hidden
+        className={cn(
+          "h-0 w-3 shrink-0 border-t",
+          connector === "solid"
+            ? "border-border"
+            : "border-dashed border-border/60"
+        )}
+      />
+      <StepperStep step={step2} />
+    </>
+  );
+
+  const badge =
+    typeof round === "number" && round > 1 ? (
+      <span className="inline-flex h-4 items-center rounded border border-border bg-muted/40 px-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+        R{round}
+      </span>
+    ) : null;
+
+  const ariaLabel = `${step1.label} — ${step2.label}`;
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      {badge}
+      {onOpen ? (
+        <button
+          data-agent-control="true"
+          className={pillClass}
+          aria-label={ariaLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+        >
+          {inner}
+        </button>
+      ) : (
+        <span className={pillClass} aria-label={ariaLabel}>
+          {inner}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Derive stepper step primitives from Phase 1 review data. */
+function stepsFromReview(
+  verdict: ReviewVerdict,
+  hasResolution: boolean
+): { step1: StepDef; step2: StepDef; connector: "solid" | "dashed" } {
+  const step1: StepDef = {
+    label: reviewVerdictLabel(verdict),
+    color: verdict === "approve" ? "emerald" : "orange",
+    filled: true,
+  };
+  const step2: StepDef = hasResolution
+    ? { label: "Responded", color: "muted", filled: true }
+    : { label: "Awaiting response", color: "muted", filled: false };
+  const connector: "solid" | "dashed" = hasResolution ? "solid" : "dashed";
+  return { step1, step2, connector };
+}
+
 export function PersonaAgentRow({
   child,
   childIndex,
@@ -191,51 +313,12 @@ export function PersonaAgentRow({
             ) : null}
           </div>
         </div>
-        <div className="mt-1 flex items-center gap-1.5 text-[10px]">
-          {hasResolution ? (
-            onOpenSummary ? (
-              <button
-                data-agent-control="true"
-                className="font-medium text-muted-foreground underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground hover:decoration-solid"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenSummary();
-                }}
-              >
-                Resolution submitted
-              </button>
-            ) : (
-              <span className="font-medium text-muted-foreground">
-                Resolution submitted
-              </span>
-            )
-          ) : verdict ? (
-            hasSummary && onOpenSummary ? (
-              <button
-                data-agent-control="true"
-                className={cn(
-                  "font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid transition-colors",
-                  verdict === "approve"
-                    ? "text-emerald-500 decoration-emerald-500/40 hover:decoration-emerald-500"
-                    : "text-orange-500 decoration-orange-500/40 hover:decoration-orange-500"
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenSummary();
-                }}
-              >
-                {reviewVerdictLabel(verdict)}
-              </button>
-            ) : (
-              <span
-                className={cn(
-                  "font-medium",
-                  verdict === "approve" ? "text-emerald-500" : "text-orange-500"
-                )}
-              >
-                {reviewVerdictLabel(verdict)}
-              </span>
-            )
+        <div className="mt-1 flex items-center gap-1 text-[10px]">
+          {verdict ? (
+            <ReviewStepper
+              {...stepsFromReview(verdict, hasResolution)}
+              onOpen={hasSummary || hasResolution ? onOpenSummary : undefined}
+            />
           ) : isReviewing ? (
             <span className="font-medium text-status-working">
               {reviewMessage ?? "Reviewing"}
