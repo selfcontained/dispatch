@@ -1,4 +1,12 @@
-import { Check, Eye, ListChecks, Terminal, X, XCircle } from "lucide-react";
+import {
+  CircleDashed,
+  Flag,
+  ListChecks,
+  Loader2,
+  Terminal,
+  ThumbsUp,
+  X,
+} from "lucide-react";
 
 import {
   reviewVerdictLabel,
@@ -39,28 +47,24 @@ function PersonaStatusIcon({
   verdict?: ReviewVerdict;
   className?: string;
 }): JSX.Element {
-  // Review complete — show verdict icon
   if (reviewStatus === "complete" && verdict) {
     return <PersonaVerdictIcon verdict={verdict} className={className} />;
   }
 
-  // Actively reviewing — pulsing eye
   if (reviewStatus === "reviewing") {
     return (
       <span
         className={cn(
           "inline-flex shrink-0 items-center justify-center rounded-full",
-          "border border-status-working/50 bg-status-working/15 text-status-working",
-          "animate-persona-reviewing",
+          "border border-blue-500/50 bg-blue-500/15 text-blue-500",
           className
         )}
       >
-        <Eye className="h-3 w-3" />
+        <Loader2 className="h-3 w-3 animate-spin" />
       </span>
     );
   }
 
-  // No review record yet — default icon
   return (
     <span
       className={cn(
@@ -69,7 +73,7 @@ function PersonaStatusIcon({
         className
       )}
     >
-      <Eye className="h-3 w-3" />
+      <CircleDashed className="h-3 w-3" />
     </span>
   );
 }
@@ -89,11 +93,10 @@ function PersonaVerdictIcon({
           className
         )}
       >
-        <Check className="h-3 w-3" />
+        <ThumbsUp className="h-3 w-3" />
       </span>
     );
   }
-  // request_changes or unknown
   return (
     <span
       className={cn(
@@ -101,7 +104,7 @@ function PersonaVerdictIcon({
         className
       )}
     >
-      <XCircle className="h-3 w-3" />
+      <Flag className="h-3 w-3" />
     </span>
   );
 }
@@ -139,13 +142,19 @@ type StepDef = {
   filled: boolean;
 };
 
-function StepperStep({ step }: { step: StepDef }): JSX.Element {
+function StepRow({
+  step,
+  emphasis,
+}: {
+  step: StepDef;
+  emphasis: "strong" | "soft";
+}): JSX.Element {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap font-semibold",
-        STEP_COLOR[step.color],
-        !step.filled && "opacity-60"
+        "flex items-center gap-1.5 whitespace-nowrap",
+        emphasis === "strong" ? "font-semibold" : "font-medium",
+        STEP_COLOR[step.color]
       )}
     >
       <span
@@ -160,81 +169,70 @@ function StepperStep({ step }: { step: StepDef }): JSX.Element {
 }
 
 /**
- * Two-step pill showing reviewer verdict and parent-response state.
- * Pure presentation — caller derives step primitives from the source data.
+ * Stacked two-row button showing reviewer verdict and parent-response state.
+ * Scales to multi-round cycles by letting each row grow independently.
  */
-function ReviewStepper({
+function ReviewStatusButton({
   step1,
   step2,
-  connector,
   round,
   onOpen,
 }: {
   step1: StepDef;
   step2: StepDef;
-  connector: "solid" | "dashed";
   round?: number;
   onOpen?: () => void;
 }): JSX.Element {
-  const pillClass = cn(
-    "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/70 bg-background/40 px-2 py-0.5 text-[10px] transition-colors",
-    onOpen && "cursor-pointer hover:bg-muted/40"
+  const frameClass = cn(
+    "mt-2 flex w-full flex-col items-stretch gap-1 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-left text-[10px] transition-colors",
+    onOpen && "cursor-pointer hover:bg-muted/70 hover:border-border/80"
   );
 
-  const inner = (
-    <>
-      <StepperStep step={step1} />
-      <span
-        aria-hidden
-        className={cn(
-          "h-0 w-3 shrink-0 border-t",
-          connector === "solid"
-            ? "border-border"
-            : "border-dashed border-border/60"
-        )}
-      />
-      <StepperStep step={step2} />
-    </>
-  );
+  const ariaLabel = `${step1.label} — ${step2.label}`;
 
   const badge =
     typeof round === "number" && round > 1 ? (
-      <span className="inline-flex h-4 items-center rounded border border-border bg-muted/40 px-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="absolute right-1.5 top-1.5 inline-flex h-3.5 items-center rounded border border-border bg-muted/60 px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
         R{round}
       </span>
     ) : null;
 
-  const ariaLabel = `${step1.label} — ${step2.label}`;
-
-  return (
-    <span className="inline-flex items-center gap-1">
+  const inner = (
+    <>
+      <StepRow step={step1} emphasis="strong" />
+      <StepRow step={step2} emphasis="soft" />
       {badge}
-      {onOpen ? (
-        <button
-          data-agent-control="true"
-          className={pillClass}
-          aria-label={ariaLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen();
-          }}
-        >
-          {inner}
-        </button>
-      ) : (
-        <span className={pillClass} aria-label={ariaLabel}>
-          {inner}
-        </span>
-      )}
+    </>
+  );
+
+  if (onOpen) {
+    return (
+      <button
+        data-agent-control="true"
+        type="button"
+        className={cn("relative", frameClass)}
+        aria-label={ariaLabel}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen();
+        }}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <span className={cn("relative", frameClass)} aria-label={ariaLabel}>
+      {inner}
     </span>
   );
 }
 
-/** Derive stepper step primitives from Phase 1 review data. */
+/** Derive stacked-row step primitives from Phase 1 review data. */
 function stepsFromReview(
   verdict: ReviewVerdict,
   hasResolution: boolean
-): { step1: StepDef; step2: StepDef; connector: "solid" | "dashed" } {
+): { step1: StepDef; step2: StepDef } {
   const step1: StepDef = {
     label: reviewVerdictLabel(verdict),
     color: verdict === "approve" ? "emerald" : "orange",
@@ -243,8 +241,7 @@ function stepsFromReview(
   const step2: StepDef = hasResolution
     ? { label: "Responded", color: "muted", filled: true }
     : { label: "Awaiting response", color: "muted", filled: false };
-  const connector: "solid" | "dashed" = hasResolution ? "solid" : "dashed";
-  return { step1, step2, connector };
+  return { step1, step2 };
 }
 
 export function PersonaAgentRow({
@@ -279,9 +276,8 @@ export function PersonaAgentRow({
     <div
       data-testid={`agent-card-${child.id}`}
       className={cn(
-        "flex items-start gap-2.5 px-2.5 py-2 transition-colors duration-200",
+        "flex items-start gap-2.5 px-2.5 py-2.5 transition-colors duration-200",
         hasFeedback && "cursor-pointer hover:bg-muted/50",
-        childIsStopped && child.status !== "error" && "opacity-50",
         isSelected && "bg-muted/35",
         (isSelected || isReviewing) && "rounded-lg",
         isReviewing && "persona-reviewing-row"
@@ -313,23 +309,24 @@ export function PersonaAgentRow({
             ) : null}
           </div>
         </div>
-        <div className="mt-1 flex items-center gap-1 text-[10px]">
-          {verdict ? (
-            <ReviewStepper
-              {...stepsFromReview(verdict, hasResolution)}
-              onOpen={hasSummary || hasResolution ? onOpenSummary : undefined}
-            />
-          ) : isReviewing ? (
-            <span className="font-medium text-status-working">
-              {reviewMessage ?? "Reviewing"}
-            </span>
-          ) : child.status === "running" ? (
-            <span className="font-medium text-muted-foreground">Starting</span>
-          ) : null}
-        </div>
+        {verdict ? (
+          <ReviewStatusButton
+            {...stepsFromReview(verdict, hasResolution)}
+            round={resolution?.roundNumber}
+            onOpen={hasSummary || hasResolution ? onOpenSummary : undefined}
+          />
+        ) : isReviewing ? (
+          <div className="mt-1.5 text-[10px] font-medium text-blue-500">
+            {reviewMessage ?? "Reviewing"}
+          </div>
+        ) : child.status === "running" ? (
+          <div className="mt-1.5 text-[10px] font-medium text-muted-foreground">
+            Starting
+          </div>
+        ) : null}
         {child.status === "error" ? (
           <div
-            className="mt-1 truncate text-[10px] text-status-blocked/90"
+            className="mt-1.5 truncate text-[10px] text-status-blocked/90"
             title={child.lastError ?? undefined}
           >
             {child.lastError?.split("\n")[0] ?? "Error"}
