@@ -56,7 +56,7 @@ export const TerminalPane = memo(function TerminalPane({
           showReconnectOverlay && "blur-[1.5px]"
         )}
       >
-        <div className="h-full" ref={terminalHostRef} />
+        <div className="h-full px-2" ref={terminalHostRef} />
       </div>
 
       {showEmptyState ? (
