@@ -35,6 +35,7 @@ export default {
           waiting: "hsl(var(--status-waiting) / <alpha-value>)",
           done: "hsl(var(--status-done) / <alpha-value>)",
           idle: "hsl(var(--status-idle) / <alpha-value>)",
+          reviewing: "hsl(var(--status-reviewing) / <alpha-value>)",
         },
         chart: {
           1: "hsl(var(--chart-1) / <alpha-value>)",

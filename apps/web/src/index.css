@@ -27,6 +27,7 @@
   --status-waiting: 45 96% 64%;
   --status-done: 198 93% 60%;
   --status-idle: 240 4% 46%;
+  --status-reviewing: 210 80% 62%;
 
   /* Chart colors */
   --chart-1: 158 64% 52%; /* teal — input tokens */
@@ -68,6 +69,7 @@
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-idle: 220 8% 50%;
+  --status-reviewing: 270 80% 72%;
 
   --chart-1: 207 100% 67%;
   --chart-2: 55 87% 63%;
@@ -107,6 +109,7 @@
   --status-waiting: 45 93% 58%;
   --status-done: 198 93% 60%;
   --status-idle: 0 0% 35%;
+  --status-reviewing: 210 90% 65%;
 
   --chart-1: 160 72% 52%;
   --chart-2: 45 93% 58%;
@@ -146,6 +149,7 @@
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
   --status-idle: 194 14% 40%;
+  --status-reviewing: 285 65% 62%;
 
   --chart-1: 205 82% 45%;
   --chart-2: 45 100% 35%;
@@ -185,6 +189,7 @@
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
   --status-idle: 220 8% 52%;
+  --status-reviewing: 262 72% 50%;
 
   --chart-1: 217 91% 50%;
   --chart-2: 46 97% 42%;
@@ -224,6 +229,7 @@
   --status-waiting: 57 100% 79%;
   --status-done: 191 99% 50%;
   --status-idle: 262 20% 45%;
+  --status-reviewing: 268 80% 72%;
 
   --chart-1: 191 99% 50%;
   --chart-2: 57 100% 79%;
@@ -263,6 +269,7 @@
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-idle: 220 8% 40%;
+  --status-reviewing: 270 80% 74%;
 
   --chart-1: 207 100% 67%;
   --chart-2: 55 87% 63%;
@@ -302,6 +309,7 @@
   --status-waiting: 46 52% 54%;
   --status-done: 153 76% 64%;
   --status-idle: 132 12% 40%;
+  --status-reviewing: 185 80% 62%;
 
   --chart-1: 136 100% 71%;
   --chart-2: 46 52% 54%;
@@ -341,6 +349,7 @@
   --status-waiting: 233 28% 73%;
   --status-done: 229 57% 71%;
   --status-idle: 222 8% 44%;
+  --status-reviewing: 290 70% 74%;
 
   --chart-1: 244 100% 69%;
   --chart-2: 229 57% 71%;
