@@ -1702,6 +1702,8 @@ async function registerRoutes() {
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
       submitResolution: mcpSubmitResolution,
+      awaitRecheck: mcpAwaitRecheck,
+      cancelRecheck: mcpCancelRecheck,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
       getParentContext: mcpGetParentContext,
@@ -5309,6 +5311,61 @@ async function mcpSubmitResolution(
   return result;
 }
 
+async function mcpAwaitRecheck(
+  agentId: string
+): Promise<import("./shared/mcp/server.js").AwaitRecheckResponse> {
+  const reviewer = await agentManager.getAgent(agentId);
+  if (!reviewer?.persona) {
+    throw new Error(
+      "dispatch_await_recheck is only available to reviewer agents."
+    );
+  }
+
+  const result = await agentManager.awaitReviewRecheck(agentId);
+  if (result.status !== "ready") {
+    return result;
+  }
+
+  const diffSincePreviousRound =
+    reviewer.cwd && result.review.lastReviewedCommit
+      ? await diffSinceCommit(reviewer.cwd, result.review.lastReviewedCommit)
+      : "";
+
+  return {
+    status: "ready",
+    summary: result.resolution.summary,
+    resolutions: result.resolutions,
+    diffSincePreviousRound,
+  };
+}
+
+async function mcpCancelRecheck(
+  agentId: string,
+  input: { personaAgentId: string; reason?: string }
+): Promise<void> {
+  const review = await agentManager.cancelReviewRecheck({
+    parentAgentId: agentId,
+    personaAgentId: input.personaAgentId,
+    reason: input.reason ?? null,
+  });
+  const [child, parent] = await Promise.all([
+    agentManager.getAgent(input.personaAgentId),
+    agentManager.getAgent(review.parentAgentId),
+  ]);
+  if (child) {
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(child),
+    });
+  }
+  if (parent) {
+    uiEventBroker.publish({
+      type: "agent.upsert",
+      agent: withStreamFlag(parent),
+    });
+  }
+}
+
 async function mcpUpsertPin(
   agentId: string,
   pin: { label: string; value: string; type: string }
@@ -5482,6 +5539,7 @@ async function mcpLaunchPersona(
     persona: string;
     context: string;
     agentType?: (typeof AGENT_TYPES)[number];
+    allowRecheck?: boolean;
   }
 ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
   const parent = await agentManager.getAgent(agentId);
@@ -5573,6 +5631,7 @@ async function mcpLaunchPersona(
     parentAgentId: agentId,
     persona: opts.persona,
     lastReviewedCommit: launchCommit,
+    allowRecheck: opts.allowRecheck,
   });
 
   // Re-fetch so the SSE event includes the review subquery data
@@ -5605,6 +5664,21 @@ async function mcpLaunchPersona(
   }
 
   return { agentId: agent.id, persona: opts.persona, parentAgentId: agentId };
+}
+
+async function diffSinceCommit(
+  cwd: string,
+  baseCommit: string
+): Promise<string> {
+  const result = await runCommand(
+    "git",
+    ["-C", cwd, "diff", `${baseCommit}...HEAD`],
+    { allowedExitCodes: [0, 128] }
+  );
+  if (result.exitCode !== 0) {
+    return "";
+  }
+  return result.stdout;
 }
 
 async function mcpShareMedia(
