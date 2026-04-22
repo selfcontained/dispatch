@@ -70,109 +70,117 @@ export function MobileTerminalToolbar({
   return (
     <>
       <div className="border-t-2 border-border bg-surface px-2 py-2 md:hidden">
-        {/* Row 1: modifier + action keys + keyboard button */}
-        <div className="flex justify-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 shrink-0 px-3 text-xs"
-            aria-label="Send Escape"
-            onClick={() => sendKey("\u001b")}
-          >
-            Esc
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className={cn(
-              "h-8 shrink-0 px-3 text-xs",
-              ctrlActive && "ring-2 ring-primary bg-primary/20 text-primary"
-            )}
-            aria-label="Toggle Control modifier"
-            aria-pressed={ctrlActive}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              toggleCtrl();
-            }}
-          >
-            Ctrl
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 shrink-0 px-3 text-xs"
-            aria-label="Send Tab"
-            onClick={() => sendKey("\t")}
-          >
-            Tab
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 min-w-0 flex-1 px-3 text-xs"
-            aria-label="Send Enter"
-            onClick={() => sendKey("\r")}
-          >
-            Enter
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 shrink-0 px-4 text-xs"
-            aria-label="Open text input"
-            onClick={openInput}
-          >
-            <Keyboard className="h-5 w-5" strokeWidth={2} />
-          </Button>
-        </div>
+        <div className="flex min-h-[4.5rem] items-stretch gap-2">
+          <div className="min-w-0 flex-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-full w-full px-2 text-xs"
+              aria-label="Send Enter"
+              onClick={() => sendKey("\r")}
+            >
+              Enter
+            </Button>
+          </div>
 
-        {/* Row 2: arrow keys */}
-        <div className="mt-2 flex justify-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 w-10 shrink-0 px-0 text-base"
-            aria-label="Send Arrow Left"
-            onClick={() => sendKey("\u001b[D")}
-          >
-            ←
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 w-10 shrink-0 px-0 text-base"
-            aria-label="Send Arrow Up"
-            onClick={() => sendKey("\u001b[A")}
-          >
-            ↑
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 w-10 shrink-0 px-0 text-base"
-            aria-label="Send Arrow Down"
-            onClick={() => sendKey("\u001b[B")}
-          >
-            ↓
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            className="h-8 w-10 shrink-0 px-0 text-base"
-            aria-label="Send Arrow Right"
-            onClick={() => sendKey("\u001b[C")}
-          >
-            →
-          </Button>
+          <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+            <div className="flex justify-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 shrink-0 px-3 text-xs"
+                aria-label="Send Escape"
+                onClick={() => sendKey("\u001b")}
+              >
+                Esc
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className={cn(
+                  "h-8 shrink-0 px-3 text-xs",
+                  ctrlActive && "ring-2 ring-primary bg-primary/20 text-primary"
+                )}
+                aria-label="Toggle Control modifier"
+                aria-pressed={ctrlActive}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  toggleCtrl();
+                }}
+              >
+                Ctrl
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 shrink-0 px-3 text-xs"
+                aria-label="Send Tab"
+                onClick={() => sendKey("\t")}
+              >
+                Tab
+              </Button>
+            </div>
+
+            <div className="flex justify-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Left"
+                onClick={() => sendKey("\u001b[D")}
+              >
+                ←
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Up"
+                onClick={() => sendKey("\u001b[A")}
+              >
+                ↑
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Down"
+                onClick={() => sendKey("\u001b[B")}
+              >
+                ↓
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-8 w-10 shrink-0 px-0 text-base"
+                aria-label="Send Arrow Right"
+                onClick={() => sendKey("\u001b[C")}
+              >
+                →
+              </Button>
+            </div>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              className="h-full w-full px-2 text-xs"
+              aria-label="Open text input"
+              onClick={openInput}
+            >
+              <Keyboard className="h-5 w-5" strokeWidth={2} />
+            </Button>
+          </div>
         </div>
       </div>
 
