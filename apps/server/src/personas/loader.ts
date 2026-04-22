@@ -21,7 +21,19 @@ type PersonaFrontmatter = {
 };
 
 const PERSONAS_DIR = ".dispatch/personas";
-const MAX_DIFF_BYTES = 50 * 1024;
+export const MAX_DIFF_BYTES = 50 * 1024;
+
+export function truncateDiffForPrompt(diff: string): string {
+  if (Buffer.byteLength(diff, "utf-8") <= MAX_DIFF_BYTES) {
+    return diff;
+  }
+
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  return (
+    decoder.decode(Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES)) +
+    "\n\n[... diff truncated at 50KB ...]"
+  );
+}
 
 export function parseFrontmatter(content: string): {
   frontmatter: PersonaFrontmatter;
@@ -144,14 +156,6 @@ export function assemblePersonaPrompt(
   context: string,
   diff: string
 ): string {
-  let truncatedDiff = diff;
-  if (Buffer.byteLength(diff, "utf-8") > MAX_DIFF_BYTES) {
-    const decoder = new TextDecoder("utf-8", { fatal: false });
-    truncatedDiff =
-      decoder.decode(Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES)) +
-      "\n\n[... diff truncated at 50KB ...]";
-  }
-
   // Strip legacy {{context}} and {{diff}} placeholders if present — Dispatch
   // now appends these sections automatically so persona files don't need them.
   const personaBody = persona.body
@@ -162,6 +166,6 @@ export function assemblePersonaPrompt(
     personaBody.trimEnd(),
     STANDARD_FEEDBACK_GUIDANCE,
     `## Context from parent agent\n${context}`,
-    `## Changes to review\n${truncatedDiff}`,
+    `## Changes to review\n${truncateDiffForPrompt(diff)}`,
   ].join("\n\n");
 }

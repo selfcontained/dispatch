@@ -56,6 +56,7 @@ import {
   assemblePersonaPrompt,
 } from "./personas/loader.js";
 import { buildPersonaReviewDiff } from "./personas/review-diff.js";
+import { truncateDiffForPrompt } from "./personas/loader.js";
 import {
   isPasswordSet,
   setPassword,
@@ -5335,7 +5336,7 @@ async function mcpAwaitRecheck(
     status: "ready",
     summary: result.resolution.summary,
     resolutions: result.resolutions,
-    diffSincePreviousRound,
+    diffSincePreviousRound: truncateDiffForPrompt(diffSincePreviousRound),
   };
 }
 

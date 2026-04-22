@@ -3660,9 +3660,10 @@ export class AgentManager {
         [review.id, roundNumber, summary, input.resolutionCommit ?? null]
       );
 
+      const nextStatus = review.allowRecheck ? "awaiting_recheck" : "complete";
       const updatedReviewResult = await client.query<PersonaReviewRecord>(
         `UPDATE persona_reviews
-         SET status = 'awaiting_recheck', updated_at = NOW()
+         SET status = $2, updated_at = NOW()
          WHERE id = $1
          RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                    persona, status, message, verdict, summary,
@@ -3671,7 +3672,7 @@ export class AgentManager {
                    round_number AS "roundNumber",
                    allow_recheck AS "allowRecheck",
                    created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [review.id]
+        [review.id, nextStatus]
       );
 
       await client.query("COMMIT");

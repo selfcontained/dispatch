@@ -1812,6 +1812,20 @@ describe("AgentManager", () => {
         expect(resolutions[0].resolutionCommit).toBe("headsha1");
       });
 
+      it("keeps non-recheck reviews in complete after resolution submission", async () => {
+        const { parent, child } = await seedCompletedReview();
+
+        const result = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "Recorded the resolution without a recheck.",
+          resolutionCommit: "headsha1",
+        });
+
+        expect(result.review.status).toBe("complete");
+        expect(result.review.allowRecheck).toBe(false);
+      });
+
       it("rejects repeat submit once the review is awaiting_recheck", async () => {
         const { parent, child } = await seedCompletedReviewWithRecheck();
 
