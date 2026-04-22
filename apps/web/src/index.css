@@ -853,20 +853,6 @@ html[data-theme="matrix"] [role="button"] {
   color: hsl(var(--status-waiting)); /* yellow for meta */
 }
 
-/* Persona reviewing animation — subtle pulse on the status icon */
-@keyframes persona-reviewing-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-.animate-persona-reviewing {
-  animation: persona-reviewing-pulse 2s ease-in-out infinite;
-}
-
 @keyframes sidebar-nav-pulse {
   0% {
     transform: scale(1);
@@ -957,9 +943,6 @@ html[data-hidden] .dispatch-activity-bar {
   will-change: auto;
 }
 html[data-hidden] .animate-spin {
-  animation-play-state: paused;
-}
-html[data-hidden] .animate-persona-reviewing {
   animation-play-state: paused;
 }
 html[data-hidden] .persona-reviewing-row::before {
