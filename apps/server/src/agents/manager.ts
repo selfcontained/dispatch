@@ -193,6 +193,8 @@ export type PersonaReviewRecord = {
   summary: string | null;
   filesReviewed: string[] | null;
   lastReviewedCommit: string | null;
+  roundNumber: number;
+  allowRecheck: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -210,6 +212,8 @@ export type FeedbackRecord = {
   resolutionReason: string | null;
   resolutionCommit: string | null;
   resolvedAt: string | null;
+  roundNumber: number;
+  respondsToFeedbackId: number | null;
   createdAt: string;
 };
 
@@ -2398,20 +2402,24 @@ export class AgentManager {
     parentAgentId: string;
     persona: string;
     lastReviewedCommit?: string | null;
+    allowRecheck?: boolean;
   }): Promise<PersonaReviewRecord> {
     const result = await this.pool.query<PersonaReviewRecord>(
-      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, last_reviewed_commit)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, last_reviewed_commit, allow_recheck)
+       VALUES ($1, $2, $3, $4, COALESCE($5, false))
        RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
                  last_reviewed_commit AS "lastReviewedCommit",
+                 round_number AS "roundNumber",
+                 allow_recheck AS "allowRecheck",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         input.agentId,
         input.parentAgentId,
         input.persona,
         input.lastReviewedCommit ?? null,
+        input.allowRecheck ?? null,
       ]
     );
     return result.rows[0]!;
@@ -2436,6 +2444,8 @@ export class AgentManager {
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
                  last_reviewed_commit AS "lastReviewedCommit",
+                 round_number AS "roundNumber",
+                 allow_recheck AS "allowRecheck",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [agentId, input.status, input.message ?? null]
     );
@@ -2491,6 +2501,8 @@ export class AgentManager {
                  persona, status, message, verdict, summary,
                  files_reviewed AS "filesReviewed",
                  last_reviewed_commit AS "lastReviewedCommit",
+                 round_number AS "roundNumber",
+                 allow_recheck AS "allowRecheck",
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [
         agentId,
@@ -2512,6 +2524,8 @@ export class AgentManager {
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
               last_reviewed_commit AS "lastReviewedCommit",
+              round_number AS "roundNumber",
+              allow_recheck AS "allowRecheck",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews WHERE agent_id = $1`,
       [agentId]
@@ -2527,6 +2541,8 @@ export class AgentManager {
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
               last_reviewed_commit AS "lastReviewedCommit",
+              round_number AS "roundNumber",
+              allow_recheck AS "allowRecheck",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews WHERE parent_agent_id = $1
        ORDER BY created_at`,
@@ -2543,6 +2559,8 @@ export class AgentManager {
               persona, status, message, verdict, summary,
               files_reviewed AS "filesReviewed",
               last_reviewed_commit AS "lastReviewedCommit",
+              round_number AS "roundNumber",
+              allow_recheck AS "allowRecheck",
               created_at AS "createdAt", updated_at AS "updatedAt"
        FROM persona_reviews
        WHERE created_at >= NOW() - make_interval(days => $1)
@@ -2562,6 +2580,8 @@ export class AgentManager {
               f.resolution_reason AS "resolutionReason",
               f.resolution_commit AS "resolutionCommit",
               f.resolved_at AS "resolvedAt",
+              f.round_number AS "roundNumber",
+              f.responds_to_feedback_id AS "respondsToFeedbackId",
               f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
@@ -3221,6 +3241,8 @@ export class AgentManager {
                  resolution_reason AS "resolutionReason",
                  resolution_commit AS "resolutionCommit",
                  resolved_at AS "resolvedAt",
+                 round_number AS "roundNumber",
+                 responds_to_feedback_id AS "respondsToFeedbackId",
                  created_at AS "createdAt"`,
       [
         agentId,
@@ -3242,6 +3264,8 @@ export class AgentManager {
               resolution_reason AS "resolutionReason",
               resolution_commit AS "resolutionCommit",
               resolved_at AS "resolvedAt",
+              round_number AS "roundNumber",
+              responds_to_feedback_id AS "respondsToFeedbackId",
               created_at AS "createdAt"
        FROM agent_feedback WHERE agent_id = $1 ORDER BY created_at ASC`,
       [agentId]
@@ -3256,6 +3280,8 @@ export class AgentManager {
               f.resolution_reason AS "resolutionReason",
               f.resolution_commit AS "resolutionCommit",
               f.resolved_at AS "resolvedAt",
+              f.round_number AS "roundNumber",
+              f.responds_to_feedback_id AS "respondsToFeedbackId",
               f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
@@ -3291,6 +3317,8 @@ export class AgentManager {
               f.resolution_reason AS "resolutionReason",
               f.resolution_commit AS "resolutionCommit",
               f.resolved_at AS "resolvedAt",
+              f.round_number AS "roundNumber",
+              f.responds_to_feedback_id AS "respondsToFeedbackId",
               f.created_at AS "createdAt"
        FROM agent_feedback f
        JOIN agents a ON a.id = f.agent_id
@@ -3360,6 +3388,8 @@ export class AgentManager {
                  resolution_reason AS "resolutionReason",
                  resolution_commit AS "resolutionCommit",
                  resolved_at AS "resolvedAt",
+                 round_number AS "roundNumber",
+                 responds_to_feedback_id AS "respondsToFeedbackId",
                  created_at AS "createdAt"`,
       [feedbackId, status, agentId, reason, options.resolutionCommit ?? null]
     );
@@ -3404,6 +3434,8 @@ export class AgentManager {
                  af.resolution_reason AS "resolutionReason",
                  af.resolution_commit AS "resolutionCommit",
                  af.resolved_at AS "resolvedAt",
+                 af.round_number AS "roundNumber",
+                 af.responds_to_feedback_id AS "respondsToFeedbackId",
                  af.created_at AS "createdAt"`,
       [
         feedbackId,
@@ -3442,6 +3474,8 @@ export class AgentManager {
                 persona, status, message, verdict, summary,
                 files_reviewed AS "filesReviewed",
                 last_reviewed_commit AS "lastReviewedCommit",
+                round_number AS "roundNumber",
+                allow_recheck AS "allowRecheck",
                 created_at AS "createdAt", updated_at AS "updatedAt"
          FROM persona_reviews
          WHERE agent_id = $1 AND parent_agent_id = $2
