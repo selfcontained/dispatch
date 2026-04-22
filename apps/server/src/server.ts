@@ -5603,7 +5603,9 @@ async function mcpLaunchPersona(
 
   const diff = await buildPersonaReviewDiff(parentCwd, runCommand);
 
-  const prompt = assemblePersonaPrompt(persona, opts.context, diff);
+  const prompt = assemblePersonaPrompt(persona, opts.context, diff, {
+    allowRecheck: opts.allowRecheck,
+  });
 
   // Build agent args — include full access flag if parent has it
   const personaArgs: string[] = [`--append-system-prompt`, prompt];

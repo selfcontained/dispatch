@@ -151,10 +151,27 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback like "Good defense-in-depth...", "Good design decision...", or "This is well-structured..." is noise and will be ignored — do not submit it. The \`info\` severity is ONLY for non-obvious decisions that a future contributor might mistakenly undo. Limit to at most 2 items per review. If you have nothing critical to preserve, submit zero info items.
 `.trim();
 
+/**
+ * Round-trip guidance appended when the review was launched with
+ * allowRecheck: true. Tells the reviewer to stay alive, poll for the
+ * parent's resolutions, and deliver a second verdict.
+ */
+const RECHECK_ROUND_TRIP_GUIDANCE = `
+## Recheck round-trip (this review has \`allowRecheck: true\`)
+
+After submitting your initial verdict via \`dispatch_complete_review\`, do not exit. The parent agent may address your feedback and request that you verify their resolution. Call \`dispatch_await_recheck\` — it will either tell you to wait (with a poll interval — use \`ScheduleWakeup\` or the equivalent for your agent runtime to sleep that long, then call again), deliver the parent's resolutions and summary for a second-pass review, or tell you to exit. When you receive resolutions, re-evaluate each original finding against what the parent actually did: submit new feedback items for unresolved concerns (with \`responds_to_feedback_id\` linking to the original), then call \`dispatch_complete_review\` a second time with your final verdict. Do not loop indefinitely — trust the \`pollAgainInSeconds\` value and the \`cancelled\` status.
+`.trim();
+
+export type AssemblePersonaPromptOptions = {
+  /** When true, appends the recheck round-trip guidance block. */
+  allowRecheck?: boolean;
+};
+
 export function assemblePersonaPrompt(
   persona: PersonaDefinition,
   context: string,
-  diff: string
+  diff: string,
+  options: AssemblePersonaPromptOptions = {}
 ): string {
   // Strip legacy {{context}} and {{diff}} placeholders if present — Dispatch
   // now appends these sections automatically so persona files don't need them.
@@ -162,10 +179,15 @@ export function assemblePersonaPrompt(
     .replace(/\{\{context\}\}/g, "")
     .replace(/\{\{diff\}\}/g, "");
 
-  return [
+  const sections: string[] = [
     personaBody.trimEnd(),
     STANDARD_FEEDBACK_GUIDANCE,
-    `## Context from parent agent\n${context}`,
-    `## Changes to review\n${truncateDiffForPrompt(diff)}`,
-  ].join("\n\n");
+  ];
+  if (options.allowRecheck) {
+    sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
+  }
+  sections.push(`## Context from parent agent\n${context}`);
+  sections.push(`## Changes to review\n${truncateDiffForPrompt(diff)}`);
+
+  return sections.join("\n\n");
 }

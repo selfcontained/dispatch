@@ -572,7 +572,7 @@ async function createDispatchMcpServer(
       "dispatch_await_recheck",
       {
         description:
-          "Reviewer-only. Call this after dispatch_complete_review when the review was launched with allowRecheck: true. Returns pending with pollAgainInSeconds, ready with the parent resolution summary and diff, or cancelled when no round 2 is expected.",
+          "Reviewer-only. Call this after dispatch_complete_review when the review was launched with allowRecheck: true. Returns one of: 'pending' with a `pollAgainInSeconds` value — sleep that long (via ScheduleWakeup or your runtime's equivalent) and call again; 'ready' with the parent's resolution summary, per-item resolutions, and the diff since round 1 — perform a second-pass review and call dispatch_complete_review a second time; or 'cancelled' — exit the review. Trust the server-provided cadence and terminal statuses; do not loop indefinitely on your own.",
         inputSchema: {},
       },
       async () => {
@@ -1048,7 +1048,7 @@ async function createDispatchMcpServer(
       "dispatch_launch_persona",
       {
         description:
-          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files.",
+          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files. Pass `allowRecheck: true` to opt into a single round-trip — the reviewer will stay alive after its initial verdict and perform a second pass after you call dispatch_submit_resolution. Adds latency (~several minutes); use when verification matters.",
         inputSchema: {
           persona: z
             .string()
@@ -1071,7 +1071,7 @@ async function createDispatchMcpServer(
             .boolean()
             .default(false)
             .describe(
-              "Whether the reviewer should stay alive for a single opt-in recheck pass after the parent submits resolutions."
+              "Opt into a single round-trip review: the reviewer stays alive after its initial verdict and performs a second pass once you call dispatch_submit_resolution. Adds latency (~several minutes); use when verification matters."
             ),
         },
       },
@@ -1083,16 +1083,12 @@ async function createDispatchMcpServer(
             agentType: args.agentType,
             allowRecheck: args.allowRecheck,
           });
-          const guidance = args.allowRecheck
-            ? " After resolving every finding, call dispatch_submit_resolution so the reviewer can perform its single recheck pass."
-            : "";
+          const baseText = `Launched persona "${result.persona}" as agent ${result.agentId}.`;
+          const text = args.allowRecheck
+            ? `${baseText}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback until the reviewer's round-2 verdict is complete.`
+            : baseText;
           return {
-            content: [
-              {
-                type: "text",
-                text: `Launched persona "${result.persona}" as agent ${result.agentId}.${guidance}`,
-              },
-            ],
+            content: [{ type: "text", text }],
           };
         } catch (error) {
           return toToolError(error);
@@ -1171,7 +1167,7 @@ async function createDispatchMcpServer(
       "dispatch_resolve_feedback",
       {
         description:
-          "Mark a persona feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
+          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — the reviewer will see it in a recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
         inputSchema: {
           feedbackId: z
             .number()
@@ -1228,7 +1224,7 @@ async function createDispatchMcpServer(
       "dispatch_submit_resolution",
       {
         description:
-          "Call this after you have resolved every feedback item from a persona review. `summary` is required — 1–3 sentences describing what you addressed and what you chose to leave alone. In v1 this records your narrative response. Once the full round-trip ships, this call also triggers the reviewer's recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
+          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. When the review was launched with allowRecheck: true, submitting the resolution triggers the reviewer's single recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
         inputSchema: {
           personaAgentId: z
             .string()

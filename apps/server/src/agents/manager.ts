@@ -2547,14 +2547,14 @@ export class AgentManager {
       } else if (current.status === "awaiting_recheck") {
         if (current.roundNumber >= 2) {
           throw new AgentError(
-            "Review has already completed round 2; further review completion is not allowed in v1.",
+            "Round 2 already complete. This review only supports a single round-trip.",
             409
           );
         }
         nextRoundNumber = current.roundNumber + 1;
       } else if (current.status === "complete" && current.roundNumber >= 2) {
         throw new AgentError(
-          "Review has already completed round 2; a third completion is not allowed in v1.",
+          "Round 2 already complete. This review only supports a single round-trip.",
           409
         );
       } else {
@@ -3609,7 +3609,7 @@ export class AgentManager {
       }
       if (review.status === "complete" && review.roundNumber >= 2) {
         throw new AgentError(
-          "Review is already complete for round 2; no further resolution submission is allowed in v1.",
+          "Round 2 already complete. This review only supports a single round-trip.",
           409
         );
       }
@@ -3645,13 +3645,13 @@ export class AgentManager {
       }
       if (openIds.length > 0) {
         throw new AgentError(
-          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}.`,
+          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}. Call dispatch_resolve_feedback on each with status 'fixed' or 'ignored' (include a reason for any you ignore), then try again.`,
           409
         );
       }
       if (ignoredMissingReason.length > 0) {
         throw new AgentError(
-          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}.`,
+          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}. Call dispatch_resolve_feedback again on each with status 'ignored' and a reason explaining why it was not addressed, then try again.`,
           409
         );
       }

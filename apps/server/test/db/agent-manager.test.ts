@@ -2027,7 +2027,7 @@ describe("AgentManager", () => {
             verdict: "approve",
             summary: "Round 3",
           })
-        ).rejects.toThrow(/third completion is not allowed/i);
+        ).rejects.toThrow(/round 2 already complete/i);
       });
 
       it("returns pending cadence while the reviewer waits for resolution", async () => {
