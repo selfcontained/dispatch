@@ -56,7 +56,7 @@ function PersonaStatusIcon({
       <span
         className={cn(
           "inline-flex shrink-0 items-center justify-center rounded-full",
-          "border border-blue-500/50 bg-blue-500/15 text-blue-500",
+          "border border-status-reviewing/50 bg-status-reviewing/15 text-status-reviewing",
           className
         )}
       >
@@ -157,12 +157,11 @@ function StepRow({
         STEP_COLOR[step.color]
       )}
     >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full",
-          step.filled ? "bg-current" : "border border-current bg-transparent"
-        )}
-      />
+      {step.filled ? (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      ) : (
+        <CircleDashed className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
+      )}
       <span>{step.label}</span>
     </span>
   );
@@ -183,25 +182,17 @@ function ReviewStatusButton({
   round?: number;
   onOpen?: () => void;
 }): JSX.Element {
-  const frameClass = cn(
-    "mt-2 flex w-full flex-col items-stretch gap-1 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-left text-[10px] transition-colors",
-    onOpen && "cursor-pointer hover:bg-muted/70 hover:border-border/80"
-  );
-
   const ariaLabel = `${step1.label} — ${step2.label}`;
-
-  const badge =
-    typeof round === "number" && round > 1 ? (
-      <span className="absolute right-1.5 top-1.5 inline-flex h-3.5 items-center rounded border border-border bg-muted/60 px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-        R{round}
-      </span>
-    ) : null;
 
   const inner = (
     <>
       <StepRow step={step1} emphasis="strong" />
       <StepRow step={step2} emphasis="soft" />
-      {badge}
+      {typeof round === "number" && round > 1 ? (
+        <span className="absolute right-1.5 top-1.5 inline-flex h-3.5 items-center rounded border border-border bg-muted/60 px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+          R{round}
+        </span>
+      ) : null}
     </>
   );
 
@@ -210,7 +201,7 @@ function ReviewStatusButton({
       <button
         data-agent-control="true"
         type="button"
-        className={cn("relative", frameClass)}
+        className="relative mt-1.5 flex w-full cursor-pointer flex-col items-stretch gap-0.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-left text-[10px] transition-colors hover:border-border/80 hover:bg-muted/70"
         aria-label={ariaLabel}
         onClick={(e) => {
           e.stopPropagation();
@@ -222,7 +213,10 @@ function ReviewStatusButton({
     );
   }
   return (
-    <span className={cn("relative", frameClass)} aria-label={ariaLabel}>
+    <span
+      className="relative mt-1.5 flex w-full flex-col items-stretch gap-0.5 text-[10px]"
+      aria-label={ariaLabel}
+    >
       {inner}
     </span>
   );
@@ -316,7 +310,7 @@ export function PersonaAgentRow({
             onOpen={hasSummary || hasResolution ? onOpenSummary : undefined}
           />
         ) : isReviewing ? (
-          <div className="mt-1.5 text-[10px] font-medium text-blue-500">
+          <div className="mt-1.5 text-[10px] font-medium text-status-reviewing">
             {reviewMessage ?? "Reviewing"}
           </div>
         ) : child.status === "running" ? (
