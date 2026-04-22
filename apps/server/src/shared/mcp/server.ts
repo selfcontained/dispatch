@@ -14,6 +14,9 @@ export type McpAgent = {
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
+  review?: {
+    allowRecheck?: boolean;
+  } | null;
 };
 
 export type MediaResult = {
@@ -42,8 +45,34 @@ export type FeedbackItem = {
   suggestion: string | null;
   mediaRef: string | null;
   status: string;
+  roundNumber: number;
   createdAt: string;
 };
+
+export type ReviewResolutionItem = {
+  feedbackId: number;
+  originalDescription: string;
+  originalSeverity: string;
+  status: string;
+  reason: string | null;
+  filePath: string | null;
+  lineNumber: number | null;
+  suggestion: string | null;
+  resolutionCommit: string | null;
+  resolvedAt: string | null;
+  roundNumber: number;
+};
+
+export type AwaitRecheckResponse =
+  | { status: "pending"; pollAgainInSeconds: number }
+  | {
+      status: "ready";
+      summary: string;
+      resolutions: ReviewResolutionItem[];
+      diffSincePreviousRound: string;
+    }
+  | { status: "complete" }
+  | { status: "cancelled" };
 
 export type PersonaFeedbackGroup = {
   persona: string;
@@ -154,6 +183,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
   "dispatch_submit_resolution",
+  "dispatch_cancel_recheck",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -182,6 +212,7 @@ const JOB_TOOLS = new Set([
 
 const PERSONA_TOOLS = new Set([
   "review_status",
+  "dispatch_complete_review",
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
@@ -281,6 +312,7 @@ export type McpRequestContext = {
       persona: string;
       context: string;
       agentType?: LaunchPersonaAgentType;
+      allowRecheck?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   getFeedback?: (
@@ -325,6 +357,11 @@ export type McpRequestContext = {
       filesReviewed?: string[];
       message?: string;
     }
+  ) => Promise<void>;
+  awaitRecheck?: (agentId: string) => Promise<AwaitRecheckResponse>;
+  cancelRecheck?: (
+    agentId: string,
+    input: { personaAgentId: string; reason?: string }
   ) => Promise<void>;
   getActivitySummary?: (params: {
     start: Date;
@@ -388,7 +425,10 @@ async function createDispatchMcpServer(
     : context.jobTools
       ? "job"
       : "agent";
-  const allowed = TOOL_SETS[agentType];
+  const allowed = new Set(TOOL_SETS[agentType]);
+  if (context.agent?.persona && context.agent.review?.allowRecheck) {
+    allowed.add("dispatch_await_recheck");
+  }
 
   // ── review_status (persona) ───────────────────────────────────────
   if (
@@ -474,6 +514,109 @@ async function createDispatchMcpServer(
     );
   }
 
+  if (allowed.has("dispatch_complete_review") && context.completeReview) {
+    const agentId = context.agent!.id;
+    const completeReview = context.completeReview;
+
+    server.registerTool(
+      "dispatch_complete_review",
+      {
+        description:
+          "Reviewer-only. Complete the current review round with a verdict and summary. Valid from round 1 ('reviewing') and round 2 ('awaiting_recheck'). A third completion is rejected in v1.",
+        inputSchema: {
+          verdict: z
+            .enum(["approve", "request_changes"])
+            .describe("Review verdict for this round."),
+          summary: z
+            .string()
+            .min(1)
+            .describe("Summary of the review findings for this round."),
+          filesReviewed: z
+            .array(z.string())
+            .optional()
+            .describe("List of file paths reviewed in this round."),
+          message: z
+            .string()
+            .optional()
+            .describe("Optional short status note to store with the review."),
+        },
+      },
+      async (args) => {
+        try {
+          await completeReview(agentId, {
+            verdict: args.verdict,
+            summary: args.summary,
+            filesReviewed: args.filesReviewed,
+            message: args.message,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Review complete: ${args.verdict}. ${args.summary}`,
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_await_recheck") && context.awaitRecheck) {
+    const agentId = context.agent!.id;
+    const awaitRecheck = context.awaitRecheck;
+
+    server.registerTool(
+      "dispatch_await_recheck",
+      {
+        description:
+          "Reviewer-only. Call this after dispatch_complete_review when the review was launched with allowRecheck: true. Returns pending with pollAgainInSeconds, ready with the parent resolution summary and diff, or cancelled when no round 2 is expected.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await awaitRecheck(agentId);
+          if (result.status === "pending") {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Recheck pending. Poll again in ${result.pollAgainInSeconds} seconds.`,
+                },
+              ],
+              structuredContent: result,
+            };
+          }
+          if (result.status === "cancelled") {
+            return {
+              content: [{ type: "text", text: "Recheck cancelled." }],
+              structuredContent: result,
+            };
+          }
+          if (result.status === "complete") {
+            return {
+              content: [{ type: "text", text: "Recheck complete." }],
+              structuredContent: result,
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Recheck ready. Review the supplied resolutions and diff, then submit round 2.",
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
   // ── get_parent_context (persona) ────────────────────────────────────
   if (
     allowed.has("get_parent_context") &&
@@ -514,6 +657,53 @@ async function createDispatchMcpServer(
           return {
             content: [{ type: "text", text: parts.join("\n") }],
             structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (
+    allowed.has("dispatch_cancel_recheck") &&
+    context.agent &&
+    context.cancelRecheck
+  ) {
+    const agentId = context.agent.id;
+    const cancelRecheck = context.cancelRecheck;
+
+    server.registerTool(
+      "dispatch_cancel_recheck",
+      {
+        description:
+          "Parent-only. Cancel a pending recheck loop so the reviewer exits cleanly on its next poll. Rejected after round 2 is already complete.",
+        inputSchema: {
+          personaAgentId: z
+            .string()
+            .describe(
+              "The persona agent ID whose recheck should be cancelled."
+            ),
+          reason: z
+            .string()
+            .max(10_000)
+            .optional()
+            .describe("Optional reason surfaced to the reviewer."),
+        },
+      },
+      async (args) => {
+        try {
+          await cancelRecheck(agentId, {
+            personaAgentId: args.personaAgentId,
+            reason: args.reason,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Cancelled recheck for persona agent ${args.personaAgentId}.`,
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -877,6 +1067,12 @@ async function createDispatchMcpServer(
             .describe(
               "Optional agent runtime override for the persona launch."
             ),
+          allowRecheck: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Whether the reviewer should stay alive for a single opt-in recheck pass after the parent submits resolutions."
+            ),
         },
       },
       async (args) => {
@@ -885,12 +1081,16 @@ async function createDispatchMcpServer(
             persona: args.persona,
             context: args.context,
             agentType: args.agentType,
+            allowRecheck: args.allowRecheck,
           });
+          const guidance = args.allowRecheck
+            ? " After resolving every finding, call dispatch_submit_resolution so the reviewer can perform its single recheck pass."
+            : "";
           return {
             content: [
               {
                 type: "text",
-                text: `Launched persona "${result.persona}" as agent ${result.agentId}.`,
+                text: `Launched persona "${result.persona}" as agent ${result.agentId}.${guidance}`,
               },
             ],
           };

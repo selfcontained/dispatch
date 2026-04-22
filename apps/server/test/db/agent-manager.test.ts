@@ -1650,6 +1650,26 @@ describe("AgentManager", () => {
         return { parent, child };
       }
 
+      async function seedCompletedReviewWithRecheck(): Promise<{
+        parent: Awaited<ReturnType<typeof manager.createAgent>>;
+        child: Awaited<ReturnType<typeof manager.createAgent>>;
+      }> {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All good",
+          lastReviewedCommit: "round1sha",
+        });
+        return { parent, child };
+      }
+
       it("rejects an empty summary", async () => {
         const { parent, child } = await seedCompletedReview();
 
@@ -1763,7 +1783,7 @@ describe("AgentManager", () => {
       });
 
       it("persists summary and resolution_commit on the happy path", async () => {
-        const { parent, child } = await seedCompletedReview();
+        const { parent, child } = await seedCompletedReviewWithRecheck();
         const item = await manager.submitFeedback(child.id, {
           description: "a thing",
         });
@@ -1781,6 +1801,7 @@ describe("AgentManager", () => {
         expect(result.resolution.summary).toBe("Accepted one, rejected one.");
         expect(result.resolution.resolutionCommit).toBe("headsha1");
         expect(result.resolution.roundNumber).toBe(1);
+        expect(result.review.status).toBe("awaiting_recheck");
 
         // Confirm via a separate read path so the test also covers read APIs.
         const resolutions = await manager.getReviewResolutions(
@@ -1791,29 +1812,38 @@ describe("AgentManager", () => {
         expect(resolutions[0].resolutionCommit).toBe("headsha1");
       });
 
-      it("upserts on repeat submit, replacing summary + commit", async () => {
+      it("keeps non-recheck reviews in complete after resolution submission", async () => {
         const { parent, child } = await seedCompletedReview();
 
-        const first = await manager.submitReviewResolution({
+        const result = await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "Recorded the resolution without a recheck.",
+          resolutionCommit: "headsha1",
+        });
+
+        expect(result.review.status).toBe("complete");
+        expect(result.review.allowRecheck).toBe(false);
+      });
+
+      it("rejects repeat submit once the review is awaiting_recheck", async () => {
+        const { parent, child } = await seedCompletedReviewWithRecheck();
+
+        await manager.submitReviewResolution({
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "v1",
           resolutionCommit: "sha-v1",
         });
-        const second = await manager.submitReviewResolution({
-          parentAgentId: parent.id,
-          personaAgentId: child.id,
-          summary: "v2 — revised",
-          resolutionCommit: "sha-v2",
-        });
 
-        expect(second.resolution.id).toBe(first.resolution.id);
-        const resolutions = await manager.getReviewResolutions(
-          second.review.id
-        );
-        expect(resolutions).toHaveLength(1);
-        expect(resolutions[0].summary).toBe("v2 — revised");
-        expect(resolutions[0].resolutionCommit).toBe("sha-v2");
+        await expect(
+          manager.submitReviewResolution({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+            summary: "v2 — revised",
+            resolutionCommit: "sha-v2",
+          })
+        ).rejects.toThrow(/already awaiting recheck/);
       });
 
       it("trims leading/trailing whitespace from the stored summary", async () => {
@@ -1908,6 +1938,230 @@ describe("AgentManager", () => {
         });
 
         expect(completed.lastReviewedCommit).toBe("launchsha");
+      });
+    });
+
+    describe("round-trip review state machine", () => {
+      async function seedCompletedReview(): Promise<{
+        parent: Awaited<ReturnType<typeof manager.createAgent>>;
+        child: Awaited<ReturnType<typeof manager.createAgent>>;
+      }> {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All good",
+        });
+        return { parent, child };
+      }
+
+      async function seedCompletedReviewWithRecheck(): Promise<{
+        parent: Awaited<ReturnType<typeof manager.createAgent>>;
+        child: Awaited<ReturnType<typeof manager.createAgent>>;
+      }> {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All good",
+          lastReviewedCommit: "round1sha",
+        });
+        return { parent, child };
+      }
+
+      async function seedAwaitingRecheckReview() {
+        const { parent, child } = await seedCompletedReviewWithRecheck();
+        const original = await manager.submitFeedback(child.id, {
+          description: "round 1 finding",
+          severity: "high",
+          filePath: "apps/server/src/server.ts",
+          lineNumber: 42,
+        });
+        await manager.updateFeedbackStatus(original.id, child.id, "fixed", {
+          reason: "patched",
+          resolutionCommit: "fixsha",
+        });
+        await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "Patched the finding.",
+          resolutionCommit: "parentsha",
+        });
+        return { parent, child, original };
+      }
+
+      it("allows round 2 completion from awaiting_recheck and increments round_number", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+
+        const completed = await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 complete",
+          lastReviewedCommit: "round2sha",
+        });
+
+        expect(completed.status).toBe("complete");
+        expect(completed.roundNumber).toBe(2);
+        expect(completed.lastReviewedCommit).toBe("round2sha");
+      });
+
+      it("rejects a third completion attempt in v1", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 complete",
+        });
+
+        await expect(
+          manager.completePersonaReview(child.id, {
+            verdict: "approve",
+            summary: "Round 3",
+          })
+        ).rejects.toThrow(/third completion is not allowed/i);
+      });
+
+      it("returns pending cadence while the reviewer waits for resolution", async () => {
+        const { child } = await seedCompletedReviewWithRecheck();
+        const review = await manager.getPersonaReview(child.id);
+        const eightMinutesFiftyNineSecondsLater = new Date(
+          new Date(review!.updatedAt).getTime() + (8 * 60 + 59) * 1000
+        );
+
+        await expect(
+          manager.awaitReviewRecheck(
+            child.id,
+            eightMinutesFiftyNineSecondsLater
+          )
+        ).resolves.toEqual({
+          status: "pending",
+          pollAgainInSeconds: 180,
+        });
+      });
+
+      it("returns ready with the stored resolution payload after submitResolution", async () => {
+        const { child, original } = await seedAwaitingRecheckReview();
+
+        const result = await manager.awaitReviewRecheck(child.id);
+
+        expect(result.status).toBe("ready");
+        if (result.status !== "ready") {
+          throw new Error("expected ready");
+        }
+        expect(result.resolution.summary).toBe("Patched the finding.");
+        expect(result.resolutions).toEqual([
+          expect.objectContaining({
+            feedbackId: original.id,
+            originalDescription: "round 1 finding",
+            originalSeverity: "high",
+            status: "fixed",
+            reason: "patched",
+            filePath: "apps/server/src/server.ts",
+            lineNumber: 42,
+            resolutionCommit: "fixsha",
+            roundNumber: 1,
+          }),
+        ]);
+      });
+
+      it("times out awaitReviewRecheck after two hours and cancels the review", async () => {
+        const { child } = await seedCompletedReviewWithRecheck();
+        const review = await manager.getPersonaReview(child.id);
+        const twoHoursAndOneSecondLater = new Date(
+          new Date(review!.updatedAt).getTime() + (2 * 60 * 60 + 1) * 1000
+        );
+
+        const result = await manager.awaitReviewRecheck(
+          child.id,
+          twoHoursAndOneSecondLater
+        );
+
+        expect(result).toEqual({ status: "cancelled" });
+        const cancelledReview = await manager.getPersonaReview(child.id);
+        expect(cancelledReview!.status).toBe("cancelled");
+      });
+
+      it("rejects awaitReviewRecheck when allowRecheck is false", async () => {
+        const { child } = await seedCompletedReview();
+
+        await expect(manager.awaitReviewRecheck(child.id)).rejects.toThrow(
+          /allowRecheck: true/
+        );
+      });
+
+      it("cancels recheck from the parent and rejects cancelling after round 2 completes", async () => {
+        const { parent, child } = await seedAwaitingRecheckReview();
+
+        const cancelled = await manager.cancelReviewRecheck({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          reason: "shipping without recheck",
+        });
+        expect(cancelled.status).toBe("cancelled");
+        expect(cancelled.message).toBe("shipping without recheck");
+
+        const { parent: parent2, child: child2 } =
+          await seedAwaitingRecheckReview();
+        await manager.completePersonaReview(child2.id, {
+          verdict: "approve",
+          summary: "Round 2 complete",
+        });
+
+        await expect(
+          manager.cancelReviewRecheck({
+            parentAgentId: parent2.id,
+            personaAgentId: child2.id,
+          })
+        ).rejects.toThrow(/after round 2 is already complete/);
+      });
+
+      it("rejects cancelling while round 1 review is still in progress", async () => {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+
+        await expect(
+          manager.cancelReviewRecheck({
+            parentAgentId: parent.id,
+            personaAgentId: child.id,
+          })
+        ).rejects.toThrow(/can only be cancelled while awaiting round 2/i);
+      });
+
+      it("records round 2 findings with round_number = 2", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+
+        const round2Feedback = await manager.submitFeedback(child.id, {
+          description: "round 2 follow-up",
+        });
+
+        expect(round2Feedback.roundNumber).toBe(2);
+      });
+
+      it("returns complete once round 2 has already been submitted", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 complete",
+        });
+
+        await expect(manager.awaitReviewRecheck(child.id)).resolves.toEqual({
+          status: "complete",
+        });
       });
     });
   });
