@@ -112,6 +112,12 @@ export type AgentRecord = {
     summary: string | null;
     filesReviewed: string[] | null;
     updatedAt: string;
+    resolution: {
+      summary: string;
+      resolutionCommit: string | null;
+      submittedAt: string;
+      roundNumber: number;
+    } | null;
   } | null;
   baseBranch: string | null;
   autoReview: boolean;
@@ -3584,7 +3590,19 @@ export class AgentManager {
            'verdict', pr.verdict,
            'summary', pr.summary,
            'filesReviewed', pr.files_reviewed,
-           'updatedAt', pr.updated_at
+           'updatedAt', pr.updated_at,
+           'resolution', (
+             SELECT json_build_object(
+               'summary', prr.summary,
+               'resolutionCommit', prr.resolution_commit,
+               'submittedAt', prr.submitted_at,
+               'roundNumber', prr.round_number
+             )
+             FROM persona_review_resolutions prr
+             WHERE prr.review_id = pr.id
+             ORDER BY prr.round_number DESC, prr.submitted_at DESC
+             LIMIT 1
+           )
          ) FROM persona_reviews pr WHERE pr.agent_id = agents.id LIMIT 1
         ) AS "review",
         created_at AS "createdAt",

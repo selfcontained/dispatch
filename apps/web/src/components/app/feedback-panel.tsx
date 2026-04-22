@@ -535,7 +535,7 @@ export function ParentFeedbackPanel({
                                   >
                                     <button
                                       className={cn(
-                                        "flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-[11px] transition-colors",
+                                        "flex w-full flex-col gap-0.5 rounded-md px-1.5 py-1.5 text-left text-[11px] transition-colors",
                                         "border-b-2",
                                         isSelected
                                           ? "border-primary"
@@ -565,38 +565,49 @@ export function ParentFeedbackPanel({
                                         });
                                       }}
                                     >
-                                      <span
-                                        className={cn(
-                                          "h-1.5 w-1.5 shrink-0 rounded-full",
-                                          dotColor
-                                        )}
-                                      />
-                                      <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
-                                        <FrontTruncatedValue
-                                          value={
-                                            item.filePath
-                                              ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}`
-                                              : "—"
-                                          }
-                                          mono
-                                        />
-                                      </div>
-                                      <span className="min-w-0 flex-1 truncate text-foreground">
-                                        {item.description}
-                                      </span>
-                                      {statusLabel && !isActionable ? (
+                                      <div className="flex w-full items-center gap-2">
                                         <span
                                           className={cn(
-                                            "shrink-0",
-                                            statusLabel.color
+                                            "h-1.5 w-1.5 shrink-0 rounded-full",
+                                            dotColor
                                           )}
-                                          title={statusLabel.label}
-                                        >
-                                          <StatusIcon
-                                            status={item.status}
-                                            className={statusLabel.color}
+                                        />
+                                        <div className="min-w-0 overflow-hidden font-mono text-muted-foreground">
+                                          <FrontTruncatedValue
+                                            value={
+                                              item.filePath
+                                                ? `${item.filePath.split("/").pop()}${item.lineNumber ? `:${item.lineNumber}` : ""}`
+                                                : "—"
+                                            }
+                                            mono
                                           />
+                                        </div>
+                                        <span className="min-w-0 flex-1 truncate text-foreground">
+                                          {item.description}
                                         </span>
+                                        {statusLabel && !isActionable ? (
+                                          <span
+                                            className={cn(
+                                              "shrink-0",
+                                              statusLabel.color
+                                            )}
+                                            title={statusLabel.label}
+                                          >
+                                            <StatusIcon
+                                              status={item.status}
+                                              className={statusLabel.color}
+                                            />
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      {!isActionable &&
+                                      item.resolutionReason ? (
+                                        <div
+                                          className="ml-4 truncate pl-0.5 text-[10px] italic text-muted-foreground/70"
+                                          title={item.resolutionReason}
+                                        >
+                                          {item.resolutionReason}
+                                        </div>
                                       ) : null}
                                     </button>
                                   </div>
@@ -695,30 +706,134 @@ function useFeedbackData(parentAgentId: string) {
   }, [allAgents, parentAgentId, personas]);
 
   const updateStatus = useCallback(
-    async (item: FeedbackItem, status: string) => {
+    async (item: FeedbackItem, status: string, reason?: string) => {
       const body: { status: string; reason?: string } = { status };
-      // Server requires a reason when ignoring. Until CRU-129 adds the
-      // inline prompt, stamp a generic reason so the UI button works.
-      if (status === "ignored") {
-        body.reason = "User's choice";
-      }
-      await api(`/api/v1/agents/${item.agentId}/feedback/${item.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
-      const update = (f: FeedbackItem) =>
-        f.id === item.id
-          ? { ...f, status: status as FeedbackItem["status"] }
-          : f;
+      if (reason !== undefined) body.reason = reason;
+      const response = await api<{ feedback: FeedbackItem }>(
+        `/api/v1/agents/${item.agentId}/feedback/${item.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        }
+      );
       queryClient.setQueryData<FeedbackItem[]>(
         ["feedback", parentAgentId, "children"],
-        (old) => old?.map(update)
+        (old) => old?.map((f) => (f.id === item.id ? response.feedback : f))
       );
     },
     [queryClient, parentAgentId]
   );
 
   return { feedback, personaAttribution, updateStatus };
+}
+
+function shortSha(sha: string | null | undefined): string | null {
+  if (!sha) return null;
+  return sha.slice(0, 7);
+}
+
+function ResolutionInfoBlock({
+  item,
+  className,
+}: {
+  item: FeedbackItem;
+  className?: string;
+}): JSX.Element | null {
+  if (!item.resolutionReason && !item.resolutionCommit) return null;
+  const sha = shortSha(item.resolutionCommit);
+  return (
+    <div className={cn("space-y-1", className)}>
+      {item.resolutionReason ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
+            Resolution reason
+          </div>
+          <div className="text-sm text-muted-foreground whitespace-pre-wrap break-words">
+            {item.resolutionReason}
+          </div>
+        </div>
+      ) : null}
+      {sha ? (
+        <div className="text-[10px] text-muted-foreground/70">
+          Resolved at commit{" "}
+          <span className="font-mono text-muted-foreground">{sha}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function IgnoreReasonInput({
+  onCancel,
+  onSubmit,
+  size = "default",
+}: {
+  onCancel: () => void;
+  onSubmit: (reason: string) => void;
+  size?: "sm" | "default";
+}): JSX.Element {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+  const trimmed = value.trim();
+  const canSubmit = trimmed.length > 0;
+  const submit = () => {
+    if (canSubmit) onSubmit(trimmed);
+  };
+  const inputClass =
+    size === "sm" ? "h-7 px-2 text-[11px]" : "h-11 px-3 text-sm";
+  const btnClass = size === "sm" ? "h-7 px-2 text-[11px]" : "h-11 px-3 text-sm";
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-md border border-border bg-background/60 p-1"
+      )}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          // stopPropagation so the outer panel/sheet Esc handler doesn't
+          // also fire and close the whole panel on cancel.
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            submit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+        placeholder="Why ignore? (required)"
+        className={cn(
+          "min-w-0 flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 outline-none",
+          inputClass
+        )}
+      />
+      <Button
+        variant="ghost"
+        size="sm"
+        className={btnClass + " text-muted-foreground/60 hover:text-foreground"}
+        onClick={onCancel}
+      >
+        Cancel
+      </Button>
+      <Button
+        variant="default"
+        size="sm"
+        className={btnClass}
+        disabled={!canSubmit}
+        onClick={submit}
+      >
+        Ignore
+      </Button>
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -800,9 +915,12 @@ export function FeedbackDetailPanel({
     [copyText]
   );
 
+  const [ignoreTarget, setIgnoreTarget] = useState<number | null>(null);
+
   const handleResolve = useCallback(
-    (feedbackItem: FeedbackItem, status: string) => {
-      void updateStatus(feedbackItem, status);
+    (feedbackItem: FeedbackItem, status: string, reason?: string) => {
+      void updateStatus(feedbackItem, status, reason);
+      setIgnoreTarget(null);
       // Advance within the same persona group
       const samePersona = activeItems.filter(
         (f) => f.agentId === feedbackItem.agentId
@@ -834,12 +952,15 @@ export function FeedbackDetailPanel({
   const isActionable = item.status === "open" || item.status === "forwarded";
   const severityInfo = SEVERITY_LABELS[item.severity] ?? SEVERITY_LABELS.info;
   const attr = personaAttribution.get(item.agentId);
+  const isIgnoring = ignoreTarget === item.id;
 
   return (
     <div
       ref={panelRef}
       tabIndex={-1}
       onKeyDown={(e) => {
+        // Skip when the inline ignore input is open — it owns Esc to cancel.
+        if (isIgnoring) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           onClose();
@@ -875,7 +996,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0"
-            disabled={!prevItem}
+            disabled={!prevItem || isIgnoring}
             onClick={() => prevItem && onNavigate(prevItem.id)}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -884,7 +1005,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0"
-            disabled={!nextItem}
+            disabled={!nextItem || isIgnoring}
             onClick={() => nextItem && onNavigate(nextItem.id)}
           >
             <ChevronRight className="h-4 w-4" />
@@ -893,6 +1014,7 @@ export function FeedbackDetailPanel({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 ml-4 opacity-70 hover:opacity-100"
+            disabled={isIgnoring}
             onClick={onClose}
           >
             <X className="h-4 w-4" />
@@ -921,21 +1043,36 @@ export function FeedbackDetailPanel({
             </Markdown>
           </div>
         ) : null}
+
+        {!isActionable ? <ResolutionInfoBlock item={item} /> : null}
       </div>
 
       {/* Actions footer */}
       <div className="shrink-0 pt-2 border-t border-border mt-2">
-        <FeedbackActions
-          item={item}
-          isConnected={isConnected}
-          onForward={(mode) => forward(item, mode)}
-          onCopy={() => handleCopy(item)}
-          copied={copied && copiedItemId === item.id}
-          onUpdateStatus={(s) => handleResolve(item, s)}
-          isActionable={isActionable}
-          statusLabel={STATUS_LABELS[item.status]}
-          size="default"
-        />
+        {ignoreTarget === item.id ? (
+          <IgnoreReasonInput
+            onCancel={() => setIgnoreTarget(null)}
+            onSubmit={(reason) => handleResolve(item, "ignored", reason)}
+          />
+        ) : (
+          <FeedbackActions
+            item={item}
+            isConnected={isConnected}
+            onForward={(mode) => forward(item, mode)}
+            onCopy={() => handleCopy(item)}
+            copied={copied && copiedItemId === item.id}
+            onUpdateStatus={(s) => {
+              if (s === "ignored") {
+                setIgnoreTarget(item.id);
+              } else {
+                handleResolve(item, s);
+              }
+            }}
+            isActionable={isActionable}
+            statusLabel={STATUS_LABELS[item.status]}
+            size="default"
+          />
+        )}
       </div>
     </div>
   );
@@ -960,6 +1097,7 @@ export function ReviewSummaryPanel({
   const verdict = getVerdict(agent);
   const summary = getReviewSummary(agent);
   const filesReviewed = getFilesReviewed(agent);
+  const resolution = agent.review?.resolution ?? null;
   const attr = personaAttribution.get(agent.id);
 
   return (
@@ -1029,6 +1167,25 @@ export function ReviewSummaryPanel({
                 </div>
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {resolution ? (
+          <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
+              Parent's response
+            </div>
+            <Markdown className="text-sm text-foreground">
+              {resolution.summary}
+            </Markdown>
+            {resolution.resolutionCommit ? (
+              <div className="mt-2 text-[10px] text-muted-foreground/70">
+                Submitted at commit{" "}
+                <span className="font-mono text-muted-foreground">
+                  {shortSha(resolution.resolutionCommit)}
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1117,9 +1274,12 @@ export function MobileFeedbackSheet({
     [copyText]
   );
 
+  const [ignoreTarget, setIgnoreTarget] = useState<number | null>(null);
+
   const handleResolve = useCallback(
-    (feedbackItem: FeedbackItem, status: string) => {
-      void updateStatus(feedbackItem, status);
+    (feedbackItem: FeedbackItem, status: string, reason?: string) => {
+      void updateStatus(feedbackItem, status, reason);
+      setIgnoreTarget(null);
       const samePersona = activeItems.filter(
         (f) => f.agentId === feedbackItem.agentId
       );
@@ -1143,12 +1303,15 @@ export function MobileFeedbackSheet({
   const attr = item ? personaAttribution.get(item.agentId) : undefined;
   const isActionable =
     item && (item.status === "open" || item.status === "forwarded");
+  const isIgnoring = !!item && ignoreTarget === item.id;
 
   return (
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        // Block the overlay/Esc close path from the Radix Sheet while the
+        // inline reason input is open so the user doesn't lose their place.
+        if (!open && !isIgnoring) onClose();
       }}
     >
       <SheetContent
@@ -1169,7 +1332,7 @@ export function MobileFeedbackSheet({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  disabled={!prevItem}
+                  disabled={!prevItem || isIgnoring}
                   onClick={() => prevItem && onNavigate(prevItem.id)}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -1178,7 +1341,7 @@ export function MobileFeedbackSheet({
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
-                  disabled={!nextItem}
+                  disabled={!nextItem || isIgnoring}
                   onClick={() => nextItem && onNavigate(nextItem.id)}
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1188,6 +1351,7 @@ export function MobileFeedbackSheet({
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
+                disabled={isIgnoring}
                 onClick={onClose}
               >
                 <X className="h-4 w-4" />
@@ -1243,20 +1407,34 @@ export function MobileFeedbackSheet({
                   </Markdown>
                 </div>
               ) : null}
+              {!isActionable ? <ResolutionInfoBlock item={item} /> : null}
             </div>
 
             <div className="shrink-0 pt-2 border-t border-border">
-              <FeedbackActions
-                item={item}
-                isConnected={isConnected}
-                onForward={(mode) => forward(item, mode)}
-                onCopy={() => handleCopy(item)}
-                copied={copied && copiedItemId === item.id}
-                onUpdateStatus={(s) => handleResolve(item, s)}
-                isActionable={!!isActionable}
-                statusLabel={STATUS_LABELS[item.status]}
-                size="default"
-              />
+              {ignoreTarget === item.id ? (
+                <IgnoreReasonInput
+                  onCancel={() => setIgnoreTarget(null)}
+                  onSubmit={(reason) => handleResolve(item, "ignored", reason)}
+                />
+              ) : (
+                <FeedbackActions
+                  item={item}
+                  isConnected={isConnected}
+                  onForward={(mode) => forward(item, mode)}
+                  onCopy={() => handleCopy(item)}
+                  copied={copied && copiedItemId === item.id}
+                  onUpdateStatus={(s) => {
+                    if (s === "ignored") {
+                      setIgnoreTarget(item.id);
+                    } else {
+                      handleResolve(item, s);
+                    }
+                  }}
+                  isActionable={!!isActionable}
+                  statusLabel={STATUS_LABELS[item.status]}
+                  size="default"
+                />
+              )}
             </div>
           </>
         ) : (
@@ -1298,6 +1476,7 @@ export function MobileReviewSummarySheet({
   const verdict = getVerdict(agent);
   const summary = getReviewSummary(agent);
   const filesReviewed = getFilesReviewed(agent);
+  const resolution = agent.review?.resolution ?? null;
   const attr = personaAttribution.get(agent.id);
 
   return (
@@ -1379,6 +1558,25 @@ export function MobileReviewSummarySheet({
                   </div>
                 ))}
               </div>
+            </div>
+          ) : null}
+
+          {resolution ? (
+            <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80 mb-1">
+                Parent's response
+              </div>
+              <Markdown className="text-sm text-foreground">
+                {resolution.summary}
+              </Markdown>
+              {resolution.resolutionCommit ? (
+                <div className="mt-2 text-[10px] text-muted-foreground/70">
+                  Submitted at commit{" "}
+                  <span className="font-mono text-muted-foreground">
+                    {shortSha(resolution.resolutionCommit)}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
