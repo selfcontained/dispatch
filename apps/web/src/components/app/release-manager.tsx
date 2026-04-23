@@ -26,6 +26,7 @@ import {
   type UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
+import { reloadApp } from "@/lib/reload";
 import { cn } from "@/lib/utils";
 
 type AppVersionInfo = {
@@ -159,7 +160,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
   const handleReload = useCallback(() => {
     setReloading(true);
-    window.location.reload();
+    reloadApp();
   }, []);
 
   const handleClearCacheAndReload = useCallback(async () => {
