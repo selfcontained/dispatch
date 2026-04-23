@@ -34,6 +34,7 @@ export type FeedbackInput = {
   description: string;
   suggestion?: string;
   mediaRef?: string;
+  respondsToFeedbackId?: number;
 };
 
 export type FeedbackItem = {
@@ -46,6 +47,7 @@ export type FeedbackItem = {
   mediaRef: string | null;
   status: string;
   roundNumber: number;
+  respondsToFeedbackId: number | null;
   createdAt: string;
 };
 
@@ -402,7 +404,7 @@ export function buildLaunchPersonaResponseText(
 ): string {
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
   if (!allowRecheck) return base;
-  return `${base}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via responds_to_feedback_id indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`;
+  return `${base}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via respondsToFeedbackId indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`;
 }
 
 export async function handleMcpRequest(
@@ -2019,6 +2021,14 @@ function registerFeedbackTool(
           .describe(
             "Filename of a previously shared media file (from dispatch_share) to attach."
           ),
+        respondsToFeedbackId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Optional original feedback ID this follow-up finding responds to during a recheck round."
+          ),
       },
     },
     async (args) => {
@@ -2030,6 +2040,7 @@ function registerFeedbackTool(
           description: args.description,
           suggestion: args.suggestion,
           mediaRef: args.mediaRef,
+          respondsToFeedbackId: args.respondsToFeedbackId,
         });
         return {
           content: [

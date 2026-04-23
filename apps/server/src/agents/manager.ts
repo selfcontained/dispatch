@@ -184,6 +184,7 @@ export type FeedbackInput = {
   description: string;
   suggestion?: string;
   mediaRef?: string;
+  respondsToFeedbackId?: number;
 };
 
 export type PersonaReviewRecord = {
@@ -3337,8 +3338,18 @@ export class AgentManager {
         : 1;
 
       const result = await client.query<FeedbackRecord>(
-        `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref, round_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO agent_feedback (
+           agent_id,
+           severity,
+           file_path,
+           line_number,
+           description,
+           suggestion,
+           media_ref,
+           round_number,
+           responds_to_feedback_id
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
                    description, suggestion, media_ref AS "mediaRef", status,
                    resolution_reason AS "resolutionReason",
@@ -3356,6 +3367,7 @@ export class AgentManager {
           feedback.suggestion ?? null,
           feedback.mediaRef ?? null,
           feedbackRoundNumber,
+          feedback.respondsToFeedbackId ?? null,
         ]
       );
 

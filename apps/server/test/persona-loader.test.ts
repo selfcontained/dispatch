@@ -187,7 +187,7 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Recheck round-trip");
     expect(result).toContain("dispatch_await_recheck");
     expect(result).toContain("dispatch_complete_review");
-    expect(result).toContain("responds_to_feedback_id");
+    expect(result).toContain("respondsToFeedbackId");
     expect(result).toContain("pollAgainInSeconds");
 
     const guidanceIdx = result.indexOf("Recheck round-trip");

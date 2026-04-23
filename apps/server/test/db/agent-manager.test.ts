@@ -2174,6 +2174,18 @@ describe("AgentManager", () => {
         expect(round2Feedback.roundNumber).toBe(2);
       });
 
+      it("persists respondsToFeedbackId on round 2 follow-up findings", async () => {
+        const { child, original } = await seedAwaitingRecheckReview();
+
+        const round2Feedback = await manager.submitFeedback(child.id, {
+          description: "round 2 follow-up",
+          respondsToFeedbackId: original.id,
+        });
+
+        expect(round2Feedback.roundNumber).toBe(2);
+        expect(round2Feedback.respondsToFeedbackId).toBe(original.id);
+      });
+
       it("returns complete once round 2 has already been submitted", async () => {
         const { child } = await seedAwaitingRecheckReview();
         await manager.completePersonaReview(child.id, {

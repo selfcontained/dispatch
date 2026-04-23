@@ -20,7 +20,7 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).toContain("dispatch_get_feedback");
     expect(text).toContain("dispatch_resolve_feedback");
     expect(text).toContain("dispatch_submit_resolution");
-    expect(text).toContain("responds_to_feedback_id");
+    expect(text).toContain("respondsToFeedbackId");
   });
 
   it("describes the actual polling contract — round-2 items, not a verdict signal", () => {
@@ -29,7 +29,7 @@ describe("buildLaunchPersonaResponseText", () => {
     // end-of-poll verdict signal. See CRU-133 review (feedback #1113).
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
     expect(text).not.toMatch(/verdict is complete/i);
-    expect(text).toContain("linked via responds_to_feedback_id");
+    expect(text).toContain("linked via respondsToFeedbackId");
     expect(text).toContain(
       "if none arrive within a reasonable window, the reviewer likely approved"
     );
