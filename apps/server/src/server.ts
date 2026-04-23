@@ -532,6 +532,18 @@ if (!existsSync(path.join(repoRootDir, "pnpm-workspace.yaml"))) {
 }
 const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
 const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
+
+const serverPackageVersion = ((): string => {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(path.join(appRootDir, "package.json"), "utf8")
+    ) as { version?: unknown };
+    if (typeof pkg.version === "string" && pkg.version.trim()) {
+      return pkg.version.trim();
+    }
+  } catch {}
+  return "0.0.0";
+})();
 const legacyPublicDir = path.resolve(repoRootDir, "public");
 const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
 
@@ -1355,6 +1367,17 @@ async function registerRoutes() {
         .send(cachedIndexHtml);
     }
     return reply.code(404).send({ error: "Not found" });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Version header — every /api/ response advertises the server's running
+  // package.version so long-lived clients can detect when to offer a reload.
+  // ---------------------------------------------------------------------------
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header("X-Dispatch-Version", serverPackageVersion);
+    }
+    return payload;
   });
 
   // ---------------------------------------------------------------------------

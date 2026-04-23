@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
+import { reloadApp } from "@/lib/reload";
 
 export type ReleaseVersionType = "patch" | "minor" | "major";
 export type ReleasePhase =
@@ -101,7 +102,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
             setJob((prev) =>
               prev ? { ...prev, phase: "done", tag: data.tag } : prev
             );
-            setTimeout(() => window.location.reload(), 1500);
+            setTimeout(() => reloadApp(), 1500);
           }
         }
       } catch {

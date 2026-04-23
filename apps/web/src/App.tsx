@@ -28,6 +28,7 @@ import {
 } from "@/lib/agent-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
+import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 
 type RouteHandle = {
   navSection?: NavSection;
@@ -233,7 +234,12 @@ export function DashboardLayout(): JSX.Element {
     clearIconColorError,
   };
 
-  return <Outlet context={context} />;
+  return (
+    <>
+      <Outlet context={context} />
+      <UpdateAvailableToast />
+    </>
+  );
 }
 
 export async function openAgentFromJobs(
