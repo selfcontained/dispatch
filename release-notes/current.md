@@ -1,5 +1,5 @@
 ## What's Changed
-* CRU-133: recheck round-trip guidance in persona prompt, launch response, tool descriptions by @selfcontained in https://github.com/selfcontained/dispatch/pull/386
+* fix(web): wait for new SW to install before reloading from update toast by @selfcontained in https://github.com/selfcontained/dispatch/pull/396
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.17.0...v0.17.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.17.1...v0.17.2
