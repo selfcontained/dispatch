@@ -6,10 +6,15 @@ export function setUpdateSW(fn: UpdateSW): void {
   updateSW = fn;
 }
 
-export function reloadApp(): void {
+export async function reloadApp(): Promise<void> {
   if (updateSW) {
-    void updateSW(true);
-    return;
+    try {
+      await updateSW(true);
+      return;
+    } catch {
+      // Fall through to a hard reload if the SW update path fails so the
+      // user isn't left with a stuck Reload button.
+    }
   }
   window.location.reload();
 }

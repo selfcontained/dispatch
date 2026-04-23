@@ -38,9 +38,9 @@ export function useUpdateAvailable(): UpdateAvailableState {
         /* ignore malformed payloads */
       }
     };
-    es.onerror = () => {
-      es.close();
-    };
+    // Intentionally do not close on error — the browser's EventSource
+    // reconnects automatically. Closing here would permanently silence the
+    // SSE path for the life of the session after the first blip.
     return () => {
       es.close();
     };
