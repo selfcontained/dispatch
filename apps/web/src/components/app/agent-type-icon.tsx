@@ -1,3 +1,4 @@
+import { Terminal as TerminalIcon } from "lucide-react";
 import { siClaude } from "simple-icons";
 
 import { cn } from "@/lib/utils";
@@ -24,12 +25,15 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "unknown" {
+): "codex" | "claude" | "opencode" | "terminal" | "unknown" {
   if (type === "claude") {
     return "claude";
   }
   if (type === "opencode") {
     return "opencode";
+  }
+  if (type === "terminal") {
+    return "terminal";
   }
   if (type === "codex" || !type) {
     return "codex";
@@ -48,7 +52,9 @@ export function AgentTypeIcon({
       ? "Claude"
       : normalizedType === "opencode"
         ? "OpenCode"
-        : "Codex";
+        : normalizedType === "terminal"
+          ? "Terminal"
+          : "Codex";
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
@@ -67,6 +73,18 @@ export function AgentTypeIcon({
         aria-label={`${label} agent`}
       >
         OC
+      </span>
+    );
+  }
+
+  if (normalizedType === "terminal") {
+    return (
+      <span
+        className={cn(baseClass, statusClass, className)}
+        title={`${label} agent`}
+        aria-label={`${label} agent`}
+      >
+        <TerminalIcon className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     );
   }

@@ -144,6 +144,7 @@ export function AgentCard({
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
+  const isTerminalAgent = agent.type === "terminal";
   const sidebarBaseBranch = agent.baseBranch ?? "main";
 
   return (
@@ -182,7 +183,11 @@ export function AgentCard({
                 <AgentTypeIcon
                   type={agent.type}
                   eventType={
-                    agent.status === "running" ? agent.latestEvent?.type : null
+                    isTerminalAgent
+                      ? null
+                      : agent.status === "running"
+                        ? agent.latestEvent?.type
+                        : null
                   }
                 />
                 <span className="truncate">{agent.name}</span>
@@ -306,7 +311,7 @@ export function AgentCard({
           </div>
         ) : null}
 
-        {agent.latestEvent ? (
+        {agent.latestEvent && !isTerminalAgent ? (
           isExpanded ? (
             <div className="mt-1 text-xs text-muted-foreground">
               <div className="flex items-baseline">
@@ -471,21 +476,25 @@ export function AgentCard({
                       ) : (
                         <span />
                       )}
-                      <div
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-                          fullAccessEnabled
-                            ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
-                            : "border border-border bg-muted/40 text-muted-foreground"
-                        )}
-                      >
-                        {fullAccessEnabled ? (
-                          <AlertTriangle className="h-3 w-3" />
-                        ) : null}
-                        <span>
-                          {fullAccessEnabled ? "Full access" : "Sandboxed"}
-                        </span>
-                      </div>
+                      {isTerminalAgent ? (
+                        <span />
+                      ) : (
+                        <div
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
+                            fullAccessEnabled
+                              ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
+                              : "border border-border bg-muted/40 text-muted-foreground"
+                          )}
+                        >
+                          {fullAccessEnabled ? (
+                            <AlertTriangle className="h-3 w-3" />
+                          ) : null}
+                          <span>
+                            {fullAccessEnabled ? "Full access" : "Sandboxed"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -511,37 +520,41 @@ export function AgentCard({
               </div>
               {!agent.persona ? (
                 <div className="flex flex-col gap-3 px-0 pb-1">
-                  <ParentFeedbackPanel
-                    parentAgentId={agent.id}
-                    sendTerminalInput={sendTerminalInput}
-                    isConnected={connectedAgentId === agent.id}
-                    onRequestClose={onRequestClose}
-                    closeOnSessionAction={closeOnSessionAction}
-                    onOpenDetail={onOpenFeedbackDetail}
-                    activeDetailItemId={
-                      feedbackDetailState?.parentAgentId === agent.id &&
-                      "itemId" in feedbackDetailState
-                        ? feedbackDetailState.itemId
-                        : null
-                    }
-                    childAgents={childAgents}
-                    selectedAgentId={selectedAgentId}
-                    agentVisualState={getVisualState}
-                    detachTerminal={detachTerminal}
-                    attachToAgent={attachToAgent}
-                  />
+                  {isTerminalAgent ? null : (
+                    <ParentFeedbackPanel
+                      parentAgentId={agent.id}
+                      sendTerminalInput={sendTerminalInput}
+                      isConnected={connectedAgentId === agent.id}
+                      onRequestClose={onRequestClose}
+                      closeOnSessionAction={closeOnSessionAction}
+                      onOpenDetail={onOpenFeedbackDetail}
+                      activeDetailItemId={
+                        feedbackDetailState?.parentAgentId === agent.id &&
+                        "itemId" in feedbackDetailState
+                          ? feedbackDetailState.itemId
+                          : null
+                      }
+                      childAgents={childAgents}
+                      selectedAgentId={selectedAgentId}
+                      agentVisualState={getVisualState}
+                      detachTerminal={detachTerminal}
+                      attachToAgent={attachToAgent}
+                    />
+                  )}
                   <div className="flex min-h-9 items-center justify-between gap-2 pt-2">
                     <div className="min-h-9 min-w-0 flex items-center">
-                      <PersonaLauncher
-                        agent={agent}
-                        enabledAgentTypes={enabledAgentTypes}
-                        sendTerminalInput={sendTerminalInput}
-                        disabled={
-                          connectedAgentId !== agent.id ||
-                          isStopped ||
-                          agent.status === "archiving"
-                        }
-                      />
+                      {isTerminalAgent ? null : (
+                        <PersonaLauncher
+                          agent={agent}
+                          enabledAgentTypes={enabledAgentTypes}
+                          sendTerminalInput={sendTerminalInput}
+                          disabled={
+                            connectedAgentId !== agent.id ||
+                            isStopped ||
+                            agent.status === "archiving"
+                          }
+                        />
+                      )}
                       {/* Keep review visible for every parent agent; lifecycle controls stay on the right. */}
                     </div>
                     <div className="flex h-9 shrink-0 items-center gap-[18px]">

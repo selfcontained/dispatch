@@ -489,46 +489,50 @@ function CreateAgentDialogContent({
                   ) : null}
                 </div>
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                  <Checkbox
-                    checked={createFullAccess}
-                    onCheckedChange={() =>
-                      setCreateFullAccess((current) => !current)
-                    }
-                    className="mt-0.5"
-                    title="Toggle full access"
-                  />
-                  <span className="space-y-1">
-                    <span className="block text-sm font-medium text-foreground">
-                      Start in full access mode
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Starts the selected agent with its most permissive
-                      supported execution mode.
-                    </span>
-                  </span>
-                </label>
+                {createType !== "terminal" ? (
+                  <>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                      <Checkbox
+                        checked={createFullAccess}
+                        onCheckedChange={() =>
+                          setCreateFullAccess((current) => !current)
+                        }
+                        className="mt-0.5"
+                        title="Toggle full access"
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">
+                          Start in full access mode
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Starts the selected agent with its most permissive
+                          supported execution mode.
+                        </span>
+                      </span>
+                    </label>
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                  <Checkbox
-                    checked={createAutoReview}
-                    onCheckedChange={() =>
-                      setCreateAutoReview((current) => !current)
-                    }
-                    className="mt-0.5"
-                    title="Toggle autonomous review"
-                    data-testid="create-agent-auto-review"
-                  />
-                  <span className="space-y-1">
-                    <span className="block text-sm font-medium text-foreground">
-                      Autonomous Review
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Agent will launch one review agent and address feedback
-                      before completing.
-                    </span>
-                  </span>
-                </label>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                      <Checkbox
+                        checked={createAutoReview}
+                        onCheckedChange={() =>
+                          setCreateAutoReview((current) => !current)
+                        }
+                        className="mt-0.5"
+                        title="Toggle autonomous review"
+                        data-testid="create-agent-auto-review"
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">
+                          Autonomous Review
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          Agent will launch one review agent and address
+                          feedback before completing.
+                        </span>
+                      </span>
+                    </label>
+                  </>
+                ) : null}
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-3">
@@ -541,16 +545,18 @@ function CreateAgentDialogContent({
               >
                 Cancel
               </Button>
-              <Button
-                type="button"
-                variant="default"
-                tabIndex={0}
-                disabled={creating || !createCwd.trim()}
-                data-testid="create-agent-with-prompt"
-                onClick={() => setStep("prompt")}
-              >
-                Create with prompt
-              </Button>
+              {createType !== "terminal" ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  tabIndex={0}
+                  disabled={creating || !createCwd.trim()}
+                  data-testid="create-agent-with-prompt"
+                  onClick={() => setStep("prompt")}
+                >
+                  Create with prompt
+                </Button>
+              ) : null}
               <Button
                 type="submit"
                 variant="primary"

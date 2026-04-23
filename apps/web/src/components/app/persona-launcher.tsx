@@ -11,7 +11,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  isCliAgentType,
+} from "@/lib/agent-types";
 
 type PersonaSummary = {
   slug: string;
@@ -43,7 +47,9 @@ export function PersonaLauncher({
     },
   });
   const hasPersonas = personas.length > 0;
-  const showReviewAgentTypePicker = enabledAgentTypes.length > 1;
+  // Terminal agents can't run personas — exclude from review type options.
+  const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
+  const showReviewAgentTypePicker = reviewerTypes.length > 1;
 
   if (!hasPersonas) {
     return null;
@@ -146,7 +152,7 @@ export function PersonaLauncher({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {enabledAgentTypes.map((agentType) => (
+            {reviewerTypes.map((agentType) => (
               <DropdownMenuItem
                 key={agentType}
                 className="text-foreground"

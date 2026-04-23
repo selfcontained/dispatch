@@ -94,7 +94,9 @@ import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import {
   AGENT_TYPES,
+  CLI_AGENT_TYPES,
   getEnabledAgentTypes,
+  isCliAgentType,
   setEnabledAgentTypes,
 } from "./agent-type-settings.js";
 import { isPinType, validatePinValue } from "./pins.js";
@@ -1209,7 +1211,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   schedule: z.string().nullable().optional(),
   timeoutMs: z.number().int().positive().optional(),
   needsInputTimeoutMs: z.number().int().positive().optional(),
-  agentType: z.enum(AGENT_TYPES).optional(),
+  agentType: z.enum(CLI_AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
@@ -3291,17 +3293,20 @@ async function registerRoutes() {
     const id = params.id ?? "";
     const body = request.body as { reviewAgentType?: unknown } | null;
 
-    let reviewAgentType: (typeof AGENT_TYPES)[number] | null;
+    let reviewAgentType: (typeof CLI_AGENT_TYPES)[number] | null;
     if (body?.reviewAgentType === null || body?.reviewAgentType === undefined) {
       reviewAgentType = null;
     } else if (
       typeof body.reviewAgentType === "string" &&
-      AGENT_TYPES.includes(body.reviewAgentType as (typeof AGENT_TYPES)[number])
+      CLI_AGENT_TYPES.includes(
+        body.reviewAgentType as (typeof CLI_AGENT_TYPES)[number]
+      )
     ) {
-      reviewAgentType = body.reviewAgentType as (typeof AGENT_TYPES)[number];
+      reviewAgentType =
+        body.reviewAgentType as (typeof CLI_AGENT_TYPES)[number];
     } else {
       return reply.code(400).send({
-        error: `reviewAgentType must be null or one of ${AGENT_TYPES.join(", ")}.`,
+        error: `reviewAgentType must be null or one of ${CLI_AGENT_TYPES.join(", ")}.`,
       });
     }
 
@@ -3691,10 +3696,12 @@ async function registerRoutes() {
       body.type !== undefined &&
       body.type !== "codex" &&
       body.type !== "claude" &&
-      body.type !== "opencode"
+      body.type !== "opencode" &&
+      body.type !== "terminal"
     ) {
       return reply.code(400).send({
-        error: "type must be codex, claude, or opencode when provided.",
+        error:
+          "type must be codex, claude, opencode, or terminal when provided.",
       });
     }
 
@@ -3758,7 +3765,9 @@ async function registerRoutes() {
         ? "claude"
         : body.type === "opencode"
           ? "opencode"
-          : "codex";
+          : body.type === "terminal"
+            ? "terminal"
+            : "codex";
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
       return reply
@@ -5550,20 +5559,23 @@ async function mcpLaunchPersona(
   opts: {
     persona: string;
     context: string;
-    agentType?: (typeof AGENT_TYPES)[number];
+    agentType?: (typeof CLI_AGENT_TYPES)[number];
     allowRecheck?: boolean;
   }
 ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
   const parent = await agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
 
-  const personaAgentType =
-    opts.agentType ??
-    parent.reviewAgentType ??
-    (parent.type === "claude" || parent.type === "opencode"
+  const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
+    ? parent.reviewAgentType
+    : null;
+  const fallbackParentType =
+    parent.type === "claude" || parent.type === "opencode"
       ? parent.type
-      : "codex");
-  if (!AGENT_TYPES.includes(personaAgentType)) {
+      : "codex";
+  const personaAgentType: (typeof CLI_AGENT_TYPES)[number] =
+    opts.agentType ?? fallbackReviewType ?? fallbackParentType;
+  if (!CLI_AGENT_TYPES.includes(personaAgentType)) {
     throw new Error(`Unsupported persona agent type "${personaAgentType}".`);
   }
 
