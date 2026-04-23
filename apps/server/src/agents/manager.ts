@@ -413,6 +413,21 @@ export class AgentError extends Error {
 
 export type AgentEventListener = (agent: AgentRecord) => void;
 
+/**
+ * Input validator for `review_status` pings. Today only `"reviewing"` is
+ * valid; extracted as a pure helper so tests can assert the accept/reject
+ * behaviour without touching the database.
+ */
+export function resolveProgressPingStatus(requested: string): "reviewing" {
+  if (requested !== "reviewing") {
+    throw new AgentError(
+      `Invalid review status "${requested}". Must be one of: reviewing`,
+      400
+    );
+  }
+  return "reviewing";
+}
+
 export class AgentManager {
   private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
   private static readonly LOG_MAINTENANCE_INTERVAL_MS = 5 * 60_000;
@@ -2481,42 +2496,59 @@ export class AgentManager {
     agentId: string,
     input: { status: string; message?: string }
   ): Promise<PersonaReviewRecord> {
-    const VALID_STATUSES = ["reviewing"];
-    if (!VALID_STATUSES.includes(input.status)) {
-      throw new AgentError(
-        `Invalid review status "${input.status}". Must be one of: ${VALID_STATUSES.join(", ")}`,
-        400
+    // review_status is a progress-ping channel only. It must not transition
+    // the review *out of* a non-working state — in particular, it must not
+    // clobber `awaiting_recheck` (reviewer is doing round 2) back to
+    // `reviewing` (that tricks completePersonaReview into thinking the next
+    // close is round 1 again). Terminal states are also off-limits. Compute
+    // the effective next status in code — easier to unit-test and lets us
+    // surface a specific error for the terminal cases.
+    const nextStatus = resolveProgressPingStatus(input.status);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query<{ status: string }>(
+        `SELECT status FROM persona_reviews WHERE agent_id = $1 FOR UPDATE`,
+        [agentId]
       );
+      const current = currentResult.rows[0];
+      if (!current) {
+        throw new AgentError("No persona review found for agent.", 404);
+      }
+      if (current.status === "complete" || current.status === "cancelled") {
+        throw new AgentError(
+          `Cannot ping review_status on a ${current.status} review. Progress pings are only accepted while the review is active.`,
+          409
+        );
+      }
+
+      // awaiting_recheck is "active" from the reviewer's perspective — they
+      // are doing round 2 — so accept the ping but preserve the status label.
+      const statusToPersist =
+        current.status === "awaiting_recheck" ? current.status : nextStatus;
+
+      const result = await client.query<PersonaReviewRecord>(
+        `UPDATE persona_reviews
+         SET status = $2, message = $3, updated_at = NOW()
+         WHERE agent_id = $1
+         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                   persona, status, message, verdict, summary,
+                   files_reviewed AS "filesReviewed",
+                   last_reviewed_commit AS "lastReviewedCommit",
+                   round_number AS "roundNumber",
+                   allow_recheck AS "allowRecheck",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [agentId, statusToPersist, input.message ?? null]
+      );
+      await client.query("COMMIT");
+      return result.rows[0]!;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
-    // IMPORTANT: review_status is a progress-ping channel only. It must
-    // never transition the review *out of* a non-working state — in
-    // particular, it must not clobber `awaiting_recheck` (reviewer is
-    // doing round 2) back to `reviewing` (would trick
-    // completePersonaReview into thinking the next close is round 1).
-    // Keep the status untouched if it's terminal or mid-round-trip, and
-    // just refresh the progress message.
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `UPDATE persona_reviews
-       SET status = CASE
-                      WHEN status IN ('complete', 'cancelled', 'awaiting_recheck')
-                        THEN status
-                      ELSE $2
-                    END,
-           message = $3,
-           updated_at = NOW()
-       WHERE agent_id = $1
-       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                 persona, status, message, verdict, summary,
-                 files_reviewed AS "filesReviewed",
-                 last_reviewed_commit AS "lastReviewedCommit",
-                 round_number AS "roundNumber",
-                 allow_recheck AS "allowRecheck",
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [agentId, input.status, input.message ?? null]
-    );
-    if (result.rowCount === 0)
-      throw new AgentError("No persona review found for agent.", 404);
-    return result.rows[0]!;
   }
 
   async completePersonaReview(

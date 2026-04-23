@@ -2241,6 +2241,41 @@ describe("AgentManager", () => {
         });
       });
 
+      it("updatePersonaReviewStatus rejects a ping on a completed review with a specific 409", async () => {
+        const { child } = await seedCompletedReview();
+
+        const err = await manager
+          .updatePersonaReviewStatus(child.id, {
+            status: "reviewing",
+            message: "late ping",
+          })
+          .catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain(
+          "Cannot ping review_status on a complete review"
+        );
+      });
+
+      it("updatePersonaReviewStatus rejects a ping on a cancelled review with a specific 409", async () => {
+        const { parent, child } = await seedAwaitingRecheckReview();
+        await manager.cancelReviewRecheck({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          reason: "aborted",
+        });
+
+        const err = await manager
+          .updatePersonaReviewStatus(child.id, {
+            status: "reviewing",
+            message: "ping after cancel",
+          })
+          .catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain(
+          "Cannot ping review_status on a cancelled review"
+        );
+      });
+
       it("review_status('reviewing') does not clobber 'awaiting_recheck' during round 2 (dogfood regression)", async () => {
         // Regression: if review_status overwrote awaiting_recheck back
         // to 'reviewing', the next completePersonaReview would be
