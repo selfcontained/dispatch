@@ -1735,15 +1735,22 @@ describe("AgentManager", () => {
         });
         await manager.updateFeedbackStatus(fixedItem.id, child.id, "fixed");
 
-        await expect(
-          manager.submitReviewResolution({
+        const err = await manager
+          .submitReviewResolution({
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "Addressed some",
           })
-        ).rejects.toThrow(
-          new RegExp(`feedback items still open: ${openItem.id}`)
+          .catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain(
+          `feedback items still open: ${openItem.id}`
         );
+        // Recovery hint — tells a fresh agent exactly which tool to call.
+        expect((err as Error).message).toContain(
+          "Call dispatch_resolve_feedback"
+        );
+        expect((err as Error).message).toContain("status 'fixed' or 'ignored'");
       });
 
       it("rejects when an ignored item is missing a reason", async () => {
@@ -1758,14 +1765,24 @@ describe("AgentManager", () => {
           [item.id]
         );
 
-        await expect(
-          manager.submitReviewResolution({
+        const err = await manager
+          .submitReviewResolution({
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "Covered the rest",
           })
-        ).rejects.toThrow(
-          new RegExp(`ignored feedback items missing a reason: ${item.id}`)
+          .catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain(
+          `ignored feedback items missing a reason: ${item.id}`
+        );
+        // Recovery hint — points at the right tool with the right status.
+        expect((err as Error).message).toContain(
+          "Call dispatch_resolve_feedback"
+        );
+        expect((err as Error).message).toContain("status 'ignored'");
+        expect((err as Error).message).toContain(
+          "reason explaining why it was not addressed"
         );
       });
 
@@ -2022,12 +2039,17 @@ describe("AgentManager", () => {
           summary: "Round 2 complete",
         });
 
-        await expect(
-          manager.completePersonaReview(child.id, {
+        const err = await manager
+          .completePersonaReview(child.id, {
             verdict: "approve",
             summary: "Round 3",
           })
-        ).rejects.toThrow(/round 2 already complete/i);
+          .catch((e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        // Ticket-spec copy — the rejection itself is guidance, so lock it in.
+        expect((err as Error).message).toBe(
+          "Round 2 already complete. This review only supports a single round-trip."
+        );
       });
 
       it("returns pending cadence while the reviewer waits for resolution", async () => {

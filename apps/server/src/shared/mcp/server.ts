@@ -389,6 +389,22 @@ export type McpRequestContext = {
   toolScope?: "agent" | "reviewer" | "job";
 };
 
+/**
+ * Builds the text body returned by dispatch_launch_persona. When allowRecheck
+ * is true, appends the parent-facing driver-loop guidance; otherwise returns
+ * the base confirmation only. Kept as a pure function so the branching text
+ * is unit-testable without spinning up the MCP server.
+ */
+export function buildLaunchPersonaResponseText(
+  persona: string,
+  agentId: string,
+  allowRecheck: boolean
+): string {
+  const base = `Launched persona "${persona}" as agent ${agentId}.`;
+  if (!allowRecheck) return base;
+  return `${base}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via responds_to_feedback_id indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`;
+}
+
 export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1083,10 +1099,11 @@ async function createDispatchMcpServer(
             agentType: args.agentType,
             allowRecheck: args.allowRecheck,
           });
-          const baseText = `Launched persona "${result.persona}" as agent ${result.agentId}.`;
-          const text = args.allowRecheck
-            ? `${baseText}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via responds_to_feedback_id indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`
-            : baseText;
+          const text = buildLaunchPersonaResponseText(
+            result.persona,
+            result.agentId,
+            args.allowRecheck ?? false
+          );
           return {
             content: [{ type: "text", text }],
           };
