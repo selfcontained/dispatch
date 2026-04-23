@@ -141,6 +141,9 @@ const CLI_BY_AGENT_TYPE: Record<
   opencode: "opencodeBin",
 };
 
+const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+
 type WorktreeLocation = "sibling" | "nested";
 
 type CreateAgentInput = {
@@ -508,8 +511,17 @@ export class AgentManager {
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
     const role: AgentRole = input.role ?? "standard";
-    const agentArgs = input.agentArgs ?? [];
     const fullAccess = input.fullAccess ?? false;
+    const fullAccessArg =
+      type === "claude"
+        ? CLAUDE_FULL_ACCESS_ARG
+        : type === "codex"
+          ? CODEX_FULL_ACCESS_ARG
+          : null;
+    const agentArgs =
+      fullAccess && fullAccessArg
+        ? Array.from(new Set([...(input.agentArgs ?? []), fullAccessArg]))
+        : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const tmuxSession = this.toSessionName(id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);

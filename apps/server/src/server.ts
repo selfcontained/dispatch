@@ -757,12 +757,13 @@ Guardrails:
 
 Suggested workflow:
 1. Capture the current repo/tag/service state.
-2. Perform the update to ${input.tag}.
+2. Prefer the existing managed Dispatch update flow first by calling the same built-in update endpoint the UI uses (\`POST /api/v1/release/update\` with tag ${input.tag}) instead of reproducing deploy steps by hand.
 3. Monitor restart and health until success or failure is clear.
-4. If unhealthy, inspect launchd/systemd state and recent logs.
-5. Retry one clean restart if that is the safest next step.
-6. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
-7. Summarize outcome, root cause, commands run, and any remaining risk.
+4. If the managed flow fails or the service does not come back, inspect launchd/systemd state and recent logs.
+5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; only fall back to manual git/install/build/restart steps if those managed paths are unavailable or already failed.
+6. Retry one clean restart if that is the safest next step.
+7. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
+8. Summarize outcome, root cause, commands run, and any remaining risk.
 `.trim();
 }
 

@@ -197,6 +197,20 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       expect(agent.fullAccess).toBe(true);
+      expect(agent.agentArgs).toContain(
+        "--dangerously-bypass-approvals-and-sandbox"
+      );
+    });
+
+    it("should append the claude full access flag for direct launches", async () => {
+      const agent = await manager.createAgent({
+        type: "claude",
+        cwd: "/tmp",
+        fullAccess: true,
+        useWorktree: false,
+      });
+      expect(agent.fullAccess).toBe(true);
+      expect(agent.agentArgs).toContain("--dangerously-skip-permissions");
     });
 
     it("should persist autoReview", async () => {
