@@ -391,9 +391,10 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toMatch(
-      new RegExp(`feedback items still open: ${openId}`)
-    );
+    const errorMessage: string = response.json().error;
+    expect(errorMessage).toContain(`feedback items still open: ${openId}`);
+    // Recovery hint surfaces via the HTTP route, too — not just the manager.
+    expect(errorMessage).toContain("Call dispatch_resolve_feedback");
   });
 
   it("rejects with 409 when an ignored item is missing a reason", async () => {
@@ -414,8 +415,13 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toMatch(
-      new RegExp(`ignored feedback items missing a reason: ${feedbackId}`)
+    const errorMessage: string = response.json().error;
+    expect(errorMessage).toContain(
+      `ignored feedback items missing a reason: ${feedbackId}`
+    );
+    expect(errorMessage).toContain("Call dispatch_resolve_feedback");
+    expect(errorMessage).toContain(
+      "reason explaining why it was not addressed"
     );
   });
 

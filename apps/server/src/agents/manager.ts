@@ -187,6 +187,7 @@ export type FeedbackInput = {
   description: string;
   suggestion?: string;
   mediaRef?: string;
+  respondsToFeedbackId?: number;
 };
 
 export type PersonaReviewRecord = {
@@ -257,6 +258,28 @@ export type AwaitRecheckResult =
     }
   | { status: "complete" }
   | { status: "cancelled" };
+
+export type AwaitReviewResult =
+  | {
+      status: "pending";
+      pollAgainInSeconds: number;
+      review: PersonaReviewRecord;
+    }
+  | {
+      status: "feedback_ready";
+      review: PersonaReviewRecord;
+      feedbackCount: number;
+    }
+  | {
+      status: "complete";
+      review: PersonaReviewRecord;
+      feedbackCount: number;
+    }
+  | {
+      status: "cancelled";
+      review: PersonaReviewRecord;
+    }
+  | { status: "no_reviews" };
 
 type AgentLatestEventInput = {
   type: AgentLatestEventType;
@@ -392,6 +415,21 @@ export class AgentError extends Error {
 }
 
 export type AgentEventListener = (agent: AgentRecord) => void;
+
+/**
+ * Input validator for `review_status` pings. Today only `"reviewing"` is
+ * valid; extracted as a pure helper so tests can assert the accept/reject
+ * behaviour without touching the database.
+ */
+export function resolveProgressPingStatus(requested: string): "reviewing" {
+  if (requested !== "reviewing") {
+    throw new AgentError(
+      `Invalid review status "${requested}". Must be one of: reviewing`,
+      400
+    );
+  }
+  return "reviewing";
+}
 
 export class AgentManager {
   private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
@@ -2485,29 +2523,59 @@ export class AgentManager {
     agentId: string,
     input: { status: string; message?: string }
   ): Promise<PersonaReviewRecord> {
-    const VALID_STATUSES = ["reviewing"];
-    if (!VALID_STATUSES.includes(input.status)) {
-      throw new AgentError(
-        `Invalid review status "${input.status}". Must be one of: ${VALID_STATUSES.join(", ")}`,
-        400
+    // review_status is a progress-ping channel only. It must not transition
+    // the review *out of* a non-working state — in particular, it must not
+    // clobber `awaiting_recheck` (reviewer is doing round 2) back to
+    // `reviewing` (that tricks completePersonaReview into thinking the next
+    // close is round 1 again). Terminal states are also off-limits. Compute
+    // the effective next status in code — easier to unit-test and lets us
+    // surface a specific error for the terminal cases.
+    const nextStatus = resolveProgressPingStatus(input.status);
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query<{ status: string }>(
+        `SELECT status FROM persona_reviews WHERE agent_id = $1 FOR UPDATE`,
+        [agentId]
       );
+      const current = currentResult.rows[0];
+      if (!current) {
+        throw new AgentError("No persona review found for agent.", 404);
+      }
+      if (current.status === "complete" || current.status === "cancelled") {
+        throw new AgentError(
+          `Cannot ping review_status on a ${current.status} review. Progress pings are only accepted while the review is active.`,
+          409
+        );
+      }
+
+      // awaiting_recheck is "active" from the reviewer's perspective — they
+      // are doing round 2 — so accept the ping but preserve the status label.
+      const statusToPersist =
+        current.status === "awaiting_recheck" ? current.status : nextStatus;
+
+      const result = await client.query<PersonaReviewRecord>(
+        `UPDATE persona_reviews
+         SET status = $2, message = $3, updated_at = NOW()
+         WHERE agent_id = $1
+         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                   persona, status, message, verdict, summary,
+                   files_reviewed AS "filesReviewed",
+                   last_reviewed_commit AS "lastReviewedCommit",
+                   round_number AS "roundNumber",
+                   allow_recheck AS "allowRecheck",
+                   created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [agentId, statusToPersist, input.message ?? null]
+      );
+      await client.query("COMMIT");
+      return result.rows[0]!;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `UPDATE persona_reviews
-       SET status = $2, message = $3, updated_at = NOW()
-       WHERE agent_id = $1
-       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                 persona, status, message, verdict, summary,
-                 files_reviewed AS "filesReviewed",
-                 last_reviewed_commit AS "lastReviewedCommit",
-                 round_number AS "roundNumber",
-                 allow_recheck AS "allowRecheck",
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [agentId, input.status, input.message ?? null]
-    );
-    if (result.rowCount === 0)
-      throw new AgentError("No persona review found for agent.", 404);
-    return result.rows[0]!;
   }
 
   async completePersonaReview(
@@ -2570,18 +2638,39 @@ export class AgentManager {
 
       let nextRoundNumber = current.roundNumber;
       if (current.status === "reviewing") {
-        nextRoundNumber = 1;
+        // Normally 'reviewing' means round 1. But defense-in-depth:
+        // if there's already a submitted resolution for this review,
+        // the next close belongs to the round after the resolution, no
+        // matter how we ended up back in 'reviewing'. This guards
+        // against any future path that could downgrade the status
+        // field while a round-trip is in flight.
+        const priorResolution = await client.query<{ roundNumber: number }>(
+          `SELECT round_number AS "roundNumber"
+           FROM persona_review_resolutions
+           WHERE review_id = $1
+           ORDER BY round_number DESC
+           LIMIT 1`,
+          [current.id]
+        );
+        const resolvedRound = priorResolution.rows[0]?.roundNumber ?? 0;
+        nextRoundNumber = resolvedRound > 0 ? resolvedRound + 1 : 1;
+        if (nextRoundNumber > 2) {
+          throw new AgentError(
+            "Round 2 already complete. This review only supports a single round-trip.",
+            409
+          );
+        }
       } else if (current.status === "awaiting_recheck") {
         if (current.roundNumber >= 2) {
           throw new AgentError(
-            "Review has already completed round 2; further review completion is not allowed in v1.",
+            "Round 2 already complete. This review only supports a single round-trip.",
             409
           );
         }
         nextRoundNumber = current.roundNumber + 1;
       } else if (current.status === "complete" && current.roundNumber >= 2) {
         throw new AgentError(
-          "Review has already completed round 2; a third completion is not allowed in v1.",
+          "Round 2 already complete. This review only supports a single round-trip.",
           409
         );
       } else {
@@ -3363,9 +3452,50 @@ export class AgentManager {
           : review.roundNumber
         : 1;
 
+      if (feedback.respondsToFeedbackId != null) {
+        const originalResult = await client.query<{
+          agentId: string;
+          roundNumber: number;
+        }>(
+          `SELECT agent_id AS "agentId", round_number AS "roundNumber"
+           FROM agent_feedback
+           WHERE id = $1`,
+          [feedback.respondsToFeedbackId]
+        );
+        const original = originalResult.rows[0];
+        if (!original) {
+          throw new AgentError(
+            `Feedback ${feedback.respondsToFeedbackId} referenced by respondsToFeedbackId was not found.`,
+            400
+          );
+        }
+        if (original.agentId !== agentId) {
+          throw new AgentError(
+            `respondsToFeedbackId ${feedback.respondsToFeedbackId} belongs to a different review.`,
+            400
+          );
+        }
+        if (original.roundNumber !== 1) {
+          throw new AgentError(
+            `respondsToFeedbackId ${feedback.respondsToFeedbackId} must reference a round-1 finding.`,
+            400
+          );
+        }
+      }
+
       const result = await client.query<FeedbackRecord>(
-        `INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, media_ref, round_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO agent_feedback (
+           agent_id,
+           severity,
+           file_path,
+           line_number,
+           description,
+           suggestion,
+           media_ref,
+           round_number,
+           responds_to_feedback_id
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
                    description, suggestion, media_ref AS "mediaRef", status,
                    resolution_reason AS "resolutionReason",
@@ -3383,6 +3513,7 @@ export class AgentManager {
           feedback.suggestion ?? null,
           feedback.mediaRef ?? null,
           feedbackRoundNumber,
+          feedback.respondsToFeedbackId ?? null,
         ]
       );
 
@@ -3636,7 +3767,7 @@ export class AgentManager {
       }
       if (review.status === "complete" && review.roundNumber >= 2) {
         throw new AgentError(
-          "Review is already complete for round 2; no further resolution submission is allowed in v1.",
+          "Round 2 already complete. This review only supports a single round-trip.",
           409
         );
       }
@@ -3672,13 +3803,13 @@ export class AgentManager {
       }
       if (openIds.length > 0) {
         throw new AgentError(
-          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}.`,
+          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}. Call dispatch_resolve_feedback on each with status 'fixed' or 'ignored' (include a reason for any you ignore), then try again.`,
           409
         );
       }
       if (ignoredMissingReason.length > 0) {
         throw new AgentError(
-          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}.`,
+          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}. Call dispatch_resolve_feedback again on each with status 'ignored' and a reason explaining why it was not addressed, then try again.`,
           409
         );
       }
@@ -3935,6 +4066,166 @@ export class AgentManager {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Parent-side polling primitive — symmetric counterpart to
+   * awaitReviewRecheck. Returns where one of the caller's child reviews
+   * is in its lifecycle so the parent can pause between polls instead of
+   * busy-looping or polling dispatch_get_feedback (which fires on the
+   * first item that lands and misleads agents into thinking the review
+   * is done).
+   *
+   * Selection:
+   *   - If `personaAgentId` is passed, returns that specific review's
+   *     state (404 if unknown, 403 if not owned by the caller).
+   *   - If `personaAgentId` is null/undefined, picks the highest-
+   *     priority review the caller has launched, preferring states that
+   *     need parent action: feedback_ready > cancelled > complete >
+   *     pending. Ties broken by updatedAt DESC so the most recent signal
+   *     wins. Returns `no_reviews` if the caller has never launched a
+   *     persona review.
+   *
+   * Per-review status mapping:
+   *   reviewing                                 → pending
+   *   awaiting_recheck                          → pending (round 2 in flight)
+   *   complete, round 1, allowRecheck=true      → feedback_ready
+   *   complete, round 1, allowRecheck=false     → complete (single-pass)
+   *   complete, round 2                         → complete (terminal)
+   *   cancelled                                 → cancelled
+   */
+  async awaitReview(
+    parentAgentId: string,
+    personaAgentId: string | null,
+    now = new Date()
+  ): Promise<AwaitReviewResult> {
+    if (personaAgentId) {
+      const reviewResult = await this.pool.query<PersonaReviewRecord>(
+        this.personaReviewSelectSql() + ` WHERE agent_id = $1`,
+        [personaAgentId]
+      );
+      const review = reviewResult.rows[0];
+      if (!review) {
+        throw new AgentError(
+          `No persona review found for agent ${personaAgentId}.`,
+          404
+        );
+      }
+      if (review.parentAgentId !== parentAgentId) {
+        throw new AgentError(
+          `Review for ${personaAgentId} was launched by a different parent.`,
+          403
+        );
+      }
+      return this.classifyReviewForAwait(review, now);
+    }
+
+    const all = await this.pool.query<
+      PersonaReviewRecord & { feedbackCount: string }
+    >(
+      this.personaReviewSelectSql({ withFeedbackCount: true }) +
+        ` WHERE parent_agent_id = $1 ORDER BY updated_at DESC`,
+      [parentAgentId]
+    );
+    if (all.rows.length === 0) {
+      return { status: "no_reviews" };
+    }
+
+    const classified = await Promise.all(
+      all.rows.map(async ({ feedbackCount, ...review }) => ({
+        review,
+        result: await this.classifyReviewForAwait(
+          review,
+          now,
+          Number(feedbackCount ?? "0")
+        ),
+      }))
+    );
+
+    const priority: Record<AwaitReviewResult["status"], number> = {
+      feedback_ready: 0,
+      cancelled: 1,
+      complete: 2,
+      pending: 3,
+      no_reviews: 4,
+    };
+
+    classified.sort(
+      (a, b) => priority[a.result.status] - priority[b.result.status]
+    );
+
+    return classified[0].result;
+  }
+
+  /** Shared SELECT for persona_reviews used by awaitReview. */
+  private personaReviewSelectSql(
+    options: { withFeedbackCount?: boolean } = {}
+  ): string {
+    const feedbackCountColumn = options.withFeedbackCount
+      ? `,
+                   (SELECT COUNT(*) FROM agent_feedback
+                    WHERE agent_feedback.agent_id = persona_reviews.agent_id)::text
+                     AS "feedbackCount"`
+      : "";
+    return `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                   persona, status, message, verdict, summary,
+                   files_reviewed AS "filesReviewed",
+                   last_reviewed_commit AS "lastReviewedCommit",
+                   round_number AS "roundNumber",
+                   allow_recheck AS "allowRecheck",
+                   created_at AS "createdAt", updated_at AS "updatedAt"${feedbackCountColumn}
+            FROM persona_reviews`;
+  }
+
+  private async classifyReviewForAwait(
+    review: PersonaReviewRecord,
+    now: Date,
+    prefetchedFeedbackCount?: number
+  ): Promise<AwaitReviewResult> {
+    if (review.status === "cancelled") {
+      return { status: "cancelled", review };
+    }
+
+    if (review.status === "reviewing" || review.status === "awaiting_recheck") {
+      const cadence = pollCadenceSeconds(new Date(review.updatedAt), now);
+      // The parent shouldn't trigger cancellation; if the cadence helper
+      // reached its timeout, just keep polling at the longest interval.
+      const pollAgainInSeconds =
+        cadence === RECHECK_POLL_TIMEOUT ? 600 : cadence;
+      return {
+        status: "pending",
+        pollAgainInSeconds,
+        review,
+      };
+    }
+
+    if (review.status !== "complete") {
+      // Defensive: any unexpected status reads as pending so the parent
+      // keeps polling and the server stays the source of truth.
+      return {
+        status: "pending",
+        pollAgainInSeconds: 180,
+        review,
+      };
+    }
+
+    let feedbackCount = prefetchedFeedbackCount;
+    if (feedbackCount === undefined) {
+      const feedbackCountResult = await this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM agent_feedback
+         WHERE agent_id = $1`,
+        [review.agentId]
+      );
+      feedbackCount = Number(feedbackCountResult.rows[0]?.count ?? "0");
+    }
+
+    const isMidRoundTrip = review.allowRecheck && review.roundNumber < 2;
+    return {
+      status: isMidRoundTrip ? "feedback_ready" : "complete",
+      review,
+      feedbackCount,
+    };
   }
 
   private baseAgentSelectSql(): string {

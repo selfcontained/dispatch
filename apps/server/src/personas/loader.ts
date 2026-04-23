@@ -135,10 +135,10 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 - Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
 
 ### Review lifecycle
-- Call \`review_status\` with status \`reviewing\` and a short message when you begin reviewing.
+- Call \`review_status\` with a short message when you begin reviewing. Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.
 - Call \`dispatch_feedback\` for each finding as you go.
-- When finished, call \`review_status\` with status \`complete\`, a \`verdict\` (\`approve\` or \`request_changes\`), and a \`summary\` of your findings.
-- Then call \`dispatch_event\` with type \`done\`.
+- When finished with this round, call \`dispatch_complete_review\` with a \`verdict\` (\`approve\` or \`request_changes\`) and a \`summary\`. This is the single canonical completion call; do not also try \`review_status\` with a "complete" status — that path has been removed and the schema will reject it.
+- Emit a terminal \`dispatch_event\` (type \`done\` or \`idle\`) to signal end of turn.
 
 ### Severity levels
 - **critical**: Exploitable vulnerability, data loss risk, or broken core functionality
@@ -151,10 +151,36 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback like "Good defense-in-depth...", "Good design decision...", or "This is well-structured..." is noise and will be ignored — do not submit it. The \`info\` severity is ONLY for non-obvious decisions that a future contributor might mistakenly undo. Limit to at most 2 items per review. If you have nothing critical to preserve, submit zero info items.
 `.trim();
 
+/**
+ * Round-trip guidance appended when the review was launched with
+ * allowRecheck: true. Tells the reviewer to stay alive, poll for the
+ * parent's resolutions, and deliver a second verdict.
+ */
+const RECHECK_ROUND_TRIP_GUIDANCE = `
+## Recheck round-trip (this review has \`allowRecheck: true\`)
+
+This is a two-round review. You have a round-1 obligation (already described above) AND a round-2 obligation described below. Do not emit a terminal \`dispatch_event\` until BOTH rounds are complete or the recheck has been explicitly cancelled.
+
+**After round 1.** Once you've submitted your initial verdict via \`dispatch_complete_review\`, do not exit. Call \`dispatch_await_recheck\` — it returns one of three terminal shapes:
+- \`pending\` with a \`pollAgainInSeconds\` value — wait that many seconds (using whatever sleep mechanism your agent runtime provides) and call \`dispatch_await_recheck\` again. Do not busy-loop and do not invent your own cadence; trust the server's number.
+- \`ready\` with the parent's resolution summary, per-item resolutions, and the diff since your round-1 commit — this is the signal to start round 2.
+- \`cancelled\` — exit cleanly; the parent aborted the recheck.
+
+**Round 2.** When you receive \`ready\`, re-evaluate each original finding against what the parent actually did. For every original concern that remains unresolved, submit a new \`dispatch_feedback\` item with \`respondsToFeedbackId\` set to the original feedback item's ID so the parent can see which round-2 findings map back to which round-1 concerns. If the parent fully addressed everything, submit no new feedback and approve.
+
+**Mandatory round-2 close.** After you finish round 2 — whether you found new issues or not — you MUST call \`dispatch_complete_review\` a second time with your round-2 verdict (\`approve\` or \`request_changes\`) and a fresh \`summary\`. The review is not closed until you do this. Only then emit a terminal \`dispatch_event\`.
+`.trim();
+
+export type AssemblePersonaPromptOptions = {
+  /** When true, appends the recheck round-trip guidance block. */
+  allowRecheck?: boolean;
+};
+
 export function assemblePersonaPrompt(
   persona: PersonaDefinition,
   context: string,
-  diff: string
+  diff: string,
+  options: AssemblePersonaPromptOptions = {}
 ): string {
   // Strip legacy {{context}} and {{diff}} placeholders if present — Dispatch
   // now appends these sections automatically so persona files don't need them.
@@ -162,10 +188,15 @@ export function assemblePersonaPrompt(
     .replace(/\{\{context\}\}/g, "")
     .replace(/\{\{diff\}\}/g, "");
 
-  return [
+  const sections: string[] = [
     personaBody.trimEnd(),
     STANDARD_FEEDBACK_GUIDANCE,
-    `## Context from parent agent\n${context}`,
-    `## Changes to review\n${truncateDiffForPrompt(diff)}`,
-  ].join("\n\n");
+  ];
+  if (options.allowRecheck) {
+    sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
+  }
+  sections.push(`## Context from parent agent\n${context}`);
+  sections.push(`## Changes to review\n${truncateDiffForPrompt(diff)}`);
+
+  return sections.join("\n\n");
 }

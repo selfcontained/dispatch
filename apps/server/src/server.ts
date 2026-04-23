@@ -1805,6 +1805,7 @@ async function registerRoutes() {
       resolveFeedback: mcpResolveFeedback,
       submitResolution: mcpSubmitResolution,
       awaitRecheck: mcpAwaitRecheck,
+      awaitReview: mcpAwaitReview,
       cancelRecheck: mcpCancelRecheck,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
@@ -5498,6 +5499,51 @@ async function mcpSubmitResolution(
   return result;
 }
 
+function reviewSnapshotFromRecord(
+  record: import("./agents/manager.js").PersonaReviewRecord
+): import("./shared/mcp/server.js").ReviewSnapshot {
+  const verdict = record.verdict;
+  return {
+    reviewId: record.id,
+    personaAgentId: record.agentId,
+    persona: record.persona,
+    status: record.status,
+    roundNumber: record.roundNumber,
+    verdict:
+      verdict === "approve" || verdict === "request_changes" ? verdict : null,
+    summary: record.summary ?? null,
+    allowRecheck: record.allowRecheck,
+  };
+}
+
+async function mcpAwaitReview(
+  parentAgentId: string,
+  personaAgentId: string | null
+): Promise<import("./shared/mcp/server.js").AwaitReviewResponse> {
+  const result = await agentManager.awaitReview(parentAgentId, personaAgentId);
+  if (result.status === "no_reviews") {
+    return result;
+  }
+  if (result.status === "pending") {
+    return {
+      status: "pending",
+      pollAgainInSeconds: result.pollAgainInSeconds,
+      review: reviewSnapshotFromRecord(result.review),
+    };
+  }
+  if (result.status === "cancelled") {
+    return {
+      status: "cancelled",
+      review: reviewSnapshotFromRecord(result.review),
+    };
+  }
+  return {
+    status: result.status,
+    review: reviewSnapshotFromRecord(result.review),
+    feedbackCount: result.feedbackCount,
+  };
+}
+
 async function mcpAwaitRecheck(
   agentId: string
 ): Promise<import("./shared/mcp/server.js").AwaitRecheckResponse> {
@@ -5781,7 +5827,9 @@ async function mcpLaunchPersona(
 
   const diff = await buildPersonaReviewDiff(parentCwd, runCommand);
 
-  const prompt = assemblePersonaPrompt(persona, opts.context, diff);
+  const prompt = assemblePersonaPrompt(persona, opts.context, diff, {
+    allowRecheck: opts.allowRecheck,
+  });
 
   // Build agent args — include full access flag if parent has it
   const personaArgs: string[] = [`--append-system-prompt`, prompt];

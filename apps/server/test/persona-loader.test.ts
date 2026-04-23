@@ -172,6 +172,37 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Info feedback limits");
     expect(result).toContain("Do NOT submit positive affirmations");
   });
+
+  it("omits the recheck round-trip block by default", () => {
+    const result = assemblePersonaPrompt(basePersona, "", "");
+    expect(result).not.toContain("Recheck round-trip");
+    expect(result).not.toContain("dispatch_await_recheck");
+  });
+
+  it("appends the recheck round-trip block when allowRecheck is true", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "diff", {
+      allowRecheck: true,
+    });
+
+    expect(result).toContain("Recheck round-trip");
+    expect(result).toContain("dispatch_await_recheck");
+    expect(result).toContain("dispatch_complete_review");
+    expect(result).toContain("respondsToFeedbackId");
+    expect(result).toContain("pollAgainInSeconds");
+
+    const guidanceIdx = result.indexOf("Recheck round-trip");
+    const contextIdx = result.indexOf("## Context from parent agent");
+    const diffIdx = result.indexOf("## Changes to review");
+    expect(guidanceIdx).toBeLessThan(contextIdx);
+    expect(contextIdx).toBeLessThan(diffIdx);
+  });
+
+  it("omits the recheck round-trip block when allowRecheck is false", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "diff", {
+      allowRecheck: false,
+    });
+    expect(result).not.toContain("Recheck round-trip");
+  });
 });
 
 // ── loadPersonas / loadPersonaBySlug (filesystem) ───────────────────
