@@ -3359,6 +3359,37 @@ export class AgentManager {
           : review.roundNumber
         : 1;
 
+      if (feedback.respondsToFeedbackId != null) {
+        const originalResult = await client.query<{
+          agentId: string;
+          roundNumber: number;
+        }>(
+          `SELECT agent_id AS "agentId", round_number AS "roundNumber"
+           FROM agent_feedback
+           WHERE id = $1`,
+          [feedback.respondsToFeedbackId]
+        );
+        const original = originalResult.rows[0];
+        if (!original) {
+          throw new AgentError(
+            `Feedback ${feedback.respondsToFeedbackId} referenced by respondsToFeedbackId was not found.`,
+            400
+          );
+        }
+        if (original.agentId !== agentId) {
+          throw new AgentError(
+            `respondsToFeedbackId ${feedback.respondsToFeedbackId} belongs to a different review.`,
+            400
+          );
+        }
+        if (original.roundNumber !== 1) {
+          throw new AgentError(
+            `respondsToFeedbackId ${feedback.respondsToFeedbackId} must reference a round-1 finding.`,
+            400
+          );
+        }
+      }
+
       const result = await client.query<FeedbackRecord>(
         `INSERT INTO agent_feedback (
            agent_id,
@@ -3996,8 +4027,10 @@ export class AgentManager {
       return this.classifyReviewForAwait(review, now);
     }
 
-    const all = await this.pool.query<PersonaReviewRecord>(
-      this.personaReviewSelectSql() +
+    const all = await this.pool.query<
+      PersonaReviewRecord & { feedbackCount: string }
+    >(
+      this.personaReviewSelectSql({ withFeedbackCount: true }) +
         ` WHERE parent_agent_id = $1 ORDER BY updated_at DESC`,
       [parentAgentId]
     );
@@ -4006,9 +4039,13 @@ export class AgentManager {
     }
 
     const classified = await Promise.all(
-      all.rows.map(async (review) => ({
+      all.rows.map(async ({ feedbackCount, ...review }) => ({
         review,
-        result: await this.classifyReviewForAwait(review, now),
+        result: await this.classifyReviewForAwait(
+          review,
+          now,
+          Number(feedbackCount ?? "0")
+        ),
       }))
     );
 
@@ -4028,20 +4065,29 @@ export class AgentManager {
   }
 
   /** Shared SELECT for persona_reviews used by awaitReview. */
-  private personaReviewSelectSql(): string {
+  private personaReviewSelectSql(
+    options: { withFeedbackCount?: boolean } = {}
+  ): string {
+    const feedbackCountColumn = options.withFeedbackCount
+      ? `,
+                   (SELECT COUNT(*) FROM agent_feedback
+                    WHERE agent_feedback.agent_id = persona_reviews.agent_id)::text
+                     AS "feedbackCount"`
+      : "";
     return `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                    persona, status, message, verdict, summary,
                    files_reviewed AS "filesReviewed",
                    last_reviewed_commit AS "lastReviewedCommit",
                    round_number AS "roundNumber",
                    allow_recheck AS "allowRecheck",
-                   created_at AS "createdAt", updated_at AS "updatedAt"
+                   created_at AS "createdAt", updated_at AS "updatedAt"${feedbackCountColumn}
             FROM persona_reviews`;
   }
 
   private async classifyReviewForAwait(
     review: PersonaReviewRecord,
-    now: Date
+    now: Date,
+    prefetchedFeedbackCount?: number
   ): Promise<AwaitReviewResult> {
     if (review.status === "cancelled") {
       return { status: "cancelled", review };
@@ -4070,13 +4116,16 @@ export class AgentManager {
       };
     }
 
-    const feedbackCountResult = await this.pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-       FROM agent_feedback
-       WHERE agent_id = $1`,
-      [review.agentId]
-    );
-    const feedbackCount = Number(feedbackCountResult.rows[0]?.count ?? "0");
+    let feedbackCount = prefetchedFeedbackCount;
+    if (feedbackCount === undefined) {
+      const feedbackCountResult = await this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM agent_feedback
+         WHERE agent_id = $1`,
+        [review.agentId]
+      );
+      feedbackCount = Number(feedbackCountResult.rows[0]?.count ?? "0");
+    }
 
     const isMidRoundTrip = review.allowRecheck && review.roundNumber < 2;
     return {

@@ -688,13 +688,12 @@ async function createDispatchMcpServer(
             };
           }
           if (result.status === "feedback_ready") {
+            const text =
+              result.feedbackCount === 0
+                ? `Review ${result.review.personaAgentId} completed round 1 with verdict ${result.review.verdict} and no findings. Call dispatch_submit_resolution with a brief note (or dispatch_cancel_recheck) so the reviewer can exit.`
+                : `Review ${result.review.personaAgentId} completed round 1 with verdict ${result.review.verdict}. ${result.feedbackCount} feedback item(s) ready — call dispatch_get_feedback, resolve each item, then dispatch_submit_resolution to trigger round 2.`;
             return {
-              content: [
-                {
-                  type: "text",
-                  text: `Review ${result.review.personaAgentId} completed round 1 with verdict ${result.review.verdict}. ${result.feedbackCount} feedback item(s) ready — call dispatch_get_feedback, resolve each item, then dispatch_submit_resolution to trigger round 2.`,
-                },
-              ],
+              content: [{ type: "text", text }],
               structuredContent: result,
             };
           }

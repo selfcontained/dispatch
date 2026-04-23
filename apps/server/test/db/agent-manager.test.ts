@@ -2186,6 +2186,49 @@ describe("AgentManager", () => {
         expect(round2Feedback.respondsToFeedbackId).toBe(original.id);
       });
 
+      it("rejects respondsToFeedbackId that belongs to a different review", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+        const { child: otherChild } = await seedAwaitingRecheckReview();
+        const foreignOriginal = await manager.submitFeedback(otherChild.id, {
+          description: "other reviewer's finding",
+        });
+
+        await expect(
+          manager.submitFeedback(child.id, {
+            description: "cross-linked follow-up",
+            respondsToFeedbackId: foreignOriginal.id,
+          })
+        ).rejects.toThrow(/different review/i);
+      });
+
+      it("rejects respondsToFeedbackId that points at a non-existent feedback", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+
+        await expect(
+          manager.submitFeedback(child.id, {
+            description: "pointing at a ghost",
+            respondsToFeedbackId: 999999,
+          })
+        ).rejects.toThrow(/not found/i);
+      });
+
+      it("rejects respondsToFeedbackId that points at a round-2 finding", async () => {
+        const { child, original } = await seedAwaitingRecheckReview();
+        const round2 = await manager.submitFeedback(child.id, {
+          description: "round 2 follow-up",
+          respondsToFeedbackId: original.id,
+        });
+        // Putting the review back into awaiting_recheck is complex; instead
+        // verify the round-number guard by attempting to respond to a
+        // round-2 item directly, which should be rejected.
+        await expect(
+          manager.submitFeedback(child.id, {
+            description: "chain to a round-2 item",
+            respondsToFeedbackId: round2.id,
+          })
+        ).rejects.toThrow(/round-1/i);
+      });
+
       it("returns complete once round 2 has already been submitted", async () => {
         const { child } = await seedAwaitingRecheckReview();
         await manager.completePersonaReview(child.id, {
@@ -2274,6 +2317,23 @@ describe("AgentManager", () => {
           expect(result.review.roundNumber).toBe(1);
           expect(result.review.verdict).toBe("request_changes");
           expect(result.feedbackCount).toBe(1);
+        }
+      });
+
+      it("returns feedback_ready with feedbackCount=0 when round 1 approves with no findings", async () => {
+        const { parent, child } = await seedReviewingReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All clear",
+          lastReviewedCommit: "round1sha",
+        });
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("feedback_ready");
+        if (result.status === "feedback_ready") {
+          expect(result.review.verdict).toBe("approve");
+          expect(result.feedbackCount).toBe(0);
         }
       });
 
