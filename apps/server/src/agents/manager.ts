@@ -256,6 +256,25 @@ export type AwaitRecheckResult =
   | { status: "complete" }
   | { status: "cancelled" };
 
+export type AwaitReviewResult =
+  | {
+      status: "pending";
+      pollAgainInSeconds: number;
+      reviewStatus: string;
+      roundNumber: number;
+    }
+  | {
+      status: "feedback_ready";
+      review: PersonaReviewRecord;
+      feedbackCount: number;
+    }
+  | {
+      status: "complete";
+      review: PersonaReviewRecord;
+      feedbackCount: number;
+    }
+  | { status: "cancelled" };
+
 type AgentLatestEventInput = {
   type: AgentLatestEventType;
   message: string;
@@ -3920,6 +3939,98 @@ export class AgentManager {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Parent-side polling primitive — symmetric counterpart to
+   * awaitReviewRecheck. Returns where the named child review is in its
+   * lifecycle so the parent can sleep between polls instead of busy-
+   * looping or polling dispatch_get_feedback (which fires on the first
+   * item that lands and misleads agents into thinking the review is
+   * done).
+   *
+   * Status mapping:
+   *   reviewing                                 → pending
+   *   awaiting_recheck                          → pending (round 2 in flight)
+   *   complete, round 1, allowRecheck=true      → feedback_ready
+   *   complete, round 1, allowRecheck=false     → complete (single-pass)
+   *   complete, round 2                         → complete (terminal)
+   *   cancelled                                 → cancelled
+   */
+  async awaitReview(
+    parentAgentId: string,
+    personaAgentId: string,
+    now = new Date()
+  ): Promise<AwaitReviewResult> {
+    const reviewResult = await this.pool.query<PersonaReviewRecord>(
+      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+              persona, status, message, verdict, summary,
+              files_reviewed AS "filesReviewed",
+              last_reviewed_commit AS "lastReviewedCommit",
+              round_number AS "roundNumber",
+              allow_recheck AS "allowRecheck",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM persona_reviews
+       WHERE agent_id = $1`,
+      [personaAgentId]
+    );
+    const review = reviewResult.rows[0];
+    if (!review) {
+      throw new AgentError(
+        `No persona review found for agent ${personaAgentId}.`,
+        404
+      );
+    }
+    if (review.parentAgentId !== parentAgentId) {
+      throw new AgentError(
+        `Review for ${personaAgentId} was launched by a different parent.`,
+        403
+      );
+    }
+
+    if (review.status === "cancelled") {
+      return { status: "cancelled" };
+    }
+
+    if (review.status === "reviewing" || review.status === "awaiting_recheck") {
+      const cadence = pollCadenceSeconds(new Date(review.updatedAt), now);
+      // The parent shouldn't trigger cancellation; if the cadence helper
+      // reached its timeout, just keep polling at the longest interval.
+      const pollAgainInSeconds =
+        cadence === RECHECK_POLL_TIMEOUT ? 600 : cadence;
+      return {
+        status: "pending",
+        pollAgainInSeconds,
+        reviewStatus: review.status,
+        roundNumber: review.roundNumber,
+      };
+    }
+
+    if (review.status !== "complete") {
+      // Defensive: any unexpected status reads as pending so the parent
+      // keeps polling and the server stays the source of truth.
+      return {
+        status: "pending",
+        pollAgainInSeconds: 180,
+        reviewStatus: review.status,
+        roundNumber: review.roundNumber,
+      };
+    }
+
+    const feedbackCountResult = await this.pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM agent_feedback
+       WHERE agent_id = $1`,
+      [personaAgentId]
+    );
+    const feedbackCount = Number(feedbackCountResult.rows[0]?.count ?? "0");
+
+    const isMidRoundTrip = review.allowRecheck && review.roundNumber < 2;
+    return {
+      status: isMidRoundTrip ? "feedback_ready" : "complete",
+      review,
+      feedbackCount,
+    };
   }
 
   private baseAgentSelectSql(): string {

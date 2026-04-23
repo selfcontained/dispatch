@@ -1715,6 +1715,7 @@ async function registerRoutes() {
       resolveFeedback: mcpResolveFeedback,
       submitResolution: mcpSubmitResolution,
       awaitRecheck: mcpAwaitRecheck,
+      awaitReview: mcpAwaitReview,
       cancelRecheck: mcpCancelRecheck,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
@@ -5321,6 +5322,32 @@ async function mcpSubmitResolution(
       agent: withStreamFlag(parentAgent),
     });
   return result;
+}
+
+async function mcpAwaitReview(
+  parentAgentId: string,
+  personaAgentId: string
+): Promise<import("./shared/mcp/server.js").AwaitReviewResponse> {
+  const result = await agentManager.awaitReview(parentAgentId, personaAgentId);
+  if (result.status === "pending" || result.status === "cancelled") {
+    return result;
+  }
+  const verdict = result.review.verdict;
+  return {
+    status: result.status,
+    review: {
+      reviewId: result.review.id,
+      personaAgentId: result.review.agentId,
+      persona: result.review.persona,
+      status: result.review.status,
+      roundNumber: result.review.roundNumber,
+      verdict:
+        verdict === "approve" || verdict === "request_changes" ? verdict : null,
+      summary: result.review.summary ?? null,
+      allowRecheck: result.review.allowRecheck,
+    },
+    feedbackCount: result.feedbackCount,
+  };
 }
 
 async function mcpAwaitRecheck(

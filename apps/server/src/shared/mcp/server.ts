@@ -76,6 +76,28 @@ export type AwaitRecheckResponse =
   | { status: "complete" }
   | { status: "cancelled" };
 
+export type ReviewSnapshot = {
+  reviewId: number;
+  personaAgentId: string;
+  persona: string;
+  status: string;
+  roundNumber: number;
+  verdict: "approve" | "request_changes" | null;
+  summary: string | null;
+  allowRecheck: boolean;
+};
+
+export type AwaitReviewResponse =
+  | {
+      status: "pending";
+      pollAgainInSeconds: number;
+      reviewStatus: string;
+      roundNumber: number;
+    }
+  | { status: "feedback_ready"; review: ReviewSnapshot; feedbackCount: number }
+  | { status: "complete"; review: ReviewSnapshot; feedbackCount: number }
+  | { status: "cancelled" };
+
 export type PersonaFeedbackGroup = {
   persona: string;
   agentId: string;
@@ -185,6 +207,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
   "dispatch_submit_resolution",
+  "dispatch_await_review",
   "dispatch_cancel_recheck",
   "get_activity_summary",
   "get_agent_history",
@@ -215,6 +238,7 @@ const JOB_TOOLS = new Set([
 const PERSONA_TOOLS = new Set([
   "review_status",
   "dispatch_complete_review",
+  "dispatch_event",
   "dispatch_pin",
   "dispatch_share",
   "dispatch_feedback",
@@ -361,6 +385,10 @@ export type McpRequestContext = {
     }
   ) => Promise<void>;
   awaitRecheck?: (agentId: string) => Promise<AwaitRecheckResponse>;
+  awaitReview?: (
+    agentId: string,
+    personaAgentId: string
+  ) => Promise<AwaitReviewResponse>;
   cancelRecheck?: (
     agentId: string,
     input: { personaAgentId: string; reason?: string }
@@ -396,6 +424,12 @@ export type McpRequestContext = {
  * is true, appends the parent-facing driver-loop guidance; otherwise returns
  * the base confirmation only. Kept as a pure function so the branching text
  * is unit-testable without spinning up the MCP server.
+ *
+ * The `allowRecheck: true` block is a survival kit: it tells the parent how
+ * to keep its turn alive (sleep + wake), which tool to poll on (status, not
+ * feedback items — see CRU-133 dogfood notes), and the workflow obligation
+ * to commit fixes before submitting resolution so the reviewer's round-2
+ * diff actually contains them.
  */
 export function buildLaunchPersonaResponseText(
   persona: string,
@@ -404,7 +438,19 @@ export function buildLaunchPersonaResponseText(
 ): string {
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
   if (!allowRecheck) return base;
-  return `${base}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via respondsToFeedbackId indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`;
+  return `${base}
+
+Review was launched with recheck enabled. This is a multi-step round-trip — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution.
+
+1. Wait for round 1. Call dispatch_await_review with personaAgentId="${agentId}". It returns 'pending' (sleep that many seconds via ScheduleWakeup or your runtime's equivalent, then call again — do not invent your own cadence), 'feedback_ready' (round 1 done, parent action required), 'complete' (terminal — read feedback and exit), or 'cancelled'. Do not poll dispatch_get_feedback for status; that tool fires on the first item that lands and will mislead you into thinking the review is done.
+
+2. On 'feedback_ready', call dispatch_get_feedback to read the items. For each one, decide if you'll fix it or ignore it. Apply the fix in the codebase, then call dispatch_resolve_feedback (status 'fixed' or 'ignored' — include a 'reason' for any you ignore).
+
+3. Commit your fixes before submitting the resolution. dispatch_submit_resolution captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit. If you submit while your fixes are uncommitted, the reviewer sees an empty diff and will re-flag the same issues.
+
+4. Call dispatch_submit_resolution with a 1–3 sentence summary of what you addressed. This triggers the reviewer's round-2 pass.
+
+5. Wait for round 2. Call dispatch_await_review again. It will return 'pending' until the reviewer submits their round-2 verdict, then 'complete' with the final verdict and summary. Read any new findings (filter dispatch_get_feedback for items where respondsToFeedbackId points at one of your round-1 items) before exiting.`;
 }
 
 export async function handleMcpRequest(
@@ -449,75 +495,23 @@ async function createDispatchMcpServer(
   }
 
   // ── review_status (persona) ───────────────────────────────────────
-  if (
-    allowed.has("review_status") &&
-    context.updateReviewStatus &&
-    context.completeReview
-  ) {
+  if (allowed.has("review_status") && context.updateReviewStatus) {
     const agentId = context.agent!.id;
     const updateReviewStatus = context.updateReviewStatus;
-    const completeReview = context.completeReview;
 
     server.registerTool(
       "review_status",
       {
         description:
-          "Report review progress. Call with status 'reviewing' while actively reviewing code or testing. " +
-          "Call with status 'complete' when the review is finished — include a verdict and summary.",
+          "Reviewer-only. Ping review progress while you work — pass a short `message` describing your current activity. Call this at review start and at meaningful phase changes (e.g. 'Reading diff', 'Running tests'). Do NOT use this to complete the review; use `dispatch_complete_review` for that.",
         inputSchema: {
-          status: z
-            .enum(["reviewing", "complete"])
-            .describe("Current review status."),
           message: z
             .string()
-            .describe(
-              "Short description of current activity or final summary."
-            ),
-          verdict: z
-            .enum(["approve", "request_changes"])
-            .optional()
-            .describe("Review verdict. Required when status is 'complete'."),
-          summary: z
-            .string()
-            .optional()
-            .describe(
-              "Summary of the review findings. Required when status is 'complete'."
-            ),
-          filesReviewed: z
-            .array(z.string())
-            .optional()
-            .describe("List of file paths that were reviewed."),
+            .describe("Short description of current activity."),
         },
       },
       async (args) => {
         try {
-          if (args.status === "complete") {
-            if (!args.verdict) {
-              return toToolError(
-                new Error("verdict is required when status is 'complete'.")
-              );
-            }
-            if (!args.summary) {
-              return toToolError(
-                new Error("summary is required when status is 'complete'.")
-              );
-            }
-            await completeReview(agentId, {
-              verdict: args.verdict,
-              summary: args.summary,
-              filesReviewed: args.filesReviewed,
-              message: args.message,
-            });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Review complete: ${args.verdict}. ${args.summary}`,
-                },
-              ],
-            };
-          }
-
           await updateReviewStatus(agentId, {
             status: "reviewing",
             message: args.message,
@@ -624,6 +618,71 @@ async function createDispatchMcpServer(
               {
                 type: "text",
                 text: "Recheck ready. Review the supplied resolutions and diff, then submit round 2.",
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_await_review (parent) ────────────────────────────────
+  if (allowed.has("dispatch_await_review") && context.awaitReview) {
+    const parentAgentId = context.agent!.id;
+    const awaitReview = context.awaitReview;
+
+    server.registerTool(
+      "dispatch_await_review",
+      {
+        description:
+          "Parent-only. Poll for a child review's status transitions. Call this after dispatch_launch_persona to wait for the reviewer to complete round 1, and again after dispatch_submit_resolution to wait for round 2. Returns one of: 'pending' with a `pollAgainInSeconds` value — sleep that long (via ScheduleWakeup or your agent runtime's equivalent) and call again; 'feedback_ready' (round 1 done on an allowRecheck review) — call dispatch_get_feedback, resolve each item, and dispatch_submit_resolution; 'complete' (final round done, or a single-pass review whose only round has completed) — call dispatch_get_feedback to read findings and exit; 'cancelled' — the recheck was cancelled, exit. Trust the server-provided cadence and terminal statuses; do not invent your own polling interval.",
+        inputSchema: {
+          personaAgentId: z
+            .string()
+            .describe(
+              "The persona agent ID whose review you are awaiting (the agent you launched via dispatch_launch_persona)."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await awaitReview(parentAgentId, args.personaAgentId);
+          if (result.status === "pending") {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Review pending (reviewer status: ${result.reviewStatus}, round ${result.roundNumber}). Poll again in ${result.pollAgainInSeconds} seconds.`,
+                },
+              ],
+              structuredContent: result,
+            };
+          }
+          if (result.status === "cancelled") {
+            return {
+              content: [{ type: "text", text: "Review cancelled." }],
+              structuredContent: result,
+            };
+          }
+          if (result.status === "feedback_ready") {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Round 1 complete with verdict ${result.review.verdict}. ${result.feedbackCount} feedback item(s) ready — call dispatch_get_feedback to read them, then resolve each and call dispatch_submit_resolution to trigger round 2.`,
+                },
+              ],
+              structuredContent: result,
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Review complete (round ${result.review.roundNumber}, verdict ${result.review.verdict}). ${result.feedbackCount} feedback item(s) on record. Call dispatch_get_feedback if you haven't already, then exit.`,
               },
             ],
             structuredContent: result,
@@ -1243,7 +1302,7 @@ async function createDispatchMcpServer(
       "dispatch_submit_resolution",
       {
         description:
-          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. When the review was launched with allowRecheck: true, submitting the resolution triggers the reviewer's single recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
+          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. IMPORTANT: commit your fixes before calling this. The server captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit — if you submit with uncommitted changes, the reviewer sees an empty diff and will re-flag the same issues. When the review was launched with allowRecheck: true, submitting the resolution triggers the reviewer's single recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
         inputSchema: {
           personaAgentId: z
             .string()

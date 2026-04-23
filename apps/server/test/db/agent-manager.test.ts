@@ -2198,6 +2198,173 @@ describe("AgentManager", () => {
         });
       });
     });
+
+    describe("awaitReview (parent-side polling)", () => {
+      async function seedReviewingReview() {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+        return { parent, child };
+      }
+
+      async function seedAwaitingRecheckReviewForAwaitReview() {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          lastReviewedCommit: "launchsha",
+          allowRecheck: true,
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "request_changes",
+          summary: "Found an issue",
+          lastReviewedCommit: "round1sha",
+        });
+        const original = await manager.submitFeedback(child.id, {
+          description: "round 1 finding",
+        });
+        await manager.updateFeedbackStatus(original.id, child.id, "fixed", {
+          reason: "patched",
+        });
+        await manager.submitReviewResolution({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          summary: "Patched the finding.",
+          resolutionCommit: "parentsha",
+        });
+        return { parent, child };
+      }
+
+      it("returns pending with a cadence while the reviewer is still in 'reviewing'", async () => {
+        const { parent, child } = await seedReviewingReview();
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("pending");
+        if (result.status === "pending") {
+          expect(result.reviewStatus).toBe("reviewing");
+          expect(result.roundNumber).toBe(1);
+          expect(result.pollAgainInSeconds).toBeGreaterThan(0);
+        }
+      });
+
+      it("returns feedback_ready after round 1 completes on an allowRecheck review", async () => {
+        const { parent, child } = await seedReviewingReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "request_changes",
+          summary: "Found an issue",
+          lastReviewedCommit: "round1sha",
+        });
+        await manager.submitFeedback(child.id, {
+          description: "round 1 finding",
+        });
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("feedback_ready");
+        if (result.status === "feedback_ready") {
+          expect(result.review.status).toBe("complete");
+          expect(result.review.roundNumber).toBe(1);
+          expect(result.review.verdict).toBe("request_changes");
+          expect(result.feedbackCount).toBe(1);
+        }
+      });
+
+      it("returns complete for a single-pass review (allowRecheck=false) once round 1 closes", async () => {
+        const { parent, child } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: child.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+        });
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "All good",
+        });
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("complete");
+        if (result.status === "complete") {
+          expect(result.review.roundNumber).toBe(1);
+          expect(result.review.allowRecheck).toBe(false);
+        }
+      });
+
+      it("returns pending while the reviewer is doing round 2 (awaiting_recheck)", async () => {
+        const { parent, child } =
+          await seedAwaitingRecheckReviewForAwaitReview();
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("pending");
+        if (result.status === "pending") {
+          expect(result.reviewStatus).toBe("awaiting_recheck");
+        }
+      });
+
+      it("returns complete with round 2 verdict after the reviewer finishes round 2", async () => {
+        const { parent, child } =
+          await seedAwaitingRecheckReviewForAwaitReview();
+        await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 looks good",
+        });
+
+        const result = await manager.awaitReview(parent.id, child.id);
+
+        expect(result.status).toBe("complete");
+        if (result.status === "complete") {
+          expect(result.review.roundNumber).toBe(2);
+          expect(result.review.verdict).toBe("approve");
+        }
+      });
+
+      it("returns cancelled when the review was cancelled", async () => {
+        const { parent, child } =
+          await seedAwaitingRecheckReviewForAwaitReview();
+        await manager.cancelReviewRecheck({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          reason: "aborted",
+        });
+
+        await expect(manager.awaitReview(parent.id, child.id)).resolves.toEqual(
+          { status: "cancelled" }
+        );
+      });
+
+      it("rejects when the caller isn't the review's parent", async () => {
+        const { parent, child } = await seedReviewingReview();
+        const stranger = await manager.createAgent({
+          name: "stranger",
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+
+        await expect(
+          manager.awaitReview(stranger.id, child.id)
+        ).rejects.toThrow(/different parent/);
+        // Real parent still works.
+        await expect(
+          manager.awaitReview(parent.id, child.id)
+        ).resolves.toMatchObject({ status: "pending" });
+      });
+
+      it("returns 404 when no review exists for the named persona agent", async () => {
+        const { parent } = await seedParentChild();
+
+        await expect(
+          manager.awaitReview(parent.id, "agt_does_not_exist")
+        ).rejects.toThrow(/No persona review found/);
+      });
+    });
   });
 
   describe("listRecentPersonaReviews", () => {
