@@ -1,6 +1,6 @@
 ## What's Changed
-* docs(web): clarify what the sidebar renders for status events by @selfcontained in https://github.com/selfcontained/dispatch/pull/388
-* fix(web): swap Enter/Keyboard and align Esc-Tab row with arrows in mobile toolbar by @selfcontained in https://github.com/selfcontained/dispatch/pull/391
+* Add assisted update agent role by @selfcontained in https://github.com/selfcontained/dispatch/pull/389
+* feat(web): notify users when server has been updated by @selfcontained in https://github.com/selfcontained/dispatch/pull/390
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.26...v0.16.27
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.16.27...v0.17.0
