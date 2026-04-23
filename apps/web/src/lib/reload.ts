@@ -1,19 +1,94 @@
-type UpdateSW = (reloadPage?: boolean) => Promise<void>;
+function isControllingWorker(
+  worker: ServiceWorker,
+  registration: ServiceWorkerRegistration
+): boolean {
+  const active = registration.active;
+  const controller = navigator.serviceWorker.controller;
+  const workerScript = worker.scriptURL;
+  return Boolean(
+    active &&
+    active.scriptURL === workerScript &&
+    (!controller || controller.scriptURL === workerScript)
+  );
+}
 
-let updateSW: UpdateSW | null = null;
-
-export function setUpdateSW(fn: UpdateSW): void {
-  updateSW = fn;
+async function waitForWorkerControl(
+  worker: ServiceWorker,
+  registration: ServiceWorkerRegistration,
+  timeoutMs: number
+): Promise<void> {
+  if (isControllingWorker(worker, registration)) return;
+  await new Promise<void>((resolve) => {
+    const hasExistingController = navigator.serviceWorker.controller !== null;
+    const handleChange = (): void => {
+      if (worker.state === "redundant") {
+        cleanup();
+        resolve();
+        return;
+      }
+      if (isControllingWorker(worker, registration)) {
+        cleanup();
+        resolve();
+        return;
+      }
+      // On a first install there may be no existing controller to swap out,
+      // so the best available signal is that the fetched worker activated.
+      if (!hasExistingController && worker.state === "activated") {
+        cleanup();
+        resolve();
+      }
+    };
+    const handleControllerChange = (): void => {
+      if (isControllingWorker(worker, registration)) {
+        cleanup();
+        resolve();
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      worker.removeEventListener("statechange", handleChange);
+      navigator.serviceWorker.removeEventListener(
+        "controllerchange",
+        handleControllerChange
+      );
+    };
+    worker.addEventListener("statechange", handleChange);
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      handleControllerChange
+    );
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+  });
 }
 
 export async function reloadApp(): Promise<void> {
-  if (updateSW) {
+  // vite-plugin-pwa's updateSW(true) is a no-op in autoUpdate mode and
+  // neither mode triggers registration.update() on demand. Without this,
+  // clicking Reload reloads before a new SW has installed, so the old
+  // precached bundle is served and the toast reappears.
+  if ("serviceWorker" in navigator) {
     try {
-      await updateSW(true);
-      return;
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (registration) {
+        await registration.update();
+        const pending = registration.installing ?? registration.waiting;
+        if (pending) {
+          // autoUpdate sets skipWaiting:true so "waiting" is unusual, but
+          // poke it anyway for edge-case timings.
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+          // vite-plugin-pwa's "activated" handler auto-reloads when the new
+          // SW activates. We wait for the worker to actually control this page
+          // so our fallback reload below doesn't race the controller handoff.
+          await waitForWorkerControl(pending, registration, 10_000);
+        }
+      }
     } catch {
-      // Fall through to a hard reload if the SW update path fails so the
-      // user isn't left with a stuck Reload button.
+      // fall through
     }
   }
   window.location.reload();
