@@ -695,6 +695,7 @@ type ReleaseStreamEvent =
   | { type: "tag"; tag: string };
 
 let activeReleaseJob: ReleaseJob | null = null;
+let activeAssistedUpdateLaunch = false;
 const releaseStreamClients = new Set<NodeJS.WritableStream>();
 
 const serverDir =
@@ -757,7 +758,7 @@ Guardrails:
 
 Suggested workflow:
 1. Capture the current repo/tag/service state.
-2. Prefer the existing managed Dispatch update flow first by calling the same built-in update endpoint the UI uses (\`POST /api/v1/release/update\` with tag ${input.tag}) instead of reproducing deploy steps by hand.
+2. Prefer the existing managed Dispatch update flow first. If you have a valid Dispatch API bearer token or the server has no password set, you can call the built-in update endpoint the UI uses (\`POST /api/v1/release/update\` with tag ${input.tag}); otherwise use the local Dispatch scripts/commands that already implement the normal update behavior.
 3. Monitor restart and health until success or failure is clear.
 4. If the managed flow fails or the service does not come back, inspect launchd/systemd state and recent logs.
 5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; only fall back to manual git/install/build/restart steps if those managed paths are unavailable or already failed.
@@ -2240,14 +2241,22 @@ async function registerRoutes() {
         .send({ error: "A release or update is already in progress." });
     }
 
-    if (await hasActiveAssistedUpdateAgent()) {
+    if (activeAssistedUpdateLaunch) {
       return reply.code(409).send({
         error:
-          "An assisted update agent is already active for the production checkout.",
+          "An assisted update agent is already being created for the production checkout.",
       });
     }
 
+    activeAssistedUpdateLaunch = true;
     try {
+      if (await hasActiveAssistedUpdateAgent()) {
+        return reply.code(409).send({
+          error:
+            "An assisted update agent is already active for the production checkout.",
+        });
+      }
+
       const record = await readReleaseStore().catch(() => null);
       const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
       const worktreeLocation: WorktreeLocation =
@@ -2278,6 +2287,8 @@ async function registerRoutes() {
       return reply.code(201).send({ agent: withStreamFlag(agent) });
     } catch (error) {
       return handleAgentError(reply, error);
+    } finally {
+      activeAssistedUpdateLaunch = false;
     }
   });
 
