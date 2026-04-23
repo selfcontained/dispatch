@@ -787,9 +787,10 @@ export class AgentManager {
         agent.type === "terminal"
           ? {
               type: "idle",
-              message: shouldResume
-                ? "Terminal session resumed."
-                : "Terminal session started.",
+              // Terminal agents don't track a CLI session id, so `shouldResume`
+              // is always false here — but reaching startAgent means the agent
+              // was previously stopped, which is definitionally a resume.
+              message: "Terminal session resumed.",
             }
           : {
               type: "working",

@@ -3775,6 +3775,11 @@ async function registerRoutes() {
         .send({ error: `${agentType} agents are disabled in settings.` });
     }
 
+    // Terminal agents have no CLI to drive, so full-access / auto-review /
+    // initial-prompt are inert. Normalize them here so the stored record
+    // matches what the runtime honors and future side-effects keyed off these
+    // fields don't silently misfire for terminal agents.
+    const isTerminalAgent = agentType === "terminal";
     const fullAccessArg =
       agentType === "claude"
         ? CLAUDE_FULL_ACCESS_ARG
@@ -3782,7 +3787,7 @@ async function registerRoutes() {
           ? CODEX_FULL_ACCESS_ARG
           : null;
     const resolvedAgentArgs =
-      body.fullAccess === true && fullAccessArg
+      !isTerminalAgent && body.fullAccess === true && fullAccessArg
         ? Array.from(new Set([...(agentArgs ?? []), fullAccessArg]))
         : agentArgs;
 
@@ -3799,7 +3804,7 @@ async function registerRoutes() {
         type: agentType,
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
-        fullAccess: body.fullAccess === true,
+        fullAccess: !isTerminalAgent && body.fullAccess === true,
         useWorktree:
           typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
         worktreeBranch:
@@ -3818,9 +3823,9 @@ async function registerRoutes() {
           typeof body.personaContext === "string"
             ? body.personaContext
             : undefined,
-        autoReview: body.autoReview === true,
+        autoReview: !isTerminalAgent && body.autoReview === true,
         initialPrompt:
-          typeof body.initialPrompt === "string"
+          !isTerminalAgent && typeof body.initialPrompt === "string"
             ? body.initialPrompt.trim() || undefined
             : undefined,
       });
