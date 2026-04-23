@@ -691,8 +691,22 @@ const serverDir =
 
 function dispatchHealthUrl(): string {
   const protocol = config.tls ? "https" : "http";
-  const host = config.host === "0.0.0.0" ? "127.0.0.1" : config.host;
-  return `${protocol}://${host}:${config.port}/api/v1/health`;
+  return `${protocol}://127.0.0.1:${config.port}/api/v1/health`;
+}
+
+async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
+  const result = await pool.query<{ count: string }>(
+    `
+      SELECT COUNT(*)::text AS count
+      FROM agents
+      WHERE deleted_at IS NULL
+        AND role = 'assisted_update'
+        AND cwd = $1
+        AND status IN ('creating', 'running', 'stopping', 'unknown')
+    `,
+    [serverDir]
+  );
+  return Number(result.rows[0]?.count ?? "0") > 0;
 }
 
 function buildAssistedUpdatePrompt(input: {
@@ -713,7 +727,7 @@ Primary objective:
 3. After service is healthy again, diagnose what went wrong and leave a concise report in the terminal.
 
 Update details:
-- Current known deployed tag: ${input.currentTag ?? "unknown"}
+- Current recorded tag in release.json: ${input.currentTag ?? "unknown"}
 - Target tag: ${input.tag}
 - Production checkout: ${serverDir}
 - Health endpoint: ${dispatchHealthUrl()}
@@ -725,7 +739,8 @@ Guardrails:
 - Operate on ${serverDir}, not the user's development worktree.
 - Do not edit secrets or .env unless explicitly required to restore service and you can explain why.
 - Do not make source-code changes as part of the recovery path unless absolutely necessary.
-- Prefer rollback to the previous known-good tag over speculative fixes if the service does not come back.
+- Do not assume release.json points to a healthy rollback target after a failed deploy; confirm the last healthy tag from git/service history before rolling back.
+- Prefer rollback to the last confirmed healthy tag over speculative fixes if the service does not come back.
 - Restore service availability before deeper diagnosis.
 
 Suggested workflow:
@@ -734,7 +749,7 @@ Suggested workflow:
 3. Monitor restart and health until success or failure is clear.
 4. If unhealthy, inspect launchd/systemd state and recent logs.
 5. Retry one clean restart if that is the safest next step.
-6. If still broken, roll back to ${input.currentTag ?? "the prior known-good tag"} and verify health.
+6. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
 7. Summarize outcome, root cause, commands run, and any remaining risk.
 `.trim();
 }
@@ -2187,6 +2202,23 @@ async function registerRoutes() {
       return reply.code(422).send({
         error:
           "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first.",
+      });
+    }
+
+    if (
+      activeReleaseJob &&
+      activeReleaseJob.phase !== "done" &&
+      activeReleaseJob.phase !== "failed"
+    ) {
+      return reply
+        .code(409)
+        .send({ error: "A release or update is already in progress." });
+    }
+
+    if (await hasActiveAssistedUpdateAgent()) {
+      return reply.code(409).send({
+        error:
+          "An assisted update agent is already active for the production checkout.",
       });
     }
 
