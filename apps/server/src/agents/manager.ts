@@ -39,7 +39,7 @@ type AgentStatus =
   | "archiving"
   | "error"
   | "unknown";
-type AgentType = "codex" | "claude" | "opencode";
+type AgentType = "codex" | "claude" | "opencode" | "terminal";
 type AgentLatestEventType =
   | "working"
   | "blocked"
@@ -131,7 +131,7 @@ export type AgentRecord = {
 };
 
 const CLI_BY_AGENT_TYPE: Record<
-  AgentType,
+  Exclude<AgentType, "terminal">,
   keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">
 > = {
   codex: "codexBin",
@@ -567,10 +567,12 @@ export class AgentManager {
         `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, effectiveCwd, worktreePath, worktreeBranch]
       );
-      await this.setSystemLatestEvent(id, {
-        type: "working",
-        message: "Session started.",
-      });
+      await this.setSystemLatestEvent(
+        id,
+        type === "terminal"
+          ? { type: "idle", message: "Terminal session started." }
+          : { type: "working", message: "Session started." }
+      );
     } else {
       try {
         await this.ensureNoExistingSession(tmuxSession);
@@ -698,10 +700,12 @@ export class AgentManager {
       [id, result.effectiveCwd, result.worktreePath, result.worktreeBranch]
     );
 
-    await this.setSystemLatestEvent(id, {
-      type: "working",
-      message: "Session started.",
-    });
+    await this.setSystemLatestEvent(
+      id,
+      agent.type === "terminal"
+        ? { type: "idle", message: "Terminal session started." }
+        : { type: "working", message: "Session started." }
+    );
 
     // Clean up setup script
     const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
@@ -778,10 +782,21 @@ export class AgentManager {
         agent.autoReview ?? false
       );
       await this.setAgentStatus(id, "running", null, tmuxSession);
-      await this.setSystemLatestEvent(id, {
-        type: "working",
-        message: shouldResume ? "Session resumed." : "Session started.",
-      });
+      await this.setSystemLatestEvent(
+        id,
+        agent.type === "terminal"
+          ? {
+              type: "idle",
+              // Terminal agents don't track a CLI session id, so `shouldResume`
+              // is always false here — but reaching startAgent means the agent
+              // was previously stopped, which is definitionally a resume.
+              message: "Terminal session resumed.",
+            }
+          : {
+              type: "working",
+              message: shouldResume ? "Session resumed." : "Session started.",
+            }
+      );
     } catch (error) {
       const message = this.errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession);
@@ -2228,6 +2243,13 @@ export class AgentManager {
     }
 
     const envPrefix = envPrefixParts.join(" ");
+
+    // Terminal agents have no CLI to launch — drop the user into a login shell
+    // in the chosen cwd/worktree. No MCP hookups, no session id tracking.
+    if (type === "terminal") {
+      return `${envPrefix} "\${SHELL:-/bin/bash}" -l`;
+    }
+
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
     const dispatchMcpUrl = this.dispatchMcpUrl(agentId, jobRunId);
     const dispatchMcpToken = jobRunId
@@ -4227,30 +4249,39 @@ export class AgentManager {
         `    else`,
         `      info "No .env file found — skipping"`,
         `    fi`,
-        ``,
-        `    # --- Install dependencies ---`,
-        `    ${curlPhase("deps")}`,
-        `    phase "Installing dependencies"`,
-        `    cd "$WT_PATH"`,
-        `    if [ -f "pnpm-lock.yaml" ]; then`,
-        `      info "Detected pnpm-lock.yaml"`,
-        `      pnpm install 2>&1 || warn "pnpm install failed (continuing anyway)"`,
-        `      ok "Dependencies installed"`,
-        `    elif [ -f "yarn.lock" ]; then`,
-        `      info "Detected yarn.lock"`,
-        `      yarn install 2>&1 || warn "yarn install failed (continuing anyway)"`,
-        `      ok "Dependencies installed"`,
-        `    elif [ -f "package-lock.json" ]; then`,
-        `      info "Detected package-lock.json"`,
-        `      npm install 2>&1 || warn "npm install failed (continuing anyway)"`,
-        `      ok "Dependencies installed"`,
-        `    elif [ -f "bun.lockb" ]; then`,
-        `      info "Detected bun.lockb"`,
-        `      bun install 2>&1 || warn "bun install failed (continuing anyway)"`,
-        `      ok "Dependencies installed"`,
-        `    else`,
-        `      info "No lockfile found — skipping dependency install"`,
-        `    fi`,
+        ``
+      );
+
+      if (agentType !== "terminal") {
+        lines.push(
+          `    # --- Install dependencies ---`,
+          `    ${curlPhase("deps")}`,
+          `    phase "Installing dependencies"`,
+          `    cd "$WT_PATH"`,
+          `    if [ -f "pnpm-lock.yaml" ]; then`,
+          `      info "Detected pnpm-lock.yaml"`,
+          `      pnpm install 2>&1 || warn "pnpm install failed (continuing anyway)"`,
+          `      ok "Dependencies installed"`,
+          `    elif [ -f "yarn.lock" ]; then`,
+          `      info "Detected yarn.lock"`,
+          `      yarn install 2>&1 || warn "yarn install failed (continuing anyway)"`,
+          `      ok "Dependencies installed"`,
+          `    elif [ -f "package-lock.json" ]; then`,
+          `      info "Detected package-lock.json"`,
+          `      npm install 2>&1 || warn "npm install failed (continuing anyway)"`,
+          `      ok "Dependencies installed"`,
+          `    elif [ -f "bun.lockb" ]; then`,
+          `      info "Detected bun.lockb"`,
+          `      bun install 2>&1 || warn "bun install failed (continuing anyway)"`,
+          `      ok "Dependencies installed"`,
+          `    else`,
+          `      info "No lockfile found — skipping dependency install"`,
+          `    fi`,
+          ``
+        );
+      }
+
+      lines.push(
         `  else`,
         `    warn "Worktree creation failed — using original directory"`,
         `  fi`,

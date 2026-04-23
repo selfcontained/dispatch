@@ -62,7 +62,12 @@ import {
 } from "@/components/ui/chart";
 import { StatCard } from "@/components/app/stat-card";
 import { formatRelativeTime } from "@/lib/format";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  type CliAgentType,
+  isCliAgentType,
+} from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
 
@@ -1120,8 +1125,9 @@ function AddJobFlow({
   const [timeoutMinutes, setTimeoutMinutes] = useState("30");
   const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] =
     useState("1440");
-  const [agentType, setAgentType] = useState<AgentType>(
-    enabledAgentTypes[0] ?? "codex"
+  const jobAgentTypes = enabledAgentTypes.filter(isCliAgentType);
+  const [agentType, setAgentType] = useState<CliAgentType>(
+    jobAgentTypes[0] ?? "codex"
   );
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
@@ -1237,13 +1243,13 @@ function AddJobFlow({
                 </label>
                 <Select
                   value={agentType}
-                  onValueChange={(value) => setAgentType(value as AgentType)}
+                  onValueChange={(value) => setAgentType(value as CliAgentType)}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {enabledAgentTypes.map((type) => (
+                    {jobAgentTypes.map((type) => (
                       <SelectItem key={type} value={type}>
                         {AGENT_TYPE_LABELS[type]}
                       </SelectItem>
@@ -1839,7 +1845,7 @@ function SettingsTab({
   const [needsInputTimeoutMinutes, setNeedsInputTimeoutMinutes] = useState(
     minutesFromMs(job.needsInputTimeoutMs)
   );
-  const [agentType, setAgentType] = useState<AgentType>(job.agentType);
+  const [agentType, setAgentType] = useState<CliAgentType>(job.agentType);
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
   const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
@@ -1948,13 +1954,13 @@ function SettingsTab({
             <label className="text-sm text-muted-foreground">Agent type</label>
             <Select
               value={agentType}
-              onValueChange={(value) => setAgentType(value as AgentType)}
+              onValueChange={(value) => setAgentType(value as CliAgentType)}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {enabledAgentTypes.map((type) => (
+                {enabledAgentTypes.filter(isCliAgentType).map((type) => (
                   <SelectItem key={type} value={type}>
                     {AGENT_TYPE_LABELS[type]}
                   </SelectItem>
