@@ -1,18 +1,64 @@
-async function waitForWorkerActivation(
+function isControllingWorker(
   worker: ServiceWorker,
+  registration: ServiceWorkerRegistration
+): boolean {
+  const active = registration.active;
+  const controller = navigator.serviceWorker.controller;
+  const workerScript = worker.scriptURL;
+  return Boolean(
+    active &&
+    active.scriptURL === workerScript &&
+    (!controller || controller.scriptURL === workerScript)
+  );
+}
+
+async function waitForWorkerControl(
+  worker: ServiceWorker,
+  registration: ServiceWorkerRegistration,
   timeoutMs: number
 ): Promise<void> {
-  if (worker.state === "activated") return;
+  if (isControllingWorker(worker, registration)) return;
   await new Promise<void>((resolve) => {
+    const hasExistingController = navigator.serviceWorker.controller !== null;
     const handleChange = (): void => {
-      if (worker.state === "activated" || worker.state === "redundant") {
-        worker.removeEventListener("statechange", handleChange);
+      if (worker.state === "redundant") {
+        cleanup();
+        resolve();
+        return;
+      }
+      if (isControllingWorker(worker, registration)) {
+        cleanup();
+        resolve();
+        return;
+      }
+      // On a first install there may be no existing controller to swap out,
+      // so the best available signal is that the fetched worker activated.
+      if (!hasExistingController && worker.state === "activated") {
+        cleanup();
         resolve();
       }
     };
-    worker.addEventListener("statechange", handleChange);
-    setTimeout(() => {
+    const handleControllerChange = (): void => {
+      if (isControllingWorker(worker, registration)) {
+        cleanup();
+        resolve();
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
       worker.removeEventListener("statechange", handleChange);
+      navigator.serviceWorker.removeEventListener(
+        "controllerchange",
+        handleControllerChange
+      );
+    };
+    worker.addEventListener("statechange", handleChange);
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      handleControllerChange
+    );
+    const timer = setTimeout(() => {
+      cleanup();
       resolve();
     }, timeoutMs);
   });
@@ -36,9 +82,9 @@ export async function reloadApp(): Promise<void> {
             registration.waiting.postMessage({ type: "SKIP_WAITING" });
           }
           // vite-plugin-pwa's "activated" handler auto-reloads when the new
-          // SW activates. We wait so our fallback reload below doesn't fire
-          // before the new SW is in control.
-          await waitForWorkerActivation(pending, 3000);
+          // SW activates. We wait for the worker to actually control this page
+          // so our fallback reload below doesn't race the controller handoff.
+          await waitForWorkerControl(pending, registration, 10_000);
         }
       }
     } catch {
