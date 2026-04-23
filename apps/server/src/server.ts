@@ -744,6 +744,8 @@ Update details:
 - Target tag: ${input.tag}
 - Production checkout: ${serverDir}
 - Health endpoint: ${dispatchHealthUrl()}
+- Dispatch API base URL: $DISPATCH_API_URL
+- Dispatch API bearer token env: $DISPATCH_SERVER_AUTH_TOKEN
 - Main service log: ~/.dispatch/logs/dispatch.log
 - Failure log path: ~/.dispatch/logs/last-release-failure.log
 - Service restart command: ${serviceCommand}
@@ -758,10 +760,11 @@ Guardrails:
 
 Suggested workflow:
 1. Capture the current repo/tag/service state.
-2. Prefer the existing managed Dispatch update flow first. If you have a valid Dispatch API bearer token or the server has no password set, you can call the built-in update endpoint the UI uses (\`POST /api/v1/release/update\` with tag ${input.tag}); otherwise use the local Dispatch scripts/commands that already implement the normal update behavior.
+2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
+   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_SERVER_AUTH_TOKEN" -d '{"tag":"${input.tag}"}'\`
 3. Monitor restart and health until success or failure is clear.
-4. If the managed flow fails or the service does not come back, inspect launchd/systemd state and recent logs.
-5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; only fall back to manual git/install/build/restart steps if those managed paths are unavailable or already failed.
+4. If the managed flow request fails or the service does not come back, inspect launchd/systemd state and recent logs before deciding on recovery.
+5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; do not manually reproduce the normal update sequence unless the managed path has already failed and you are in explicit recovery mode.
 6. Retry one clean restart if that is the safest next step.
 7. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
 8. Summarize outcome, root cause, commands run, and any remaining risk.

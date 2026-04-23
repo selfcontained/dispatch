@@ -143,6 +143,8 @@ const CLI_BY_AGENT_TYPE: Record<
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
+const DISPATCH_SERVER_AUTH_TOKEN_ENV = "DISPATCH_SERVER_AUTH_TOKEN";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -635,6 +637,7 @@ export class AgentManager {
         // Build the agent command that the setup script will exec into
         const agentCommand = this.buildAgentCommand(
           type,
+          role,
           agentArgs,
           mediaDir,
           tmuxSession,
@@ -830,6 +833,7 @@ export class AgentManager {
         agent.name,
         agent.persona,
         agent.type,
+        agent.role,
         agent.agentArgs ?? [],
         agent.fullAccess ?? false,
         cliSessionId ?? undefined,
@@ -2048,6 +2052,7 @@ export class AgentManager {
     agentName: string,
     persona: string | null,
     type: AgentType,
+    role: AgentRole,
     agentArgs: string[],
     fullAccess: boolean,
     cliSessionId?: string,
@@ -2062,6 +2067,7 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(
       type,
+      role,
       agentArgs,
       mediaDir,
       sessionName,
@@ -2202,6 +2208,7 @@ export class AgentManager {
 
   private buildAgentCommand(
     type: AgentType,
+    role: AgentRole,
     args: string[],
     mediaDir: string,
     sessionName: string,
@@ -2256,6 +2263,17 @@ export class AgentManager {
       // Prevents cwd drift back to the original repo root during long conversations.
       `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`,
     ];
+
+    if (role === "assisted_update") {
+      envPrefixParts.push(
+        `${DISPATCH_API_URL_ENV}=${this.shellEscape(
+          `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`
+        )}`,
+        `${DISPATCH_SERVER_AUTH_TOKEN_ENV}=${this.shellEscape(
+          this.config.authToken
+        )}`
+      );
+    }
 
     // Forward the clipboard display to agent sessions so CLI tools can read
     // images pasted via the browser clipboard (xclip needs a DISPLAY).
