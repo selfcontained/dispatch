@@ -2488,9 +2488,22 @@ export class AgentManager {
         400
       );
     }
+    // IMPORTANT: review_status is a progress-ping channel only. It must
+    // never transition the review *out of* a non-working state — in
+    // particular, it must not clobber `awaiting_recheck` (reviewer is
+    // doing round 2) back to `reviewing` (would trick
+    // completePersonaReview into thinking the next close is round 1).
+    // Keep the status untouched if it's terminal or mid-round-trip, and
+    // just refresh the progress message.
     const result = await this.pool.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
-       SET status = $2, message = $3, updated_at = NOW()
+       SET status = CASE
+                      WHEN status IN ('complete', 'cancelled', 'awaiting_recheck')
+                        THEN status
+                      ELSE $2
+                    END,
+           message = $3,
+           updated_at = NOW()
        WHERE agent_id = $1
        RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
                  persona, status, message, verdict, summary,
@@ -2566,7 +2579,28 @@ export class AgentManager {
 
       let nextRoundNumber = current.roundNumber;
       if (current.status === "reviewing") {
-        nextRoundNumber = 1;
+        // Normally 'reviewing' means round 1. But defense-in-depth:
+        // if there's already a submitted resolution for this review,
+        // the next close belongs to the round after the resolution, no
+        // matter how we ended up back in 'reviewing'. This guards
+        // against any future path that could downgrade the status
+        // field while a round-trip is in flight.
+        const priorResolution = await client.query<{ roundNumber: number }>(
+          `SELECT round_number AS "roundNumber"
+           FROM persona_review_resolutions
+           WHERE review_id = $1
+           ORDER BY round_number DESC
+           LIMIT 1`,
+          [current.id]
+        );
+        const resolvedRound = priorResolution.rows[0]?.roundNumber ?? 0;
+        nextRoundNumber = resolvedRound > 0 ? resolvedRound + 1 : 1;
+        if (nextRoundNumber > 2) {
+          throw new AgentError(
+            "Round 2 already complete. This review only supports a single round-trip.",
+            409
+          );
+        }
       } else if (current.status === "awaiting_recheck") {
         if (current.roundNumber >= 2) {
           throw new AgentError(

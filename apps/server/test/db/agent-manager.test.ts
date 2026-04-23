@@ -2240,6 +2240,52 @@ describe("AgentManager", () => {
           status: "complete",
         });
       });
+
+      it("review_status('reviewing') does not clobber 'awaiting_recheck' during round 2 (dogfood regression)", async () => {
+        // Regression: if review_status overwrote awaiting_recheck back
+        // to 'reviewing', the next completePersonaReview would be
+        // treated as round 1 and round_number would stick at 1 even
+        // though the reviewer just finished round 2. See CRU-133
+        // end-to-end dogfood.
+        const { child } = await seedAwaitingRecheckReview();
+
+        await manager.updatePersonaReviewStatus(child.id, {
+          status: "reviewing",
+          message: "Starting round 2",
+        });
+
+        const stillAwaiting = await manager.getPersonaReview(child.id);
+        expect(stillAwaiting!.status).toBe("awaiting_recheck");
+        expect(stillAwaiting!.message).toBe("Starting round 2");
+
+        const completed = await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 done",
+        });
+        expect(completed.status).toBe("complete");
+        expect(completed.roundNumber).toBe(2);
+      });
+
+      it("completePersonaReview recovers from a 'reviewing' status after a prior resolution (defense-in-depth)", async () => {
+        // Even if something upstream did downgrade the status to
+        // 'reviewing' after a round-1 resolution, the completion path
+        // must still land as round 2 — it infers the round from the
+        // submitted resolution, not just the current status label.
+        const { child } = await seedAwaitingRecheckReview();
+
+        // Force the buggy intermediate state directly.
+        await pool.query(
+          "UPDATE persona_reviews SET status = 'reviewing' WHERE agent_id = $1",
+          [child.id]
+        );
+
+        const completed = await manager.completePersonaReview(child.id, {
+          verdict: "approve",
+          summary: "Round 2 done despite the detour",
+        });
+        expect(completed.status).toBe("complete");
+        expect(completed.roundNumber).toBe(2);
+      });
     });
 
     describe("awaitReview (parent-side polling)", () => {
