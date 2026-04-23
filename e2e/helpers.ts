@@ -171,6 +171,26 @@ export async function setAgentPinsViaDB(
   }
 }
 
+export async function setAgentRoleViaDB(
+  agentId: string,
+  role: "standard" | "assisted_update"
+): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed agent roles.");
+  }
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    await pool.query(
+      "UPDATE agents SET role = $2, updated_at = NOW() WHERE id = $1",
+      [agentId, role]
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
 /**
  * Delete an agent via the REST API (force-stops and cleans up worktrees).
  */

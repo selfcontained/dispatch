@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowDownToLine,
   CheckCircle2,
@@ -26,6 +27,7 @@ import {
   type UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
+import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 
 type AppVersionInfo = {
@@ -61,6 +63,7 @@ type UpdatesSectionProps = {
 };
 
 export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
+  const navigate = useNavigate();
   const { status, job, postRestartPolling, connectStream, setJob } = stream;
 
   const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
@@ -71,6 +74,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
   const [reloading, setReloading] = useState(false);
 
   // Fetch version info + channel on mount
@@ -156,6 +160,32 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     });
     connectStream();
   };
+
+  const handleAssistedUpdate = useCallback(
+    async (tag: string) => {
+      setUpdateError(null);
+      setAssistedUpdateLaunching(true);
+      try {
+        const payload = await api<{ agent: { id: string } }>(
+          "/api/v1/release/update-assisted",
+          {
+            method: "POST",
+            body: JSON.stringify({ tag }),
+          }
+        );
+        navigate(agentRoute(payload.agent.id));
+      } catch (err) {
+        setUpdateError(
+          err instanceof Error
+            ? cleanError(err.message)
+            : "Failed to start assisted update"
+        );
+      } finally {
+        setAssistedUpdateLaunching(false);
+      }
+    },
+    [navigate]
+  );
 
   const handleReload = useCallback(() => {
     setReloading(true);
@@ -391,12 +421,31 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </div>
                 )}
 
-                <button
-                  onClick={() => void handleUpdate(info.latestTag!)}
-                  className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
-                >
-                  Update to {info.latestTag}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void handleUpdate(info.latestTag!)}
+                    className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
+                  >
+                    Update to {info.latestTag}
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    data-testid="assisted-update-button"
+                    disabled={assistedUpdateLaunching}
+                    onClick={() => void handleAssistedUpdate(info.latestTag!)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {assistedUpdateLaunching
+                      ? "Launching agent..."
+                      : "Assisted update"}
+                  </Button>
+                </div>
+                <p className="max-w-xl text-xs text-muted-foreground">
+                  Assisted update launches a full-access agent on the production
+                  checkout, redirects you into its terminal, and tells it to
+                  recover service first if the restart goes sideways.
+                </p>
               </div>
             ) : (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">

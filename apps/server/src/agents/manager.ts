@@ -40,6 +40,7 @@ type AgentStatus =
   | "error"
   | "unknown";
 type AgentType = "codex" | "claude" | "opencode" | "terminal";
+export type AgentRole = "standard" | "assisted_update";
 type AgentLatestEventType =
   | "working"
   | "blocked"
@@ -87,6 +88,7 @@ export type AgentRecord = {
   id: string;
   name: string;
   type: AgentType;
+  role: AgentRole;
   status: AgentStatus;
   cwd: string;
   worktreePath: string | null;
@@ -144,6 +146,7 @@ type WorktreeLocation = "sibling" | "nested";
 type CreateAgentInput = {
   name?: string;
   type?: AgentType;
+  role?: AgentRole;
   cwd: string;
   agentArgs?: string[];
   fullAccess?: boolean;
@@ -466,6 +469,7 @@ export class AgentManager {
     const originalCwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
+    const role: AgentRole = input.role ?? "standard";
     const agentArgs = input.agentArgs ?? [];
     const fullAccess = input.fullAccess ?? false;
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
@@ -509,13 +513,14 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, updated_at)
-      VALUES ($1, $2, $3, 'creating', $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
       `,
       [
         id,
         name,
         type,
+        role,
         originalCwd,
         tmuxSession,
         mediaDir,
@@ -3938,6 +3943,7 @@ export class AgentManager {
         id,
         name,
         type,
+        role,
         status,
         cwd,
         worktree_path AS "worktreePath",

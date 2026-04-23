@@ -689,6 +689,56 @@ const serverDir =
   process.env.DISPATCH_SERVER_DIR ??
   path.join(os.homedir(), ".dispatch", "server");
 
+function dispatchHealthUrl(): string {
+  const protocol = config.tls ? "https" : "http";
+  const host = config.host === "0.0.0.0" ? "127.0.0.1" : config.host;
+  return `${protocol}://${host}:${config.port}/api/v1/health`;
+}
+
+function buildAssistedUpdatePrompt(input: {
+  tag: string;
+  currentTag: string | null;
+}): string {
+  const serviceCommand =
+    process.platform === "linux"
+      ? "systemctl --user restart dispatch"
+      : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
+
+  return `
+You are running an assisted Dispatch update on the host machine.
+
+Primary objective:
+1. Update Dispatch to ${input.tag}.
+2. If restart or health fails, restore the Dispatch service first.
+3. After service is healthy again, diagnose what went wrong and leave a concise report in the terminal.
+
+Update details:
+- Current known deployed tag: ${input.currentTag ?? "unknown"}
+- Target tag: ${input.tag}
+- Production checkout: ${serverDir}
+- Health endpoint: ${dispatchHealthUrl()}
+- Main service log: ~/.dispatch/logs/dispatch.log
+- Failure log path: ~/.dispatch/logs/last-release-failure.log
+- Service restart command: ${serviceCommand}
+
+Guardrails:
+- Operate on ${serverDir}, not the user's development worktree.
+- Do not edit secrets or .env unless explicitly required to restore service and you can explain why.
+- Do not make source-code changes as part of the recovery path unless absolutely necessary.
+- Prefer rollback to the previous known-good tag over speculative fixes if the service does not come back.
+- Restore service availability before deeper diagnosis.
+
+Suggested workflow:
+1. Capture the current repo/tag/service state.
+2. Perform the update to ${input.tag}.
+3. Monitor restart and health until success or failure is clear.
+4. If unhealthy, inspect launchd/systemd state and recent logs.
+5. Retry one clean restart if that is the safest next step.
+6. If still broken, roll back to ${input.currentTag ?? "the prior known-good tag"} and verify health.
+7. Summarize outcome, root cause, commands run, and any remaining risk.
+`.trim();
+}
+
 function broadcastReleaseEvent(event: ReleaseStreamEvent): void {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const client of releaseStreamClients) {
@@ -2116,6 +2166,62 @@ async function registerRoutes() {
     void runUpdateJob(job);
 
     return reply.code(202).send({ ok: true });
+  });
+
+  app.post("/api/v1/release/update-assisted", async (request, reply) => {
+    const body = request.body as { tag?: unknown } | undefined;
+
+    if (
+      !body?.tag ||
+      typeof body.tag !== "string" ||
+      !/^v\d+\.\d+\.\d+$/.test(body.tag)
+    ) {
+      return reply.code(400).send({
+        error: "tag is required and must be a semver tag (e.g. v0.2.31)",
+      });
+    }
+
+    const enabledAgentTypes = await getEnabledAgentTypes(pool);
+    const assistedType = enabledAgentTypes.find(isCliAgentType);
+    if (!assistedType) {
+      return reply.code(422).send({
+        error:
+          "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first.",
+      });
+    }
+
+    try {
+      const record = await readReleaseStore().catch(() => null);
+      const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
+      const worktreeLocation: WorktreeLocation =
+        worktreeLocationRaw &&
+        (VALID_WORKTREE_LOCATIONS as string[]).includes(worktreeLocationRaw)
+          ? (worktreeLocationRaw as WorktreeLocation)
+          : "sibling";
+
+      const agent = await agentManager.createAgent({
+        name: `update-${body.tag}`,
+        type: assistedType,
+        role: "assisted_update",
+        cwd: serverDir,
+        fullAccess: true,
+        useWorktree: false,
+        worktreeLocation,
+        initialPrompt: buildAssistedUpdatePrompt({
+          tag: body.tag,
+          currentTag: record?.tag ?? null,
+        }),
+      });
+
+      queueGitContextRefresh([agent.id]);
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
+      return reply.code(201).send({ agent: withStreamFlag(agent) });
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
   });
 
   app.get("/api/v1/release/stream", async (_request, reply) => {

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   AlarmClock,
+  ArrowDownToLine,
   Copy,
   Folder,
   FolderGit2,
@@ -144,6 +145,7 @@ export function AgentCard({
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
+  const isAssistedUpdateAgent = agent.role === "assisted_update";
   const isTerminalAgent = agent.type === "terminal";
   const sidebarBaseBranch = agent.baseBranch ?? "main";
 
@@ -215,6 +217,16 @@ export function AgentCard({
             >
               <AlarmClock className="mr-1 h-3 w-3" />
               Job
+            </Badge>
+          ) : null}
+
+          {isAssistedUpdateAgent ? (
+            <Badge
+              className="border-blue-500/35 bg-blue-500/10 text-blue-400"
+              title="Agent-assisted Dispatch update"
+            >
+              <ArrowDownToLine className="mr-1 h-3 w-3" />
+              Update
             </Badge>
           ) : null}
 

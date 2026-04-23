@@ -121,6 +121,7 @@ describe("AgentManager", () => {
       expect(agent.setupPhase).toBe("session");
       expect(agent.cwd).toBe("/tmp");
       expect(agent.type).toBe("codex");
+      expect(agent.role).toBe("standard");
       expect(agent.tmuxSession).toMatch(/^dispatch_agt_/);
       expect(agent.mediaDir).toBeTruthy();
       expect(agent.createdAt).toBeTruthy();
@@ -159,6 +160,15 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       expect(agent.type).toBe("opencode");
+    });
+
+    it("should persist assisted update role when provided", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        role: "assisted_update",
+        useWorktree: false,
+      });
+      expect(agent.role).toBe("assisted_update");
     });
 
     it("should persist reviewAgentType when provided", async () => {
