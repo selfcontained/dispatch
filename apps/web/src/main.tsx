@@ -3,7 +3,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
-import { setUpdateSW } from "./lib/reload";
 import "./index.css";
 
 // Detect iPad PWA (standalone mode on iPad-class device) and apply targeted
@@ -37,7 +36,7 @@ if (import.meta.env.PROD) {
   // (the PWA plugin is only loaded in production builds).
   const pwaModule = "virtual:pwa-register";
   void import(/* @vite-ignore */ pwaModule).then(({ registerSW }) => {
-    const updateSW = registerSW({
+    registerSW({
       immediate: true,
       onRegisteredSW(_swUrl: string, registration?: ServiceWorkerRegistration) {
         if (registration) {
@@ -47,7 +46,6 @@ if (import.meta.env.PROD) {
         }
       },
     });
-    setUpdateSW(updateSW);
   });
 } else if ("serviceWorker" in navigator) {
   void navigator.serviceWorker.getRegistrations().then((registrations) => {
