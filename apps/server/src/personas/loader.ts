@@ -162,7 +162,7 @@ const RECHECK_ROUND_TRIP_GUIDANCE = `
 This is a two-round review. You have a round-1 obligation (already described above) AND a round-2 obligation described below. Do not emit a terminal \`dispatch_event\` until BOTH rounds are complete or the recheck has been explicitly cancelled.
 
 **After round 1.** Once you've submitted your initial verdict via \`dispatch_complete_review\`, do not exit. Call \`dispatch_await_recheck\` — it returns one of three terminal shapes:
-- \`pending\` with a \`pollAgainInSeconds\` value — use \`ScheduleWakeup\` (Claude) or the equivalent for your agent runtime to sleep that many seconds, then call \`dispatch_await_recheck\` again. Do not busy-loop and do not invent your own cadence; trust the server's number.
+- \`pending\` with a \`pollAgainInSeconds\` value — wait that many seconds (using whatever sleep mechanism your agent runtime provides) and call \`dispatch_await_recheck\` again. Do not busy-loop and do not invent your own cadence; trust the server's number.
 - \`ready\` with the parent's resolution summary, per-item resolutions, and the diff since your round-1 commit — this is the signal to start round 2.
 - \`cancelled\` — exit cleanly; the parent aborted the recheck.
 

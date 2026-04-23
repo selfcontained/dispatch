@@ -91,12 +91,12 @@ export type AwaitReviewResponse =
   | {
       status: "pending";
       pollAgainInSeconds: number;
-      reviewStatus: string;
-      roundNumber: number;
+      review: ReviewSnapshot;
     }
   | { status: "feedback_ready"; review: ReviewSnapshot; feedbackCount: number }
   | { status: "complete"; review: ReviewSnapshot; feedbackCount: number }
-  | { status: "cancelled" };
+  | { status: "cancelled"; review: ReviewSnapshot }
+  | { status: "no_reviews" };
 
 export type PersonaFeedbackGroup = {
   persona: string;
@@ -387,7 +387,7 @@ export type McpRequestContext = {
   awaitRecheck?: (agentId: string) => Promise<AwaitRecheckResponse>;
   awaitReview?: (
     agentId: string,
-    personaAgentId: string
+    personaAgentId: string | null
   ) => Promise<AwaitReviewResponse>;
   cancelRecheck?: (
     agentId: string,
@@ -442,9 +442,9 @@ export function buildLaunchPersonaResponseText(
 
 Review was launched with recheck enabled. This is a multi-step round-trip — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution.
 
-1. Wait for round 1. Call dispatch_await_review with personaAgentId="${agentId}". It returns 'pending' (sleep that many seconds via ScheduleWakeup or your runtime's equivalent, then call again — do not invent your own cadence), 'feedback_ready' (round 1 done, parent action required), 'complete' (terminal — read feedback and exit), or 'cancelled'. Do not poll dispatch_get_feedback for status; that tool fires on the first item that lands and will mislead you into thinking the review is done.
+1. Wait for round 1. Call dispatch_await_review — pass personaAgentId="${agentId}" if you want to wait specifically for this reviewer, or call with no arguments to await whichever of your launched reviewers needs attention next. It returns 'pending' with a pollAgainInSeconds value (wait that long using whatever sleep mechanism your agent runtime provides, then call again — do not invent your own cadence), 'feedback_ready' (round 1 done, parent action required), 'complete' (terminal — read feedback and exit), or 'cancelled'. Do not poll dispatch_get_feedback for status; that tool fires on the first item that lands and will mislead you into thinking the review is done.
 
-2. On 'feedback_ready', call dispatch_get_feedback to read the items. For each one, decide if you'll fix it or ignore it. Apply the fix in the codebase, then call dispatch_resolve_feedback (status 'fixed' or 'ignored' — include a 'reason' for any you ignore).
+2. On 'feedback_ready', the response identifies which review transitioned via response.review.personaAgentId. Call dispatch_get_feedback to read that review's items. For each one, decide if you'll fix it or ignore it. Apply the fix in the codebase, then call dispatch_resolve_feedback (status 'fixed' or 'ignored' — include a 'reason' for any you ignore).
 
 3. Commit your fixes before submitting the resolution. dispatch_submit_resolution captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit. If you submit while your fixes are uncommitted, the reviewer sees an empty diff and will re-flag the same issues.
 
@@ -584,7 +584,7 @@ async function createDispatchMcpServer(
       "dispatch_await_recheck",
       {
         description:
-          "Reviewer-only. Call this after dispatch_complete_review when the review was launched with allowRecheck: true. Returns one of: 'pending' with a `pollAgainInSeconds` value — sleep that long (via ScheduleWakeup or your runtime's equivalent) and call again; 'ready' with the parent's resolution summary, per-item resolutions, and the diff since round 1 — perform a second-pass review and call dispatch_complete_review a second time; or 'cancelled' — exit the review. Trust the server-provided cadence and terminal statuses; do not loop indefinitely on your own.",
+          "Reviewer-only. Call this after dispatch_complete_review when the review was launched with allowRecheck: true. Returns one of: 'pending' with a `pollAgainInSeconds` value — wait that long (using whatever sleep mechanism your agent runtime provides) and call again; 'ready' with the parent's resolution summary, per-item resolutions, and the diff since round 1 — perform a second-pass review and call dispatch_complete_review a second time; or 'cancelled' — exit the review. Trust the server-provided cadence and terminal statuses; do not loop indefinitely on your own.",
         inputSchema: {},
       },
       async () => {
@@ -638,24 +638,39 @@ async function createDispatchMcpServer(
       "dispatch_await_review",
       {
         description:
-          "Parent-only. Poll for a child review's status transitions. Call this after dispatch_launch_persona to wait for the reviewer to complete round 1, and again after dispatch_submit_resolution to wait for round 2. Returns one of: 'pending' with a `pollAgainInSeconds` value — sleep that long (via ScheduleWakeup or your agent runtime's equivalent) and call again; 'feedback_ready' (round 1 done on an allowRecheck review) — call dispatch_get_feedback, resolve each item, and dispatch_submit_resolution; 'complete' (final round done, or a single-pass review whose only round has completed) — call dispatch_get_feedback to read findings and exit; 'cancelled' — the recheck was cancelled, exit. Trust the server-provided cadence and terminal statuses; do not invent your own polling interval.",
+          "Parent-only. Wait for a change in a child review's lifecycle. Call with no arguments to await whichever of your launched reviewers needs attention next (the server picks the highest-priority one: feedback_ready > cancelled > complete > pending). Call with `personaAgentId` to await a specific reviewer. Returns one of: 'pending' with a `pollAgainInSeconds` value and the `review` it refers to — wait that many seconds before calling again; 'feedback_ready' with `review` and `feedbackCount` (round 1 done on an allowRecheck review) — call dispatch_get_feedback for that review, resolve each item, and call dispatch_submit_resolution; 'complete' with `review` and `feedbackCount` (final round done, or a single-pass review whose only round has completed) — read feedback and exit; 'cancelled' with `review`; 'no_reviews' — you have never launched a persona review. Trust the server-provided cadence; do not invent your own polling interval.",
         inputSchema: {
           personaAgentId: z
             .string()
+            .optional()
             .describe(
-              "The persona agent ID whose review you are awaiting (the agent you launched via dispatch_launch_persona)."
+              "Optional. The persona agent ID whose review you are awaiting. Omit to await whichever of your launched reviewers needs attention next — useful when you have multiple reviewers in flight."
             ),
         },
       },
       async (args) => {
         try {
-          const result = await awaitReview(parentAgentId, args.personaAgentId);
+          const result = await awaitReview(
+            parentAgentId,
+            args.personaAgentId ?? null
+          );
+          if (result.status === "no_reviews") {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "You have not launched any persona reviews yet. Launch one via dispatch_launch_persona first.",
+                },
+              ],
+              structuredContent: result,
+            };
+          }
           if (result.status === "pending") {
             return {
               content: [
                 {
                   type: "text",
-                  text: `Review pending (reviewer status: ${result.reviewStatus}, round ${result.roundNumber}). Poll again in ${result.pollAgainInSeconds} seconds.`,
+                  text: `Review ${result.review.personaAgentId} pending (reviewer status: ${result.review.status}, round ${result.review.roundNumber}). Wait ${result.pollAgainInSeconds} seconds, then call dispatch_await_review again.`,
                 },
               ],
               structuredContent: result,
@@ -663,7 +678,12 @@ async function createDispatchMcpServer(
           }
           if (result.status === "cancelled") {
             return {
-              content: [{ type: "text", text: "Review cancelled." }],
+              content: [
+                {
+                  type: "text",
+                  text: `Review ${result.review.personaAgentId} was cancelled.`,
+                },
+              ],
               structuredContent: result,
             };
           }
@@ -672,7 +692,7 @@ async function createDispatchMcpServer(
               content: [
                 {
                   type: "text",
-                  text: `Round 1 complete with verdict ${result.review.verdict}. ${result.feedbackCount} feedback item(s) ready — call dispatch_get_feedback to read them, then resolve each and call dispatch_submit_resolution to trigger round 2.`,
+                  text: `Review ${result.review.personaAgentId} completed round 1 with verdict ${result.review.verdict}. ${result.feedbackCount} feedback item(s) ready — call dispatch_get_feedback, resolve each item, then dispatch_submit_resolution to trigger round 2.`,
                 },
               ],
               structuredContent: result,
@@ -682,7 +702,7 @@ async function createDispatchMcpServer(
             content: [
               {
                 type: "text",
-                text: `Review complete (round ${result.review.roundNumber}, verdict ${result.review.verdict}). ${result.feedbackCount} feedback item(s) on record. Call dispatch_get_feedback if you haven't already, then exit.`,
+                text: `Review ${result.review.personaAgentId} is complete (round ${result.review.roundNumber}, verdict ${result.review.verdict}). ${result.feedbackCount} feedback item(s) on record.`,
               },
             ],
             structuredContent: result,

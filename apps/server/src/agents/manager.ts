@@ -260,8 +260,7 @@ export type AwaitReviewResult =
   | {
       status: "pending";
       pollAgainInSeconds: number;
-      reviewStatus: string;
-      roundNumber: number;
+      review: PersonaReviewRecord;
     }
   | {
       status: "feedback_ready";
@@ -273,7 +272,11 @@ export type AwaitReviewResult =
       review: PersonaReviewRecord;
       feedbackCount: number;
     }
-  | { status: "cancelled" };
+  | {
+      status: "cancelled";
+      review: PersonaReviewRecord;
+    }
+  | { status: "no_reviews" };
 
 type AgentLatestEventInput = {
   type: AgentLatestEventType;
@@ -3943,13 +3946,23 @@ export class AgentManager {
 
   /**
    * Parent-side polling primitive — symmetric counterpart to
-   * awaitReviewRecheck. Returns where the named child review is in its
-   * lifecycle so the parent can sleep between polls instead of busy-
-   * looping or polling dispatch_get_feedback (which fires on the first
-   * item that lands and misleads agents into thinking the review is
-   * done).
+   * awaitReviewRecheck. Returns where one of the caller's child reviews
+   * is in its lifecycle so the parent can pause between polls instead of
+   * busy-looping or polling dispatch_get_feedback (which fires on the
+   * first item that lands and misleads agents into thinking the review
+   * is done).
    *
-   * Status mapping:
+   * Selection:
+   *   - If `personaAgentId` is passed, returns that specific review's
+   *     state (404 if unknown, 403 if not owned by the caller).
+   *   - If `personaAgentId` is null/undefined, picks the highest-
+   *     priority review the caller has launched, preferring states that
+   *     need parent action: feedback_ready > cancelled > complete >
+   *     pending. Ties broken by updatedAt DESC so the most recent signal
+   *     wins. Returns `no_reviews` if the caller has never launched a
+   *     persona review.
+   *
+   * Per-review status mapping:
    *   reviewing                                 → pending
    *   awaiting_recheck                          → pending (round 2 in flight)
    *   complete, round 1, allowRecheck=true      → feedback_ready
@@ -3959,37 +3972,79 @@ export class AgentManager {
    */
   async awaitReview(
     parentAgentId: string,
-    personaAgentId: string,
+    personaAgentId: string | null,
     now = new Date()
   ): Promise<AwaitReviewResult> {
-    const reviewResult = await this.pool.query<PersonaReviewRecord>(
-      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-              persona, status, message, verdict, summary,
-              files_reviewed AS "filesReviewed",
-              last_reviewed_commit AS "lastReviewedCommit",
-              round_number AS "roundNumber",
-              allow_recheck AS "allowRecheck",
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM persona_reviews
-       WHERE agent_id = $1`,
-      [personaAgentId]
-    );
-    const review = reviewResult.rows[0];
-    if (!review) {
-      throw new AgentError(
-        `No persona review found for agent ${personaAgentId}.`,
-        404
+    if (personaAgentId) {
+      const reviewResult = await this.pool.query<PersonaReviewRecord>(
+        this.personaReviewSelectSql() + ` WHERE agent_id = $1`,
+        [personaAgentId]
       );
-    }
-    if (review.parentAgentId !== parentAgentId) {
-      throw new AgentError(
-        `Review for ${personaAgentId} was launched by a different parent.`,
-        403
-      );
+      const review = reviewResult.rows[0];
+      if (!review) {
+        throw new AgentError(
+          `No persona review found for agent ${personaAgentId}.`,
+          404
+        );
+      }
+      if (review.parentAgentId !== parentAgentId) {
+        throw new AgentError(
+          `Review for ${personaAgentId} was launched by a different parent.`,
+          403
+        );
+      }
+      return this.classifyReviewForAwait(review, now);
     }
 
+    const all = await this.pool.query<PersonaReviewRecord>(
+      this.personaReviewSelectSql() +
+        ` WHERE parent_agent_id = $1 ORDER BY updated_at DESC`,
+      [parentAgentId]
+    );
+    if (all.rows.length === 0) {
+      return { status: "no_reviews" };
+    }
+
+    const classified = await Promise.all(
+      all.rows.map(async (review) => ({
+        review,
+        result: await this.classifyReviewForAwait(review, now),
+      }))
+    );
+
+    const priority: Record<AwaitReviewResult["status"], number> = {
+      feedback_ready: 0,
+      cancelled: 1,
+      complete: 2,
+      pending: 3,
+      no_reviews: 4,
+    };
+
+    classified.sort(
+      (a, b) => priority[a.result.status] - priority[b.result.status]
+    );
+
+    return classified[0].result;
+  }
+
+  /** Shared SELECT for persona_reviews used by awaitReview. */
+  private personaReviewSelectSql(): string {
+    return `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
+                   persona, status, message, verdict, summary,
+                   files_reviewed AS "filesReviewed",
+                   last_reviewed_commit AS "lastReviewedCommit",
+                   round_number AS "roundNumber",
+                   allow_recheck AS "allowRecheck",
+                   created_at AS "createdAt", updated_at AS "updatedAt"
+            FROM persona_reviews`;
+  }
+
+  private async classifyReviewForAwait(
+    review: PersonaReviewRecord,
+    now: Date
+  ): Promise<AwaitReviewResult> {
     if (review.status === "cancelled") {
-      return { status: "cancelled" };
+      return { status: "cancelled", review };
     }
 
     if (review.status === "reviewing" || review.status === "awaiting_recheck") {
@@ -4001,8 +4056,7 @@ export class AgentManager {
       return {
         status: "pending",
         pollAgainInSeconds,
-        reviewStatus: review.status,
-        roundNumber: review.roundNumber,
+        review,
       };
     }
 
@@ -4012,8 +4066,7 @@ export class AgentManager {
       return {
         status: "pending",
         pollAgainInSeconds: 180,
-        reviewStatus: review.status,
-        roundNumber: review.roundNumber,
+        review,
       };
     }
 
@@ -4021,7 +4074,7 @@ export class AgentManager {
       `SELECT COUNT(*)::text AS count
        FROM agent_feedback
        WHERE agent_id = $1`,
-      [personaAgentId]
+      [review.agentId]
     );
     const feedbackCount = Number(feedbackCountResult.rows[0]?.count ?? "0");
 

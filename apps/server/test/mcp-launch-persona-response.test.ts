@@ -24,20 +24,26 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).toContain("respondsToFeedbackId");
   });
 
-  it("embeds the launching persona's agent id in the dispatch_await_review instruction", () => {
+  it("tells the parent not to emit a terminal event yet (stay alive)", () => {
+    // Regression guard: the parent must be told it's a multi-turn flow.
+    // See CRU-133 dogfood (gpt-5.4 parent emitted done after launch because
+    // the guidance didn't make the stay-alive expectation explicit).
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).toContain(
-      `dispatch_await_review with personaAgentId="${agentId}"`
-    );
+    expect(text).toContain("do not emit a terminal dispatch_event yet");
   });
 
-  it("names the survival-kit sleep mechanism", () => {
-    // Regression guard: the parent must be told how to survive across
-    // turns, not just "poll." See CRU-133 dogfood (gpt-5.4 parent emitted
-    // done after launch because the guidance didn't operationalise waiting).
+  it("points at dispatch_await_review and mentions the specific reviewer id", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).toContain("ScheduleWakeup");
-    expect(text).toContain("do not emit a terminal dispatch_event yet");
+    expect(text).toContain("dispatch_await_review");
+    expect(text).toContain(`personaAgentId="${agentId}"`);
+  });
+
+  it("describes sleeping in agent-runtime-neutral terms (no Claude-specific tool names)", () => {
+    // Dispatch supports claude/codex/opencode. The guidance can't name
+    // Claude Code's ScheduleWakeup or it becomes wrong for the other two.
+    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    expect(text).not.toContain("ScheduleWakeup");
+    expect(text).toMatch(/sleep mechanism.*agent runtime/i);
   });
 
   it("watches review status via dispatch_await_review, not feedback items", () => {

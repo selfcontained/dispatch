@@ -5324,28 +5324,47 @@ async function mcpSubmitResolution(
   return result;
 }
 
+function reviewSnapshotFromRecord(
+  record: import("./agents/manager.js").PersonaReviewRecord
+): import("./shared/mcp/server.js").ReviewSnapshot {
+  const verdict = record.verdict;
+  return {
+    reviewId: record.id,
+    personaAgentId: record.agentId,
+    persona: record.persona,
+    status: record.status,
+    roundNumber: record.roundNumber,
+    verdict:
+      verdict === "approve" || verdict === "request_changes" ? verdict : null,
+    summary: record.summary ?? null,
+    allowRecheck: record.allowRecheck,
+  };
+}
+
 async function mcpAwaitReview(
   parentAgentId: string,
-  personaAgentId: string
+  personaAgentId: string | null
 ): Promise<import("./shared/mcp/server.js").AwaitReviewResponse> {
   const result = await agentManager.awaitReview(parentAgentId, personaAgentId);
-  if (result.status === "pending" || result.status === "cancelled") {
+  if (result.status === "no_reviews") {
     return result;
   }
-  const verdict = result.review.verdict;
+  if (result.status === "pending") {
+    return {
+      status: "pending",
+      pollAgainInSeconds: result.pollAgainInSeconds,
+      review: reviewSnapshotFromRecord(result.review),
+    };
+  }
+  if (result.status === "cancelled") {
+    return {
+      status: "cancelled",
+      review: reviewSnapshotFromRecord(result.review),
+    };
+  }
   return {
     status: result.status,
-    review: {
-      reviewId: result.review.id,
-      personaAgentId: result.review.agentId,
-      persona: result.review.persona,
-      status: result.review.status,
-      roundNumber: result.review.roundNumber,
-      verdict:
-        verdict === "approve" || verdict === "request_changes" ? verdict : null,
-      summary: result.review.summary ?? null,
-      allowRecheck: result.review.allowRecheck,
-    },
+    review: reviewSnapshotFromRecord(result.review),
     feedbackCount: result.feedbackCount,
   };
 }

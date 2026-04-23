@@ -2248,8 +2248,9 @@ describe("AgentManager", () => {
 
         expect(result.status).toBe("pending");
         if (result.status === "pending") {
-          expect(result.reviewStatus).toBe("reviewing");
-          expect(result.roundNumber).toBe(1);
+          expect(result.review.status).toBe("reviewing");
+          expect(result.review.roundNumber).toBe(1);
+          expect(result.review.agentId).toBe(child.id);
           expect(result.pollAgainInSeconds).toBeGreaterThan(0);
         }
       });
@@ -2305,7 +2306,8 @@ describe("AgentManager", () => {
 
         expect(result.status).toBe("pending");
         if (result.status === "pending") {
-          expect(result.reviewStatus).toBe("awaiting_recheck");
+          expect(result.review.status).toBe("awaiting_recheck");
+          expect(result.review.agentId).toBe(child.id);
         }
       });
 
@@ -2335,9 +2337,11 @@ describe("AgentManager", () => {
           reason: "aborted",
         });
 
-        await expect(manager.awaitReview(parent.id, child.id)).resolves.toEqual(
-          { status: "cancelled" }
-        );
+        const result = await manager.awaitReview(parent.id, child.id);
+        expect(result.status).toBe("cancelled");
+        if (result.status === "cancelled") {
+          expect(result.review.agentId).toBe(child.id);
+        }
       });
 
       it("rejects when the caller isn't the review's parent", async () => {
@@ -2363,6 +2367,69 @@ describe("AgentManager", () => {
         await expect(
           manager.awaitReview(parent.id, "agt_does_not_exist")
         ).rejects.toThrow(/No persona review found/);
+      });
+
+      it("returns no_reviews when the parent has never launched a persona review (null personaAgentId)", async () => {
+        const lonelyParent = await manager.createAgent({
+          name: "lonely-parent",
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+
+        await expect(
+          manager.awaitReview(lonelyParent.id, null)
+        ).resolves.toEqual({ status: "no_reviews" });
+      });
+
+      it("with null personaAgentId, prefers a feedback_ready review over an in-progress one", async () => {
+        const { parent, child: ready } = await seedParentChild();
+        await manager.createPersonaReview({
+          agentId: ready.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          allowRecheck: true,
+        });
+        await manager.completePersonaReview(ready.id, {
+          verdict: "request_changes",
+          summary: "Found an issue",
+          lastReviewedCommit: "round1sha",
+        });
+        await manager.submitFeedback(ready.id, {
+          description: "round 1 finding",
+        });
+        // Launch a second reviewer under the same parent that's still
+        // in-progress.
+        const inProgress = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          persona: "security-review",
+          parentAgentId: parent.id,
+        });
+        await manager.createPersonaReview({
+          agentId: inProgress.id,
+          parentAgentId: parent.id,
+          persona: "security-review",
+          allowRecheck: true,
+        });
+
+        const result = await manager.awaitReview(parent.id, null);
+
+        expect(result.status).toBe("feedback_ready");
+        if (result.status === "feedback_ready") {
+          // Should point at the completed review, not the still-reviewing one.
+          expect(result.review.agentId).toBe(ready.id);
+        }
+      });
+
+      it("with null personaAgentId, returns pending when every launched review is still in-progress", async () => {
+        const { parent } = await seedReviewingReview();
+
+        const result = await manager.awaitReview(parent.id, null);
+
+        expect(result.status).toBe("pending");
+        if (result.status === "pending") {
+          expect(result.review.status).toBe("reviewing");
+        }
       });
     });
   });
