@@ -17,9 +17,12 @@ import {
   isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   createAgentMcpToken,
+  createReleaseUpdateToken,
+  getReleaseUpdateAgentId,
   validateAgentMcpToken,
   createJobMcpToken,
   validateJobMcpToken,
+  validateReleaseUpdateToken,
 } from "../src/auth.js";
 
 let pool: Pool;
@@ -173,6 +176,19 @@ describe("auth token and cookie secret", () => {
     ).toBe(false);
   });
 
+  it("creates release-update tokens scoped to a single agent", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+    const token = createReleaseUpdateToken(secret, "agt_123456abcdef");
+
+    expect(validateReleaseUpdateToken(secret, token, "agt_123456abcdef")).toBe(
+      true
+    );
+    expect(validateReleaseUpdateToken(secret, token, "agt_otheragent")).toBe(
+      false
+    );
+    expect(getReleaseUpdateAgentId(secret, token)).toBe("agt_123456abcdef");
+  });
+
   it("does not let scoped MCP bearer tokens through the global auth gate", async () => {
     const secret = await getOrCreateAuthToken(pool);
     const agentToken = createAgentMcpToken(secret, "agt_123456abcdef");
@@ -197,6 +213,19 @@ describe("auth token and cookie secret", () => {
     expect(
       shouldAcceptApiBearerToken("/api/v1/agents", agentToken, secret)
     ).toBe(false);
+  });
+
+  it("only accepts release-update scoped tokens on the update endpoint", async () => {
+    const secret = await getOrCreateAuthToken(pool);
+    const token = createReleaseUpdateToken(secret, "agt_123456abcdef");
+
+    expect(
+      shouldAcceptApiBearerToken("/api/v1/release/update", token, secret)
+    ).toBe(true);
+    expect(shouldAcceptApiBearerToken("/api/v1/agents", token, secret)).toBe(
+      false
+    );
+    expect(shouldAcceptApiBearerToken("/api/mcp", token, secret)).toBe(false);
   });
 
   it("identifies only agent and job MCP routes as scoped routes", () => {

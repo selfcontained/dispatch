@@ -18,7 +18,11 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
-import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
+import {
+  createAgentMcpToken,
+  createJobMcpToken,
+  createReleaseUpdateToken,
+} from "../auth.js";
 import {
   createGitWorktree,
   cleanupGitWorktree,
@@ -144,7 +148,7 @@ const CLI_BY_AGENT_TYPE: Record<
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
-const DISPATCH_SERVER_AUTH_TOKEN_ENV = "DISPATCH_SERVER_AUTH_TOKEN";
+const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -2269,8 +2273,8 @@ export class AgentManager {
         `${DISPATCH_API_URL_ENV}=${this.shellEscape(
           `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`
         )}`,
-        `${DISPATCH_SERVER_AUTH_TOKEN_ENV}=${this.shellEscape(
-          this.config.authToken
+        `${DISPATCH_RELEASE_UPDATE_TOKEN_ENV}=${this.shellEscape(
+          createReleaseUpdateToken(this.config.authToken, agentId)
         )}`
       );
     }

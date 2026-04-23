@@ -180,7 +180,7 @@ describe("AgentManager", () => {
         initialPrompt: [
           "You are running an assisted Dispatch update on the host machine.",
           "Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token.",
-          `curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_SERVER_AUTH_TOKEN" -d '{\"tag\":\"v9.9.9\"}'`,
+          `curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{\"tag\":\"v9.9.9\"}'`,
         ].join("\n"),
       });
 
@@ -189,12 +189,12 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toContain("DISPATCH_API_URL=");
-      expect(setupScript).toContain("DISPATCH_SERVER_AUTH_TOKEN=");
+      expect(setupScript).toContain("DISPATCH_RELEASE_UPDATE_TOKEN=");
       expect(setupScript).toContain(
         'curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update"'
       );
       expect(setupScript).toContain(
-        "Authorization: Bearer $DISPATCH_SERVER_AUTH_TOKEN"
+        "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN"
       );
     });
 

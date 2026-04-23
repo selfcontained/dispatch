@@ -69,6 +69,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  getReleaseUpdateAgentId,
   isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
@@ -745,7 +746,7 @@ Update details:
 - Production checkout: ${serverDir}
 - Health endpoint: ${dispatchHealthUrl()}
 - Dispatch API base URL: $DISPATCH_API_URL
-- Dispatch API bearer token env: $DISPATCH_SERVER_AUTH_TOKEN
+- Dispatch API update token env: $DISPATCH_RELEASE_UPDATE_TOKEN
 - Main service log: ~/.dispatch/logs/dispatch.log
 - Failure log path: ~/.dispatch/logs/last-release-failure.log
 - Service restart command: ${serviceCommand}
@@ -761,7 +762,7 @@ Guardrails:
 Suggested workflow:
 1. Capture the current repo/tag/service state.
 2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
-   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_SERVER_AUTH_TOKEN" -d '{"tag":"${input.tag}"}'\`
+   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{"tag":"${input.tag}"}'\`
 3. Monitor restart and health until success or failure is clear.
 4. If the managed flow request fails or the service does not come back, inspect launchd/systemd state and recent logs before deciding on recovery.
 5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; do not manually reproduce the normal update sequence unless the managed path has already failed and you are in explicit recovery mode.
@@ -2170,6 +2171,7 @@ async function registerRoutes() {
 
   app.post("/api/v1/release/update", async (request, reply) => {
     const body = request.body as { tag?: unknown } | undefined;
+    const bearerToken = getBearerToken(request);
 
     if (
       !body?.tag ||
@@ -2182,6 +2184,22 @@ async function registerRoutes() {
     }
 
     const tag = body.tag as string;
+    const releaseUpdateAgentId = bearerToken
+      ? getReleaseUpdateAgentId(config.authToken, bearerToken)
+      : null;
+
+    if (releaseUpdateAgentId) {
+      const agent = await agentManager.getAgent(releaseUpdateAgentId);
+      if (
+        !agent ||
+        agent.role !== "assisted_update" ||
+        agent.cwd !== serverDir
+      ) {
+        return reply
+          .code(403)
+          .send({ error: "Invalid assisted update token." });
+      }
+    }
 
     // Only one release/update at a time
     if (
