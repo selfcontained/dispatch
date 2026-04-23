@@ -1085,7 +1085,7 @@ async function createDispatchMcpServer(
           });
           const baseText = `Launched persona "${result.persona}" as agent ${result.agentId}.`;
           const text = args.allowRecheck
-            ? `${baseText}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback until the reviewer's round-2 verdict is complete.`
+            ? `${baseText}\n\nReview was launched with recheck enabled. When the reviewer completes round 1, read their feedback via dispatch_get_feedback. Call dispatch_resolve_feedback on each item — include a reason for any item you ignore. When every item is resolved, call dispatch_submit_resolution with a summary of what you did. Then poll dispatch_get_feedback for round-2 items — new findings linked via responds_to_feedback_id indicate unresolved concerns; if none arrive within a reasonable window, the reviewer likely approved without new findings.`
             : baseText;
           return {
             content: [{ type: "text", text }],
@@ -1167,7 +1167,7 @@ async function createDispatchMcpServer(
       "dispatch_resolve_feedback",
       {
         description:
-          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — the reviewer will see it in a recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
+          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — when the review was launched with allowRecheck: true, the reviewer sees the reason in their recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
         inputSchema: {
           feedbackId: z
             .number()
