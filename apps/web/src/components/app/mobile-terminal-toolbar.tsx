@@ -77,15 +77,15 @@ export function MobileTerminalToolbar({
               size="sm"
               variant="default"
               className="h-full w-full px-2 text-xs"
-              aria-label="Send Enter"
-              onClick={() => sendKey("\r")}
+              aria-label="Open text input"
+              onClick={openInput}
             >
-              Enter
+              <Keyboard className="h-5 w-5" strokeWidth={2} />
             </Button>
           </div>
 
-          <div className="flex shrink-0 flex-col items-center justify-center gap-2">
-            <div className="flex justify-center gap-2">
+          <div className="flex shrink-0 flex-col items-stretch justify-center gap-2">
+            <div className="flex w-full justify-between">
               <Button
                 type="button"
                 size="sm"
@@ -175,10 +175,10 @@ export function MobileTerminalToolbar({
               size="sm"
               variant="default"
               className="h-full w-full px-2 text-xs"
-              aria-label="Open text input"
-              onClick={openInput}
+              aria-label="Send Enter"
+              onClick={() => sendKey("\r")}
             >
-              <Keyboard className="h-5 w-5" strokeWidth={2} />
+              Enter
             </Button>
           </div>
         </div>
