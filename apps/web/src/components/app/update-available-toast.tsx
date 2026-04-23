@@ -72,13 +72,26 @@ export function UpdateAvailableToast(): JSX.Element | null {
     >
       <div
         className={cn(
-          "flex flex-col gap-3 rounded-lg overflow-hidden",
+          "relative flex flex-col gap-3 rounded-lg overflow-hidden",
           "sm:flex-row sm:items-center",
           "bg-card text-card-foreground",
           "border border-border border-l-4 border-l-primary",
-          "shadow-2xl pl-4 pr-3 py-3"
+          "shadow-2xl pl-4 py-3 pr-14 md:pr-12"
         )}
       >
+        <button
+          type="button"
+          onClick={handleDismiss}
+          aria-label="Dismiss update notification"
+          className={cn(
+            "absolute top-1 right-1 z-10",
+            "h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-md",
+            "text-muted-foreground hover:text-foreground hover:bg-muted",
+            "transition-colors"
+          )}
+        >
+          <X className="h-4 w-4" />
+        </button>
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div
             className={cn(
@@ -96,30 +109,16 @@ export function UpdateAvailableToast(): JSX.Element | null {
             New version {serverVersion} available
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            onClick={handleReload}
-            disabled={reloading}
-            className="h-11 flex-1 md:flex-none md:h-8"
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5 mr-1.5", reloading && "animate-spin")}
-            />
-            Reload
-          </Button>
-          <button
-            type="button"
-            onClick={handleDismiss}
-            aria-label="Dismiss update notification"
-            className={cn(
-              "shrink-0 h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-md",
-              "text-muted-foreground hover:text-foreground hover:bg-muted",
-              "transition-colors"
-            )}
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <Button
+          onClick={handleReload}
+          disabled={reloading}
+          className="h-11 w-full shrink-0 md:h-8 md:w-auto"
+        >
+          <RefreshCw
+            className={cn("h-3.5 w-3.5 mr-1.5", reloading && "animate-spin")}
+          />
+          Reload
+        </Button>
       </div>
     </div>
   );
