@@ -717,10 +717,12 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <Section>
           <H3>How events are used</H3>
           <P>
-            The agent sidebar shows the latest event message and a color-coded
-            status indicator for each agent. Events are also stored in the
-            database for activity tracking — the Activity page uses them to
-            build heatmaps, working-time breakdowns, and daily status charts.
+            Each agent's card in the sidebar shows the latest event's status
+            label (Working / Blocked / Waiting / Done / Idle, color-coded), a
+            relative timestamp (e.g. "just now", "5m ago"), and the message.
+            Events are also stored in the database for activity tracking — the
+            Activity page uses them to build heatmaps, working-time breakdowns,
+            and daily status charts.
           </P>
         </Section>
 
