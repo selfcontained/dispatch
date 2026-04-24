@@ -2237,7 +2237,7 @@ export class AgentManager {
       );
       if (suggestSessionRename) {
         rules.push(
-          "Name the session. As soon as you understand the task, call dispatch_rename_session once with a short topic/goal/feature name. The session name is a stable label for the run, not a live status update."
+          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
         );
       }
       rules.push("Report status with dispatch_event to keep the UI current.");
@@ -2251,7 +2251,7 @@ export class AgentManager {
       );
       if (suggestSessionRename) {
         rules.push(
-          "Name the session. As soon as you understand the user's concrete task — typically on your first substantive reply — call dispatch_rename_session once with a short topic/goal/feature name. The session name is a stable label for the task, not a live status update. Don't rename again unless the user starts a separate task or explicitly asks."
+          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
         );
       }
       rules.push(

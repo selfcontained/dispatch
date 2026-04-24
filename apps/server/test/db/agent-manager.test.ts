@@ -324,9 +324,11 @@ describe("AgentManager", () => {
         "infer a task from branch/worktree context alone"
       );
       expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain("short topic/goal/feature name");
       expect(setupScript).toContain(
-        "stable label for the task, not a live status update"
+        "short name for that topic, task, or feature"
+      );
+      expect(setupScript).toContain(
+        "stable label describing what the session is about"
       );
     });
 
@@ -604,7 +606,9 @@ describe("AgentManager", () => {
       );
       expect(setupScript).toContain("Log task-level progress with job_log");
       expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain("short topic/goal/feature name");
+      expect(setupScript).toContain(
+        "short name for that topic, task, or feature"
+      );
     });
 
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {
