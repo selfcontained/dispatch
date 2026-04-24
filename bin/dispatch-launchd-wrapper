@@ -21,6 +21,14 @@ if echo "$ABI_CHECK" | grep -q "NODE_MODULE_VERSION"; then
     echo "$ABI_CHECK" >&2
     exit 1
   fi
+  # Re-probe so we don't let launchd's KeepAlive spin on a stuck rebuild loop
+  # if pnpm exited 0 but the mismatch somehow persists.
+  ABI_RECHECK=$(cd "$ROOT_DIR/apps/server" && node -e "require('node-pty')" 2>&1) || true
+  if echo "$ABI_RECHECK" | grep -q "NODE_MODULE_VERSION"; then
+    echo "error: ABI mismatch persists after pnpm rebuild — dispatch cannot start" >&2
+    echo "$ABI_RECHECK" >&2
+    exit 1
+  fi
 fi
 
 cd "$ROOT_DIR"

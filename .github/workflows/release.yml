@@ -124,6 +124,14 @@ jobs:
           git push origin main
           git push origin "${{ steps.version.outputs.tag }}"
 
+      # Leave the self-hosted runner in a predictable state if the release
+      # step failed mid-flight (rebase-in-progress, packed artifact on disk).
+      - name: Clean up after failure
+        if: failure()
+        run: |
+          git rebase --abort 2>/dev/null || true
+          rm -f dispatch-release.tar.gz
+
       - name: Create GitHub release
         run: |
           gh release create ${{ steps.version.outputs.tag }} \
