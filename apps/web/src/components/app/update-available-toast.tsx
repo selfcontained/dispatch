@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUpdateAvailable } from "@/hooks/use-update-available";
@@ -26,7 +25,6 @@ function writeDismissed(version: string): void {
 
 export function UpdateAvailableToast(): JSX.Element | null {
   const { available, serverVersion } = useUpdateAvailable();
-  const location = useLocation();
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(() =>
     readDismissed()
   );
@@ -44,9 +42,6 @@ export function UpdateAvailableToast(): JSX.Element | null {
 
   if (!available || !serverVersion) return null;
   if (dismissedVersion === serverVersion) return null;
-  // Release manager lives under /settings and owns its own update flow + reload
-  // CTA, so hide the passive toast there to avoid duplication.
-  if (location.pathname.startsWith("/settings")) return null;
 
   const handleReload = (): void => {
     setReloading(true);
@@ -63,10 +58,10 @@ export function UpdateAvailableToast(): JSX.Element | null {
   return (
     <div
       className={cn(
-        "fixed z-50 left-1/2 -translate-x-1/2 top-4",
-        "pt-[env(safe-area-inset-top)]",
+        "fixed z-50 left-1/2 -translate-x-1/2 bottom-4",
+        "pb-[env(safe-area-inset-bottom)]",
         "md:left-auto md:translate-x-0 md:right-4 md:bottom-4 md:top-auto",
-        "md:pt-0 md:pb-[env(safe-area-inset-bottom)]",
+        "md:pt-0",
         "w-[calc(100vw-2rem)] max-w-sm md:w-auto md:max-w-lg"
       )}
     >

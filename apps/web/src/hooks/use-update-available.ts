@@ -6,7 +6,7 @@ import {
 } from "@/lib/app-version";
 
 type ReleaseStreamEvent =
-  | { type: "tag"; tag: string }
+  | { type: "deployed"; tag: string | null }
   | { type: string; [key: string]: unknown };
 
 export type UpdateAvailableState = {
@@ -30,9 +30,14 @@ export function useUpdateAvailable(): UpdateAvailableState {
     es.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data as string) as ReleaseStreamEvent;
-        if (parsed.type === "tag" && typeof parsed.tag === "string") {
-          const stripped = parsed.tag.replace(/^v/, "");
-          setServerVersion((prev) => (prev === stripped ? prev : stripped));
+        if (parsed.type === "deployed") {
+          const nextVersion =
+            typeof parsed.tag === "string"
+              ? parsed.tag.replace(/^v/, "")
+              : null;
+          setServerVersion((prev) =>
+            prev === nextVersion ? prev : nextVersion
+          );
         }
       } catch {
         /* ignore malformed payloads */
