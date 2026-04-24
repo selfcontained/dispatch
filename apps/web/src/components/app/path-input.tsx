@@ -30,7 +30,12 @@ type PathInputProps = {
   history?: string[];
   /** Called when a history entry is removed */
   onRemoveHistory?: (dir: string) => void;
-  /** Called whenever the validated path info changes (null while unknown). */
+  /**
+   * Called whenever the validated path info changes (null while unknown).
+   * Memoize with `useCallback` — the prop is in the path-validation effect's
+   * dependency array, so a fresh function on every parent render would
+   * re-fire validation and kick off duplicate API calls.
+   */
   onPathInfoChange?: (info: PathInfo | null) => void;
   /** Label text above the input */
   label?: string;
@@ -83,6 +88,10 @@ export function PathInput({
       return;
     }
     if (!showValidation) return;
+    // Treat the path as unknown until the new validation lands so callers
+    // don't act on stale info from the previous value during the debounce.
+    setPathValidation(null);
+    onPathInfoChange?.(null);
     setValidating(true);
     const timer = setTimeout(() => {
       api<PathInfo & { resolvedPath: string }>(

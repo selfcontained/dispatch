@@ -261,6 +261,13 @@ function CreateAgentDialogContent({
     setCreateNewBranch,
   } = useCreateAgentPrefs(createCwd);
 
+  // The new-branch name is per-cwd in spirit (a branch named "repo-A-feature"
+  // doesn't make sense in repo B); clear it whenever cwd changes so a name
+  // typed for one repo doesn't leak into another.
+  useEffect(() => {
+    setCreateWorktreeBranch("");
+  }, [createCwd]);
+
   useEffect(() => {
     if (createCwdInitialized) return;
     let cancelled = false;
@@ -561,6 +568,11 @@ function CreateAgentDialogContent({
                             : "grid-rows-[0fr] opacity-0"
                         )}
                         aria-hidden={!worktreeChecked}
+                        // Keep collapsed controls out of focus and pointer
+                        // interaction. Cast for React 18 type defs.
+                        {...(!worktreeChecked
+                          ? ({ inert: "" } as Record<string, string>)
+                          : {})}
                       >
                         <div className="min-h-0 overflow-hidden">
                           <div className="ml-8 w-[calc(100%-2rem)] space-y-3 pt-1">
@@ -605,9 +617,12 @@ function CreateAgentDialogContent({
                                     : "grid-rows-[0fr] opacity-0"
                                 )}
                                 aria-hidden={!createNewBranch}
+                                {...(!createNewBranch
+                                  ? ({ inert: "" } as Record<string, string>)
+                                  : {})}
                               >
                                 <div className="min-h-0 overflow-hidden">
-                                  <div className="ml-8 w-[calc(100%-2rem)] space-y-1 pt-1">
+                                  <div className="space-y-1 pt-2">
                                     <label className="block text-xs text-muted-foreground">
                                       New branch name
                                     </label>
