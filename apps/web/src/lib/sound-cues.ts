@@ -169,3 +169,35 @@ const cueByIntent = new Map(SOUND_CUES.map((c) => [c.intent, c]));
 export function playCueForIntent(intent: CueIntent): void {
   cueByIntent.get(intent)?.play();
 }
+
+/**
+ * Short, quiet click used for mobile UI feedback (e.g. on-screen keyboard
+ * shortcut taps). Each call jitters pitch, waveform, gain, duration, and
+ * sometimes adds a softer overtone so repeated taps feel organic.
+ */
+export function playTapCue(): void {
+  // ±250 cents ≈ ±2.5 semitones — clearly varied, still within a tap family
+  const pitchMul = 2 ** ((Math.random() - 0.5) * (500 / 1200));
+  const freq = 1400 * pitchMul;
+  const durSec = 0.028 + Math.random() * 0.028;
+  const masterGain = 0.065 + Math.random() * 0.045;
+  const type: OscillatorType = Math.random() < 0.5 ? "triangle" : "sine";
+  const tones: Tone[] = [{ freq, startSec: 0, durSec, type }];
+  // ~35% of taps get a quieter overtone a fifth or octave up for color
+  if (Math.random() < 0.35) {
+    const overtoneRatio = Math.random() < 0.5 ? 1.5 : 2;
+    tones.push({
+      freq: freq * overtoneRatio,
+      startSec: 0,
+      durSec: durSec * 0.7,
+      type: "sine",
+      gain: 0.35 + Math.random() * 0.25,
+    });
+  }
+  playTones(tones, masterGain);
+  // Paired haptic so Android devices with the ringer muted still feel the
+  // tap. iOS Safari has no vibration API; this is a silent no-op there.
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(8 + Math.floor(Math.random() * 7));
+  }
+}

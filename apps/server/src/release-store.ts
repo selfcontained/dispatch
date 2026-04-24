@@ -2,7 +2,12 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
-const RELEASE_STORE_PATH = path.join(os.homedir(), ".dispatch", "release.json");
+// Isolated dev stacks and E2E runs set DISPATCH_RELEASE_STORE_PATH to keep
+// from reading the host's production release state. Default is the
+// machine-scoped production path.
+const RELEASE_STORE_PATH =
+  process.env.DISPATCH_RELEASE_STORE_PATH ??
+  path.join(os.homedir(), ".dispatch", "release.json");
 
 export type ReleaseRecord = {
   tag: string;
