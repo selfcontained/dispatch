@@ -188,7 +188,7 @@ function StepRow({
   return (
     <span
       className={cn(
-        "flex items-center gap-1.5 whitespace-nowrap",
+        "flex min-w-0 items-center gap-1.5",
         emphasis === "strong" ? "font-semibold" : "font-medium",
         STEP_COLOR[step.color]
       )}
@@ -198,7 +198,7 @@ function StepRow({
       ) : (
         <CircleDashed className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
       )}
-      <span>{step.label}</span>
+      <span className="truncate">{step.label}</span>
     </span>
   );
 }
@@ -262,8 +262,8 @@ function stepsFromReview(
   const step1: StepDef = {
     label:
       roundNumber >= 2
-        ? `Verdict (R2): ${reviewVerdictLabel(verdict)}`
-        : `Verdict: ${reviewVerdictLabel(verdict)}`,
+        ? `${reviewVerdictLabel(verdict)} (R2)`
+        : reviewVerdictLabel(verdict),
     color: verdict === "approve" ? "emerald" : "orange",
     filled: true,
   };
@@ -272,8 +272,8 @@ function stepsFromReview(
     step2 = { label: "Rechecking", color: "orange", filled: false };
   } else if (allowRecheck && roundNumber < 2) {
     step2 = hasResolution
-      ? { label: "Awaiting your resolution", color: "muted", filled: false }
-      : { label: "Awaiting your resolution", color: "muted", filled: false };
+      ? { label: "Awaiting resolution", color: "muted", filled: false }
+      : { label: "Awaiting resolution", color: "muted", filled: false };
   } else {
     step2 = hasResolution
       ? { label: "Responded", color: "muted", filled: true }
@@ -323,13 +323,12 @@ export function PersonaAgentRow({
         isReviewing && "persona-reviewing-row"
       )}
     >
-      <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+      <div className="flex shrink-0 items-center pt-0.5">
         <PersonaStatusIcon
           reviewStatus={reviewStatus}
           verdict={verdict}
           className="h-5 w-5"
         />
-        {roundBadge ? <RoundBadge badge={roundBadge} /> : null}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-1.5">
@@ -340,6 +339,7 @@ export function PersonaAgentRow({
             {child.persona ?? child.name}
           </span>
           <div className="flex shrink-0 items-center gap-1">
+            {roundBadge ? <RoundBadge badge={roundBadge} /> : null}
             {feedbackCount != null && feedbackCount > 0 ? (
               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-status-waiting/45 bg-status-waiting/15 px-1.5 text-[10px] font-semibold text-status-waiting">
                 {feedbackCount}

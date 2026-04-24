@@ -103,12 +103,17 @@ test.describe("Persona recheck UI", () => {
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page);
 
+    await page.getByTestId("launch-reviewer-button").click();
+    await expect(
+      page.getByRole("heading", { name: "Launch Review" })
+    ).toBeVisible();
     const recheckToggle = page.getByTestId("launch-reviewer-allow-recheck");
     await recheckToggle.click();
     await expect(recheckToggle).toHaveAttribute("data-state", "checked");
-
-    await page.getByTestId("launch-reviewer-button").click();
-    await page.getByRole("menuitem").first().click();
+    await page
+      .getByTestId("launch-reviewer-persona-architecture-review")
+      .click();
+    await page.getByTestId("launch-reviewer-submit").click();
 
     await expect
       .poll(async () => {

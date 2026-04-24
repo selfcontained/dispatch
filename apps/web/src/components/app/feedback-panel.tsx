@@ -458,6 +458,10 @@ export function ParentFeedbackPanel({
   return (
     <>
       <div className="mt-1.5">
+        <div className="mb-2 flex items-center justify-between px-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+          <span>Persona reviews</span>
+          <span>Verdicts and findings</span>
+        </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
             const agentActive = activeFeedbackByAgent.get(child.id) ?? [];
@@ -578,6 +582,9 @@ export function ParentFeedbackPanel({
                             className="overflow-hidden"
                           >
                             <div className="ml-8 mt-0.5 space-y-px">
+                              <div className="px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/60">
+                                Findings
+                              </div>
                               {items.map((item) => {
                                 const isActionable =
                                   item.status === "open" ||
@@ -853,38 +860,60 @@ function CancelRecheckButton({
   onDone?: () => void;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!canCancelRecheck(agent)) {
     return null;
   }
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 px-2 text-xs text-muted-foreground/80 hover:text-foreground"
-      onClick={() => {
-        const confirmed = window.confirm(
-          "Cancel the recheck and let this reviewer exit?"
-        );
-        if (!confirmed) return;
-        void api(
-          `/api/v1/agents/${parentAgentId}/persona-reviews/${agent.id}/cancel-recheck`,
-          { method: "POST" }
-        ).then(async () => {
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["agents"] }),
-            queryClient.invalidateQueries({
-              queryKey: ["feedback", parentAgentId, "children"],
-            }),
-          ]);
-          onDone?.();
-        });
-      }}
-      data-testid="cancel-recheck-button"
-    >
-      Cancel recheck
-    </Button>
+    <div className="flex flex-col items-end gap-1">
+      {error ? (
+        <div
+          className="text-[11px] text-status-blocked"
+          data-testid="cancel-recheck-error"
+        >
+          {error}
+        </div>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground/80 hover:text-foreground"
+        disabled={isCancelling}
+        onClick={() => {
+          const confirmed = window.confirm(
+            "Cancel the recheck and let this reviewer exit?"
+          );
+          if (!confirmed) return;
+          setIsCancelling(true);
+          setError(null);
+          void api(
+            `/api/v1/agents/${parentAgentId}/persona-reviews/${agent.id}/cancel-recheck`,
+            { method: "POST" }
+          )
+            .then(async () => {
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["agents"] }),
+                queryClient.invalidateQueries({
+                  queryKey: ["feedback", parentAgentId, "children"],
+                }),
+              ]);
+              onDone?.();
+            })
+            .catch((err: Error) => {
+              setError(err.message || "Could not cancel recheck.");
+            })
+            .finally(() => {
+              setIsCancelling(false);
+            });
+        }}
+        data-testid="cancel-recheck-button"
+      >
+        {isCancelling ? "Cancelling..." : "Cancel recheck"}
+      </Button>
+    </div>
   );
 }
 
