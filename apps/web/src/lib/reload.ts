@@ -1,17 +1,3 @@
-function isControllingWorker(
-  worker: ServiceWorker,
-  registration: ServiceWorkerRegistration
-): boolean {
-  const active = registration.active;
-  const controller = navigator.serviceWorker.controller;
-  const workerScript = worker.scriptURL;
-  return Boolean(
-    active &&
-    active.scriptURL === workerScript &&
-    (!controller || controller.scriptURL === workerScript)
-  );
-}
-
 function getPendingWorker(
   registration: ServiceWorkerRegistration
 ): ServiceWorker | null {
@@ -45,55 +31,43 @@ async function waitForPendingWorker(
   });
 }
 
+// The new worker takes over in two steps: it becomes registration.active
+// (skipWaiting → activated), then — with clientsClaim, which vite-plugin-pwa's
+// autoUpdate mode enables — it claims this page and becomes the controller.
+// Compare ServiceWorker instances, not scriptURL: Workbox's SW has a stable
+// URL (/sw.js) so the old and new workers share the same scriptURL string,
+// and a URL equality check returns true the moment any active worker exists
+// — including the old one.
 async function waitForWorkerControl(
   worker: ServiceWorker,
-  registration: ServiceWorkerRegistration,
   timeoutMs: number
 ): Promise<void> {
-  if (isControllingWorker(worker, registration)) return;
+  if (navigator.serviceWorker.controller === worker) return;
   await new Promise<void>((resolve) => {
-    const hasExistingController = navigator.serviceWorker.controller !== null;
-    const handleChange = (): void => {
-      if (worker.state === "redundant") {
-        cleanup();
-        resolve();
-        return;
-      }
-      if (isControllingWorker(worker, registration)) {
-        cleanup();
-        resolve();
-        return;
-      }
-      // On a first install there may be no existing controller to swap out,
-      // so the best available signal is that the fetched worker activated.
-      if (!hasExistingController && worker.state === "activated") {
-        cleanup();
-        resolve();
-      }
+    const settle = (): void => {
+      cleanup();
+      resolve();
     };
     const handleControllerChange = (): void => {
-      if (isControllingWorker(worker, registration)) {
-        cleanup();
-        resolve();
-      }
+      if (navigator.serviceWorker.controller === worker) settle();
+    };
+    const handleStateChange = (): void => {
+      if (worker.state === "redundant") settle();
     };
     const cleanup = (): void => {
       clearTimeout(timer);
-      worker.removeEventListener("statechange", handleChange);
       navigator.serviceWorker.removeEventListener(
         "controllerchange",
         handleControllerChange
       );
+      worker.removeEventListener("statechange", handleStateChange);
     };
-    worker.addEventListener("statechange", handleChange);
     navigator.serviceWorker.addEventListener(
       "controllerchange",
       handleControllerChange
     );
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, timeoutMs);
+    worker.addEventListener("statechange", handleStateChange);
+    const timer = setTimeout(settle, timeoutMs);
   });
 }
 
@@ -118,10 +92,7 @@ export async function reloadApp(options: ReloadAppOptions = {}): Promise<void> {
           if (registration.waiting) {
             registration.waiting.postMessage({ type: "SKIP_WAITING" });
           }
-          // vite-plugin-pwa's "activated" handler auto-reloads when the new
-          // SW activates. We wait for the worker to actually control this page
-          // so our fallback reload below doesn't race the controller handoff.
-          await waitForWorkerControl(pending, registration, 10_000);
+          await waitForWorkerControl(pending, 10_000);
         }
       }
     } catch {
