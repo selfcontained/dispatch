@@ -9,7 +9,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **Node.js 22+**, **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3`/`xclip`/`xvfb` on Linux).
+> 2. Install system dependencies: **nvm**, **Node.js 22+** (installed via nvm — required by `bin/install-launchd`), **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3`/`xclip`/`xvfb` on Linux).
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
 > 4. `pnpm install && pnpm run build`
 > 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
@@ -49,14 +49,15 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Prerequisites
 
-| Dependency                 | Purpose                               | macOS                        | Linux                                 |
-| -------------------------- | ------------------------------------- | ---------------------------- | ------------------------------------- |
-| **Build tools**            | Compile native npm modules (node-pty) | `xcode-select --install`     | `apt install build-essential python3` |
-| **Node.js 22+**            | Runtime                               | `nvm install 22`             | `nvm install 22`                      |
-| **pnpm**                   | Package manager                       | `npm i -g pnpm`              | `npm i -g pnpm`                       |
-| **PostgreSQL 14+**         | Database                              | `brew install postgresql@17` | `apt install postgresql`              |
-| **tmux**                   | Agent session management              | `brew install tmux`          | `apt install tmux`                    |
-| **At least one agent CLI** | The agents Dispatch runs              | See below                    | See below                             |
+| Dependency                 | Purpose                                                                          | macOS                                                              | Linux                                                              |
+| -------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| **Build tools**            | Compile native npm modules (node-pty)                                            | `xcode-select --install`                                           | `apt install build-essential python3`                              |
+| **nvm**                    | Node version manager (required by `bin/install-launchd` and the launchd wrapper) | [install.sh](https://github.com/nvm-sh/nvm#install--update-script) | [install.sh](https://github.com/nvm-sh/nvm#install--update-script) |
+| **Node.js 22+**            | Runtime                                                                          | `nvm install 22`                                                   | `nvm install 22`                                                   |
+| **pnpm**                   | Package manager                                                                  | `npm i -g pnpm`                                                    | `npm i -g pnpm`                                                    |
+| **PostgreSQL 14+**         | Database                                                                         | `brew install postgresql@17`                                       | `apt install postgresql`                                           |
+| **tmux**                   | Agent session management                                                         | `brew install tmux`                                                | `apt install tmux`                                                 |
+| **At least one agent CLI** | The agents Dispatch runs                                                         | See below                                                          | See below                                                          |
 
 ### Optional
 

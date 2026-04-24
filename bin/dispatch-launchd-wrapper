@@ -11,5 +11,17 @@
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Self-heal native-module ABI mismatch (e.g. after a Node upgrade). The check
+# takes a few ms on the happy path; a rebuild only runs when something's wrong.
+ABI_CHECK=$(cd "$ROOT_DIR/apps/server" && node -e "require('node-pty')" 2>&1) || true
+if echo "$ABI_CHECK" | grep -q "NODE_MODULE_VERSION"; then
+  echo "==> native module ABI mismatch detected, rebuilding..." >&2
+  if ! (cd "$ROOT_DIR" && pnpm -r rebuild); then
+    echo "error: pnpm rebuild failed — dispatch cannot start" >&2
+    echo "$ABI_CHECK" >&2
+    exit 1
+  fi
+fi
+
 cd "$ROOT_DIR"
 exec node "$ROOT_DIR/apps/server/dist/main.js"
