@@ -4250,6 +4250,79 @@ async function registerRoutes() {
     }
   });
 
+  app.post("/api/v1/agents/:id/persona-reviews", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as {
+      persona?: unknown;
+      agentType?: unknown;
+      allowRecheck?: unknown;
+      context?: unknown;
+    } | null;
+    const agentId = params.id ?? "";
+
+    if (typeof body?.persona !== "string" || body.persona.trim().length === 0) {
+      return reply
+        .code(400)
+        .send({ error: "persona is required and must be a non-empty string." });
+    }
+
+    if (
+      body.agentType !== undefined &&
+      (typeof body.agentType !== "string" ||
+        !CLI_AGENT_TYPES.includes(
+          body.agentType as (typeof CLI_AGENT_TYPES)[number]
+        ))
+    ) {
+      return reply.code(400).send({
+        error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
+      });
+    }
+
+    if (
+      body.allowRecheck !== undefined &&
+      typeof body.allowRecheck !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "allowRecheck must be a boolean when provided." });
+    }
+
+    if (body.context !== undefined && typeof body.context !== "string") {
+      return reply
+        .code(400)
+        .send({ error: "context must be a string when provided." });
+    }
+
+    try {
+      const parent = await agentManager.getAgent(agentId);
+      if (!parent) return reply.code(404).send({ error: "Agent not found." });
+
+      const context =
+        body.context?.trim() ||
+        [
+          `Review the current work for agent "${parent.name}".`,
+          "Inspect the current diff, changed files, and surrounding code.",
+          "Focus on actionable bugs, regressions, and missing validation.",
+        ].join(" ");
+
+      const result = await mcpLaunchPersona(agentId, {
+        persona: body.persona.trim(),
+        context,
+        agentType: body.agentType as
+          | (typeof CLI_AGENT_TYPES)[number]
+          | undefined,
+        allowRecheck: body.allowRecheck === true,
+      });
+      const agent = await agentManager.getAgent(result.agentId);
+      return {
+        agent: agent ? withStreamFlag(agent) : null,
+        agentId: result.agentId,
+      };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   // --- Feedback ---
 
   app.get("/api/v1/agents/:id/feedback", async (request, reply) => {
@@ -4400,6 +4473,38 @@ async function registerRoutes() {
             agent: withStreamFlag(parentAgent),
           });
         return { review: result.review, resolution: result.resolution };
+      } catch (error) {
+        return handleAgentError(reply, error);
+      }
+    }
+  );
+
+  app.post(
+    "/api/v1/agents/:id/persona-reviews/:personaAgentId/cancel-recheck",
+    async (request, reply) => {
+      const params = request.params as {
+        id?: string;
+        personaAgentId?: string;
+      };
+      const body = request.body as { reason?: unknown } | null;
+      const agentId = params.id ?? "";
+      const personaAgentId = params.personaAgentId ?? "";
+
+      if (body?.reason !== undefined && typeof body.reason !== "string") {
+        return reply
+          .code(400)
+          .send({ error: "reason must be a string when provided." });
+      }
+
+      try {
+        await mcpCancelRecheck(agentId, {
+          personaAgentId,
+          reason:
+            typeof body?.reason === "string" && body.reason.trim().length > 0
+              ? body.reason.trim()
+              : undefined,
+        });
+        return reply.code(204).send();
       } catch (error) {
         return handleAgentError(reply, error);
       }

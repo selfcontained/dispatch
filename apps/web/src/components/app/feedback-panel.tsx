@@ -105,6 +105,52 @@ function bySeverity(a: FeedbackItem, b: FeedbackItem): number {
   return (SEVERITY_ORDER[a.severity] ?? 4) - (SEVERITY_ORDER[b.severity] ?? 4);
 }
 
+function compareFeedbackForPanel(a: FeedbackItem, b: FeedbackItem): number {
+  if (a.roundNumber !== b.roundNumber) {
+    return a.roundNumber - b.roundNumber;
+  }
+  const aThread = a.respondsToFeedbackId ?? a.id;
+  const bThread = b.respondsToFeedbackId ?? b.id;
+  if (aThread !== bThread) {
+    return aThread - bThread;
+  }
+  return bySeverity(a, b);
+}
+
+function shortSha(sha: string | null | undefined): string | null {
+  if (!sha) return null;
+  return sha.slice(0, 7);
+}
+
+function RoundChip({
+  roundNumber,
+  pending = false,
+}: {
+  roundNumber: number;
+  pending?: boolean;
+}): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+        pending
+          ? "border-status-reviewing/35 bg-status-reviewing/10 text-status-reviewing"
+          : roundNumber >= 2
+            ? "border-orange-500/30 bg-orange-500/10 text-orange-500"
+            : "border-border bg-muted/50 text-muted-foreground"
+      )}
+    >
+      {pending ? "R2 pending" : `R${roundNumber}`}
+    </span>
+  );
+}
+
+function canCancelRecheck(agent: Agent): boolean {
+  const review = agent.review;
+  if (!review?.allowRecheck) return false;
+  return review.status === "awaiting_recheck";
+}
+
 function formatFeedbackText(item: FeedbackItem): string {
   const parts: string[] = [];
   if (item.filePath)
@@ -412,14 +458,35 @@ export function ParentFeedbackPanel({
   return (
     <>
       <div className="mt-1.5">
+        <div className="mb-2 flex items-center justify-between px-1.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+          <span>Persona reviews</span>
+          <span>Verdicts and findings</span>
+        </div>
         <div className="space-y-1.5">
           {childAgents.map((child, childIndex) => {
             const agentActive = activeFeedbackByAgent.get(child.id) ?? [];
             const agentResolved = resolvedFeedbackByAgent.get(child.id) ?? [];
             const showingResolved = showResolvedAgents.has(child.id);
-            const items = showingResolved
-              ? [...agentActive, ...agentResolved]
-              : agentActive;
+            const round2Items = [...agentActive, ...agentResolved].filter(
+              (item) => item.roundNumber >= 2
+            );
+            const linkedRound1Ids = new Set(
+              round2Items
+                .map((item) => item.respondsToFeedbackId)
+                .filter((value): value is number => value != null)
+            );
+            const linkedRound1Items = [...agentActive, ...agentResolved].filter(
+              (item) => item.roundNumber === 1 && linkedRound1Ids.has(item.id)
+            );
+            const items = (
+              showingResolved
+                ? [...agentActive, ...agentResolved]
+                : [...agentActive, ...linkedRound1Items]
+            ).filter(
+              (item, index, all) =>
+                all.findIndex((candidate) => candidate.id === item.id) === index
+            );
+            items.sort(compareFeedbackForPanel);
             const isGroupCollapsed = collapsedGroups.has(child.id);
             const childState = getVisualState?.(child);
             const unresolvedCount = agentActive.length;
@@ -515,6 +582,9 @@ export function ParentFeedbackPanel({
                             className="overflow-hidden"
                           >
                             <div className="ml-8 mt-0.5 space-y-px">
+                              <div className="px-1.5 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/60">
+                                Findings
+                              </div>
                               {items.map((item) => {
                                 const isActionable =
                                   item.status === "open" ||
@@ -525,18 +595,31 @@ export function ParentFeedbackPanel({
                                 const statusLabel = STATUS_LABELS[item.status];
                                 const isSelected =
                                   item.id === activeDetailItemId;
+                                const isRecheckItem =
+                                  item.roundNumber >= 2 &&
+                                  item.respondsToFeedbackId != null;
+                                const showRoundDivider =
+                                  item.roundNumber >= 2 &&
+                                  items.findIndex(
+                                    (candidate) => candidate.roundNumber >= 2
+                                  ) === items.indexOf(item);
 
                                 return (
-                                  <div
-                                    key={item.id}
-                                    className={cn(
-                                      !isActionable && "opacity-40"
-                                    )}
-                                  >
+                                  <div key={item.id}>
+                                    {showRoundDivider ? (
+                                      <div className="mb-1 mt-2 flex items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
+                                        <span className="h-px flex-1 bg-border/70" />
+                                        <span>Round 2 findings</span>
+                                        <span className="h-px flex-1 bg-border/70" />
+                                      </div>
+                                    ) : null}
                                     <button
                                       className={cn(
                                         "flex w-full flex-col gap-0.5 rounded-md px-1.5 py-1.5 text-left text-[11px] transition-colors",
                                         "border-b-2",
+                                        isRecheckItem &&
+                                          "ml-4 border-l border-border/60 pl-3",
+                                        !isActionable && "opacity-40",
                                         isSelected
                                           ? "border-primary"
                                           : "border-transparent hover:bg-muted/40"
@@ -566,6 +649,9 @@ export function ParentFeedbackPanel({
                                       }}
                                     >
                                       <div className="flex w-full items-center gap-2">
+                                        <RoundChip
+                                          roundNumber={item.roundNumber}
+                                        />
                                         <span
                                           className={cn(
                                             "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -600,6 +686,12 @@ export function ParentFeedbackPanel({
                                           </span>
                                         ) : null}
                                       </div>
+                                      {isRecheckItem ? (
+                                        <div className="ml-8 text-[10px] text-muted-foreground/70">
+                                          Follow-up to round-1 finding #
+                                          {item.respondsToFeedbackId}
+                                        </div>
+                                      ) : null}
                                       {!isActionable &&
                                       item.resolutionReason ? (
                                         <div
@@ -727,11 +819,6 @@ function useFeedbackData(parentAgentId: string) {
   return { feedback, personaAttribution, updateStatus };
 }
 
-function shortSha(sha: string | null | undefined): string | null {
-  if (!sha) return null;
-  return sha.slice(0, 7);
-}
-
 function ResolutionInfoBlock({
   item,
   className,
@@ -759,6 +846,73 @@ function ResolutionInfoBlock({
           <span className="font-mono text-muted-foreground">{sha}</span>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CancelRecheckButton({
+  parentAgentId,
+  agent,
+  onDone,
+}: {
+  parentAgentId: string;
+  agent: Agent;
+  onDone?: () => void;
+}): JSX.Element | null {
+  const queryClient = useQueryClient();
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!canCancelRecheck(agent)) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {error ? (
+        <div
+          className="text-[11px] text-status-blocked"
+          data-testid="cancel-recheck-error"
+        >
+          {error}
+        </div>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs text-muted-foreground/80 hover:text-foreground"
+        disabled={isCancelling}
+        onClick={() => {
+          const confirmed = window.confirm(
+            "Cancel the recheck and let this reviewer exit?"
+          );
+          if (!confirmed) return;
+          setIsCancelling(true);
+          setError(null);
+          void api(
+            `/api/v1/agents/${parentAgentId}/persona-reviews/${agent.id}/cancel-recheck`,
+            { method: "POST" }
+          )
+            .then(async () => {
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["agents"] }),
+                queryClient.invalidateQueries({
+                  queryKey: ["feedback", parentAgentId, "children"],
+                }),
+              ]);
+              onDone?.();
+            })
+            .catch((err: Error) => {
+              setError(err.message || "Could not cancel recheck.");
+            })
+            .finally(() => {
+              setIsCancelling(false);
+            });
+        }}
+        data-testid="cancel-recheck-button"
+      >
+        {isCancelling ? "Cancelling..." : "Cancel recheck"}
+      </Button>
     </div>
   );
 }
@@ -972,6 +1126,7 @@ export function FeedbackDetailPanel({
       <div className="flex items-center justify-between shrink-0 mb-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Badge variant={severityInfo!.variant}>{severityInfo!.label}</Badge>
+          <RoundChip roundNumber={item.roundNumber} />
           <span className="text-base font-semibold truncate">
             {item.filePath
               ? `${item.filePath}${item.lineNumber ? `:${item.lineNumber}` : ""}`
@@ -1119,6 +1274,12 @@ export function ReviewSummaryPanel({
               {reviewVerdictLabel(verdict)}
             </Badge>
           ) : null}
+          {agent.review ? (
+            <RoundChip
+              roundNumber={agent.review.roundNumber}
+              pending={agent.review.status === "awaiting_recheck"}
+            />
+          ) : null}
           <span className="text-base font-semibold truncate">
             Review Summary
           </span>
@@ -1194,6 +1355,10 @@ export function ReviewSummaryPanel({
             No summary available.
           </div>
         ) : null}
+      </div>
+
+      <div className="mt-3 flex justify-end border-t border-border pt-3">
+        <CancelRecheckButton parentAgentId={parentAgentId} agent={agent} />
       </div>
     </div>
   );
@@ -1365,6 +1530,7 @@ export function MobileFeedbackSheet({
                 >
                   {severityInfoValue!.label}
                 </Badge>
+                {item ? <RoundChip roundNumber={item.roundNumber} /> : null}
                 <SheetDescription className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
                   {attr ? (
                     <>
@@ -1512,6 +1678,12 @@ export function MobileReviewSummarySheet({
                 {reviewVerdictLabel(verdict)}
               </Badge>
             ) : null}
+            {agent.review ? (
+              <RoundChip
+                roundNumber={agent.review.roundNumber}
+                pending={agent.review.status === "awaiting_recheck"}
+              />
+            ) : null}
             <SheetDescription className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
               {attr ? (
                 <>
@@ -1585,6 +1757,14 @@ export function MobileReviewSummarySheet({
               No summary available.
             </div>
           ) : null}
+        </div>
+
+        <div className="mt-3 flex justify-end border-t border-border pt-3">
+          <CancelRecheckButton
+            parentAgentId={parentAgentId}
+            agent={agent}
+            onDone={onClose}
+          />
         </div>
       </SheetContent>
     </Sheet>

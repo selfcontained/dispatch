@@ -38,6 +38,42 @@ export type PersonaAgentRowProps = {
   onOpenSummary?: () => void;
 };
 
+type ReviewRoundBadge = {
+  label: string;
+  tone: "muted" | "pending" | "complete";
+};
+
+function getRoundBadge(child: Agent): ReviewRoundBadge | null {
+  const review = child.review;
+  if (!review) return null;
+  if (review.status === "awaiting_recheck") {
+    return { label: "R2 pending", tone: "pending" };
+  }
+  if (review.roundNumber >= 2) {
+    return { label: "R2", tone: "complete" };
+  }
+  return { label: "R1", tone: "muted" };
+}
+
+function RoundBadge({ badge }: { badge: ReviewRoundBadge }): JSX.Element {
+  const toneClass =
+    badge.tone === "complete"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
+      : badge.tone === "pending"
+        ? "border-status-reviewing/40 bg-status-reviewing/10 text-status-reviewing"
+        : "border-border bg-muted/60 text-muted-foreground";
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 items-center rounded border px-1.5 text-[9px] font-semibold uppercase tracking-wider",
+        toneClass
+      )}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
 function PersonaStatusIcon({
   reviewStatus,
   verdict,
@@ -152,7 +188,7 @@ function StepRow({
   return (
     <span
       className={cn(
-        "flex items-center gap-1.5 whitespace-nowrap",
+        "flex min-w-0 items-center gap-1.5",
         emphasis === "strong" ? "font-semibold" : "font-medium",
         STEP_COLOR[step.color]
       )}
@@ -162,7 +198,7 @@ function StepRow({
       ) : (
         <CircleDashed className="h-2.5 w-2.5 shrink-0" strokeWidth={2} />
       )}
-      <span>{step.label}</span>
+      <span className="truncate">{step.label}</span>
     </span>
   );
 }
@@ -174,12 +210,10 @@ function StepRow({
 function ReviewStatusButton({
   step1,
   step2,
-  round,
   onOpen,
 }: {
   step1: StepDef;
   step2: StepDef;
-  round?: number;
   onOpen?: () => void;
 }): JSX.Element {
   const ariaLabel = `${step1.label} — ${step2.label}`;
@@ -188,11 +222,6 @@ function ReviewStatusButton({
     <>
       <StepRow step={step1} emphasis="strong" />
       <StepRow step={step2} emphasis="soft" />
-      {typeof round === "number" && round > 1 ? (
-        <span className="absolute right-1.5 top-1.5 inline-flex h-3.5 items-center rounded border border-border bg-muted/60 px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-          R{round}
-        </span>
-      ) : null}
     </>
   );
 
@@ -222,19 +251,34 @@ function ReviewStatusButton({
   );
 }
 
-/** Derive stacked-row step primitives from Phase 1 review data. */
 function stepsFromReview(
-  verdict: ReviewVerdict,
-  hasResolution: boolean
+  child: Agent,
+  verdict: ReviewVerdict
 ): { step1: StepDef; step2: StepDef } {
+  const hasResolution = !!child.review?.resolution?.summary;
+  const roundNumber = child.review?.roundNumber ?? 1;
+  const allowRecheck = child.review?.allowRecheck ?? false;
+  const reviewStatus = child.review?.status ?? null;
   const step1: StepDef = {
-    label: reviewVerdictLabel(verdict),
+    label:
+      roundNumber >= 2
+        ? `${reviewVerdictLabel(verdict)} (R2)`
+        : reviewVerdictLabel(verdict),
     color: verdict === "approve" ? "emerald" : "orange",
     filled: true,
   };
-  const step2: StepDef = hasResolution
-    ? { label: "Responded", color: "muted", filled: true }
-    : { label: "Awaiting response", color: "muted", filled: false };
+  let step2: StepDef;
+  if (reviewStatus === "awaiting_recheck") {
+    step2 = { label: "Rechecking", color: "orange", filled: false };
+  } else if (allowRecheck && roundNumber < 2) {
+    step2 = hasResolution
+      ? { label: "Awaiting recheck", color: "muted", filled: false }
+      : { label: "Awaiting resolution", color: "muted", filled: false };
+  } else {
+    step2 = hasResolution
+      ? { label: "Responded", color: "muted", filled: true }
+      : { label: "Awaiting response", color: "muted", filled: false };
+  }
   return { step1, step2 };
 }
 
@@ -265,6 +309,8 @@ export function PersonaAgentRow({
   const resolution = getResolution(child);
   const hasResolution = !!resolution?.summary;
   const reviewMessage = child.review?.message?.split("\n")[0] ?? null;
+  const roundBadge = getRoundBadge(child);
+  const isAwaitingRecheck = reviewStatus === "awaiting_recheck";
 
   return (
     <div
@@ -277,11 +323,13 @@ export function PersonaAgentRow({
         isReviewing && "persona-reviewing-row"
       )}
     >
-      <PersonaStatusIcon
-        reviewStatus={reviewStatus}
-        verdict={verdict}
-        className="h-5 w-5"
-      />
+      <div className="flex shrink-0 items-center pt-0.5">
+        <PersonaStatusIcon
+          reviewStatus={reviewStatus}
+          verdict={verdict}
+          className="h-5 w-5"
+        />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-1.5">
           <span
@@ -291,6 +339,7 @@ export function PersonaAgentRow({
             {child.persona ?? child.name}
           </span>
           <div className="flex shrink-0 items-center gap-1">
+            {roundBadge ? <RoundBadge badge={roundBadge} /> : null}
             {feedbackCount != null && feedbackCount > 0 ? (
               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-status-waiting/45 bg-status-waiting/15 px-1.5 text-[10px] font-semibold text-status-waiting">
                 {feedbackCount}
@@ -305,10 +354,13 @@ export function PersonaAgentRow({
         </div>
         {verdict ? (
           <ReviewStatusButton
-            {...stepsFromReview(verdict, hasResolution)}
-            round={resolution?.roundNumber}
+            {...stepsFromReview(child, verdict)}
             onOpen={hasSummary || hasResolution ? onOpenSummary : undefined}
           />
+        ) : isAwaitingRecheck ? (
+          <div className="mt-1.5 text-[10px] font-medium text-status-reviewing">
+            Rechecking
+          </div>
         ) : isReviewing ? (
           <div className="mt-1.5 text-[10px] font-medium text-status-reviewing">
             {reviewMessage ?? "Reviewing"}

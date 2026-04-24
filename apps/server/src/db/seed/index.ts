@@ -82,10 +82,10 @@ export async function seedDevData(
     await seedAgents(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
+    await seedPersonaReviews(client);
     await seedFeedback(client);
     await seedMedia(client);
     await seedJobs(client);
-    await seedPersonaReviews(client);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");

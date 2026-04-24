@@ -191,6 +191,191 @@ export async function setAgentRoleViaDB(
   }
 }
 
+export async function seedPersonaRecheckFixtureViaDB(
+  parentAgentId: string
+): Promise<{
+  round1AgentId: string;
+  awaitingRecheckAgentId: string;
+  round2AgentId: string;
+}> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is required to seed persona review fixtures."
+    );
+  }
+
+  const ids = {
+    round1AgentId: `${parentAgentId}-r1`,
+    awaitingRecheckAgentId: `${parentAgentId}-r2p`,
+    round2AgentId: `${parentAgentId}-r2`,
+  };
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const childAgents = [
+        {
+          id: ids.round1AgentId,
+          name: "round-1 reviewer",
+          persona: "ux-reviewer",
+        },
+        {
+          id: ids.awaitingRecheckAgentId,
+          name: "awaiting recheck reviewer",
+          persona: "release-review",
+        },
+        {
+          id: ids.round2AgentId,
+          name: "round-2 reviewer",
+          persona: "architecture-review",
+        },
+      ];
+
+      for (const child of childAgents) {
+        await client.query(
+          `
+          INSERT INTO agents (
+            id, name, type, status, cwd, codex_args, full_access, pins,
+            persona, parent_agent_id, created_at, updated_at
+          ) VALUES ($1,$2,'claude','stopped','/tmp','[]'::jsonb,false,'[]'::jsonb,$3,$4,NOW(),NOW())
+          `,
+          [child.id, child.name, child.persona, parentAgentId]
+        );
+      }
+
+      const round1Review = await client.query<{ id: number }>(
+        `
+        INSERT INTO persona_reviews (
+          agent_id, parent_agent_id, persona, status, verdict, summary,
+          files_reviewed, round_number, allow_recheck, created_at, updated_at
+        ) VALUES ($1,$2,$3,'complete','request_changes',$4,'[]'::jsonb,1,true,NOW(),NOW())
+        RETURNING id
+        `,
+        [
+          ids.round1AgentId,
+          parentAgentId,
+          "ux-reviewer",
+          "Round 1 verdict waiting on parent fixes.",
+        ]
+      );
+
+      const awaitingReview = await client.query<{ id: number }>(
+        `
+        INSERT INTO persona_reviews (
+          agent_id, parent_agent_id, persona, status, verdict, summary, message,
+          files_reviewed, round_number, allow_recheck, created_at, updated_at
+        ) VALUES ($1,$2,$3,'awaiting_recheck','request_changes',$4,$5,'[]'::jsonb,1,true,NOW(),NOW())
+        RETURNING id
+        `,
+        [
+          ids.awaitingRecheckAgentId,
+          parentAgentId,
+          "release-review",
+          "Waiting for a recheck on the latest fix set.",
+          "Waiting for your resolution summary",
+        ]
+      );
+
+      const round2Review = await client.query<{ id: number }>(
+        `
+        INSERT INTO persona_reviews (
+          agent_id, parent_agent_id, persona, status, verdict, summary,
+          files_reviewed, round_number, allow_recheck, created_at, updated_at
+        ) VALUES ($1,$2,$3,'complete','request_changes',$4,'[]'::jsonb,2,true,NOW(),NOW())
+        RETURNING id
+        `,
+        [
+          ids.round2AgentId,
+          parentAgentId,
+          "architecture-review",
+          "Round 2 still has follow-up findings.",
+        ]
+      );
+
+      await client.query(
+        `
+        INSERT INTO persona_review_resolutions (
+          review_id, round_number, summary, resolution_commit, submitted_at
+        ) VALUES ($1,1,$2,$3,NOW()), ($4,1,$5,$6,NOW()), ($7,2,$8,$9,NOW())
+        `,
+        [
+          awaitingReview.rows[0]!.id,
+          "Addressed the first-pass loading-state regressions.",
+          "c1a59ef",
+          round2Review.rows[0]!.id,
+          "Addressed the first-pass circuit breaker issue.",
+          "9e7d104",
+          round2Review.rows[0]!.id,
+          "Followed up on the recheck findings.",
+          "9e7d104",
+        ]
+      );
+
+      const round2Original = await client.query<{ id: number }>(
+        `
+        INSERT INTO agent_feedback (
+          agent_id, severity, file_path, line_number, description, suggestion,
+          status, resolution_reason, resolution_commit, round_number, created_at
+        ) VALUES ($1,'medium',$2,$3,$4,$5,'fixed',$6,$7,1,NOW())
+        RETURNING id
+        `,
+        [
+          ids.round2AgentId,
+          "apps/server/src/cache/retry-loop.ts",
+          44,
+          "The retry loop bypasses the circuit breaker on the cache-miss path.",
+          "Route both warmup and retry traffic through the circuit-breaker helper.",
+          "Moved retry warmup behind the shared circuit-breaker helper.",
+          "9e7d104",
+        ]
+      );
+
+      await client.query(
+        `
+        INSERT INTO agent_feedback (
+          agent_id, severity, file_path, line_number, description, suggestion,
+          status, round_number, responds_to_feedback_id, created_at
+        ) VALUES
+          ($1,'critical',$2,$3,$4,$5,'open',1,NULL,NOW()),
+          ($6,'medium',$7,$8,$9,$10,'fixed',1,NULL,NOW()),
+          ($11,'high',$12,$13,$14,$15,'open',2,$16,NOW())
+        `,
+        [
+          ids.round1AgentId,
+          "apps/web/src/components/activity/ActivityHeatmap.tsx",
+          210,
+          "Legend doesn't update after changing granularity from daily to hourly.",
+          "Reset legend range on granularity change.",
+          ids.awaitingRecheckAgentId,
+          "apps/web/src/components/activity/LoadingState.tsx",
+          56,
+          "Retry spinner never settles after a network timeout.",
+          "Reuse the shared request lifecycle instead of local timers.",
+          ids.round2AgentId,
+          "apps/server/src/cache/retry-loop.ts",
+          71,
+          "Round 2: fallback retries still skip the breaker when warmup throws before memoization.",
+          "Guard the fallback branch with the same breaker wrapper used in the primary path.",
+          round2Original.rows[0]!.id,
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+  }
+
+  return ids;
+}
+
 /**
  * Delete an agent via the REST API (force-stops and cleans up worktrees).
  */
@@ -229,11 +414,19 @@ export async function cleanupE2EAgents(
 ): Promise<void> {
   const res = await request.get(`${API}/agents`, { headers: authHeaders() });
   const body = (await res.json()) as {
-    agents?: Array<{ id: string; name: string }>;
+    agents?: Array<{ id: string; name: string; parentAgentId?: string | null }>;
   };
   if (!body.agents) return;
+  const parentIds = new Set(
+    body.agents
+      .filter((agent) => agent.name.startsWith("e2e-agent-"))
+      .map((agent) => agent.id)
+  );
   for (const agent of body.agents) {
-    if (agent.name.startsWith("e2e-agent-")) {
+    if (
+      agent.name.startsWith("e2e-agent-") ||
+      (agent.parentAgentId && parentIds.has(agent.parentAgentId))
+    ) {
       await deleteAgentViaAPI(request, agent.id);
     }
   }
