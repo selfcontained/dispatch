@@ -319,13 +319,16 @@ describe("AgentManager", () => {
         "mcp_servers.dispatch.bearer_token_env_var="
       );
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
+      expect(setupScript).toMatch(/Dispatch startup rules:\n1\. /);
       expect(setupScript).toContain(
-        "do not start repo work or infer a task from branch/worktree context alone"
+        "infer a task from branch/worktree context alone"
       );
       expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain("short topic/goal/feature name");
       expect(setupScript).toContain(
-        "stable label for the task, not as a live status update"
+        "short name for that topic, task, or feature"
+      );
+      expect(setupScript).toContain(
+        "stable label describing what the session is about"
       );
     });
 
@@ -517,7 +520,7 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toContain("open a draft PR via create_pr");
-      expect(setupScript).toContain("do not override baseBranch");
+      expect(setupScript).toContain("override baseBranch");
     });
 
     it("should not include autonomous review guidance when autoReview is false", async () => {
@@ -597,12 +600,15 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
+      expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
       expect(setupScript).toContain(
-        "Use dispatch_event to keep the agent status current in the UI"
+        "Report status with dispatch_event to keep the UI current"
       );
-      expect(setupScript).toContain("use job_log for task-level run progress");
+      expect(setupScript).toContain("Log task-level progress with job_log");
       expect(setupScript).toContain("dispatch_rename_session");
-      expect(setupScript).toContain("short topic/goal/feature name");
+      expect(setupScript).toContain(
+        "short name for that topic, task, or feature"
+      );
     });
 
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {

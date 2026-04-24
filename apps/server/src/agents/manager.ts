@@ -2227,27 +2227,57 @@ export class AgentManager {
     const agentId = this.agentIdFromSessionName(sessionName);
     // Lean startup guidance shared by both agent types. Full behavioral specs live in
     // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
-    const launchGuidance = jobRunId
-      ? `[dispatch:${agentId}] Dispatch job startup rules: You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route. Use dispatch_event to keep the agent status current in the UI, use job_log for task-level run progress, use repo tools when relevant, and call a job terminal tool when the job is complete, failed, or needs input. ` +
-        (suggestSessionRename
-          ? "If your session still has the default generated name, wait until you understand the task, then call dispatch_rename_session once with a short topic/goal/feature name. Use the session name as a stable label for the run, not as a live status update. "
-          : "")
-      : `[dispatch:${agentId}] ` +
-        "Dispatch startup rules: " +
-        "If the user has not explicitly asked for a change, fix, review, or investigation target, do not start repo work or infer a task from branch/worktree context alone; ask what they want done. " +
-        (suggestSessionRename
-          ? "If your session still has the default generated name, wait until you understand the user's concrete task, then call dispatch_rename_session once with a short topic/goal/feature name. Use the session name as a stable label for the task, not as a live status update, and do not rename it again unless the user starts a separate task or explicitly asks for a rename. "
-          : "") +
-        "Call dispatch_event to report status. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). " +
-        "Emit working at turn start and when shifting phases (e.g. research → coding → testing). Only use blocked when truly stuck — not for errors you are actively fixing. Emit a terminal event before your final response. " +
-        "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done. " +
-        "Use dispatch_pin to surface key info in the sidebar, especially values users may need to copy/paste later such as URLs, commands, branch names, IDs, tokens, simulator UDIDs, and other short reusable values. Update pins when values change; delete stale ones. " +
-        "Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). " +
-        "For longer artifacts, write to a file via dispatch_share and pin a reference. " +
-        "For pull requests, use the create_pr MCP tool instead of built-in PR skills or gh CLI." +
-        (autoReview
-          ? " Autonomous Review is enabled. Before emitting done, commit and push your branch, open a draft PR via create_pr (do not override baseBranch — it defaults correctly), then call list_personas and launch 1 relevant reviewer via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. After addressing each item, call dispatch_resolve_feedback. Do not emit done until all reviews are resolved."
-          : "");
+    // Rules are built as an array and numbered on output so the agent sees a scannable
+    // list rather than a run-on paragraph.
+    const rules: string[] = [];
+
+    if (jobRunId) {
+      rules.push(
+        `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
+      );
+      if (suggestSessionRename) {
+        rules.push(
+          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
+        );
+      }
+      rules.push("Report status with dispatch_event to keep the UI current.");
+      rules.push("Log task-level progress with job_log.");
+      rules.push(
+        "Call a job terminal tool when the run is complete, failed, or needs input."
+      );
+    } else {
+      rules.push(
+        "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
+      );
+      if (suggestSessionRename) {
+        rules.push(
+          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
+        );
+      }
+      rules.push(
+        "Report status with dispatch_event. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). Emit working at turn start and when shifting phases (e.g. research → coding → testing). Emit a terminal event before your final response. Use blocked only when truly stuck — not for errors you're actively fixing."
+      );
+      rules.push(
+        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). Update or delete stale pins. For longer artifacts, write a file via dispatch_share and pin a reference."
+      );
+      rules.push(
+        "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
+      );
+      rules.push(
+        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+      );
+      if (autoReview) {
+        rules.push(
+          "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
+        );
+      }
+    }
+
+    const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");
+    const header = jobRunId
+      ? "Dispatch job startup rules:"
+      : "Dispatch startup rules:";
+    const launchGuidance = `[dispatch:${agentId}] ${header}\n${numbered}`;
 
     const userLocalBin = process.env.HOME
       ? path.join(process.env.HOME, ".local/bin")
