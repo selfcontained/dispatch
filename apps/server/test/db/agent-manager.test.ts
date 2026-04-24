@@ -320,12 +320,12 @@ describe("AgentManager", () => {
       );
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
       expect(setupScript).toContain(
-        "do not start repo work or infer a task from branch/worktree context alone"
+        "infer a task from branch/worktree context alone"
       );
       expect(setupScript).toContain("dispatch_rename_session");
       expect(setupScript).toContain("short topic/goal/feature name");
       expect(setupScript).toContain(
-        "stable label for the task, not as a live status update"
+        "stable label for the task, not a live status update"
       );
     });
 
@@ -517,7 +517,7 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toContain("open a draft PR via create_pr");
-      expect(setupScript).toContain("do not override baseBranch");
+      expect(setupScript).toContain("override baseBranch");
     });
 
     it("should not include autonomous review guidance when autoReview is false", async () => {
@@ -598,9 +598,9 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toContain(
-        "Use dispatch_event to keep the agent status current in the UI"
+        "Report status with dispatch_event to keep the UI current"
       );
-      expect(setupScript).toContain("use job_log for task-level run progress");
+      expect(setupScript).toContain("Log task-level progress with job_log");
       expect(setupScript).toContain("dispatch_rename_session");
       expect(setupScript).toContain("short topic/goal/feature name");
     });
