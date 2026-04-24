@@ -50,7 +50,7 @@ export function UpdateAvailableToast(): JSX.Element | null {
 
   const handleReload = (): void => {
     setReloading(true);
-    reloadApp().catch(() => {
+    reloadApp({ waitForUpdate: true }).catch(() => {
       setReloading(false);
     });
   };

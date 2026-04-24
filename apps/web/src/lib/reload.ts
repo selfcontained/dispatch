@@ -12,6 +12,39 @@ function isControllingWorker(
   );
 }
 
+function getPendingWorker(
+  registration: ServiceWorkerRegistration
+): ServiceWorker | null {
+  return registration.installing ?? registration.waiting ?? null;
+}
+
+async function waitForPendingWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs: number
+): Promise<ServiceWorker | null> {
+  const existing = getPendingWorker(registration);
+  if (existing) return existing;
+  return await new Promise<ServiceWorker | null>((resolve) => {
+    const handleUpdateFound = (): void => {
+      const pending = getPendingWorker(registration);
+      if (pending) {
+        cleanup();
+        resolve(pending);
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      registration.removeEventListener("updatefound", handleUpdateFound);
+    };
+    registration.addEventListener("updatefound", handleUpdateFound);
+    const timer = setTimeout(() => {
+      const pending = getPendingWorker(registration);
+      cleanup();
+      resolve(pending);
+    }, timeoutMs);
+  });
+}
+
 async function waitForWorkerControl(
   worker: ServiceWorker,
   registration: ServiceWorkerRegistration,
@@ -64,17 +97,21 @@ async function waitForWorkerControl(
   });
 }
 
-export async function reloadApp(): Promise<void> {
+type ReloadAppOptions = {
+  waitForUpdate?: boolean;
+};
+
+export async function reloadApp(options: ReloadAppOptions = {}): Promise<void> {
   // vite-plugin-pwa's updateSW(true) is a no-op in autoUpdate mode and
   // neither mode triggers registration.update() on demand. Without this,
   // clicking Reload reloads before a new SW has installed, so the old
   // precached bundle is served and the toast reappears.
-  if ("serviceWorker" in navigator) {
+  if (options.waitForUpdate && "serviceWorker" in navigator) {
     try {
       const registration = await navigator.serviceWorker.getRegistration();
       if (registration) {
         await registration.update();
-        const pending = registration.installing ?? registration.waiting;
+        const pending = await waitForPendingWorker(registration, 3_000);
         if (pending) {
           // autoUpdate sets skipWaiting:true so "waiting" is unusual, but
           // poke it anyway for edge-case timings.
