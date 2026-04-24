@@ -30,6 +30,8 @@ type PathInputProps = {
   history?: string[];
   /** Called when a history entry is removed */
   onRemoveHistory?: (dir: string) => void;
+  /** Called whenever the validated path info changes (null while unknown). */
+  onPathInfoChange?: (info: PathInfo | null) => void;
   /** Label text above the input */
   label?: string;
   /** HTML id for the input */
@@ -48,6 +50,7 @@ export function PathInput({
   showValidation = true,
   history = [],
   onRemoveHistory,
+  onPathInfoChange,
   label,
   id,
   "data-testid": testId,
@@ -76,6 +79,7 @@ export function PathInput({
     const trimmed = value.trim();
     if (!trimmed) {
       setPathValidation(null);
+      onPathInfoChange?.(null);
       return;
     }
     if (!showValidation) return;
@@ -85,20 +89,25 @@ export function PathInput({
         `/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`
       )
         .then((result) => {
-          setPathValidation({
+          const info: PathInfo = {
             exists: result.exists,
             isDirectory: result.isDirectory,
             isGitRepo: result.isGitRepo,
-          });
+          };
+          setPathValidation(info);
+          onPathInfoChange?.(info);
         })
-        .catch(() => setPathValidation(null))
+        .catch(() => {
+          setPathValidation(null);
+          onPathInfoChange?.(null);
+        })
         .finally(() => setValidating(false));
     }, 400);
     return () => {
       clearTimeout(timer);
       setValidating(false);
     };
-  }, [value, showValidation]);
+  }, [value, showValidation, onPathInfoChange]);
 
   // Debounced inline ghost completion
   useEffect(() => {

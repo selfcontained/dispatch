@@ -16,6 +16,12 @@ export type CreateGitWorktreeInput = {
   baseBranch?: string;
   updateBase?: boolean;
   worktreePath?: string;
+  /**
+   * When false, check out `baseBranch` directly in the new worktree instead of
+   * creating a new branch from it. The resulting `branchName` in the result is
+   * the base branch. Defaults to true.
+   */
+  createNewBranch?: boolean;
 };
 
 export type CreateGitWorktreeResult = {
@@ -84,17 +90,17 @@ export async function createGitWorktree(
 
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
-  const branchName = normalizeRefName(
-    input.branchName,
-    slugify(name),
-    "branchName"
-  );
+  const createNewBranch = input.createNewBranch ?? true;
+  const branchName = createNewBranch
+    ? normalizeRefName(input.branchName, slugify(name), "branchName")
+    : baseBranch;
+  const worktreePathSlugBase = createNewBranch ? branchName : baseBranch;
   const worktreePath = input.worktreePath?.trim()
     ? path.resolve(input.worktreePath)
     : path.resolve(
         repoRoot,
         "..",
-        `${path.basename(repoRoot)}-${slugify(branchName)}`
+        `${path.basename(repoRoot)}-${slugify(worktreePathSlugBase)}`
       );
 
   if (normalizePath(worktreePath) === normalizePath(repoRoot)) {
@@ -125,25 +131,39 @@ export async function createGitWorktree(
 
   const baseSha = await resolveGitRef(repoRoot, baseRef, commandRunner);
 
-  await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
+  if (createNewBranch) {
+    await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
 
-  await commandRunner("git", [
-    "-C",
-    repoRoot,
-    "worktree",
-    "add",
-    "-b",
-    branchName,
-    worktreePath,
-    baseRef,
-  ]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "worktree",
+      "add",
+      "-b",
+      branchName,
+      worktreePath,
+      baseRef,
+    ]);
 
-  // Set upstream tracking so archival checks know which branch to compare against
-  await commandRunner(
-    "git",
-    ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],
-    { allowedExitCodes: [0, 1, 128] }
-  );
+    // Set upstream tracking so archival checks know which branch to compare against
+    await commandRunner(
+      "git",
+      ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],
+      { allowedExitCodes: [0, 1, 128] }
+    );
+  } else {
+    // Check out the starting branch directly. Use the local branch so git
+    // creates/updates the worktree on the user-facing ref rather than a
+    // detached origin/* ref.
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "worktree",
+      "add",
+      worktreePath,
+      baseBranch,
+    ]);
+  }
 
   return {
     repoRoot,

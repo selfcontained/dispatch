@@ -3867,6 +3867,7 @@ async function registerRoutes() {
       codexArgs?: unknown;
       fullAccess?: unknown;
       useWorktree?: unknown;
+      createNewBranch?: unknown;
       worktreeBranch?: unknown;
       baseBranch?: unknown;
       persona?: unknown;
@@ -3920,6 +3921,15 @@ async function registerRoutes() {
       return reply
         .code(400)
         .send({ error: "useWorktree must be a boolean when provided." });
+    }
+
+    if (
+      body.createNewBranch !== undefined &&
+      typeof body.createNewBranch !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "createNewBranch must be a boolean when provided." });
     }
 
     if (body.autoReview !== undefined && typeof body.autoReview !== "boolean") {
@@ -4009,6 +4019,10 @@ async function registerRoutes() {
         fullAccess: !isTerminalAgent && body.fullAccess === true,
         useWorktree:
           typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
+        createNewBranch:
+          typeof body.createNewBranch === "boolean"
+            ? body.createNewBranch
+            : undefined,
         worktreeBranch:
           typeof body.worktreeBranch === "string"
             ? body.worktreeBranch

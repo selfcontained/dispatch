@@ -162,6 +162,12 @@ type CreateAgentInput = {
   agentArgs?: string[];
   fullAccess?: boolean;
   useWorktree?: boolean;
+  /**
+   * When true (default), create a new branch for the worktree from
+   * `baseBranch`. When false, check out `baseBranch` directly without
+   * creating a new branch.
+   */
+  createNewBranch?: boolean;
   worktreeBranch?: string;
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
@@ -536,17 +542,24 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
 
     const useWorktree = input.useWorktree !== false;
+    const createNewBranch = input.createNewBranch ?? true;
 
     // Compute worktree params for the setup script
     let worktreeBranchName: string | undefined;
     let worktreePathOverride: string | undefined;
     if (useWorktree) {
-      const slugName = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-      worktreeBranchName =
-        input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+      if (createNewBranch) {
+        const slugName = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        worktreeBranchName =
+          input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+      } else {
+        // When checking out an existing branch without creating a new one,
+        // the worktree branch is the starting branch itself.
+        worktreeBranchName = input.baseBranch?.trim() || "main";
+      }
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
         worktreePathOverride = path.join(
@@ -606,9 +619,10 @@ export class AgentManager {
           const result = await createGitWorktree({
             cwd: originalCwd,
             name,
-            branchName: worktreeBranchName,
+            branchName: createNewBranch ? worktreeBranchName : undefined,
             baseBranch: input.baseBranch,
             worktreePath: worktreePathOverride,
+            createNewBranch,
           });
           worktreePath = result.worktreePath;
           worktreeBranch = result.branchName;
@@ -667,6 +681,7 @@ export class AgentManager {
           agentType: type,
           originalCwd,
           useWorktree,
+          createNewBranch,
           worktreeBranchName,
           baseBranch: input.baseBranch,
           worktreePathOverride,
@@ -1085,9 +1100,15 @@ export class AgentManager {
             await publishPhase("worktree-cleanup");
 
             const tCleanup = Date.now();
+            // If the worktree is on the user's original starting branch
+            // (i.e. no dispatch-created branch), don't delete that branch —
+            // it belongs to the user, not to this agent.
+            const dispatchOwnsBranch =
+              !!agent.worktreeBranch &&
+              (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
             await cleanupGitWorktree({
               cwd: agent.worktreePath,
-              deleteBranch: true,
+              deleteBranch: dispatchOwnsBranch,
               force: true,
             });
             durations.worktreeCleanup = Date.now() - tCleanup;
@@ -4478,6 +4499,7 @@ export class AgentManager {
     agentType: AgentType;
     originalCwd: string;
     useWorktree: boolean;
+    createNewBranch: boolean;
     worktreeBranchName?: string;
     baseBranch?: string;
     worktreePathOverride?: string;
@@ -4491,6 +4513,7 @@ export class AgentManager {
       agentType,
       originalCwd,
       useWorktree,
+      createNewBranch,
       worktreeBranchName,
       worktreePathOverride,
       agentName,
@@ -4553,10 +4576,16 @@ export class AgentManager {
     ];
 
     if (useWorktree && worktreeBranchName) {
+      const phaseLabel = createNewBranch
+        ? "Creating git worktree"
+        : "Creating managed git worktree";
+      const branchLine = createNewBranch
+        ? `info "Branch: ${worktreeBranchName}"`
+        : `info "Checking out: ${worktreeBranchName}"`;
       lines.push(
         `# --- Worktree creation ---`,
-        `phase "Creating git worktree"`,
-        `info "Branch: ${worktreeBranchName}"`,
+        `phase "${phaseLabel}"`,
+        branchLine,
         ``
       );
 
@@ -4587,7 +4616,10 @@ export class AgentManager {
         lines.push(`  WT_PATH="${worktreePathOverride}"`);
       } else {
         // Default sibling path: <repoRoot>/../<basename>-<slugified-branch>
-        const sluggedBranch = worktreeBranchName
+        const slugSource = createNewBranch
+          ? worktreeBranchName
+          : effectiveBaseBranch;
+        const sluggedBranch = slugSource
           .replace(/[^a-z0-9]+/gi, "-")
           .replace(/^-+|-+$/g, "")
           .toLowerCase();
@@ -4597,11 +4629,18 @@ export class AgentManager {
         );
       }
 
+      const addCmd = createNewBranch
+        ? `git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF"`
+        : `git -C "$REPO_ROOT" worktree add "$WT_PATH" "${effectiveBaseBranch}"`;
+      const upstreamLine = createNewBranch
+        ? `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`
+        : null;
+
       lines.push(
         ``,
-        `  if git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF" 2>&1; then`,
+        `  if ${addCmd} 2>&1; then`,
         `    ok "Worktree created at $WT_PATH"`,
-        `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`,
+        ...(upstreamLine ? [upstreamLine] : []),
         `    EFFECTIVE_CWD="$WT_PATH"`,
         `    WORKTREE_PATH="\\"$WT_PATH\\""`,
         `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
