@@ -283,10 +283,10 @@ export function AgentsView({
 
   useEffect(() => {
     if (!validatedSelectedAgentId) return;
-    setExpandedAgentId((current) =>
-      current === validatedSelectedAgentId ? current : validatedSelectedAgentId
-    );
-  }, [validatedSelectedAgentId]);
+    const selected = agents.find((a) => a.id === validatedSelectedAgentId);
+    const target = selected?.parentAgentId ?? validatedSelectedAgentId;
+    setExpandedAgentId((current) => (current === target ? current : target));
+  }, [agents, validatedSelectedAgentId]);
 
   useEffect(() => {
     if (!routeAgentId) return;
