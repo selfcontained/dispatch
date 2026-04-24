@@ -369,11 +369,11 @@ export function PersonaLauncher({
                     />
                     <span className="space-y-1">
                       <span className="block text-sm font-medium text-foreground">
-                        Re-review after I address feedback
+                        Re-review after feedback is addressed
                       </span>
                       <span className="block text-xs text-muted-foreground">
-                        Adds a second pass after you resolve the first round of
-                        feedback.
+                        Adds a second pass once the first round of feedback is
+                        resolved.
                       </span>
                     </span>
                   </label>
