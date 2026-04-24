@@ -607,9 +607,10 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             tool, passing the persona name and a context briefing. Dispatch
             loads the persona definition from the repo and spawns a new child
             agent with the persona's instructions, the parent's context, and a
-            diff of the current branch. The child then reviews the work, submits
-            findings via <Code>dispatch_feedback</Code>, and reports progress
-            through the review lifecycle with <Code>review_status</Code>.
+            diff of the current branch. The child reviews the work, pings
+            progress with <Code>review_status</Code>, submits findings via{" "}
+            <Code>dispatch_feedback</Code>, and finishes with{" "}
+            <Code>dispatch_complete_review</Code>.
           </P>
           <P>
             Persona agents also have <Code>dispatch_pin</Code> and{" "}
@@ -664,13 +665,67 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <Section>
           <H3>Review lifecycle</H3>
           <P>
-            Persona agents report progress with the <Code>review_status</Code>{" "}
-            tool. They call it with <Code>status: "reviewing"</Code> and a short
-            message when they start, then with <Code>status: "complete"</Code> —
-            along with a <Code>verdict</Code> of <Code>approve</Code> or{" "}
-            <Code>request_changes</Code> and a <Code>summary</Code> — when they
-            finish. The verdict and summary show up on the review agent's card
-            in the UI.
+            Persona agents ping progress with the <Code>review_status</Code>{" "}
+            tool — a short <Code>message</Code> each time the reviewer shifts to
+            a distinct phase (e.g. "Reading diff", "Running tests"). To finish,
+            they call <Code>dispatch_complete_review</Code> with a{" "}
+            <Code>verdict</Code> of <Code>approve</Code> or{" "}
+            <Code>request_changes</Code>, a <Code>summary</Code>, and optionally
+            a list of <Code>filesReviewed</Code>. The verdict and summary show
+            up on the review agent's card in the UI.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Round-trip reviews</H3>
+          <P>
+            Parent agents can opt into a single recheck pass by passing{" "}
+            <Code>allowRecheck: true</Code> to{" "}
+            <Code>dispatch_launch_persona</Code>. The reviewer stays alive after
+            its round-1 verdict, waiting for the parent to resolve feedback and
+            submit a resolution — then performs a second pass and emits a final
+            verdict.
+          </P>
+          <P>The parent drives the loop with these tools:</P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <Code>dispatch_await_review</Code> — wait for the reviewer's next
+              state change (still working, round 1 done and feedback is ready,
+              whole review complete, or cancelled). Returns a{" "}
+              <Code>pollAgainInSeconds</Code> value when pending; trust the
+              server's cadence rather than inventing one.
+            </li>
+            <li>
+              <Code>dispatch_get_feedback</Code> — read the findings for a
+              specific review.
+            </li>
+            <li>
+              <Code>dispatch_resolve_feedback</Code> — mark each item{" "}
+              <Code>fixed</Code> or <Code>ignored</Code>. Ignored items require
+              a <Code>reason</Code>; the reviewer sees it on round 2.
+            </li>
+            <li>
+              <Code>dispatch_submit_resolution</Code> — commit your fixes first,
+              then submit a 1–3 sentence <Code>summary</Code>. The server
+              captures the current HEAD as the resolution commit, and the
+              reviewer's round-2 diff is computed from there. Submitting with
+              uncommitted changes gives the reviewer an empty diff, and it will
+              re-flag the same issues.
+            </li>
+            <li>
+              <Code>dispatch_cancel_recheck</Code> — abort the loop so the
+              reviewer exits cleanly.
+            </li>
+          </ul>
+          <P>
+            On round 2 the reviewer calls <Code>dispatch_await_recheck</Code> to
+            pick up the parent's resolution summary and the round-1 diff,
+            performs a second pass, and calls{" "}
+            <Code>dispatch_complete_review</Code> a second time with a final
+            verdict. Round number, the parent's resolution, and the round-2
+            verdict are stacked on the reviewer's card in the UI. The recheck
+            wait times out after roughly two hours without a resolution, at
+            which point the review is auto-cancelled.
           </P>
         </Section>
       </>
