@@ -58,7 +58,7 @@ function defaultReviewAgentType(agent: Agent): AgentType {
 export function PersonaLauncher({
   agent,
   enabledAgentTypes,
-  sendTerminalInput,
+  sendTerminalInput: _sendTerminalInput,
   disabled = false,
 }: {
   agent: Agent;
@@ -139,18 +139,6 @@ export function PersonaLauncher({
       });
       await queryClient.invalidateQueries({ queryKey: ["agents"] });
       setDialogOpen(false);
-    } catch (error) {
-      if (sendTerminalInput) {
-        const message = [
-          `Use the dispatch_launch_persona MCP tool to launch the "${selectedPersona}" persona on your current work.`,
-          `Use agentType: "${selectedAgentType}" and allowRecheck: ${allowRecheck ? "true" : "false"}.`,
-          "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
-        ].join(" ");
-        sendTerminalInput(message + "\r");
-        setDialogOpen(false);
-      } else {
-        throw error;
-      }
     } finally {
       setIsLaunching(false);
     }
