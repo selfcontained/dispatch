@@ -195,4 +195,9 @@ export function playTapCue(): void {
     });
   }
   playTones(tones, masterGain);
+  // Paired haptic so Android devices with the ringer muted still feel the
+  // tap. iOS Safari has no vibration API; this is a silent no-op there.
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(8 + Math.floor(Math.random() * 7));
+  }
 }
