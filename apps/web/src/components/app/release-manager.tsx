@@ -28,7 +28,7 @@ import {
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { agentRoute } from "@/lib/agent-routes";
-import { triggerSWUpdate } from "@/lib/pwa-update";
+import { forcePWAUpdate } from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
 type AppVersionInfo = {
@@ -190,7 +190,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
   const handleReload = useCallback(() => {
     setReloading(true);
-    void triggerSWUpdate(true);
+    void forcePWAUpdate(true);
   }, []);
 
   const handleClearCacheAndReload = useCallback(async () => {

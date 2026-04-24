@@ -1,9 +1,7 @@
 type Listener = () => void;
-type UpdateSWFn = (reloadPage?: boolean) => Promise<void>;
 
 const listeners = new Set<Listener>();
 let needRefresh = false;
-let updateSWFn: UpdateSWFn | null = null;
 
 export function getNeedRefresh(): boolean {
   return needRefresh;
@@ -16,17 +14,106 @@ export function subscribeNeedRefresh(listener: Listener): () => void {
   };
 }
 
-export async function triggerSWUpdate(reloadPage = true): Promise<void> {
-  if (updateSWFn) {
-    await updateSWFn(reloadPage);
-    return;
-  }
-  if (reloadPage) window.location.reload();
-}
-
 function fireNeedRefresh(): void {
   needRefresh = true;
   for (const listener of listeners) listener();
+}
+
+function getPendingWorker(
+  registration: ServiceWorkerRegistration
+): ServiceWorker | null {
+  return registration.installing ?? registration.waiting ?? null;
+}
+
+async function waitForPendingWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs: number
+): Promise<ServiceWorker | null> {
+  const existing = getPendingWorker(registration);
+  if (existing) return existing;
+  return await new Promise<ServiceWorker | null>((resolve) => {
+    const handleUpdateFound = (): void => {
+      const pending = getPendingWorker(registration);
+      if (pending) {
+        cleanup();
+        resolve(pending);
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      registration.removeEventListener("updatefound", handleUpdateFound);
+    };
+    registration.addEventListener("updatefound", handleUpdateFound);
+    const timer = setTimeout(() => {
+      const pending = getPendingWorker(registration);
+      cleanup();
+      resolve(pending);
+    }, timeoutMs);
+  });
+}
+
+// Compare ServiceWorker instances, not scriptURL: Workbox's SW has a stable
+// URL (/sw.js) so the old and new workers share the same scriptURL string,
+// and a URL equality check returns true the moment any active worker exists
+// — including the old one.
+async function waitForWorkerControl(
+  worker: ServiceWorker,
+  timeoutMs: number
+): Promise<void> {
+  if (navigator.serviceWorker.controller === worker) return;
+  await new Promise<void>((resolve) => {
+    const settle = (): void => {
+      cleanup();
+      resolve();
+    };
+    const handleControllerChange = (): void => {
+      if (navigator.serviceWorker.controller === worker) settle();
+    };
+    const handleStateChange = (): void => {
+      if (worker.state === "redundant") settle();
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      navigator.serviceWorker.removeEventListener(
+        "controllerchange",
+        handleControllerChange
+      );
+      worker.removeEventListener("statechange", handleStateChange);
+    };
+    navigator.serviceWorker.addEventListener(
+      "controllerchange",
+      handleControllerChange
+    );
+    worker.addEventListener("statechange", handleStateChange);
+    const timer = setTimeout(settle, timeoutMs);
+  });
+}
+
+// Force the SW to fetch the newest bundle, activate it, and reload — used
+// both when the user clicks Reload on the update toast (waiting SW already
+// exists, polling fired onNeedRefresh) and right after a server-driven
+// deploy (no waiting SW yet, polling hasn't ticked). vite-plugin-pwa's
+// own `updateSW` does not call registration.update(), so the post-deploy
+// path needs this explicit dance to avoid a stale precached reload.
+export async function forcePWAUpdate(reloadPage = true): Promise<void> {
+  if ("serviceWorker" in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      if (registration) {
+        await registration.update();
+        const pending = await waitForPendingWorker(registration, 3_000);
+        if (pending) {
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+          await waitForWorkerControl(pending, 10_000);
+        }
+      }
+    } catch {
+      // fall through to reload
+    }
+  }
+  if (reloadPage) window.location.reload();
 }
 
 export function initPWAUpdate(): void {
@@ -51,7 +138,7 @@ export function initPWAUpdate(): void {
   // (the PWA plugin is only loaded in production builds).
   const pwaModule = "virtual:pwa-register";
   void import(/* @vite-ignore */ pwaModule).then(({ registerSW }) => {
-    updateSWFn = registerSW({
+    registerSW({
       immediate: true,
       onNeedRefresh() {
         fireNeedRefresh();

@@ -4,9 +4,9 @@ import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import {
+  forcePWAUpdate,
   getNeedRefresh,
   subscribeNeedRefresh,
-  triggerSWUpdate,
 } from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
@@ -37,13 +37,17 @@ export function UpdateAvailableToast(): JSX.Element | null {
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    return subscribeNeedRefresh(() => {
+    const unsubscribe = subscribeNeedRefresh(() => {
       setNeedRefresh(true);
       setDismissed(false);
     });
+    // Re-sync in case the module flag flipped between render and effect
+    // (the dynamic import-resolves-then-onNeedRefresh-fires race).
+    if (getNeedRefresh()) setNeedRefresh(true);
+    return unsubscribe;
   }, []);
 
-  const { data: versionInfo } = useQuery({
+  const { data: versionInfo, isFetched } = useQuery({
     queryKey: ["app-version"],
     queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
     enabled: needRefresh,
@@ -51,6 +55,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
   });
 
   if (!needRefresh || dismissed) return null;
+  // Wait for the version query to settle before mounting so screen readers
+  // get a single aria-live announcement with the final text.
+  if (!isFetched) return null;
 
   const newVersion = versionInfo?.version ?? null;
 
@@ -75,7 +82,7 @@ export function UpdateAvailableToast(): JSX.Element | null {
     }
 
     setReloading(true);
-    triggerSWUpdate(true).catch(() => {
+    forcePWAUpdate(true).catch(() => {
       setReloading(false);
     });
   };
