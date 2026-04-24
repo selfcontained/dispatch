@@ -1,4 +1,5 @@
 import { Keyboard } from "lucide-react";
+import { useAtomValue } from "jotai";
 import {
   type MutableRefObject,
   useCallback,
@@ -7,6 +8,8 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { soundCuesEnabledAtom } from "@/lib/store";
+import { playTapCue } from "@/lib/sound-cues";
 import { cn } from "@/lib/utils";
 
 type MobileTerminalToolbarProps = {
@@ -21,6 +24,11 @@ export function MobileTerminalToolbar({
   const [inputOpen, setInputOpen] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const soundCuesEnabled = useAtomValue(soundCuesEnabledAtom);
+
+  const playTap = useCallback(() => {
+    if (soundCuesEnabled) playTapCue();
+  }, [soundCuesEnabled]);
 
   // Clear visual state when the terminal onData handler consumes the ctrl modifier
   useEffect(() => {
@@ -30,15 +38,17 @@ export function MobileTerminalToolbar({
   }, []);
 
   const toggleCtrl = useCallback(() => {
+    playTap();
     setCtrlActive((v) => {
       const next = !v;
       ctrlPendingRef.current = next;
       return next;
     });
-  }, [ctrlPendingRef]);
+  }, [ctrlPendingRef, playTap]);
 
   const sendKey = useCallback(
     (key: string) => {
+      playTap();
       onSendInput(key);
       // After any toolbar key press, clear ctrl
       if (ctrlActive) {
@@ -46,26 +56,28 @@ export function MobileTerminalToolbar({
         ctrlPendingRef.current = false;
       }
     },
-    [ctrlActive, ctrlPendingRef, onSendInput]
+    [ctrlActive, ctrlPendingRef, onSendInput, playTap]
   );
 
   const openInput = useCallback(() => {
+    playTap();
     setInputOpen(true);
     // Double-rAF ensures the modal is rendered and laid out before focusing,
     // which avoids iOS failing to open the keyboard on the first tap.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => inputRef.current?.focus());
     });
-  }, []);
+  }, [playTap]);
 
   const submitInput = useCallback(() => {
+    playTap();
     const text = inputRef.current?.value;
     if (text) {
       onSendInput(text + "\r");
       if (inputRef.current) inputRef.current.value = "";
     }
     setInputOpen(false);
-  }, [onSendInput]);
+  }, [onSendInput, playTap]);
 
   return (
     <>
@@ -190,7 +202,10 @@ export function MobileTerminalToolbar({
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <button
               className="text-sm text-muted-foreground"
-              onClick={() => setInputOpen(false)}
+              onClick={() => {
+                playTap();
+                setInputOpen(false);
+              }}
             >
               Cancel
             </button>
@@ -226,6 +241,7 @@ export function MobileTerminalToolbar({
               variant="ghost"
               className="flex-1"
               onClick={() => {
+                playTap();
                 const text = inputRef.current?.value;
                 if (text) {
                   onSendInput(text);
