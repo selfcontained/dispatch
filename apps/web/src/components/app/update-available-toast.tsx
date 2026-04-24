@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUpdateAvailable } from "@/hooks/use-update-available";
@@ -7,6 +6,16 @@ import { reloadApp } from "@/lib/reload";
 import { cn } from "@/lib/utils";
 
 const DISMISS_KEY = "dispatch:update-toast:dismissed-version";
+
+function isEditableElement(element: Element | null): element is HTMLElement {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.isContentEditable) return true;
+  return matches(element, ["input", "textarea", "select"]);
+}
+
+function matches(element: HTMLElement, selectors: string[]): boolean {
+  return selectors.some((selector) => element.matches(selector));
+}
 
 function readDismissed(): string | null {
   try {
@@ -26,11 +35,11 @@ function writeDismissed(version: string): void {
 
 export function UpdateAvailableToast(): JSX.Element | null {
   const { available, serverVersion } = useUpdateAvailable();
-  const location = useLocation();
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(() =>
     readDismissed()
   );
   const [reloading, setReloading] = useState(false);
+  const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
     if (
@@ -44,11 +53,27 @@ export function UpdateAvailableToast(): JSX.Element | null {
 
   if (!available || !serverVersion) return null;
   if (dismissedVersion === serverVersion) return null;
-  // Release manager lives under /settings and owns its own update flow + reload
-  // CTA, so hide the passive toast there to avoid duplication.
-  if (location.pathname.startsWith("/settings")) return null;
 
   const handleReload = (): void => {
+    const activeElement = document.activeElement;
+    const hadFocusedEditable =
+      hadFocusedEditableRef.current || isEditableElement(activeElement);
+    hadFocusedEditableRef.current = false;
+
+    if (
+      window.location.pathname.startsWith("/settings") &&
+      hadFocusedEditable &&
+      !window.confirm(
+        "You have a settings field open. Reloading now may discard unsaved changes. Reload anyway?"
+      )
+    ) {
+      return;
+    }
+
+    if (isEditableElement(activeElement)) {
+      activeElement.blur();
+    }
+
     setReloading(true);
     reloadApp({ waitForUpdate: true }).catch(() => {
       setReloading(false);
@@ -63,10 +88,10 @@ export function UpdateAvailableToast(): JSX.Element | null {
   return (
     <div
       className={cn(
-        "fixed z-50 left-1/2 -translate-x-1/2 top-4",
-        "pt-[env(safe-area-inset-top)]",
+        "fixed z-50 left-1/2 -translate-x-1/2 bottom-4",
+        "pb-[env(safe-area-inset-bottom)]",
         "md:left-auto md:translate-x-0 md:right-4 md:bottom-4 md:top-auto",
-        "md:pt-0 md:pb-[env(safe-area-inset-bottom)]",
+        "md:pt-0",
         "w-[calc(100vw-2rem)] max-w-sm md:w-auto md:max-w-lg"
       )}
     >
@@ -87,7 +112,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
             "absolute top-1 right-1 z-10",
             "h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-md",
             "text-muted-foreground hover:text-foreground hover:bg-muted",
-            "transition-colors"
+            "transition-colors focus-visible:outline-none",
+            "focus-visible:ring-2 focus-visible:ring-ring",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-card"
           )}
         >
           <X className="h-4 w-4" />
@@ -110,6 +137,11 @@ export function UpdateAvailableToast(): JSX.Element | null {
           </div>
         </div>
         <Button
+          onPointerDownCapture={() => {
+            hadFocusedEditableRef.current = isEditableElement(
+              document.activeElement
+            );
+          }}
           onClick={handleReload}
           disabled={reloading}
           className="h-11 w-full shrink-0 md:h-8 md:w-auto"

@@ -693,7 +693,8 @@ type ReleaseStreamEvent =
   | { type: "log.rewind"; count: number }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string };
+  | { type: "tag"; tag: string }
+  | { type: "deployed"; tag: string | null };
 
 let activeReleaseJob: ReleaseJob | null = null;
 let activeAssistedUpdateLaunch = false;
@@ -2333,6 +2334,12 @@ async function registerRoutes() {
       job: activeReleaseJob,
     };
     stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+    const releaseRecord = await readReleaseStore();
+    const deployed: ReleaseStreamEvent = {
+      type: "deployed",
+      tag: releaseRecord?.tag ?? null,
+    };
+    stream.write(`data: ${JSON.stringify(deployed)}\n\n`);
 
     stream.on("close", () => {
       clearInterval(heartbeat);
