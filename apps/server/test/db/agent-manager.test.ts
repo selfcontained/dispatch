@@ -171,6 +171,33 @@ describe("AgentManager", () => {
       expect(agent.role).toBe("assisted_update");
     });
 
+    it("should inject explicit update API auth and instructions for assisted update agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        role: "assisted_update",
+        type: "codex",
+        useWorktree: false,
+        initialPrompt: [
+          "You are running an assisted Dispatch update on the host machine.",
+          "Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token.",
+          `curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{\"tag\":\"v9.9.9\"}'`,
+        ].join("\n"),
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("DISPATCH_API_URL=");
+      expect(setupScript).toContain("DISPATCH_RELEASE_UPDATE_TOKEN=");
+      expect(setupScript).toContain(
+        'curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update"'
+      );
+      expect(setupScript).toContain(
+        "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN"
+      );
+    });
+
     it("should persist reviewAgentType when provided", async () => {
       const agent = await manager.createAgent({
         type: "codex",
@@ -197,6 +224,20 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       expect(agent.fullAccess).toBe(true);
+      expect(agent.agentArgs).toContain(
+        "--dangerously-bypass-approvals-and-sandbox"
+      );
+    });
+
+    it("should append the claude full access flag for direct launches", async () => {
+      const agent = await manager.createAgent({
+        type: "claude",
+        cwd: "/tmp",
+        fullAccess: true,
+        useWorktree: false,
+      });
+      expect(agent.fullAccess).toBe(true);
+      expect(agent.agentArgs).toContain("--dangerously-skip-permissions");
     });
 
     it("should persist autoReview", async () => {
