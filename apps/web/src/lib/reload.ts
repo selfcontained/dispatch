@@ -12,6 +12,39 @@ function isControllingWorker(
   );
 }
 
+function getPendingWorker(
+  registration: ServiceWorkerRegistration
+): ServiceWorker | null {
+  return registration.installing ?? registration.waiting ?? null;
+}
+
+async function waitForPendingWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs: number
+): Promise<ServiceWorker | null> {
+  const existing = getPendingWorker(registration);
+  if (existing) return existing;
+  return await new Promise<ServiceWorker | null>((resolve) => {
+    const handleUpdateFound = (): void => {
+      const pending = getPendingWorker(registration);
+      if (pending) {
+        cleanup();
+        resolve(pending);
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      registration.removeEventListener("updatefound", handleUpdateFound);
+    };
+    registration.addEventListener("updatefound", handleUpdateFound);
+    const timer = setTimeout(() => {
+      const pending = getPendingWorker(registration);
+      cleanup();
+      resolve(pending);
+    }, timeoutMs);
+  });
+}
+
 async function waitForWorkerControl(
   worker: ServiceWorker,
   registration: ServiceWorkerRegistration,
@@ -74,7 +107,7 @@ export async function reloadApp(): Promise<void> {
       const registration = await navigator.serviceWorker.getRegistration();
       if (registration) {
         await registration.update();
-        const pending = registration.installing ?? registration.waiting;
+        const pending = await waitForPendingWorker(registration, 3_000);
         if (pending) {
           // autoUpdate sets skipWaiting:true so "waiting" is unusual, but
           // poke it anyway for edge-case timings.
