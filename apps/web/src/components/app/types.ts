@@ -58,6 +58,8 @@ export type Agent = {
     verdict: string | null;
     summary: string | null;
     filesReviewed: string[] | null;
+    roundNumber: number;
+    allowRecheck: boolean;
     updatedAt: string;
     resolution: {
       summary: string;
@@ -85,6 +87,8 @@ export type FeedbackItem = {
   status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored";
   resolutionReason: string | null;
   resolutionCommit: string | null;
+  roundNumber: number;
+  respondsToFeedbackId: number | null;
   resolvedAt: string | null;
   createdAt: string;
 };

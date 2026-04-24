@@ -121,6 +121,8 @@ export type AgentRecord = {
     verdict: string | null;
     summary: string | null;
     filesReviewed: string[] | null;
+    roundNumber: number;
+    allowRecheck: boolean;
     updatedAt: string;
     resolution: {
       summary: string;
@@ -4312,6 +4314,8 @@ export class AgentManager {
            'verdict', pr.verdict,
            'summary', pr.summary,
            'filesReviewed', pr.files_reviewed,
+           'roundNumber', pr.round_number,
+           'allowRecheck', pr.allow_recheck,
            'updatedAt', pr.updated_at,
            'resolution', (
              SELECT json_build_object(
