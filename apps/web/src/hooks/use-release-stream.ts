@@ -102,7 +102,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
             setJob((prev) =>
               prev ? { ...prev, phase: "done", tag: data.tag } : prev
             );
-            setTimeout(() => reloadApp(), 1500);
+            setTimeout(() => reloadApp({ waitForUpdate: true }), 1500);
           }
         }
       } catch {

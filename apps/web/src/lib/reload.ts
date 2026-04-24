@@ -97,12 +97,16 @@ async function waitForWorkerControl(
   });
 }
 
-export async function reloadApp(): Promise<void> {
+type ReloadAppOptions = {
+  waitForUpdate?: boolean;
+};
+
+export async function reloadApp(options: ReloadAppOptions = {}): Promise<void> {
   // vite-plugin-pwa's updateSW(true) is a no-op in autoUpdate mode and
   // neither mode triggers registration.update() on demand. Without this,
   // clicking Reload reloads before a new SW has installed, so the old
   // precached bundle is served and the toast reappears.
-  if ("serviceWorker" in navigator) {
+  if (options.waitForUpdate && "serviceWorker" in navigator) {
     try {
       const registration = await navigator.serviceWorker.getRegistration();
       if (registration) {
