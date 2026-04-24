@@ -272,7 +272,7 @@ function stepsFromReview(
     step2 = { label: "Rechecking", color: "orange", filled: false };
   } else if (allowRecheck && roundNumber < 2) {
     step2 = hasResolution
-      ? { label: "Awaiting resolution", color: "muted", filled: false }
+      ? { label: "Awaiting recheck", color: "muted", filled: false }
       : { label: "Awaiting resolution", color: "muted", filled: false };
   } else {
     step2 = hasResolution

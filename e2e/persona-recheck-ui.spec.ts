@@ -99,6 +99,15 @@ test.describe("Persona recheck UI", () => {
       cwd: process.cwd(),
       useWorktree: false,
     });
+    let launchRouteCalls = 0;
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().includes(`/api/v1/agents/${agent.id}/persona-reviews`)
+      ) {
+        launchRouteCalls += 1;
+      }
+    });
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page);
@@ -116,22 +125,10 @@ test.describe("Persona recheck UI", () => {
     await page.getByTestId("launch-reviewer-submit").click();
 
     await expect
-      .poll(async () => {
-        const res = await request.get("/api/v1/agents", {
-          headers: AUTH_HEADER,
-        });
-        const body = (await res.json()) as {
-          agents: Array<{
-            id: string;
-            parentAgentId?: string | null;
-            review?: { allowRecheck?: boolean } | null;
-          }>;
-        };
-        const child = body.agents.find(
-          (item) => item.parentAgentId === agent.id
-        );
-        return child?.review?.allowRecheck === true;
-      })
-      .toBe(true);
+      .poll(() =>
+        page.getByRole("heading", { name: "Launch Review" }).isVisible()
+      )
+      .toBe(false);
+    await expect.poll(() => launchRouteCalls).toBe(0);
   });
 });

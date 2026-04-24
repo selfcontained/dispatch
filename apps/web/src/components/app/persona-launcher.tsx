@@ -124,33 +124,24 @@ export function PersonaLauncher({
     );
   };
 
+  const buildLaunchPrompt = () => {
+    if (!selectedPersona) return "";
+    return [
+      `Use the dispatch_launch_persona MCP tool to launch the "${selectedPersona}" persona on your current work.`,
+      `Use agentType: "${selectedAgentType}" and allowRecheck: ${allowRecheck ? "true" : "false"}.`,
+      "Treat this as an author-requested review for the current worktree/branch.",
+      "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet; wait using dispatch_await_review, address round-1 feedback, call dispatch_resolve_feedback for each item, submit the resolution, then wait for round 2.",
+      "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
+    ].join(" ");
+  };
+
   const launchPersona = async () => {
-    if (!selectedPersona || isLaunching) return;
+    if (!selectedPersona || isLaunching || !sendTerminalInput) return;
     setIsLaunching(true);
     try {
       await persistReviewAgentType(selectedAgentType);
-      await api(`/api/v1/agents/${agent.id}/persona-reviews`, {
-        method: "POST",
-        body: JSON.stringify({
-          persona: selectedPersona,
-          agentType: selectedAgentType,
-          allowRecheck,
-        }),
-      });
-      await queryClient.invalidateQueries({ queryKey: ["agents"] });
+      sendTerminalInput(buildLaunchPrompt() + "\r");
       setDialogOpen(false);
-    } catch (error) {
-      if (sendTerminalInput) {
-        const message = [
-          `Use the dispatch_launch_persona MCP tool to launch the "${selectedPersona}" persona on your current work.`,
-          `Use agentType: "${selectedAgentType}" and allowRecheck: ${allowRecheck ? "true" : "false"}.`,
-          "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
-        ].join(" ");
-        sendTerminalInput(message + "\r");
-        setDialogOpen(false);
-      } else {
-        throw error;
-      }
     } finally {
       setIsLaunching(false);
     }
@@ -428,7 +419,9 @@ export function PersonaLauncher({
                 <Button
                   type="button"
                   variant="primary"
-                  disabled={!selectedPersona || isLaunching}
+                  disabled={
+                    !selectedPersona || isLaunching || !sendTerminalInput
+                  }
                   onClick={() => {
                     void launchPersona();
                   }}
