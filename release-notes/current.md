@@ -1,5 +1,6 @@
 ## What's Changed
-* fix(web): wait for new SW to install before reloading from update toast by @selfcontained in https://github.com/selfcontained/dispatch/pull/396
+* Prefer managed flow for assisted updates by @selfcontained in https://github.com/selfcontained/dispatch/pull/395
+* fix(web): wait for late service worker updatefound before reload by @selfcontained in https://github.com/selfcontained/dispatch/pull/397
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.17.1...v0.17.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.17.2...v0.17.3
