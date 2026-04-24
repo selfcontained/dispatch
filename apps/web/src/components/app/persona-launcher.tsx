@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CircleAlert } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -25,11 +25,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
@@ -363,48 +358,25 @@ export function PersonaLauncher({
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                     <Checkbox
                       checked={allowRecheck}
                       onCheckedChange={() =>
                         setAllowRecheck((current) => !current)
                       }
                       className="mt-0.5"
-                      id={`launch-reviewer-allow-recheck-${agent.id}`}
                       data-testid="launch-reviewer-allow-recheck"
                     />
-                    <div className="flex items-start gap-3">
-                      <label
-                        htmlFor={`launch-reviewer-allow-recheck-${agent.id}`}
-                        className="flex min-w-0 flex-1 cursor-pointer items-start gap-3"
-                      >
-                        <span className="space-y-1">
-                          <span className="block text-sm font-medium text-foreground">
-                            Re-review after I address feedback
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            Adds a second pass after you resolve the first round
-                            of feedback.
-                          </span>
-                        </span>
-                      </label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="mt-0.5 shrink-0 text-muted-foreground/70 transition-colors hover:text-foreground"
-                            aria-label="About re-review"
-                          >
-                            <CircleAlert className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-64 text-xs">
-                          Reviewer will stay alive after its initial verdict and
-                          verify your resolution (~several extra minutes).
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Re-review after feedback is addressed
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Adds a second pass once the first round of feedback is
+                        resolved.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </div>
 
