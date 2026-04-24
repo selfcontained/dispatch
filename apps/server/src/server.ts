@@ -69,6 +69,7 @@ import {
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
+  getReleaseUpdateAgentId,
   isScopedMcpRoute,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
@@ -695,6 +696,7 @@ type ReleaseStreamEvent =
   | { type: "tag"; tag: string };
 
 let activeReleaseJob: ReleaseJob | null = null;
+let activeAssistedUpdateLaunch = false;
 const releaseStreamClients = new Set<NodeJS.WritableStream>();
 
 const serverDir =
@@ -743,6 +745,8 @@ Update details:
 - Target tag: ${input.tag}
 - Production checkout: ${serverDir}
 - Health endpoint: ${dispatchHealthUrl()}
+- Dispatch API base URL: $DISPATCH_API_URL
+- Dispatch API update token env: $DISPATCH_RELEASE_UPDATE_TOKEN
 - Main service log: ~/.dispatch/logs/dispatch.log
 - Failure log path: ~/.dispatch/logs/last-release-failure.log
 - Service restart command: ${serviceCommand}
@@ -757,12 +761,14 @@ Guardrails:
 
 Suggested workflow:
 1. Capture the current repo/tag/service state.
-2. Perform the update to ${input.tag}.
+2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
+   \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{"tag":"${input.tag}"}'\`
 3. Monitor restart and health until success or failure is clear.
-4. If unhealthy, inspect launchd/systemd state and recent logs.
-5. Retry one clean restart if that is the safest next step.
-6. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
-7. Summarize outcome, root cause, commands run, and any remaining risk.
+4. If the managed flow request fails or the service does not come back, inspect launchd/systemd state and recent logs before deciding on recovery.
+5. Reuse existing Dispatch service scripts/commands where they already encode the normal update behavior; do not manually reproduce the normal update sequence unless the managed path has already failed and you are in explicit recovery mode.
+6. Retry one clean restart if that is the safest next step.
+7. If still broken, identify the last confirmed healthy tag from repo/service history, roll back to it, and verify health.
+8. Summarize outcome, root cause, commands run, and any remaining risk.
 `.trim();
 }
 
@@ -2165,6 +2171,7 @@ async function registerRoutes() {
 
   app.post("/api/v1/release/update", async (request, reply) => {
     const body = request.body as { tag?: unknown } | undefined;
+    const bearerToken = getBearerToken(request);
 
     if (
       !body?.tag ||
@@ -2177,6 +2184,22 @@ async function registerRoutes() {
     }
 
     const tag = body.tag as string;
+    const releaseUpdateAgentId = bearerToken
+      ? getReleaseUpdateAgentId(config.authToken, bearerToken)
+      : null;
+
+    if (releaseUpdateAgentId) {
+      const agent = await agentManager.getAgent(releaseUpdateAgentId);
+      if (
+        !agent ||
+        agent.role !== "assisted_update" ||
+        agent.cwd !== serverDir
+      ) {
+        return reply
+          .code(403)
+          .send({ error: "Invalid assisted update token." });
+      }
+    }
 
     // Only one release/update at a time
     if (
@@ -2239,14 +2262,22 @@ async function registerRoutes() {
         .send({ error: "A release or update is already in progress." });
     }
 
-    if (await hasActiveAssistedUpdateAgent()) {
+    if (activeAssistedUpdateLaunch) {
       return reply.code(409).send({
         error:
-          "An assisted update agent is already active for the production checkout.",
+          "An assisted update agent is already being created for the production checkout.",
       });
     }
 
+    activeAssistedUpdateLaunch = true;
     try {
+      if (await hasActiveAssistedUpdateAgent()) {
+        return reply.code(409).send({
+          error:
+            "An assisted update agent is already active for the production checkout.",
+        });
+      }
+
       const record = await readReleaseStore().catch(() => null);
       const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
       const worktreeLocation: WorktreeLocation =
@@ -2277,6 +2308,8 @@ async function registerRoutes() {
       return reply.code(201).send({ agent: withStreamFlag(agent) });
     } catch (error) {
       return handleAgentError(reply, error);
+    } finally {
+      activeAssistedUpdateLaunch = false;
     }
   });
 

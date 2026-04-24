@@ -27,11 +27,28 @@ function validateMcpScopeToken(
   token: string,
   expectedScope: string
 ): boolean {
-  const expected = createMcpScopeToken(secret, expectedScope);
-  const actualBuffer = Buffer.from(token, "utf-8");
-  const expectedBuffer = Buffer.from(expected, "utf-8");
+  const actualScope = getValidMcpScope(secret, token);
+  if (!actualScope) return false;
+  const actualBuffer = Buffer.from(actualScope, "utf-8");
+  const expectedBuffer = Buffer.from(expectedScope, "utf-8");
   if (actualBuffer.length !== expectedBuffer.length) return false;
   return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function getValidMcpScope(secret: string, token: string): string | null {
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  let scope: string;
+  try {
+    scope = Buffer.from(payload, "base64url").toString("utf-8");
+  } catch {
+    return null;
+  }
+  const expected = createMcpScopeToken(secret, scope);
+  const actualBuffer = Buffer.from(token, "utf-8");
+  const expectedBuffer = Buffer.from(expected, "utf-8");
+  if (actualBuffer.length !== expectedBuffer.length) return null;
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer) ? scope : null;
 }
 
 export async function isPasswordSet(pool: Pool): Promise<boolean> {
@@ -142,7 +159,11 @@ export function shouldAcceptApiBearerToken(
   token: string,
   serverAuthToken: string
 ): boolean {
-  return token === serverAuthToken;
+  return (
+    token === serverAuthToken ||
+    (url === "/api/v1/release/update" &&
+      getReleaseUpdateAgentId(serverAuthToken, token) !== null)
+  );
 }
 
 export function createAgentMcpToken(secret: string, agentId: string): string {
@@ -172,6 +193,31 @@ export function validateJobMcpToken(
   agentId: string
 ): boolean {
   return validateMcpScopeToken(secret, token, `job:${runId}:${agentId}`);
+}
+
+export function createReleaseUpdateToken(
+  secret: string,
+  agentId: string
+): string {
+  return createMcpScopeToken(secret, `release-update:${agentId}`);
+}
+
+export function validateReleaseUpdateToken(
+  secret: string,
+  token: string,
+  agentId: string
+): boolean {
+  return validateMcpScopeToken(secret, token, `release-update:${agentId}`);
+}
+
+export function getReleaseUpdateAgentId(
+  secret: string,
+  token: string
+): string | null {
+  const scope = getValidMcpScope(secret, token);
+  if (!scope?.startsWith("release-update:")) return null;
+  const agentId = scope.slice("release-update:".length);
+  return agentId.length > 0 ? agentId : null;
 }
 
 /**

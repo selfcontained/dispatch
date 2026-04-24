@@ -18,7 +18,11 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
-import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
+import {
+  createAgentMcpToken,
+  createJobMcpToken,
+  createReleaseUpdateToken,
+} from "../auth.js";
 import {
   createGitWorktree,
   cleanupGitWorktree,
@@ -140,6 +144,11 @@ const CLI_BY_AGENT_TYPE: Record<
   claude: "claudeBin",
   opencode: "opencodeBin",
 };
+
+const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
+const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
+const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -508,8 +517,17 @@ export class AgentManager {
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
     const role: AgentRole = input.role ?? "standard";
-    const agentArgs = input.agentArgs ?? [];
     const fullAccess = input.fullAccess ?? false;
+    const fullAccessArg =
+      type === "claude"
+        ? CLAUDE_FULL_ACCESS_ARG
+        : type === "codex"
+          ? CODEX_FULL_ACCESS_ARG
+          : null;
+    const agentArgs =
+      fullAccess && fullAccessArg
+        ? Array.from(new Set([...(input.agentArgs ?? []), fullAccessArg]))
+        : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const tmuxSession = this.toSessionName(id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
@@ -623,6 +641,7 @@ export class AgentManager {
         // Build the agent command that the setup script will exec into
         const agentCommand = this.buildAgentCommand(
           type,
+          role,
           agentArgs,
           mediaDir,
           tmuxSession,
@@ -818,6 +837,7 @@ export class AgentManager {
         agent.name,
         agent.persona,
         agent.type,
+        agent.role,
         agent.agentArgs ?? [],
         agent.fullAccess ?? false,
         cliSessionId ?? undefined,
@@ -2036,6 +2056,7 @@ export class AgentManager {
     agentName: string,
     persona: string | null,
     type: AgentType,
+    role: AgentRole,
     agentArgs: string[],
     fullAccess: boolean,
     cliSessionId?: string,
@@ -2050,6 +2071,7 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
     const agentCommand = this.buildAgentCommand(
       type,
+      role,
       agentArgs,
       mediaDir,
       sessionName,
@@ -2190,6 +2212,7 @@ export class AgentManager {
 
   private buildAgentCommand(
     type: AgentType,
+    role: AgentRole,
     args: string[],
     mediaDir: string,
     sessionName: string,
@@ -2244,6 +2267,17 @@ export class AgentManager {
       // Prevents cwd drift back to the original repo root during long conversations.
       `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`,
     ];
+
+    if (role === "assisted_update") {
+      envPrefixParts.push(
+        `${DISPATCH_API_URL_ENV}=${this.shellEscape(
+          `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`
+        )}`,
+        `${DISPATCH_RELEASE_UPDATE_TOKEN_ENV}=${this.shellEscape(
+          createReleaseUpdateToken(this.config.authToken, agentId)
+        )}`
+      );
+    }
 
     // Forward the clipboard display to agent sessions so CLI tools can read
     // images pasted via the browser clipboard (xclip needs a DISPLAY).
