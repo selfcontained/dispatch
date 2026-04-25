@@ -24,8 +24,10 @@ import {
   createReleaseUpdateToken,
 } from "../auth.js";
 import {
-  createGitWorktree,
+  assertSafeRefName,
   cleanupGitWorktree,
+  createGitWorktree,
+  GitWorktreeError,
 } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
@@ -544,6 +546,37 @@ export class AgentManager {
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
 
+    // Normalize ref names up front. assertSafeRefName trims, rejects empty
+    // values, and forbids any character that isn't alphanumeric / `_./-`/`/` —
+    // which (a) keeps malicious input out of the bash setup script (CRU-139
+    // injection vector) and (b) gives us a single canonical form to persist
+    // and compare against during archive cleanup. Skip when the field wasn't
+    // provided so the existing fallback paths still apply.
+    let normalizedBaseBranch: string | undefined;
+    let normalizedWorktreeBranch: string | undefined;
+    try {
+      if (input.baseBranch !== undefined && input.baseBranch.trim() !== "") {
+        normalizedBaseBranch = assertSafeRefName(
+          input.baseBranch,
+          "baseBranch"
+        );
+      }
+      if (
+        input.worktreeBranch !== undefined &&
+        input.worktreeBranch.trim() !== ""
+      ) {
+        normalizedWorktreeBranch = assertSafeRefName(
+          input.worktreeBranch,
+          "worktreeBranch"
+        );
+      }
+    } catch (err) {
+      if (err instanceof GitWorktreeError) {
+        throw new AgentError(err.message, err.statusCode);
+      }
+      throw err;
+    }
+
     // Compute worktree params for the setup script
     let worktreeBranchName: string | undefined;
     let worktreePathOverride: string | undefined;
@@ -554,11 +587,11 @@ export class AgentManager {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "");
         worktreeBranchName =
-          input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+          normalizedWorktreeBranch || `${id}/${slugName || "work"}`;
       } else {
         // When checking out an existing branch without creating a new one,
         // the worktree branch is the starting branch itself.
-        worktreeBranchName = input.baseBranch?.trim() || "main";
+        worktreeBranchName = normalizedBaseBranch || "main";
       }
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
@@ -604,7 +637,7 @@ export class AgentManager {
         input.reviewAgentType ?? null,
         cliSessionId,
         input.autoReview ?? false,
-        input.baseBranch ?? null,
+        normalizedBaseBranch ?? null,
       ]
     );
 
@@ -620,7 +653,7 @@ export class AgentManager {
             cwd: originalCwd,
             name,
             branchName: createNewBranch ? worktreeBranchName : undefined,
-            baseBranch: input.baseBranch,
+            baseBranch: normalizedBaseBranch,
             worktreePath: worktreePathOverride,
             createNewBranch,
           });
@@ -683,7 +716,7 @@ export class AgentManager {
           useWorktree,
           createNewBranch,
           worktreeBranchName,
-          baseBranch: input.baseBranch,
+          baseBranch: normalizedBaseBranch,
           worktreePathOverride,
           agentName: name,
           agentCommand,
@@ -4576,6 +4609,16 @@ export class AgentManager {
     ];
 
     if (useWorktree && worktreeBranchName) {
+      // Defense in depth: refs flowing through this function are interpolated
+      // into a bash script that runs in tmux, so re-validate them here even
+      // though createAgent already normalized them. A failure here is a bug,
+      // not user error.
+      assertSafeRefName(worktreeBranchName, "worktreeBranchName");
+      const effectiveBaseBranch = assertSafeRefName(
+        params.baseBranch || "main",
+        "baseBranch"
+      );
+
       const phaseLabel = createNewBranch
         ? "Creating git worktree"
         : "Creating managed git worktree";
@@ -4591,9 +4634,6 @@ export class AgentManager {
 
       // Determine worktree path arg
       const wtPathArg = worktreePathOverride ? `"${worktreePathOverride}"` : "";
-
-      // We need to compute the worktree path. Use git worktree add directly.
-      const effectiveBaseBranch = params.baseBranch || "main";
       lines.push(
         `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
         `  warn "Not a git repository — skipping worktree"`,

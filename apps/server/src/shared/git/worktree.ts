@@ -472,19 +472,33 @@ function normalizeRefName(
   fallback: string,
   fieldName: string
 ): string {
-  const normalized = (value?.trim() || fallback).trim();
-  if (!normalized) {
+  const candidate = (value?.trim() || fallback).trim();
+  return assertSafeRefName(candidate, fieldName);
+}
+
+/**
+ * Trim a ref name and ensure it only contains characters that are both valid
+ * in git ref names and safe to interpolate into a shell command (so callers
+ * that splice the result into bash, env vars, etc. don't have to do their own
+ * escaping). Throws `GitWorktreeError(400)` on whitespace, shell
+ * metacharacters, or other unsafe input. Callers that already know the value
+ * is non-empty should pass it through here before persisting or interpolating.
+ */
+export function assertSafeRefName(value: string, fieldName: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
     throw new GitWorktreeError(`${fieldName} must not be empty.`, 400);
   }
-
-  if (/\s/.test(normalized)) {
+  // Allow letters, digits, '_', '.', '-', and '/'. This is a strict subset of
+  // git's own ref-name rules and rules out every shell metacharacter (";",
+  // "\"", "'", "$", backtick, "&", "|", "(", ")", "<", ">", whitespace, etc.).
+  if (!/^[\w./-]+$/.test(trimmed)) {
     throw new GitWorktreeError(
-      `${fieldName} must not contain whitespace.`,
+      `${fieldName} may only contain letters, digits, '.', '_', '-', or '/'.`,
       400
     );
   }
-
-  return normalized;
+  return trimmed;
 }
 
 function slugify(value: string): string {
