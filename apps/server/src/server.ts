@@ -4517,8 +4517,7 @@ async function registerRoutes() {
   app.get(
     "/api/v1/agents/:id/terminal/ws",
     { websocket: true },
-    async (connection, request) => {
-      const socket = connection.socket;
+    async (socket, request) => {
       const params = request.params as { id?: string };
       const query = request.query as {
         token?: string;
