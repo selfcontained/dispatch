@@ -87,38 +87,63 @@ test.describe("Worktree", () => {
   test("create dialog shows worktree checkbox defaulting to checked", async ({
     page,
   }) => {
-    await loadApp(page);
+    // The worktree section is gated on the cwd being a git repository (CRU-139),
+    // so point the dialog at one before checking the default state.
+    const repoPath = createTestRepo(`default-${Date.now()}`);
+    try {
+      await loadApp(page);
 
-    await page.getByTestId("create-agent-button").click();
-    const form = page.getByTestId("create-agent-form");
-    await expect(form).toBeVisible();
+      await page.getByTestId("create-agent-button").click();
+      const form = page.getByTestId("create-agent-form");
+      await expect(form).toBeVisible();
 
-    // Worktree checkbox should exist and be checked by default
-    const worktreeCheckbox = page.getByTestId("create-agent-worktree");
-    await expect(worktreeCheckbox).toBeVisible();
-    await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+      const cwdInput = page.getByTestId("create-agent-cwd");
+      await cwdInput.fill(repoPath);
+      // Wait for path validation to register the cwd as a git repo.
+      await expect(form.getByText("Git repository")).toBeVisible({
+        timeout: 5000,
+      });
 
-    // "Create git worktree" label text should be visible
-    await expect(form.getByText("Create git worktree")).toBeVisible();
+      // Worktree checkbox should exist and be checked by default
+      const worktreeCheckbox = page.getByTestId("create-agent-worktree");
+      await expect(worktreeCheckbox).toBeVisible();
+      await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+
+      // "Create managed git worktree" label text should be visible
+      await expect(form.getByText("Create managed git worktree")).toBeVisible();
+    } finally {
+      cleanupTestRepo(repoPath);
+    }
   });
 
   test("worktree checkbox can be toggled off and on", async ({ page }) => {
-    await loadApp(page);
+    const repoPath = createTestRepo(`toggle-${Date.now()}`);
+    try {
+      await loadApp(page);
 
-    await page.getByTestId("create-agent-button").click();
-    const form = page.getByTestId("create-agent-form");
-    await expect(form).toBeVisible();
+      await page.getByTestId("create-agent-button").click();
+      const form = page.getByTestId("create-agent-form");
+      await expect(form).toBeVisible();
 
-    const worktreeCheckbox = page.getByTestId("create-agent-worktree");
-    await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+      const cwdInput = page.getByTestId("create-agent-cwd");
+      await cwdInput.fill(repoPath);
+      await expect(form.getByText("Git repository")).toBeVisible({
+        timeout: 5000,
+      });
 
-    // Toggle it off by clicking the label text (avoids double-toggle from label+button)
-    await form.getByText("Create git worktree").click();
-    await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "false");
+      const worktreeCheckbox = page.getByTestId("create-agent-worktree");
+      await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
 
-    // Toggle it back on
-    await form.getByText("Create git worktree").click();
-    await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+      // Toggle it off by clicking the label text (avoids double-toggle from label+button)
+      await form.getByText("Create managed git worktree").click();
+      await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "false");
+
+      // Toggle it back on
+      await form.getByText("Create managed git worktree").click();
+      await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
+    } finally {
+      cleanupTestRepo(repoPath);
+    }
   });
 
   test("POST /api/v1/agents accepts useWorktree=false", async ({ request }) => {

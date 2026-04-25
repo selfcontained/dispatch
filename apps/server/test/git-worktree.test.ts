@@ -53,6 +53,7 @@ describe("git worktree services", () => {
     const result = await createGitWorktree({
       cwd: path.join(repoRoot, "nested"),
       name: "Feature Auth Flow",
+      createNewBranch: true,
     });
 
     expect(result).toEqual({
@@ -64,6 +65,104 @@ describe("git worktree services", () => {
       baseRef: "origin/main",
       baseSha: "abc123",
     });
+  });
+
+  it("derives a hashed worktree-path slug when createNewBranch is false (review #1161)", async () => {
+    // `feature/x` and `feature-x` slug-collapse to `feature-x` with the
+    // legacy mapping. The hash discriminator added for createNewBranch=false
+    // gives each its own on-disk path.
+    const repoRoot = path.join(tempRoot, "repo");
+    const adds: string[] = [];
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+      if (key.startsWith(`-C ${repoRoot} worktree add `)) {
+        adds.push(key);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} fetch origin feature/x --quiet`:
+        case `-C ${repoRoot} fetch origin feature-x --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-parse --verify origin/feature/x`:
+        case `-C ${repoRoot} rev-parse --verify origin/feature-x`:
+          return { exitCode: 0, stdout: "deadbeef", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const a = await createGitWorktree({
+      cwd: repoRoot,
+      name: "x",
+      baseBranch: "feature/x",
+      createNewBranch: false,
+    });
+    const b = await createGitWorktree({
+      cwd: repoRoot,
+      name: "y",
+      baseBranch: "feature-x",
+      createNewBranch: false,
+    });
+
+    expect(a.worktreePath).not.toBe(b.worktreePath);
+    expect(a.worktreePath).toMatch(/-feature-x-[0-9a-f]{6}$/);
+    expect(b.worktreePath).toMatch(/-feature-x-[0-9a-f]{6}$/);
+  });
+
+  it("checks out an existing branch when createNewBranch is false", async () => {
+    const repoRoot = path.join(tempRoot, "repo");
+    let recordedWorktreePath: string | null = null;
+    const calls: string[] = [];
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+      calls.push(key);
+      const addPrefix = `-C ${repoRoot} worktree add `;
+      if (key.startsWith(addPrefix)) {
+        const rest = key.slice(addPrefix.length);
+        const [pathArg, branchArg] = rest.split(" ");
+        recordedWorktreePath = pathArg;
+        expect(branchArg).toBe("feature/x");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} fetch origin feature/x --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-parse --verify origin/feature/x`:
+          return { exitCode: 0, stdout: "deadbeef", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const result = await createGitWorktree({
+      cwd: repoRoot,
+      name: "Review Branch X",
+      baseBranch: "feature/x",
+      createNewBranch: false,
+    });
+
+    // Path slug derives from the base branch with a hash discriminator (see
+    // worktreePathSlug). Lock the prefix and the 6-char hex suffix shape.
+    expect(result.worktreePath).toMatch(
+      new RegExp(`^${tempRoot}/repo-feature-x-[0-9a-f]{6}$`)
+    );
+    expect(recordedWorktreePath).toBe(result.worktreePath);
+    // Must not pre-check for a clashing branch — the user's branch is expected
+    // to exist.
+    expect(
+      calls.some((c) => c.includes("show-ref --verify --quiet refs/heads/"))
+    ).toBe(false);
+    // Must not set upstream tracking — we're on the user's branch as-is.
+    expect(calls.some((c) => c.includes("--set-upstream-to"))).toBe(false);
+    expect(result.branchName).toBe("feature/x");
+    expect(result.baseBranch).toBe("feature/x");
   });
 
   it("rejects worktree creation when the branch already exists", async () => {
@@ -90,6 +189,7 @@ describe("git worktree services", () => {
       createGitWorktree({
         cwd: repoRoot,
         name: "Existing Branch",
+        createNewBranch: true,
       })
     ).rejects.toMatchObject({
       name: "GitWorktreeError",

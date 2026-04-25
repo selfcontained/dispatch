@@ -24,8 +24,11 @@ import {
   createReleaseUpdateToken,
 } from "../auth.js";
 import {
-  createGitWorktree,
+  assertSafeRefName,
   cleanupGitWorktree,
+  createGitWorktree,
+  GitWorktreeError,
+  worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
@@ -162,6 +165,12 @@ type CreateAgentInput = {
   agentArgs?: string[];
   fullAccess?: boolean;
   useWorktree?: boolean;
+  /**
+   * When true (default), create a new branch for the worktree from
+   * `baseBranch`. When false, check out `baseBranch` directly without
+   * creating a new branch.
+   */
+  createNewBranch?: boolean;
   worktreeBranch?: string;
   baseBranch?: string;
   worktreeLocation?: WorktreeLocation;
@@ -536,27 +545,64 @@ export class AgentManager {
     await mkdir(mediaDir, { recursive: true });
 
     const useWorktree = input.useWorktree !== false;
+    const createNewBranch = input.createNewBranch ?? true;
+
+    // Normalize ref names up front. assertSafeRefName trims, rejects empty
+    // values, and forbids any character that isn't alphanumeric / `_./-`/`/` —
+    // which (a) keeps malicious input out of the bash setup script (CRU-139
+    // injection vector) and (b) gives us a single canonical form to persist
+    // and compare against during archive cleanup. Skip when the field wasn't
+    // provided so the existing fallback paths still apply.
+    let normalizedBaseBranch: string | undefined;
+    let normalizedWorktreeBranch: string | undefined;
+    try {
+      if (input.baseBranch !== undefined && input.baseBranch.trim() !== "") {
+        normalizedBaseBranch = assertSafeRefName(
+          input.baseBranch,
+          "baseBranch"
+        );
+      }
+      if (
+        input.worktreeBranch !== undefined &&
+        input.worktreeBranch.trim() !== ""
+      ) {
+        normalizedWorktreeBranch = assertSafeRefName(
+          input.worktreeBranch,
+          "worktreeBranch"
+        );
+      }
+    } catch (err) {
+      if (err instanceof GitWorktreeError) {
+        throw new AgentError(err.message, err.statusCode);
+      }
+      throw err;
+    }
 
     // Compute worktree params for the setup script
     let worktreeBranchName: string | undefined;
     let worktreePathOverride: string | undefined;
     if (useWorktree) {
-      const slugName = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-      worktreeBranchName =
-        input.worktreeBranch?.trim() || `${id}/${slugName || "work"}`;
+      if (createNewBranch) {
+        const slugName = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+        worktreeBranchName =
+          normalizedWorktreeBranch || `${id}/${slugName || "work"}`;
+      } else {
+        // When checking out an existing branch without creating a new one,
+        // the worktree branch is the starting branch itself.
+        worktreeBranchName = normalizedBaseBranch || "main";
+      }
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
+        // For nested layout, derive the same hashed slug so two agents on
+        // slug-equivalent existing branches don't pick the same path.
         worktreePathOverride = path.join(
           originalCwd,
           ".dispatch",
           "worktrees",
-          worktreeBranchName
-            .replace(/[^a-z0-9]+/gi, "-")
-            .replace(/^-+|-+$/g, "")
-            .toLowerCase()
+          worktreePathSlug(worktreeBranchName, { createNewBranch })
         );
       }
     }
@@ -591,7 +637,7 @@ export class AgentManager {
         input.reviewAgentType ?? null,
         cliSessionId,
         input.autoReview ?? false,
-        input.baseBranch ?? null,
+        normalizedBaseBranch ?? null,
       ]
     );
 
@@ -606,9 +652,10 @@ export class AgentManager {
           const result = await createGitWorktree({
             cwd: originalCwd,
             name,
-            branchName: worktreeBranchName,
-            baseBranch: input.baseBranch,
+            branchName: createNewBranch ? worktreeBranchName : undefined,
+            baseBranch: normalizedBaseBranch,
             worktreePath: worktreePathOverride,
+            createNewBranch,
           });
           worktreePath = result.worktreePath;
           worktreeBranch = result.branchName;
@@ -619,10 +666,26 @@ export class AgentManager {
           );
           await this.setupWorktree(originalCwd, worktreePath);
         } catch (error) {
+          // The user explicitly asked for an isolated worktree. Don't silently
+          // fall back to running in their primary checkout — surface the
+          // failure and mark the agent as failed so it shows up in the UI
+          // with a clear last_error.
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const lastError = `Worktree creation failed: ${message}`;
           this.logger.warn(
             { err: error, agentId: id },
             "Worktree creation failed for inert agent."
           );
+          await this.setAgentStatus(id, "stopped", lastError);
+          await this.setSystemLatestEvent(id, {
+            type: "blocked",
+            message: lastError,
+          });
+          if (error instanceof GitWorktreeError) {
+            throw new AgentError(lastError, error.statusCode);
+          }
+          throw new AgentError(lastError, 500);
         }
       }
 
@@ -667,8 +730,9 @@ export class AgentManager {
           agentType: type,
           originalCwd,
           useWorktree,
+          createNewBranch,
           worktreeBranchName,
-          baseBranch: input.baseBranch,
+          baseBranch: normalizedBaseBranch,
           worktreePathOverride,
           agentName: name,
           agentCommand,
@@ -780,6 +844,22 @@ export class AgentManager {
 
   async updateSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.setSetupPhase(id, phase);
+  }
+
+  /**
+   * Called by the tmux setup script when an unrecoverable failure happens
+   * during setup (e.g. `git worktree add` failed). Marks the agent as
+   * stopped with the supplied message in `last_error` so the UI surfaces a
+   * clear reason instead of the agent silently disappearing.
+   */
+  async markSetupFailed(id: string, message: string): Promise<AgentRecord> {
+    const trimmed = message.trim().slice(0, 1000) || "Setup failed.";
+    await this.setAgentStatus(id, "stopped", trimmed);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: trimmed,
+    });
+    return (await this.getAgent(id)) as AgentRecord;
   }
 
   async updateReviewAgentType(
@@ -1085,9 +1165,15 @@ export class AgentManager {
             await publishPhase("worktree-cleanup");
 
             const tCleanup = Date.now();
+            // If the worktree is on the user's original starting branch
+            // (i.e. no dispatch-created branch), don't delete that branch —
+            // it belongs to the user, not to this agent.
+            const dispatchOwnsBranch =
+              !!agent.worktreeBranch &&
+              (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
             await cleanupGitWorktree({
               cwd: agent.worktreePath,
-              deleteBranch: true,
+              deleteBranch: dispatchOwnsBranch,
               force: true,
             });
             durations.worktreeCleanup = Date.now() - tCleanup;
@@ -4478,6 +4564,7 @@ export class AgentManager {
     agentType: AgentType;
     originalCwd: string;
     useWorktree: boolean;
+    createNewBranch: boolean;
     worktreeBranchName?: string;
     baseBranch?: string;
     worktreePathOverride?: string;
@@ -4491,6 +4578,7 @@ export class AgentManager {
       agentType,
       originalCwd,
       useWorktree,
+      createNewBranch,
       worktreeBranchName,
       worktreePathOverride,
       agentName,
@@ -4507,6 +4595,15 @@ export class AgentManager {
       `-H "Content-Type: application/json" ` +
       `-H "Authorization: Bearer ${authToken}" ` +
       `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
+
+    // Helper to report an unrecoverable setup failure. The bash variable
+    // SETUP_ERROR_MSG is interpolated as a JSON string body so the message
+    // surfaces in the agent's last_error.
+    const curlSetupError = (msgBashVar: string) =>
+      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/error" ` +
+      `-H "Content-Type: application/json" ` +
+      `-H "Authorization: Bearer ${authToken}" ` +
+      `-d "{\\"message\\":\\"\${${msgBashVar}}\\"}" > /dev/null 2>&1 || true`;
 
     // Helper function for the completion callback
     const curlComplete = (
@@ -4553,18 +4650,31 @@ export class AgentManager {
     ];
 
     if (useWorktree && worktreeBranchName) {
+      // Defense in depth: refs flowing through this function are interpolated
+      // into a bash script that runs in tmux, so re-validate them here even
+      // though createAgent already normalized them. A failure here is a bug,
+      // not user error.
+      assertSafeRefName(worktreeBranchName, "worktreeBranchName");
+      const effectiveBaseBranch = assertSafeRefName(
+        params.baseBranch || "main",
+        "baseBranch"
+      );
+
+      const phaseLabel = createNewBranch
+        ? "Creating git worktree"
+        : "Creating managed git worktree";
+      const branchLine = createNewBranch
+        ? `info "Branch: ${worktreeBranchName}"`
+        : `info "Checking out: ${worktreeBranchName}"`;
       lines.push(
         `# --- Worktree creation ---`,
-        `phase "Creating git worktree"`,
-        `info "Branch: ${worktreeBranchName}"`,
+        `phase "${phaseLabel}"`,
+        branchLine,
         ``
       );
 
       // Determine worktree path arg
       const wtPathArg = worktreePathOverride ? `"${worktreePathOverride}"` : "";
-
-      // We need to compute the worktree path. Use git worktree add directly.
-      const effectiveBaseBranch = params.baseBranch || "main";
       lines.push(
         `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
         `  warn "Not a git repository — skipping worktree"`,
@@ -4586,22 +4696,33 @@ export class AgentManager {
       if (worktreePathOverride) {
         lines.push(`  WT_PATH="${worktreePathOverride}"`);
       } else {
-        // Default sibling path: <repoRoot>/../<basename>-<slugified-branch>
-        const sluggedBranch = worktreeBranchName
-          .replace(/[^a-z0-9]+/gi, "-")
-          .replace(/^-+|-+$/g, "")
-          .toLowerCase();
+        // Default sibling path: <repoRoot>/../<basename>-<slug>. Use the
+        // shared slug helper so the bash path matches what worktree.ts
+        // computes on the inert path (and includes a hash discriminator
+        // when createNewBranch=false to avoid slug collisions).
+        const slugSource = createNewBranch
+          ? worktreeBranchName
+          : effectiveBaseBranch;
+        const sluggedBranch = worktreePathSlug(slugSource, { createNewBranch });
         lines.push(
           `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
           `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`
         );
       }
 
+      const addCmd = createNewBranch
+        ? `git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF"`
+        : `git -C "$REPO_ROOT" worktree add "$WT_PATH" "${effectiveBaseBranch}"`;
+      const upstreamLine = createNewBranch
+        ? `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`
+        : null;
+
       lines.push(
         ``,
-        `  if git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF" 2>&1; then`,
+        `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
+        `  if [ $? -eq 0 ]; then`,
         `    ok "Worktree created at $WT_PATH"`,
-        `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`,
+        ...(upstreamLine ? [upstreamLine] : []),
         `    EFFECTIVE_CWD="$WT_PATH"`,
         `    WORKTREE_PATH="\\"$WT_PATH\\""`,
         `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
@@ -4648,7 +4769,16 @@ export class AgentManager {
 
       lines.push(
         `  else`,
-        `    warn "Worktree creation failed — using original directory"`,
+        // The user explicitly asked for an isolated worktree. Don't fall back
+        // to running in the primary checkout — surface the failure to the
+        // server (so last_error shows up in the UI) and exit. The tmux
+        // session-died monitor will reconcile status to stopped.
+        `    fail "Worktree creation failed"`,
+        `    fail "$WORKTREE_ADD_OUTPUT"`,
+        `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
+        `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
+        `    ${curlSetupError("SETUP_ERROR_MSG")}`,
+        `    exit 1`,
         `  fi`,
         `fi`,
         ``

@@ -3838,6 +3838,7 @@ async function registerRoutes() {
       codexArgs?: unknown;
       fullAccess?: unknown;
       useWorktree?: unknown;
+      createNewBranch?: unknown;
       worktreeBranch?: unknown;
       baseBranch?: unknown;
       persona?: unknown;
@@ -3891,6 +3892,15 @@ async function registerRoutes() {
       return reply
         .code(400)
         .send({ error: "useWorktree must be a boolean when provided." });
+    }
+
+    if (
+      body.createNewBranch !== undefined &&
+      typeof body.createNewBranch !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "createNewBranch must be a boolean when provided." });
     }
 
     if (body.autoReview !== undefined && typeof body.autoReview !== "boolean") {
@@ -3980,6 +3990,10 @@ async function registerRoutes() {
         fullAccess: !isTerminalAgent && body.fullAccess === true,
         useWorktree:
           typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
+        createNewBranch:
+          typeof body.createNewBranch === "boolean"
+            ? body.createNewBranch
+            : undefined,
         worktreeBranch:
           typeof body.worktreeBranch === "string"
             ? body.worktreeBranch
@@ -4014,6 +4028,25 @@ async function registerRoutes() {
   });
 
   // Setup script callbacks — called by the bash setup script running in tmux
+  app.post("/api/v1/agents/:id/setup/error", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as { message?: unknown };
+    const id = params.id ?? "";
+    const message =
+      typeof body?.message === "string" ? body.message : "Setup failed.";
+
+    try {
+      const agent = await agentManager.markSetupFailed(id, message);
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
+      return { ok: true };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/setup/phase", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as { phase?: unknown };

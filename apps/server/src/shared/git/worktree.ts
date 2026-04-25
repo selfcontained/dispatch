@@ -1,7 +1,27 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 
 import { runCommand, type RunCommandResult } from "../lib/run-command.js";
+
+/**
+ * Build a worktree-path slug from a branch name. When the worktree is being
+ * created on an existing branch (createNewBranch=false), the slug includes a
+ * short hash of the full ref so that branches that differ only in
+ * non-alphanumeric punctuation (`feature/x` vs `feature-x`, `release/2026.04`
+ * vs `release-2026-04`) don't collapse to the same on-disk path.
+ */
+export function worktreePathSlug(
+  branchName: string,
+  options: { createNewBranch: boolean }
+): string {
+  const baseSlug = slugify(branchName);
+  if (options.createNewBranch) {
+    return baseSlug;
+  }
+  const hash = createHash("sha1").update(branchName).digest("hex").slice(0, 6);
+  return `${baseSlug}-${hash}`;
+}
 
 type CommandRunner = (
   command: string,
@@ -16,6 +36,15 @@ export type CreateGitWorktreeInput = {
   baseBranch?: string;
   updateBase?: boolean;
   worktreePath?: string;
+  /**
+   * When true, fork a new branch from `baseBranch` (named `branchName` or a
+   * slug of `name`) and check it out in the worktree. When false (default),
+   * check out `baseBranch` directly without creating a new branch — the
+   * result's `branchName` will be the base branch. Defaults to false so
+   * direct callers don't get implicit branch creation; the agent manager
+   * sets it explicitly to preserve its own authoring-flow default of true.
+   */
+  createNewBranch?: boolean;
 };
 
 export type CreateGitWorktreeResult = {
@@ -84,17 +113,17 @@ export async function createGitWorktree(
 
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
-  const branchName = normalizeRefName(
-    input.branchName,
-    slugify(name),
-    "branchName"
-  );
+  const createNewBranch = input.createNewBranch ?? false;
+  const branchName = createNewBranch
+    ? normalizeRefName(input.branchName, slugify(name), "branchName")
+    : baseBranch;
+  const worktreePathSlugBase = createNewBranch ? branchName : baseBranch;
   const worktreePath = input.worktreePath?.trim()
     ? path.resolve(input.worktreePath)
     : path.resolve(
         repoRoot,
         "..",
-        `${path.basename(repoRoot)}-${slugify(branchName)}`
+        `${path.basename(repoRoot)}-${worktreePathSlug(worktreePathSlugBase, { createNewBranch })}`
       );
 
   if (normalizePath(worktreePath) === normalizePath(repoRoot)) {
@@ -125,25 +154,39 @@ export async function createGitWorktree(
 
   const baseSha = await resolveGitRef(repoRoot, baseRef, commandRunner);
 
-  await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
+  if (createNewBranch) {
+    await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
 
-  await commandRunner("git", [
-    "-C",
-    repoRoot,
-    "worktree",
-    "add",
-    "-b",
-    branchName,
-    worktreePath,
-    baseRef,
-  ]);
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "worktree",
+      "add",
+      "-b",
+      branchName,
+      worktreePath,
+      baseRef,
+    ]);
 
-  // Set upstream tracking so archival checks know which branch to compare against
-  await commandRunner(
-    "git",
-    ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],
-    { allowedExitCodes: [0, 1, 128] }
-  );
+    // Set upstream tracking so archival checks know which branch to compare against
+    await commandRunner(
+      "git",
+      ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],
+      { allowedExitCodes: [0, 1, 128] }
+    );
+  } else {
+    // Check out the starting branch directly. Use the local branch so git
+    // creates/updates the worktree on the user-facing ref rather than a
+    // detached origin/* ref.
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "worktree",
+      "add",
+      worktreePath,
+      baseBranch,
+    ]);
+  }
 
   return {
     repoRoot,
@@ -449,19 +492,33 @@ function normalizeRefName(
   fallback: string,
   fieldName: string
 ): string {
-  const normalized = (value?.trim() || fallback).trim();
-  if (!normalized) {
+  const candidate = (value?.trim() || fallback).trim();
+  return assertSafeRefName(candidate, fieldName);
+}
+
+/**
+ * Trim a ref name and ensure it only contains characters that are both valid
+ * in git ref names and safe to interpolate into a shell command (so callers
+ * that splice the result into bash, env vars, etc. don't have to do their own
+ * escaping). Throws `GitWorktreeError(400)` on whitespace, shell
+ * metacharacters, or other unsafe input. Callers that already know the value
+ * is non-empty should pass it through here before persisting or interpolating.
+ */
+export function assertSafeRefName(value: string, fieldName: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
     throw new GitWorktreeError(`${fieldName} must not be empty.`, 400);
   }
-
-  if (/\s/.test(normalized)) {
+  // Allow letters, digits, '_', '.', '-', and '/'. This is a strict subset of
+  // git's own ref-name rules and rules out every shell metacharacter (";",
+  // "\"", "'", "$", backtick, "&", "|", "(", ")", "<", ">", whitespace, etc.).
+  if (!/^[\w./-]+$/.test(trimmed)) {
     throw new GitWorktreeError(
-      `${fieldName} must not contain whitespace.`,
+      `${fieldName} may only contain letters, digits, '.', '_', '-', or '/'.`,
       400
     );
   }
-
-  return normalized;
+  return trimmed;
 }
 
 function slugify(value: string): string {

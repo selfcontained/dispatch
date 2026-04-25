@@ -30,6 +30,12 @@ export type BranchSelectProps = {
   onWorktreeBranchChange: (value: string) => void;
   testIdPrefix?: string;
   worktreeBranchPlaceholder?: string;
+  /** Label rendered above the base branch combobox. Defaults to "Base branch". */
+  baseBranchLabel?: string;
+  /** Optional helper text rendered below the base branch combobox. */
+  baseBranchHelper?: string;
+  /** When false, hide the "new branch name" text input. Defaults to true. */
+  showNewBranchInput?: boolean;
 };
 
 export function BranchSelect({
@@ -40,6 +46,9 @@ export function BranchSelect({
   onWorktreeBranchChange,
   testIdPrefix = "branch-select",
   worktreeBranchPlaceholder = "branch name (auto-generated if empty)",
+  baseBranchLabel = "Base branch",
+  baseBranchHelper,
+  showNewBranchInput = true,
 }: BranchSelectProps): JSX.Element {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
@@ -103,7 +112,7 @@ export function BranchSelect({
     <div className="space-y-2">
       <div className="relative" ref={cmdRef}>
         <label className="mb-1 block text-xs text-muted-foreground">
-          Base branch
+          {baseBranchLabel}
         </label>
         <button
           ref={triggerRef}
@@ -221,13 +230,17 @@ export function BranchSelect({
           Saved branch <span className="font-mono">{baseBranch}</span> no longer
           exists on the remote — pick a new one.
         </div>
+      ) : baseBranchHelper ? (
+        <p className="text-xs text-muted-foreground">{baseBranchHelper}</p>
       ) : null}
-      <Input
-        value={worktreeBranch}
-        onChange={(event) => onWorktreeBranchChange(event.target.value)}
-        placeholder={worktreeBranchPlaceholder}
-        data-testid={`${testIdPrefix}-worktree-branch`}
-      />
+      {showNewBranchInput ? (
+        <Input
+          value={worktreeBranch}
+          onChange={(event) => onWorktreeBranchChange(event.target.value)}
+          placeholder={worktreeBranchPlaceholder}
+          data-testid={`${testIdPrefix}-worktree-branch`}
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,9 +2,11 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useAtom } from "jotai";
 import { Check, ChevronDown, GitBranch, ChevronLeft } from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
@@ -35,6 +37,7 @@ import {
 } from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
+import { createNewBranchPrefAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
@@ -106,6 +109,15 @@ function useCreateAgentPrefs(cwd: string) {
   const [autoReview, setAutoReview] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
 
+  // createNewBranch is per-cwd persisted via a jotai atomFamily — the atom's
+  // identity changes with cwd, so reads/writes route to the correct
+  // localStorage entry without manual load/write effects.
+  const createNewBranchAtom = useMemo(
+    () => createNewBranchPrefAtom(trimmedCwd),
+    [trimmedCwd]
+  );
+  const [createNewBranch, setCreateNewBranch] = useAtom(createNewBranchAtom);
+
   useEffect(() => {
     if (!trimmedCwd) {
       setFullAccess(false);
@@ -155,6 +167,8 @@ function useCreateAgentPrefs(cwd: string) {
     setAutoReview,
     baseBranch,
     setBaseBranch,
+    createNewBranch,
+    setCreateNewBranch,
   };
 }
 
@@ -215,6 +229,7 @@ function CreateAgentDialogContent({
   );
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
+  const [cwdIsGitRepo, setCwdIsGitRepo] = useState<boolean | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
@@ -227,7 +242,16 @@ function CreateAgentDialogContent({
     setAutoReview: setCreateAutoReview,
     baseBranch: createBaseBranch,
     setBaseBranch: setCreateBaseBranch,
+    createNewBranch,
+    setCreateNewBranch,
   } = useCreateAgentPrefs(createCwd);
+
+  // The new-branch name is per-cwd in spirit (a branch named "repo-A-feature"
+  // doesn't make sense in repo B); clear it whenever cwd changes so a name
+  // typed for one repo doesn't leak into another.
+  useEffect(() => {
+    setCreateWorktreeBranch("");
+  }, [createCwd]);
 
   useEffect(() => {
     if (createCwdInitialized) return;
@@ -270,6 +294,13 @@ function CreateAgentDialogContent({
     setCwdHistory(removeCwdFromHistory(cwd));
   }, []);
 
+  const handlePathInfoChange = useCallback(
+    (info: { isGitRepo: boolean } | null) => {
+      setCwdIsGitRepo(info ? info.isGitRepo : null);
+    },
+    []
+  );
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -278,6 +309,11 @@ function CreateAgentDialogContent({
 
       setCreating(true);
       try {
+        // The managed-worktree section is hidden for non-git cwds; force the
+        // payload to skip worktree creation in that case so the server doesn't
+        // try to run git in a non-repo directory.
+        const submitUseWorktree =
+          cwdIsGitRepo === false ? false : createUseWorktree;
         const payload = await api<{ agent: Agent }>("/api/v1/agents", {
           method: "POST",
           body: JSON.stringify({
@@ -286,10 +322,16 @@ function CreateAgentDialogContent({
             type: createType,
             fullAccess: createFullAccess,
             autoReview: createAutoReview,
-            useWorktree: createUseWorktree,
-            worktreeBranch: createWorktreeBranch.trim() || undefined,
+            useWorktree: submitUseWorktree,
+            createNewBranch: submitUseWorktree ? createNewBranch : undefined,
+            worktreeBranch:
+              submitUseWorktree && createNewBranch
+                ? createWorktreeBranch.trim() || undefined
+                : undefined,
             baseBranch:
-              createBaseBranch !== "main" ? createBaseBranch : undefined,
+              submitUseWorktree && createBaseBranch !== "main"
+                ? createBaseBranch
+                : undefined,
             initialPrompt: initialPrompt.trim() || undefined,
           }),
         });
@@ -310,13 +352,18 @@ function CreateAgentDialogContent({
       createCwd,
       createFullAccess,
       createName,
+      createNewBranch,
       createType,
       createUseWorktree,
       createWorktreeBranch,
+      cwdIsGitRepo,
       initialPrompt,
       onCreated,
     ]
   );
+
+  const worktreeAvailable = cwdIsGitRepo !== false;
+  const worktreeChecked = worktreeAvailable && createUseWorktree;
 
   return (
     <DialogContent
@@ -450,43 +497,133 @@ function CreateAgentDialogContent({
                   label="Working directory"
                   history={cwdHistory}
                   onRemoveHistory={handleRemoveCwdHistory}
+                  onPathInfoChange={handlePathInfoChange}
                   data-testid="create-agent-cwd"
                   historyItemTestId="create-agent-cwd-history-option"
                 />
 
-                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                  <label className="flex cursor-pointer items-start gap-3">
+                <div
+                  className={cn(
+                    "space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 transition-opacity duration-200",
+                    !worktreeAvailable && "opacity-60"
+                  )}
+                  data-testid="create-agent-worktree-section"
+                >
+                  <label
+                    className={cn(
+                      "flex items-start gap-3",
+                      worktreeAvailable
+                        ? "cursor-pointer"
+                        : "cursor-not-allowed"
+                    )}
+                  >
                     <Checkbox
-                      checked={createUseWorktree}
+                      checked={worktreeChecked}
                       onCheckedChange={() =>
                         setCreateUseWorktree((current) => !current)
                       }
+                      disabled={!worktreeAvailable}
                       className="mt-0.5"
-                      title="Toggle git worktree"
+                      title={
+                        worktreeAvailable
+                          ? "Toggle managed git worktree"
+                          : "Not a git repository"
+                      }
                       data-testid="create-agent-worktree"
                     />
                     <span className="space-y-1">
                       <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                         <GitBranch className="h-3.5 w-3.5" />
-                        Create git worktree
+                        Create managed git worktree
                       </span>
                       <span className="block text-xs text-muted-foreground">
-                        Creates an isolated worktree and branch for this agent.
+                        {worktreeAvailable
+                          ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
+                          : "Working directory isn't a git repository, so a managed worktree isn't available here."}
                       </span>
                     </span>
                   </label>
-                  {createUseWorktree ? (
-                    <div className="ml-8 w-[calc(100%-2rem)]">
-                      <BranchSelect
-                        cwd={createCwd}
-                        baseBranch={createBaseBranch}
-                        onBaseBranchChange={setCreateBaseBranch}
-                        worktreeBranch={createWorktreeBranch}
-                        onWorktreeBranchChange={setCreateWorktreeBranch}
-                        testIdPrefix="create-agent"
-                      />
+                  <div
+                    className={cn(
+                      "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                      worktreeChecked
+                        ? "grid-rows-[1fr] opacity-100"
+                        : "grid-rows-[0fr] opacity-0"
+                    )}
+                    aria-hidden={!worktreeChecked}
+                    // Keep collapsed controls out of focus and pointer
+                    // interaction. Cast for React 18 type defs.
+                    {...(!worktreeChecked
+                      ? ({ inert: "" } as Record<string, string>)
+                      : {})}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="ml-8 w-[calc(100%-2rem)] space-y-3 pt-1">
+                        <BranchSelect
+                          cwd={createCwd}
+                          baseBranch={createBaseBranch}
+                          onBaseBranchChange={setCreateBaseBranch}
+                          worktreeBranch={createWorktreeBranch}
+                          onWorktreeBranchChange={setCreateWorktreeBranch}
+                          baseBranchLabel="Starting branch"
+                          baseBranchHelper="The branch to check out in the worktree."
+                          showNewBranchInput={false}
+                          testIdPrefix="create-agent"
+                        />
+                        <div className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3">
+                          <label className="flex cursor-pointer items-start gap-3">
+                            <Checkbox
+                              checked={createNewBranch}
+                              onCheckedChange={() =>
+                                setCreateNewBranch((current) => !current)
+                              }
+                              className="mt-0.5"
+                              title="Toggle new branch creation"
+                              data-testid="create-agent-new-branch"
+                            />
+                            <span className="space-y-1">
+                              <span className="block text-sm font-medium text-foreground">
+                                Create a new branch in this worktree
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                Creates a new working branch from the starting
+                                branch so the agent can make isolated changes
+                                for later submission.
+                              </span>
+                            </span>
+                          </label>
+                          <div
+                            className={cn(
+                              "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                              createNewBranch
+                                ? "grid-rows-[1fr] opacity-100"
+                                : "grid-rows-[0fr] opacity-0"
+                            )}
+                            aria-hidden={!createNewBranch}
+                            {...(!createNewBranch
+                              ? ({ inert: "" } as Record<string, string>)
+                              : {})}
+                          >
+                            <div className="min-h-0 overflow-hidden">
+                              <div className="space-y-1 pt-2">
+                                <label className="block text-xs text-muted-foreground">
+                                  New branch name
+                                </label>
+                                <Input
+                                  value={createWorktreeBranch}
+                                  onChange={(event) =>
+                                    setCreateWorktreeBranch(event.target.value)
+                                  }
+                                  placeholder="auto-generated if empty"
+                                  data-testid="create-agent-worktree-branch"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  ) : null}
+                  </div>
                 </div>
 
                 {createType !== "terminal" ? (
