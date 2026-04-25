@@ -17,9 +17,12 @@ export type CreateGitWorktreeInput = {
   updateBase?: boolean;
   worktreePath?: string;
   /**
-   * When false, check out `baseBranch` directly in the new worktree instead of
-   * creating a new branch from it. The resulting `branchName` in the result is
-   * the base branch. Defaults to true.
+   * When true, fork a new branch from `baseBranch` (named `branchName` or a
+   * slug of `name`) and check it out in the worktree. When false (default),
+   * check out `baseBranch` directly without creating a new branch — the
+   * result's `branchName` will be the base branch. Defaults to false so
+   * direct callers don't get implicit branch creation; the agent manager
+   * sets it explicitly to preserve its own authoring-flow default of true.
    */
   createNewBranch?: boolean;
 };
@@ -90,7 +93,7 @@ export async function createGitWorktree(
 
   const repoRoot = await resolveRepoRoot(cwd, commandRunner);
   const baseBranch = normalizeRefName(input.baseBranch, "main", "baseBranch");
-  const createNewBranch = input.createNewBranch ?? true;
+  const createNewBranch = input.createNewBranch ?? false;
   const branchName = createNewBranch
     ? normalizeRefName(input.branchName, slugify(name), "branchName")
     : baseBranch;

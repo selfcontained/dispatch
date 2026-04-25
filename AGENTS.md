@@ -50,6 +50,12 @@
   4. Is this truly app-wide and cross-cutting? Only then consider Jotai.
 - `App.tsx` is a composition root, not a feature implementation file. Do not add feature-specific dialog state, selection state, or view toggles there when they can live lower in the tree.
 
+### Persisted UI state (localStorage)
+
+- For UI state that needs to survive reloads, prefer jotai's `atomWithLocalStorage` helper in `apps/web/src/lib/store.ts` over a hand-rolled `useState` + `useEffect` pattern. The helper handles SSR-safety, JSON serialization, read-on-mount, and write-on-change in one place — and it sidesteps the read/write effect-ordering races that come up when persistence keys change at runtime.
+- When the persisted value needs to be keyed by another value (cwd, agent ID, route segment, etc.), use jotai's `atomFamily` to produce one atom per key rather than building a custom prefix scheme on top of plain atoms. Example: `atomFamily((cwd: string) => atomWithLocalStorage(\`dispatch:foo:${cwd}\`, default))`.
+- This is the one place where Jotai is preferred over local state even for feature-specific UI — the persistence machinery belongs in a shared spot, and the atom's identity stays stable across mounts so the value reads back correctly when the dialog/component remounts.
+
 ## Pre-Completion Checks (Mandatory)
 
 Before marking any task as done, run the following checks and fix any failures:

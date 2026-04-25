@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { atomFamily } from "jotai/utils";
 
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
@@ -44,4 +45,10 @@ export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
 export const soundCuesEnabledAtom = atomWithLocalStorage(
   "dispatch:soundCuesEnabled",
   true
+);
+
+// Per-cwd preferences for the Create Agent dialog. Each cwd gets its own
+// atom backed by localStorage; the family caches them by trimmed cwd.
+export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
 );

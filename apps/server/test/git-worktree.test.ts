@@ -53,6 +53,7 @@ describe("git worktree services", () => {
     const result = await createGitWorktree({
       cwd: path.join(repoRoot, "nested"),
       name: "Feature Auth Flow",
+      createNewBranch: true,
     });
 
     expect(result).toEqual({
@@ -138,6 +139,7 @@ describe("git worktree services", () => {
       createGitWorktree({
         cwd: repoRoot,
         name: "Existing Branch",
+        createNewBranch: true,
       })
     ).rejects.toMatchObject({
       name: "GitWorktreeError",
