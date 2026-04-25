@@ -87,13 +87,15 @@ const SECTIONS: SectionDef[] = [
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
-              <strong>Type</strong> — choose the CLI: <Code>claude</Code>,{" "}
-              <Code>codex</Code>, or <Code>opencode</Code>. Disabled types can
-              be enabled in Settings.
+              <strong>Type</strong> — pick a CLI assistant (<Code>claude</Code>,{" "}
+              <Code>codex</Code>, <Code>opencode</Code>) or{" "}
+              <Code>terminal</Code> for a plain tmux shell with no CLI attached.
+              Disabled types can be enabled in Settings.
             </li>
             <li>
               <strong>Name</strong> — optional display name. Leave it blank and
               the agent picks its own name once it has a sense of the task.
+              Terminal agents fall back to a generated name.
             </li>
             <li>
               <strong>Working directory</strong> — path to the repo.
@@ -107,20 +109,22 @@ const SECTIONS: SectionDef[] = [
               branch and optionally set a custom branch name.
             </li>
             <li>
-              <strong>Full access mode</strong> — starts the CLI in its most
-              permissive execution mode, so the agent can run commands and edit
-              files without confirmation prompts.
+              <strong>Full access mode</strong> (CLI types only) — starts the
+              CLI in its most permissive execution mode, so the agent can run
+              commands and edit files without confirmation prompts.
             </li>
             <li>
-              <strong>Autonomous Review</strong> — when enabled, the agent
-              automatically launches one reviewer agent on completion and
-              addresses its feedback before finishing.
+              <strong>Autonomous Review</strong> (CLI types only) — when
+              enabled, the agent automatically launches one reviewer agent on
+              completion and addresses its feedback before finishing.
             </li>
           </ul>
           <P>
-            Click <strong>Create</strong> to start the agent immediately, or{" "}
-            <strong>Create with prompt</strong> to enter an initial prompt that
-            is sent as the agent's first message.
+            Click <strong>Create</strong> to start the agent immediately. For
+            CLI types, <strong>Create with prompt</strong> opens a second step
+            where you can enter an initial prompt that is sent as the agent's
+            first message; terminal agents skip this since there is no CLI to
+            send a message to.
           </P>
         </Section>
 
@@ -137,11 +141,12 @@ const SECTIONS: SectionDef[] = [
         <Section>
           <H3>Status indicators</H3>
           <P>
-            Each agent in the sidebar shows a color-coded status from its latest
-            event: green for <strong>working</strong>, red for{" "}
+            CLI agents in the sidebar show a color-coded status from their
+            latest event: green for <strong>working</strong>, red for{" "}
             <strong>blocked</strong>, yellow for <strong>waiting</strong>, and
             blue for <strong>done</strong>. The sidebar also shows the event
-            message and how long ago it was reported.
+            message and how long ago it was reported. Terminal agents have no
+            CLI to emit events, so their card stays neutral.
           </P>
         </Section>
 
@@ -168,9 +173,11 @@ const SECTIONS: SectionDef[] = [
           <H3>Agent details</H3>
           <P>
             Expand an agent card to see its metadata: working directory or
-            worktree path, git branch, agent type, and whether it's running in
-            full access or sandboxed mode. Persona agents show their role and
-            link to their parent agent.
+            worktree path, git branch, and agent type. CLI agents also show
+            whether they're running in full access or sandboxed mode, plus a
+            feedback panel and persona launcher; terminal agents skip those
+            since they have no CLI. Persona agents show their role and link to
+            their parent agent.
           </P>
         </Section>
 

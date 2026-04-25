@@ -23,7 +23,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Features
 
-- Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode) remotely.
+- Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode, or a plain tmux terminal) remotely.
 - Persist each agent in `tmux` so browser disconnects do not kill work.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
