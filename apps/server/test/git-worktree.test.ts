@@ -66,6 +66,54 @@ describe("git worktree services", () => {
     });
   });
 
+  it("checks out an existing branch when createNewBranch is false", async () => {
+    const repoRoot = path.join(tempRoot, "repo");
+    const expectedWorktreePath = path.join(tempRoot, "repo-feature-x");
+    const calls: string[] = [];
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+      calls.push(key);
+
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} fetch origin feature/x --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-parse --verify origin/feature/x`:
+          return { exitCode: 0, stdout: "deadbeef", stderr: "" };
+        case `-C ${repoRoot} worktree add ${expectedWorktreePath} feature/x`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const result = await createGitWorktree({
+      cwd: repoRoot,
+      name: "Review Branch X",
+      baseBranch: "feature/x",
+      createNewBranch: false,
+    });
+
+    // No `-b` flag; checks out the existing branch directly.
+    expect(calls).toContain(
+      `-C ${repoRoot} worktree add ${expectedWorktreePath} feature/x`
+    );
+    // Must not pre-check for a clashing branch — the user's branch is expected
+    // to exist.
+    expect(
+      calls.some((c) => c.includes("show-ref --verify --quiet refs/heads/"))
+    ).toBe(false);
+    // Must not set upstream tracking — we're on the user's branch as-is.
+    expect(calls.some((c) => c.includes("--set-upstream-to"))).toBe(false);
+    // Worktree path slug derives from the base branch when no new branch is
+    // created.
+    expect(result.worktreePath).toBe(expectedWorktreePath);
+    expect(result.branchName).toBe("feature/x");
+    expect(result.baseBranch).toBe("feature/x");
+  });
+
   it("rejects worktree creation when the branch already exists", async () => {
     const repoRoot = path.join(tempRoot, "repo");
 
