@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useUpdateAvailable } from "@/hooks/use-update-available";
-import { reloadApp } from "@/lib/reload";
+import { api } from "@/lib/api";
+import {
+  forcePWAUpdate,
+  getNeedRefresh,
+  subscribeNeedRefresh,
+} from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
-const DISMISS_KEY = "dispatch:update-toast:dismissed-version";
+type AppVersionInfo = {
+  releaseTag: string | null;
+  version: string | null;
+  gitSha: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+};
 
 function isEditableElement(element: Element | null): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
@@ -17,42 +28,38 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
   return selectors.some((selector) => element.matches(selector));
 }
 
-function readDismissed(): string | null {
-  try {
-    return localStorage.getItem(DISMISS_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeDismissed(version: string): void {
-  try {
-    localStorage.setItem(DISMISS_KEY, version);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
 export function UpdateAvailableToast(): JSX.Element | null {
-  const { available, serverVersion } = useUpdateAvailable();
-  const [dismissedVersion, setDismissedVersion] = useState<string | null>(() =>
-    readDismissed()
+  const [needRefresh, setNeedRefresh] = useState<boolean>(() =>
+    getNeedRefresh()
   );
+  const [dismissed, setDismissed] = useState(false);
   const [reloading, setReloading] = useState(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    if (
-      serverVersion &&
-      dismissedVersion &&
-      serverVersion !== dismissedVersion
-    ) {
-      setDismissedVersion(null);
-    }
-  }, [serverVersion, dismissedVersion]);
+    const unsubscribe = subscribeNeedRefresh(() => {
+      setNeedRefresh(true);
+      setDismissed(false);
+    });
+    // Re-sync in case the module flag flipped between render and effect
+    // (the dynamic import-resolves-then-onNeedRefresh-fires race).
+    if (getNeedRefresh()) setNeedRefresh(true);
+    return unsubscribe;
+  }, []);
 
-  if (!available || !serverVersion) return null;
-  if (dismissedVersion === serverVersion) return null;
+  const { data: versionInfo, isFetched } = useQuery({
+    queryKey: ["app-version"],
+    queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
+    enabled: needRefresh,
+    staleTime: 0,
+  });
+
+  if (!needRefresh || dismissed) return null;
+  // Wait for the version query to settle before mounting so screen readers
+  // get a single aria-live announcement with the final text.
+  if (!isFetched) return null;
+
+  const newVersion = versionInfo?.version ?? null;
 
   const handleReload = (): void => {
     const activeElement = document.activeElement;
@@ -75,14 +82,13 @@ export function UpdateAvailableToast(): JSX.Element | null {
     }
 
     setReloading(true);
-    reloadApp({ waitForUpdate: true }).catch(() => {
+    forcePWAUpdate(true).catch(() => {
       setReloading(false);
     });
   };
 
   const handleDismiss = (): void => {
-    writeDismissed(serverVersion);
-    setDismissedVersion(serverVersion);
+    setDismissed(true);
   };
 
   return (
@@ -133,7 +139,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
             aria-live="polite"
             className="min-w-0 flex-1 text-sm font-semibold md:whitespace-nowrap"
           >
-            New version {serverVersion} available
+            {newVersion
+              ? `New version ${newVersion} available`
+              : "New version available"}
           </div>
         </div>
         <Button
