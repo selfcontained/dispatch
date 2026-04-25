@@ -88,7 +88,7 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="h-full w-full px-2 text-xs"
+              className="h-full w-full rounded-bl-[28px] px-2 text-xs"
               aria-label="Open text input"
               onClick={openInput}
             >
@@ -186,7 +186,7 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="h-full w-full px-2 text-xs"
+              className="h-full w-full rounded-br-[28px] px-2 text-xs"
               aria-label="Send Enter"
               onClick={() => sendKey("\r")}
             >
