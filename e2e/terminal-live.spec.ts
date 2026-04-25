@@ -59,11 +59,13 @@ async function waitForTerminalConnected(
   timeoutMs = 10_000
 ): Promise<void> {
   // A focused live session renders the current session name header and hides
-  // the disconnected empty state.
+  // the connected marker once the WebSocket is actually attached.
   await expect(page.getByTestId("current-session-name")).toHaveText(agentName, {
     timeout: timeoutMs,
   });
-  await expect(page.getByTestId("terminal-empty-state")).toBeHidden();
+  await expect(page.getByTestId("terminal-connected-state")).toBeVisible({
+    timeout: timeoutMs,
+  });
 }
 
 async function waitForAgentCardRunning(

@@ -47,6 +47,12 @@ export const TerminalPane = memo(function TerminalPane({
       data-testid="terminal-pane"
       className="relative h-full min-h-0 overflow-hidden bg-background"
     >
+      {isAttached && connState === "connected" ? (
+        <div data-testid="terminal-connected-state" className="sr-only">
+          Connected
+        </div>
+      ) : null}
+
       <div
         className={cn(
           "h-full w-full",
