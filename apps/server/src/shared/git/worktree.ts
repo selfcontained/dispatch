@@ -1,7 +1,27 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 
 import { runCommand, type RunCommandResult } from "../lib/run-command.js";
+
+/**
+ * Build a worktree-path slug from a branch name. When the worktree is being
+ * created on an existing branch (createNewBranch=false), the slug includes a
+ * short hash of the full ref so that branches that differ only in
+ * non-alphanumeric punctuation (`feature/x` vs `feature-x`, `release/2026.04`
+ * vs `release-2026-04`) don't collapse to the same on-disk path.
+ */
+export function worktreePathSlug(
+  branchName: string,
+  options: { createNewBranch: boolean }
+): string {
+  const baseSlug = slugify(branchName);
+  if (options.createNewBranch) {
+    return baseSlug;
+  }
+  const hash = createHash("sha1").update(branchName).digest("hex").slice(0, 6);
+  return `${baseSlug}-${hash}`;
+}
 
 type CommandRunner = (
   command: string,
@@ -103,7 +123,7 @@ export async function createGitWorktree(
     : path.resolve(
         repoRoot,
         "..",
-        `${path.basename(repoRoot)}-${slugify(worktreePathSlugBase)}`
+        `${path.basename(repoRoot)}-${worktreePathSlug(worktreePathSlugBase, { createNewBranch })}`
       );
 
   if (normalizePath(worktreePath) === normalizePath(repoRoot)) {

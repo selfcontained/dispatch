@@ -781,7 +781,10 @@ describe("AgentManager", () => {
   describe("getTerminalAccess", () => {
     it("should return inert terminal metadata for inert runtime agents", async () => {
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+      const agent = await inertManager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
 
       const access = await inertManager.getTerminalAccess(agent.id);
 
@@ -1020,7 +1023,10 @@ describe("AgentManager", () => {
       const { runCommand } =
         await import("../../src/shared/lib/run-command.js");
       const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
-      const agent = await inertManager.createAgent({ cwd: "/tmp" });
+      const agent = await inertManager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
       vi.mocked(runCommand).mockClear();
 
       const stopped = await inertManager.stopAgent(agent.id, { force: true });

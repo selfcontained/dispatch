@@ -28,6 +28,7 @@ import {
   cleanupGitWorktree,
   createGitWorktree,
   GitWorktreeError,
+  worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
@@ -595,14 +596,13 @@ export class AgentManager {
       }
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
+        // For nested layout, derive the same hashed slug so two agents on
+        // slug-equivalent existing branches don't pick the same path.
         worktreePathOverride = path.join(
           originalCwd,
           ".dispatch",
           "worktrees",
-          worktreeBranchName
-            .replace(/[^a-z0-9]+/gi, "-")
-            .replace(/^-+|-+$/g, "")
-            .toLowerCase()
+          worktreePathSlug(worktreeBranchName, { createNewBranch })
         );
       }
     }
@@ -666,10 +666,26 @@ export class AgentManager {
           );
           await this.setupWorktree(originalCwd, worktreePath);
         } catch (error) {
+          // The user explicitly asked for an isolated worktree. Don't silently
+          // fall back to running in their primary checkout — surface the
+          // failure and mark the agent as failed so it shows up in the UI
+          // with a clear last_error.
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const lastError = `Worktree creation failed: ${message}`;
           this.logger.warn(
             { err: error, agentId: id },
             "Worktree creation failed for inert agent."
           );
+          await this.setAgentStatus(id, "stopped", lastError);
+          await this.setSystemLatestEvent(id, {
+            type: "blocked",
+            message: lastError,
+          });
+          if (error instanceof GitWorktreeError) {
+            throw new AgentError(lastError, error.statusCode);
+          }
+          throw new AgentError(lastError, 500);
         }
       }
 
@@ -828,6 +844,22 @@ export class AgentManager {
 
   async updateSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.setSetupPhase(id, phase);
+  }
+
+  /**
+   * Called by the tmux setup script when an unrecoverable failure happens
+   * during setup (e.g. `git worktree add` failed). Marks the agent as
+   * stopped with the supplied message in `last_error` so the UI surfaces a
+   * clear reason instead of the agent silently disappearing.
+   */
+  async markSetupFailed(id: string, message: string): Promise<AgentRecord> {
+    const trimmed = message.trim().slice(0, 1000) || "Setup failed.";
+    await this.setAgentStatus(id, "stopped", trimmed);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: trimmed,
+    });
+    return (await this.getAgent(id)) as AgentRecord;
   }
 
   async updateReviewAgentType(
@@ -4564,6 +4596,15 @@ export class AgentManager {
       `-H "Authorization: Bearer ${authToken}" ` +
       `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
 
+    // Helper to report an unrecoverable setup failure. The bash variable
+    // SETUP_ERROR_MSG is interpolated as a JSON string body so the message
+    // surfaces in the agent's last_error.
+    const curlSetupError = (msgBashVar: string) =>
+      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/error" ` +
+      `-H "Content-Type: application/json" ` +
+      `-H "Authorization: Bearer ${authToken}" ` +
+      `-d "{\\"message\\":\\"\${${msgBashVar}}\\"}" > /dev/null 2>&1 || true`;
+
     // Helper function for the completion callback
     const curlComplete = (
       cwdVar: string,
@@ -4655,14 +4696,14 @@ export class AgentManager {
       if (worktreePathOverride) {
         lines.push(`  WT_PATH="${worktreePathOverride}"`);
       } else {
-        // Default sibling path: <repoRoot>/../<basename>-<slugified-branch>
+        // Default sibling path: <repoRoot>/../<basename>-<slug>. Use the
+        // shared slug helper so the bash path matches what worktree.ts
+        // computes on the inert path (and includes a hash discriminator
+        // when createNewBranch=false to avoid slug collisions).
         const slugSource = createNewBranch
           ? worktreeBranchName
           : effectiveBaseBranch;
-        const sluggedBranch = slugSource
-          .replace(/[^a-z0-9]+/gi, "-")
-          .replace(/^-+|-+$/g, "")
-          .toLowerCase();
+        const sluggedBranch = worktreePathSlug(slugSource, { createNewBranch });
         lines.push(
           `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
           `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`
@@ -4678,7 +4719,8 @@ export class AgentManager {
 
       lines.push(
         ``,
-        `  if ${addCmd} 2>&1; then`,
+        `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
+        `  if [ $? -eq 0 ]; then`,
         `    ok "Worktree created at $WT_PATH"`,
         ...(upstreamLine ? [upstreamLine] : []),
         `    EFFECTIVE_CWD="$WT_PATH"`,
@@ -4727,7 +4769,16 @@ export class AgentManager {
 
       lines.push(
         `  else`,
-        `    warn "Worktree creation failed — using original directory"`,
+        // The user explicitly asked for an isolated worktree. Don't fall back
+        // to running in the primary checkout — surface the failure to the
+        // server (so last_error shows up in the UI) and exit. The tmux
+        // session-died monitor will reconcile status to stopped.
+        `    fail "Worktree creation failed"`,
+        `    fail "$WORKTREE_ADD_OUTPUT"`,
+        `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
+        `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
+        `    ${curlSetupError("SETUP_ERROR_MSG")}`,
+        `    exit 1`,
         `  fi`,
         `fi`,
         ``

@@ -4057,6 +4057,25 @@ async function registerRoutes() {
   });
 
   // Setup script callbacks — called by the bash setup script running in tmux
+  app.post("/api/v1/agents/:id/setup/error", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as { message?: unknown };
+    const id = params.id ?? "";
+    const message =
+      typeof body?.message === "string" ? body.message : "Setup failed.";
+
+    try {
+      const agent = await agentManager.markSetupFailed(id, message);
+      uiEventBroker.publish({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
+      return { ok: true };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/setup/phase", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as { phase?: unknown };

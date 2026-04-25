@@ -209,6 +209,65 @@ describe("archive branch cleanup", () => {
     ).rejects.toBeInstanceOf(AgentError);
   });
 
+  it("fails the agent with a clear last_error when worktree creation fails on the inert path (review #1160)", async () => {
+    const worktreeMod = await import("../../src/shared/git/worktree.js");
+    vi.mocked(worktreeMod.createGitWorktree).mockRejectedValueOnce(
+      new worktreeMod.GitWorktreeError(
+        "branch 'feature/x' is already checked out at /tmp/other",
+        409
+      )
+    );
+
+    try {
+      await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: true,
+        createNewBranch: false,
+        baseBranch: "feature/x",
+      });
+      expect.unreachable("createAgent should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AgentError);
+      expect((err as InstanceType<typeof AgentError>).statusCode).toBe(409);
+      expect((err as Error).message).toContain("Worktree creation failed");
+    }
+
+    // The agent row exists, is in a terminal "stopped" state, and carries
+    // the failure reason in last_error so the UI can surface it.
+    const rows = await pool.query(
+      "SELECT status, last_error FROM agents WHERE last_error IS NOT NULL"
+    );
+    expect(rows.rowCount).toBe(1);
+    expect(rows.rows[0].status).toBe("stopped");
+    expect(rows.rows[0].last_error).toContain("Worktree creation failed");
+    expect(rows.rows[0].last_error).toContain("already checked out");
+
+    // Crucially: cleanupGitWorktree was NOT called, since the worktree was
+    // never created in the first place.
+    expect(cleanupGitWorktreeSpy).not.toHaveBeenCalled();
+  });
+
+  it("exposes markSetupFailed to surface tmux-side worktree failures (review #1160)", async () => {
+    const agent = await manager.createAgent({
+      cwd: "/tmp",
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranch: "feat/auto",
+    });
+
+    await manager.markSetupFailed(
+      agent.id,
+      "git worktree add failed: branch 'feat/auto' is already checked out"
+    );
+
+    const row = await pool.query(
+      "SELECT status, last_error FROM agents WHERE id = $1",
+      [agent.id]
+    );
+    expect(row.rows[0].status).toBe("stopped");
+    expect(row.rows[0].last_error).toContain("git worktree add failed");
+  });
+
   it("deletes the branch for legacy agents where baseBranch is unset (no confident way to tell otherwise)", async () => {
     // Older records created before CRU-139 don't have base_branch populated.
     // The cleanup heuristic should still delete the branch in that case so the
