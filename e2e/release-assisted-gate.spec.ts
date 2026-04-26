@@ -124,4 +124,184 @@ test.describe("Release assisted-update gate", () => {
       page.getByRole("button", { name: /^Update to v0\.19\.0$/ })
     ).toHaveCount(0);
   });
+
+  test("gate fits a 375px viewport without horizontal overflow", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.route("**/api/v1/release/info", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(requiredInfoFixture),
+      })
+    );
+
+    // Visit the updates pane directly — the mobile layout collapses the
+    // sidebar nav, so navigating via the settings button isn't a clean
+    // path for a layout regression test.
+    await page.goto("/settings/updates");
+    await expect(page.getByText("Current version")).toBeVisible();
+    await page.getByText("Check for updates").click();
+    await expect(page.getByText("Bun runtime migration")).toBeVisible();
+
+    // No element should poke past the viewport — guards against the long
+    // check names and rollback guidance section pushing the page wide.
+    const overflows = await page.evaluate(() => {
+      const docWidth = document.documentElement.clientWidth;
+      return Array.from(document.querySelectorAll("*"))
+        .filter(
+          (el) =>
+            (el as HTMLElement).getBoundingClientRect().right > docWidth + 1
+        )
+        .map(
+          (el) => (el as HTMLElement).tagName + "#" + (el as HTMLElement).id
+        );
+    });
+    expect(overflows).toEqual([]);
+  });
+});
+
+test.describe("Release assisted-update progress takeover", () => {
+  test("renders structured phases, notes and check results from SSE", async ({
+    page,
+  }) => {
+    // Install a controllable EventSource stub before any page script
+    // runs so `useReleaseStream`'s connect picks up our fake instead of
+    // hitting the real /api/v1/release/stream.
+    await page.addInitScript(() => {
+      class FakeES {
+        readyState = 1;
+        url = "";
+        withCredentials = false;
+        CONNECTING = 0 as const;
+        OPEN = 1 as const;
+        CLOSED = 2 as const;
+        onopen: ((this: EventSource, ev: Event) => unknown) | null = null;
+        onmessage:
+          | ((this: EventSource, ev: MessageEvent<string>) => unknown)
+          | null = null;
+        onerror: ((this: EventSource, ev: Event) => unknown) | null = null;
+        addEventListener() {}
+        removeEventListener() {}
+        dispatchEvent() {
+          return true;
+        }
+        constructor(url: string) {
+          this.url = url;
+          (window as unknown as { __pwES?: FakeES }).__pwES = this;
+        }
+        close() {
+          this.readyState = 2;
+        }
+      }
+      // @ts-expect-error swap the global for the test
+      window.EventSource = FakeES;
+    });
+
+    await loadApp(page);
+    await page.getByTestId("settings-button").click();
+    await page
+      .locator("button", { hasText: /^Updates$/ })
+      .first()
+      .click();
+
+    // Wait for the hook's connectStream() useEffect to run, which sets
+    // onmessage on our FakeES.
+    await page.waitForFunction(() => {
+      const w = window as unknown as {
+        __pwES?: { onmessage: unknown };
+      };
+      return Boolean(w.__pwES && typeof w.__pwES.onmessage === "function");
+    });
+
+    const job = {
+      jobType: "update-assisted",
+      versionType: null,
+      phase: "validate",
+      startedAt: "2026-04-26T05:00:00.000Z",
+      log: [
+        "==> assisted update launched for v0.19.0",
+        "==> phase prepare: snapshotted current install",
+        "==> phase apply: swapped symlink",
+        "==> phase validate: service restarted",
+      ],
+      runUrl: null,
+      tag: "v0.19.0",
+      error: null,
+      assisted: {
+        tag: "v0.19.0",
+        fromTag: "v0.18.1",
+        metadata: {
+          mode: "required",
+          title: "Bun runtime migration",
+          summary: "Demo run.",
+          requiredChecks: ["service_entrypoint", "version_converged"],
+        },
+        requiredChecks: ["service_entrypoint", "version_converged"],
+        phase: "validate",
+        agentId: "agt_demo000000",
+        startedAt: "2026-04-26T05:00:00.000Z",
+        updatedAt: "2026-04-26T05:00:01.000Z",
+        completedAt: null,
+        error: null,
+        checks: [
+          {
+            name: "service_entrypoint",
+            ok: true,
+            message: "start script: node dist/main.js",
+          },
+          {
+            name: "version_converged",
+            ok: true,
+            message: "installed version converged to v0.19.0",
+          },
+        ],
+        notes: {
+          prepare: "snapshotted current install",
+          apply: "swapped symlink",
+        },
+      },
+    };
+
+    await page.evaluate((payload) => {
+      const w = window as unknown as { __pwES?: EventSource };
+      const es = w.__pwES;
+      if (!es?.onmessage) throw new Error("EventSource onmessage not bound");
+      es.onmessage.call(
+        es as EventSource,
+        {
+          data: JSON.stringify({ type: "snapshot", job: payload }),
+        } as unknown as MessageEvent<string>
+      );
+    }, job);
+
+    // Takeover replaces the settings pane. Use toBeAttached for the
+    // long-form content since the takeover lives inside a scrollable
+    // container and not everything is in the initial viewport.
+    await expect(page.getByText("Bun runtime migration")).toBeVisible();
+    await expect(
+      page.getByText("Validate checks", { exact: true })
+    ).toBeAttached();
+
+    // Per-phase notes show up. The same text also appears in the log
+    // panel, so use exact-match against the structured note rendering.
+    await expect(
+      page.getByText("snapshotted current install", { exact: true })
+    ).toBeAttached();
+    await expect(
+      page.getByText("swapped symlink", { exact: true })
+    ).toBeAttached();
+
+    // Check results render with their messages.
+    await expect(
+      page.getByText("start script: node dist/main.js")
+    ).toBeAttached();
+    await expect(
+      page.getByText("installed version converged to v0.19.0")
+    ).toBeAttached();
+
+    // The agent's id is surfaced as a link target back to the agent page.
+    await expect(page.getByText(/View update agent/)).toBeAttached();
+  });
 });

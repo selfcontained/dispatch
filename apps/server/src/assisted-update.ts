@@ -1,16 +1,28 @@
 import os from "node:os";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
-const MAX_NOTE_BYTES = 4096;
+export const MAX_NOTE_BYTES = 4096;
 
-function tokensEqual(a: string, b: string): boolean {
+/**
+ * Constant-time per-job nonce comparison. The token has 192 bits of
+ * entropy (`randomBytes(24)`) so the wall-clock difference between a
+ * length-mismatch fail and a constant-time fail is negligible, but the
+ * rest of the codebase standardizes on this pattern (see
+ * `validateMcpScopeToken` in auth.ts) and this avoids a future foot-gun.
+ */
+export function tokensEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a, "utf-8");
   const bb = Buffer.from(b, "utf-8");
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
 }
 
-function clampNote(s: string | undefined): string | undefined {
+/**
+ * Cap arbitrary strings posted by the launched agent before they hit
+ * disk + SSE replay so a misbehaving agent can't bloat the state file
+ * (`~/.dispatch/assisted-update.json`) or every snapshot reconnect.
+ */
+export function clampNote(s: string | undefined): string | undefined {
   if (s === undefined) return undefined;
   return s.length > MAX_NOTE_BYTES ? s.slice(0, MAX_NOTE_BYTES) : s;
 }
