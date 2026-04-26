@@ -242,6 +242,19 @@ function createStartupPins(urls: string[]): Array<{
   });
 }
 
+function sanitizeUploadedFileName(name: string): string {
+  const ext = path.extname(name).toLowerCase();
+  const baseName = path.basename(name, ext).normalize("NFKD");
+  const collapsed = baseName
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9._() -]+/g, "-")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return `${collapsed || "file"}${ext}`;
+}
+
 async function parseCreateAgentRequest(request: {
   body?: unknown;
   isMultipart: () => boolean;
@@ -275,8 +288,10 @@ async function parseCreateAgentRequest(request: {
       if (part.fieldname !== "startupFiles") {
         throw new Error("Unexpected file field.");
       }
-      const fileName = path.basename(part.filename || "");
-      if (!/^[A-Za-z0-9._-]+$/.test(fileName)) {
+      const fileName = sanitizeUploadedFileName(
+        path.basename(part.filename || "")
+      );
+      if (!fileName) {
         throw new Error("Invalid file name.");
       }
       if (!isMediaFile(fileName)) {
@@ -3761,8 +3776,8 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "A file field is required." });
     }
 
-    const fileName = path.basename(data.filename);
-    if (!/^[A-Za-z0-9._-]+$/.test(fileName)) {
+    const fileName = sanitizeUploadedFileName(path.basename(data.filename));
+    if (!fileName) {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     if (!isMediaFile(fileName)) {
@@ -4030,12 +4045,9 @@ async function registerRoutes() {
         parsedRequest.isMultipart
       );
     } catch (error) {
-      return reply
-        .code(400)
-        .send({
-          error:
-            error instanceof Error ? error.message : "Invalid request body.",
-        });
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid request body.",
+      });
     }
 
     if (
@@ -4114,9 +4126,16 @@ async function registerRoutes() {
       !isTerminalAgent && fullAccess === true && fullAccessArg
         ? Array.from(new Set([...(parsedAgentArgs ?? []), fullAccessArg]))
         : parsedAgentArgs;
+    let startupPins: ReturnType<typeof createStartupPins>;
+    try {
+      startupPins = createStartupPins(startupLinks ?? []);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid startupLinks.",
+      });
+    }
 
     try {
-      const startupPins = createStartupPins(startupLinks ?? []);
       const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
       const worktreeLocation: WorktreeLocation =
         worktreeLocationRaw &&
