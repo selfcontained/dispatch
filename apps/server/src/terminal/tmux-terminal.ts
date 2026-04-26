@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { runCommand } from "../shared/lib/run-command.js";
 
 export class TmuxTerminal {
+  private static readonly SUBMIT_SETTLE_MS = 150;
+  private static readonly RETRY_SUBMIT_BYTES = 4 * 1024;
   private readonly sessionName: string;
 
   constructor(sessionName: string) {
@@ -68,7 +71,22 @@ export class TmuxTerminal {
         allowedExitCodes: [0, 1],
       }).catch(() => undefined);
     }
+    await delay(TmuxTerminal.SUBMIT_SETTLE_MS);
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
+    if (
+      Buffer.byteLength(sanitized, "utf-8") >= TmuxTerminal.RETRY_SUBMIT_BYTES
+    ) {
+      await delay(TmuxTerminal.SUBMIT_SETTLE_MS);
+      const recent = await this.captureRecentLines(40).catch(() => "");
+      if (/\[Pasted text #[0-9]+/i.test(recent)) {
+        await runCommand("tmux", [
+          "send-keys",
+          "-t",
+          this.sessionName,
+          "Enter",
+        ]);
+      }
+    }
   }
 
   digest(contents: string): string {

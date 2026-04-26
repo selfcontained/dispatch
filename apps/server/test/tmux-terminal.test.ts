@@ -92,4 +92,37 @@ describe("TmuxTerminal.sendCommand", () => {
     const terminal = new TmuxTerminal("session-x");
     await expect(terminal.sendCommand("hello")).resolves.toBeUndefined();
   });
+
+  it("waits before submitting and retries once when a large paste is still queued", async () => {
+    runCommandMock.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args[0] === "capture-pane") {
+        return {
+          exitCode: 0,
+          stdout: "[Pasted text #1 +20 lines]",
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const terminal = new TmuxTerminal("session-x");
+    await terminal.sendCommand("x".repeat(5000));
+
+    const enterCalls = runCommandMock.mock.calls.filter(
+      ([, args]) =>
+        Array.isArray(args) && args[0] === "send-keys" && args[3] === "Enter"
+    );
+    expect(enterCalls).toHaveLength(2);
+  });
+
+  it("does not retry submit for small pastes", async () => {
+    const terminal = new TmuxTerminal("session-x");
+    await terminal.sendCommand("short");
+
+    const enterCalls = runCommandMock.mock.calls.filter(
+      ([, args]) =>
+        Array.isArray(args) && args[0] === "send-keys" && args[3] === "Enter"
+    );
+    expect(enterCalls).toHaveLength(1);
+  });
 });

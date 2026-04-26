@@ -6353,35 +6353,49 @@ async function mcpGetParentContext(
 async function mcpGetRecheckContext(
   agentId: string
 ): Promise<import("./shared/mcp/server.js").RecheckContextResult | null> {
-  const context = await agentManager.getReviewerRecheckContext(agentId);
-  if (!context) {
+  const review = await agentManager.getPersonaReview(agentId);
+  if (!review || !review.allowRecheck) {
     return null;
   }
-  if (context.review.status !== "awaiting_recheck") {
-    throw new Error(
-      "Recheck context is only available while the review is awaiting recheck."
-    );
-  }
 
-  const lastReviewedCommit = context.review.lastReviewedCommit;
-  const resolutionCommit = context.resolution.resolutionCommit;
+  const resolution = (await agentManager.getReviewResolutions(review.id)).at(
+    -1
+  );
+  const lastReviewedCommit = review.lastReviewedCommit;
+  const resolutionCommit = resolution?.resolutionCommit ?? null;
   const compareRange =
     lastReviewedCommit && resolutionCommit
       ? `${lastReviewedCommit}...${resolutionCommit}`
       : null;
+  const resolutions = resolution
+    ? await agentManager.listResolvedFeedbackForRound(
+        agentId,
+        resolution.roundNumber
+      )
+    : [];
+  const availability =
+    review.status === "cancelled"
+      ? "cancelled"
+      : review.status === "awaiting_recheck"
+        ? "ready"
+        : review.status === "complete" && review.roundNumber >= 2
+          ? "complete"
+          : "waiting_for_resolution";
 
   return {
-    persona: context.review.persona,
-    reviewId: context.review.id,
-    reviewRoundNumber: context.review.roundNumber,
-    resolutionRoundNumber: context.resolution.roundNumber,
-    resolutionSummary: context.resolution.summary,
+    availability,
+    reviewStatus: review.status,
+    persona: review.persona,
+    reviewId: review.id,
+    reviewRoundNumber: review.roundNumber,
+    resolutionRoundNumber: resolution?.roundNumber ?? null,
+    resolutionSummary: resolution?.summary ?? null,
     lastReviewedCommit,
     resolutionCommit,
     compareRange,
     gitDiffCommand: compareRange ? `git diff ${compareRange}` : null,
-    submittedAt: context.resolution.submittedAt,
-    resolutions: context.resolutions,
+    submittedAt: resolution?.submittedAt ?? null,
+    resolutions,
   };
 }
 

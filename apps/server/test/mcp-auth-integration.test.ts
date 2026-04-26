@@ -184,7 +184,7 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("never exposes removed await tools and only exposes recheck context in round 2", async () => {
+  it("never exposes removed await tools and exposes recheck context for recheck-enabled sessions", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
        VALUES
@@ -236,7 +236,11 @@ describe("MCP auth integration", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toContain("dispatch_await_recheck");
       expect(response.body).not.toContain("dispatch_await_review");
-      expect(response.body).not.toContain("dispatch_get_recheck_context");
+      if (personaAgentId === "agt_persona_plain") {
+        expect(response.body).not.toContain("dispatch_get_recheck_context");
+      } else {
+        expect(response.body).toContain("dispatch_get_recheck_context");
+      }
     }
 
     const round2Response = await app.inject({

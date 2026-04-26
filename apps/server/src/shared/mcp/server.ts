@@ -232,16 +232,18 @@ export type ParentContextResult = {
 };
 
 export type RecheckContextResult = {
+  availability: "waiting_for_resolution" | "ready" | "complete" | "cancelled";
+  reviewStatus: string;
   persona: string;
   reviewId: number;
-  reviewRoundNumber: number;
-  resolutionRoundNumber: number;
-  resolutionSummary: string;
+  reviewRoundNumber: number | null;
+  resolutionRoundNumber: number | null;
+  resolutionSummary: string | null;
   lastReviewedCommit: string | null;
   resolutionCommit: string | null;
   compareRange: string | null;
   gitDiffCommand: string | null;
-  submittedAt: string;
+  submittedAt: string | null;
   resolutions: Array<{
     feedbackId: number;
     originalDescription: string;
@@ -605,7 +607,7 @@ async function createDispatchMcpServer(
   if (
     allowed.has("dispatch_get_recheck_context") &&
     context.agent &&
-    context.agent.review?.status === "awaiting_recheck" &&
+    context.agent.review?.allowRecheck === true &&
     context.getRecheckContext
   ) {
     const agentId = context.agent.id;
@@ -615,7 +617,7 @@ async function createDispatchMcpServer(
       "dispatch_get_recheck_context",
       {
         description:
-          "Reviewer-only. Available during round-2 recheck. Returns the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
+          "Reviewer-only for recheck-enabled sessions. Returns whether round-2 context is ready yet and, once it is, the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
         inputSchema: {},
       },
       async () => {
@@ -624,9 +626,16 @@ async function createDispatchMcpServer(
           if (!result) {
             throw new Error("No recheck context is available for this review.");
           }
-          const compareText = result.compareRange
-            ? `Inspect ${result.compareRange}.`
-            : "No compare range is available for this recheck.";
+          const compareText =
+            result.availability === "ready"
+              ? result.compareRange
+                ? `Inspect ${result.compareRange}.`
+                : "Round 2 is ready, but no compare range is available for this recheck."
+              : result.availability === "waiting_for_resolution"
+                ? "Round 2 is not ready yet. Wait for the parent's resolution prompt."
+                : result.availability === "cancelled"
+                  ? "This recheck was cancelled by the parent."
+                  : "This recheck is already complete.";
           return {
             content: [{ type: "text", text: compareText }],
             structuredContent: result,
