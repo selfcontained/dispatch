@@ -307,10 +307,20 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
-    await page.getByTestId("create-agent-context-link-input").fill("not-a-url");
+    const prompt = page.getByTestId("create-agent-initial-prompt");
+    await expect(prompt).toHaveAccessibleName("Instructions");
+
+    const linkInput = page.getByTestId("create-agent-context-link-input");
+    await expect(linkInput).toHaveAccessibleName("Link URL");
+
+    await linkInput.fill("not-a-url");
     await expect(
       page.getByTestId("create-agent-context-link-error")
     ).toBeVisible();
+    await expect(linkInput).toHaveAttribute(
+      "aria-describedby",
+      "create-agent-context-link-error"
+    );
     await expect(
       page.getByTestId("create-agent-context-link-add")
     ).toBeDisabled();

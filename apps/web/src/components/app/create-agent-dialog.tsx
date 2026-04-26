@@ -61,6 +61,9 @@ const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
 const STARTUP_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
 const URL_PROTOCOLS = new Set(["http:", "https:"]);
+const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
+const CONTEXT_LINK_INPUT_ID = "create-agent-context-link-input";
+const CONTEXT_LINK_ERROR_ID = "create-agent-context-link-error";
 
 type ClipboardSuggestion =
   | {
@@ -1122,7 +1125,7 @@ function CreateAgentDialogContent({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="mt-[-2px] h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    className="mt-[-2px] h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
                     onClick={() => setClipboardSuggestion(null)}
                     data-testid="create-agent-context-clipboard-dismiss"
                     aria-label="Dismiss clipboard suggestion"
@@ -1149,10 +1152,14 @@ function CreateAgentDialogContent({
             ) : null}
 
             <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">
+              <label
+                htmlFor={CONTEXT_PROMPT_ID}
+                className="text-sm text-muted-foreground"
+              >
                 Instructions
               </label>
               <textarea
+                id={CONTEXT_PROMPT_ID}
                 ref={promptTextareaRef}
                 value={initialPrompt}
                 onChange={(event) => setInitialPrompt(event.target.value)}
@@ -1207,14 +1214,16 @@ function CreateAgentDialogContent({
                       <span className="max-w-[260px] truncate">
                         {file.name}
                       </span>
-                      <button
+                      <Button
                         type="button"
-                        className="text-muted-foreground hover:text-foreground"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
                         onClick={() => handleRemoveStartupFile(file)}
                         aria-label={`Remove ${file.name}`}
                       >
                         <X className="h-3 w-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -1232,33 +1241,46 @@ function CreateAgentDialogContent({
                   Add one or more URLs to pin into the new session.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={linkDraft}
-                  onChange={(event) => setLinkDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addStartupLink();
-                    }
-                  }}
-                  placeholder="https://..."
-                  data-testid="create-agent-context-link-input"
-                  aria-invalid={!linkDraftIsValid}
-                />
-                <Button
-                  type="button"
-                  variant="default"
-                  onClick={addStartupLink}
-                  data-testid="create-agent-context-link-add"
-                  disabled={!trimmedLinkDraft || !linkDraftIsValid}
+              <div className="space-y-2">
+                <label
+                  htmlFor={CONTEXT_LINK_INPUT_ID}
+                  className="text-sm text-muted-foreground"
                 >
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />
-                  Add
-                </Button>
+                  Link URL
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id={CONTEXT_LINK_INPUT_ID}
+                    value={linkDraft}
+                    onChange={(event) => setLinkDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addStartupLink();
+                      }
+                    }}
+                    placeholder="https://..."
+                    data-testid="create-agent-context-link-input"
+                    aria-invalid={!linkDraftIsValid}
+                    aria-describedby={
+                      !linkDraftIsValid ? CONTEXT_LINK_ERROR_ID : undefined
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={addStartupLink}
+                    data-testid="create-agent-context-link-add"
+                    disabled={!trimmedLinkDraft || !linkDraftIsValid}
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </div>
               </div>
               {!linkDraftIsValid ? (
                 <p
+                  id={CONTEXT_LINK_ERROR_ID}
                   className="text-xs text-status-blocked"
                   data-testid="create-agent-context-link-error"
                 >
@@ -1274,14 +1296,16 @@ function CreateAgentDialogContent({
                     >
                       <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate">{link}</span>
-                      <button
+                      <Button
                         type="button"
-                        className="text-muted-foreground hover:text-foreground"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
                         onClick={() => handleRemoveStartupLink(link)}
                         aria-label={`Remove ${link}`}
                       >
                         <X className="h-3 w-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
