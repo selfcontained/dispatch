@@ -29,6 +29,12 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
+// TODO: the initializeApp + uncaughtException-filter + env-juggling harness
+// below is duplicated across launch-review-route.test.ts,
+// resolution-capture-integration.test.ts, mcp-auth-integration.test.ts, and
+// this file. Extract into a shared test/helpers/inject-app.ts before adding a
+// 5th copy. (DISPATCH_PORT here is folklore — inject() never binds it.)
+
 let pool: Pool;
 let app: FastifyInstance;
 
