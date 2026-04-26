@@ -103,10 +103,15 @@ const SECTIONS: SectionDef[] = [
               Recent directories are saved for quick selection.
             </li>
             <li>
-              <strong>Create git worktree</strong> — checked by default. Creates
-              an isolated worktree so the agent works on its own branch without
-              touching your primary checkout. When enabled, you can pick a base
-              branch and optionally set a custom branch name.
+              <strong>Create managed git worktree</strong> — checked by default
+              (and disabled when the working directory isn't a git repo).
+              Creates an isolated worktree so the agent works without touching
+              your primary checkout. A nested{" "}
+              <strong>Create a new branch in this worktree</strong> sub-checkbox
+              controls whether Dispatch forks a new working branch from the
+              starting branch (on, default — the authoring flow) or just checks
+              out the starting branch directly (off — review/investigation
+              flows). See the Worktrees section for details.
             </li>
             <li>
               <strong>Full access mode</strong> (CLI types only) — starts the
@@ -543,20 +548,52 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
     content: (
       <>
         <P>
-          Git worktrees let agents work on changes in isolation without touching
-          the main checkout. Each agent gets its own branch and directory —
-          ideal for parallel tasks or keeping exploratory work separate.
+          Git worktrees let agents work in isolation without touching the main
+          checkout. Each agent gets its own directory — ideal for parallel
+          tasks, review flows, or keeping exploratory work separate.
         </P>
 
         <Section>
           <H3>Automatic worktree creation</H3>
           <P>
-            When creating an agent, the <strong>Create git worktree</strong>{" "}
-            checkbox is enabled by default. Dispatch creates a new branch and
-            linked worktree directory, copies environment files (like{" "}
-            <Code>.env</Code>), and starts the agent inside it. You can choose a
-            base branch and optionally set a custom branch name in the create
-            dialog.
+            The <strong>Create managed git worktree</strong> checkbox in the
+            create dialog is enabled by default. When the working directory
+            isn't a git repository, the checkbox disables itself and the
+            controls collapse, with a note explaining why.
+          </P>
+          <P>
+            When enabled, Dispatch creates a linked worktree directory, copies{" "}
+            <Code>.env</Code> if it exists, and auto-installs dependencies if it
+            detects a <Code>pnpm-lock.yaml</Code>, <Code>yarn.lock</Code>,{" "}
+            <Code>package-lock.json</Code>, or <Code>bun.lockb</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Branch options</H3>
+          <P>
+            Pick a <strong>Starting branch</strong> from the dropdown — that's
+            the branch Dispatch will check out in the worktree. The nested{" "}
+            <strong>Create a new branch in this worktree</strong> checkbox
+            controls what happens next:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>On (default)</strong> — Dispatch forks a new working
+              branch from the starting branch so the agent can make isolated
+              changes for later submission. The branch name is auto-generated if
+              you leave the field blank. This is the standard authoring flow.
+            </li>
+            <li>
+              <strong>Off</strong> — the worktree checks out the starting branch
+              directly. Useful for review or investigation flows where you want
+              an isolated working copy of an existing branch without creating a
+              new one.
+            </li>
+          </ul>
+          <P>
+            The new-branch preference is remembered per working directory, so
+            review and authoring repos each keep their own default.
           </P>
         </Section>
 
@@ -579,6 +616,12 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             unmerged commits and uncommitted changes. If the worktree is clean,
             it's removed automatically. If there are outstanding changes, you're
             asked whether to keep the worktree for manual review or remove it.
+          </P>
+          <P>
+            If the worktree was checked out on an existing branch (the
+            new-branch checkbox was off), Dispatch removes only the worktree
+            directory and leaves the branch alone — it belongs to you, not the
+            agent.
           </P>
         </Section>
 
