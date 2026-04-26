@@ -1325,6 +1325,27 @@ async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
   appendReleaseLog(job, `==> verified runtime binary ${result.stdout.trim()}`);
 }
 
+async function assertCommandOnPath(
+  job: ReleaseJob,
+  command: string,
+  purpose: string
+): Promise<void> {
+  const quotedCommand = `'${command.replace(/'/g, `'\\''`)}'`;
+  const result = await runCommand(
+    "bash",
+    ["-lc", `command -v -- ${quotedCommand} >/dev/null 2>&1`],
+    { cwd: serverDir, allowedExitCodes: [0, 1] }
+  );
+
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `${command} is required to ${purpose}, but was not found on PATH`
+    );
+  }
+
+  appendReleaseLog(job, `==> found ${command} on PATH`);
+}
+
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
 async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
   setReleasePhase(job, "deploying");
@@ -1338,6 +1359,8 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
 
     appendReleaseLog(job, `==> checking out ${tag}`);
     await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+    await assertCommandOnPath(job, "pnpm", "build Dispatch from source");
 
     appendReleaseLog(job, "==> installing dependencies");
     await streamProcess(

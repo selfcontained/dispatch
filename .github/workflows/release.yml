@@ -12,18 +12,118 @@ on:
           - minor
           - major
 
+concurrency:
+  group: dispatch-release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    runs-on: self-hosted
+  prepare-release:
+    runs-on:
+      - self-hosted
+      - Linux
 
     permissions:
       contents: write
+
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+      release_commit: ${{ steps.prepare.outputs.release_commit }}
+      artifact_name: ${{ steps.prepare.outputs.artifact_name }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare release commit
+        id: prepare
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --tags --prune
+          git checkout main
+          git reset --hard origin/main
+
+          mkdir -p release-notes
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
+          NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
+          pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "error: remote tag ${NEW_VERSION} already exists" >&2
+            exit 1
+          fi
+
+          if [ -n "$PREV_TAG" ]; then
+            gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -X POST \
+              -f tag_name="$NEW_VERSION" \
+              -f target_commitish="main" \
+              -f previous_tag_name="$PREV_TAG" \
+              --jq '.body' > release-notes/current.md
+          else
+            gh api "repos/${{ github.repository }}/releases/generate-notes" \
+              -X POST \
+              -f tag_name="$NEW_VERSION" \
+              -f target_commitish="main" \
+              --jq '.body' > release-notes/current.md
+          fi
+
+          git add package.json apps/*/package.json pnpm-lock.yaml release-notes/current.md
+          git commit -m "Release ${NEW_VERSION}"
+
+          META="release-notes/next-assisted-update.json"
+          if [ -f "$META" ]; then
+            pnpm tsx bin/embed-assisted-update.ts \
+              --metadata "$META" \
+              --notes release-notes/current.md
+            git rm "$META"
+            git add release-notes/current.md
+            git commit --amend --no-edit
+          fi
+
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+          RELEASE_COMMIT=$(git rev-parse HEAD)
+          ARTIFACT_NAME="release-bundle-${NEW_VERSION}"
+
+          {
+            echo "tag=${NEW_VERSION}"
+            echo "release_commit=${RELEASE_COMMIT}"
+            echo "artifact_name=${ARTIFACT_NAME}"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-release:
+    needs: prepare-release
+    runs-on:
+      - self-hosted
+      - Linux
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_commit }}
+          fetch-depth: 1
 
       - uses: pnpm/action-setup@v4
         with:
@@ -40,9 +140,8 @@ jobs:
       - name: Start Postgres
         id: postgres
         run: |
-          CONTAINER="dispatch-ci-pg-$GITHUB_RUN_ID"
+          CONTAINER="dispatch-release-verify-pg-$GITHUB_RUN_ID"
           echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
-          # Pick a random port in 10000-20000 range
           PORT=$((RANDOM % 10000 + 10000))
           echo "port=$PORT" >> "$GITHUB_OUTPUT"
           docker run --rm -d \
@@ -52,7 +151,6 @@ jobs:
             -e POSTGRES_DB=postgres \
             -p "$PORT":5432 \
             postgres:17-alpine
-          # Wait for Postgres to be ready
           for i in $(seq 1 15); do
             docker exec "$CONTAINER" pg_isready -U dispatch && break
             sleep 1
@@ -72,83 +170,268 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
-      - name: Build Bun binaries
-        run: pnpm run build:bun
-
       - name: Stop Postgres
         if: always()
         run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+  build-binaries:
+    needs:
+      - prepare-release
+      - verify-release
+    runs-on:
+      - self-hosted
+      - Linux
 
-      - name: Bump version and tag
-        id: version
-        run: |
-          mkdir -p release-notes
-          PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
-          NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
-          # Bump all workspace packages to keep versions in sync
-          pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
-          if [ -n "$PREV_TAG" ]; then
-            gh api "repos/${{ github.repository }}/releases/generate-notes" \
-              -X POST \
-              -f tag_name="$NEW_VERSION" \
-              -f target_commitish="main" \
-              -f previous_tag_name="$PREV_TAG" \
-              --jq '.body' > release-notes/current.md
-          else
-            gh api "repos/${{ github.repository }}/releases/generate-notes" \
-              -X POST \
-              -f tag_name="$NEW_VERSION" \
-              -f target_commitish="main" \
-              --jq '.body' > release-notes/current.md
-          fi
-          git add package.json apps/*/package.json pnpm-lock.yaml release-notes/current.md
-          git commit -m "Release ${NEW_VERSION}"
-          # Pull in any commits that landed on main during the CI run
-          git pull --rebase origin main
-          echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: read
 
-      - name: Embed assisted-update metadata if present
-        run: |
-          META="release-notes/next-assisted-update.json"
-          if [ -f "$META" ]; then
-            pnpm tsx bin/embed-assisted-update.ts \
-              --metadata "$META" \
-              --notes release-notes/current.md
-            git rm "$META"
-            git add release-notes/current.md
-            git commit --amend --no-edit
-          fi
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_commit }}
+          fetch-depth: 1
 
-      - name: Push release commit and tag
-        run: |
-          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          # Push branch first, then tag separately — if the branch push
-          # fails we don't leave an orphan tag on the remote.
-          git push origin main
-          git push origin "${{ steps.version.outputs.tag }}"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-      - name: Rebuild Bun binaries for release commit
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Bun binaries
         run: pnpm run build:bun
 
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz
 
-      - name: Create GitHub release
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.prepare-release.outputs.artifact_name }}
+          if-no-files-found: error
+          path: |
+            dist/bun/
+            dispatch-release.tar.gz
+            release-notes/current.md
+          retention-days: 7
+
+  smoke-linux:
+    needs:
+      - prepare-release
+      - build-binaries
+    runs-on:
+      - self-hosted
+      - Linux
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_commit }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare-release.outputs.artifact_name }}
+
+      - name: Restore binary execute bits
+        run: chmod +x dist/bun/dispatch-*
+
+      - name: Start Postgres
+        id: postgres
         run: |
-          gh release create ${{ steps.version.outputs.tag }} \
-            --title "${{ steps.version.outputs.tag }}" \
+          CONTAINER="dispatch-release-linux-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
+
+      - name: Smoke test Linux binary
+        run: |
+          case "$(uname -m)" in
+            aarch64|arm64) ARCH="arm64" ;;
+            x86_64) ARCH="x64" ;;
+            *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-linux-${ARCH}" | head -n 1)
+          if [[ -z "$BINARY" ]]; then
+            echo "error: no Linux Bun binary found for architecture ${ARCH}" >&2
+            exit 1
+          fi
+          bun scripts/smoke-bun-binary.mjs "$BINARY"
+        env:
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
+
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
+
+  smoke-macos:
+    needs:
+      - prepare-release
+      - build-binaries
+    runs-on:
+      - self-hosted
+      - macOS
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_commit }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare-release.outputs.artifact_name }}
+
+      - name: Restore binary execute bits
+        run: chmod +x dist/bun/dispatch-*
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          CONTAINER="dispatch-release-macos-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
+
+      - name: Smoke test macOS binary
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH="arm64" ;;
+            x86_64) ARCH="x64" ;;
+            *) echo "unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-darwin-${ARCH}" | head -n 1)
+          if [[ -z "$BINARY" ]]; then
+            echo "error: no macOS Bun binary found for architecture ${ARCH}" >&2
+            exit 1
+          fi
+          bun scripts/smoke-bun-binary.mjs "$BINARY"
+        env:
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
+
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
+
+  publish-release:
+    needs:
+      - prepare-release
+      - build-binaries
+      - smoke-linux
+      - smoke-macos
+    runs-on:
+      - self-hosted
+      - Linux
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.prepare-release.outputs.artifact_name }}
+
+      - name: Verify release still publishable
+        run: |
+          set -euo pipefail
+
+          TAG="${{ needs.prepare-release.outputs.tag }}"
+          RELEASE_COMMIT="${{ needs.prepare-release.outputs.release_commit }}"
+
+          git fetch origin main --tags --prune
+
+          REMOTE_MAIN=$(git rev-parse origin/main)
+          if [[ "$REMOTE_MAIN" != "$RELEASE_COMMIT" ]]; then
+            echo "error: origin/main advanced to $REMOTE_MAIN after smoke tests; expected $RELEASE_COMMIT" >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "error: remote tag ${TAG} already exists" >&2
+            exit 1
+          fi
+
+      - name: Create GitHub release from tested artifact
+        run: |
+          gh release create "${{ needs.prepare-release.outputs.tag }}" \
+            --target "${{ needs.prepare-release.outputs.release_commit }}" \
+            --title "${{ needs.prepare-release.outputs.tag }}" \
             --notes-file release-notes/current.md \
             --prerelease \
             dispatch-release.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}

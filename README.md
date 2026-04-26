@@ -57,6 +57,13 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 | **tmux**                   | Agent session management                                | `brew install tmux`                 | `apt install tmux`       |
 | **At least one agent CLI** | The agents Dispatch runs                                | See below                           | See below                |
 
+Dispatch currently uses a split toolchain:
+
+- **Bun** runs the server in development and production, executes backend tests, and builds the compiled release binaries.
+- **pnpm** remains the workspace package manager and the entrypoint for repo-level install/build/test orchestration.
+
+We may move more of the repo over to Bun later, but that is not part of the current cutover.
+
 ### Optional
 
 | Dependency       | Purpose                                    | Install                                                                                                 |
@@ -101,6 +108,8 @@ cp .env.example .env
 # 4. Start Dispatch
 bin/dispatch-dev up --live
 ```
+
+For day-to-day backend work, the server itself runs under Bun. `pnpm` is still used at the repo root for dependency installation and workspace-level scripts.
 
 > **Important:** Docker Desktop must be running (not just installed). If you see
 > _"Error: docker compose is not available"_, open Docker.app first.

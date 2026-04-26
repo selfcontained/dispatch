@@ -145,6 +145,10 @@ cmd_build() {
     echo "bun not found on PATH" >&2
     exit 1
   fi
+  if ! command -v pnpm &>/dev/null; then
+    echo "pnpm not found on PATH" >&2
+    exit 1
+  fi
   cd "$ROOT_DIR"
   pnpm install --frozen-lockfile
   pnpm run build:bun

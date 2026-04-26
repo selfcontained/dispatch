@@ -41,6 +41,10 @@ build_from_source() {
     echo "error: bun is required to build Dispatch from source" >&2
     return 1
   fi
+  if ! command -v pnpm &>/dev/null; then
+    echo "error: pnpm is required to build Dispatch from source" >&2
+    return 1
+  fi
   cd "$SERVER_DIR"
   pnpm install --frozen-lockfile
   pnpm run build:bun
@@ -135,6 +139,10 @@ else
   echo "==> no release tag found, building from HEAD"
   if ! command -v bun &>/dev/null; then
     echo "error: bun is required to build Dispatch from source" >&2
+    exit 1
+  fi
+  if ! command -v pnpm &>/dev/null; then
+    echo "error: pnpm is required to build Dispatch from source" >&2
     exit 1
   fi
   cd "$SERVER_DIR"
