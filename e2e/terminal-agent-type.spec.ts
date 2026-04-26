@@ -22,6 +22,7 @@ async function stubClipboard(
   page: Parameters<typeof loadApp>[0],
   config:
     | { kind: "text"; text: string }
+    | { kind: "deferred-text"; firstText: string; nextText: string }
     | { kind: "rich-text-link"; text: string; html: string }
     | { kind: "image"; mimeType?: string; bytes?: number[] }
 ): Promise<void> {
@@ -53,16 +54,32 @@ async function stubClipboard(
               ],
               readText: async () => value.text,
             }
-          : {
-              read: async () => [],
-              readText: async () => value.text,
-            };
+          : value.kind === "deferred-text"
+            ? {
+                read: async () => [],
+                readText: async () => {
+                  const current =
+                    window.__dispatchClipboardText ?? value.firstText;
+                  window.__dispatchClipboardText = value.nextText;
+                  return current;
+                },
+              }
+            : {
+                read: async () => [],
+                readText: async () => value.text,
+              };
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: clipboard,
     });
   }, config);
+}
+
+declare global {
+  interface Window {
+    __dispatchClipboardText?: string;
+  }
 }
 
 test.describe("Terminal agent type", () => {
@@ -252,6 +269,30 @@ test.describe("Terminal agent type", () => {
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Copied link ready");
     await expect(cta).not.toContainText("Clipboard file ready");
+  });
+
+  test("create with context can retry clipboard detection from an explicit button", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "deferred-text",
+      firstText: "",
+      nextText: "https://example.com/retry-link",
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-check")
+    ).toBeVisible();
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
+
+    const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).toContainText("Copied link ready");
   });
 
   test("create with context lets the user dismiss a clipboard suggestion", async ({

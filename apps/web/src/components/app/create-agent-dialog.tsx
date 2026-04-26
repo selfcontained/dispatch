@@ -13,6 +13,7 @@ import {
   Check,
   ChevronDown,
   GitBranch,
+  Clipboard,
   ChevronLeft,
   Link2,
   Paperclip,
@@ -451,6 +452,8 @@ function CreateAgentDialogContent({
   const [linkDraft, setLinkDraft] = useState("");
   const [clipboardSuggestion, setClipboardSuggestion] =
     useState<ClipboardSuggestion | null>(null);
+  const [checkingClipboard, setCheckingClipboard] = useState(false);
+  const [clipboardCheckAttempted, setClipboardCheckAttempted] = useState(false);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
     readCwdHistory()
@@ -508,6 +511,8 @@ function CreateAgentDialogContent({
     if (step !== "context") {
       clipboardRequestIdRef.current += 1;
       setClipboardSuggestion(null);
+      setCheckingClipboard(false);
+      setClipboardCheckAttempted(false);
     }
   }, [step]);
 
@@ -591,15 +596,33 @@ function CreateAgentDialogContent({
   const enterContextStep = useCallback(() => {
     setStep("context");
     setClipboardSuggestion(null);
+    setCheckingClipboard(true);
+    setClipboardCheckAttempted(false);
     const requestId = clipboardRequestIdRef.current + 1;
     clipboardRequestIdRef.current = requestId;
     void getClipboardSuggestion()
       .then((suggestion) => {
         if (clipboardRequestIdRef.current !== requestId) return;
+        setCheckingClipboard(false);
         setClipboardSuggestion(suggestion);
       })
       .catch(() => {
         if (clipboardRequestIdRef.current !== requestId) return;
+        setCheckingClipboard(false);
+        setClipboardSuggestion(null);
+      });
+  }, []);
+
+  const handleCheckClipboard = useCallback(() => {
+    setCheckingClipboard(true);
+    setClipboardCheckAttempted(true);
+    void getClipboardSuggestion()
+      .then((suggestion) => {
+        setCheckingClipboard(false);
+        setClipboardSuggestion(suggestion);
+      })
+      .catch(() => {
+        setCheckingClipboard(false);
         setClipboardSuggestion(null);
       });
   }, []);
@@ -1149,6 +1172,36 @@ function CreateAgentDialogContent({
                         <Paperclip className="mr-1.5 h-3.5 w-3.5" />
                       )}
                       {clipboardSuggestion.actionLabel}
+                    </Button>
+                  </div>
+                ) : null}
+                {!clipboardSuggestion ? (
+                  <div
+                    className="space-y-2 rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
+                    data-testid="create-agent-context-clipboard-check"
+                  >
+                    <div className="text-xs text-muted-foreground">
+                      {clipboardCheckAttempted
+                        ? "Nothing supported was found in the clipboard. Try copying again, then check once more."
+                        : "If nothing was detected automatically, check the clipboard explicitly."}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="w-full justify-center"
+                      onClick={handleCheckClipboard}
+                      disabled={checkingClipboard}
+                      data-testid="create-agent-context-clipboard-check-action"
+                    >
+                      {checkingClipboard ? (
+                        <ActivityBars size={16} className="mr-1.5" />
+                      ) : (
+                        <Clipboard className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {checkingClipboard
+                        ? "Checking clipboard"
+                        : "Check clipboard"}
                     </Button>
                   </div>
                 ) : null}
