@@ -680,6 +680,9 @@ export function AgentsView({
               <MobileTerminalToolbar
                 onSendInput={sendTerminalInput}
                 ctrlPendingRef={ctrlPendingRef}
+                isConnected={
+                  connState === "connected" && Boolean(connectedAgentId)
+                }
               />
             ) : null}
           </div>

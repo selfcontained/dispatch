@@ -15,11 +15,13 @@ import { cn } from "@/lib/utils";
 type MobileTerminalToolbarProps = {
   onSendInput: (data: string) => void;
   ctrlPendingRef: MutableRefObject<boolean>;
+  isConnected: boolean;
 };
 
 export function MobileTerminalToolbar({
   onSendInput,
   ctrlPendingRef,
+  isConnected,
 }: MobileTerminalToolbarProps): JSX.Element {
   const [inputOpen, setInputOpen] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -89,6 +91,7 @@ export function MobileTerminalToolbar({
 
   const sendKey = useCallback(
     (key: string, flashKey?: string) => {
+      if (!isConnected) return;
       if (flashKey) triggerFlash(flashKey);
       playTap();
       onSendInput(key);
@@ -98,10 +101,18 @@ export function MobileTerminalToolbar({
         ctrlPendingRef.current = false;
       }
     },
-    [ctrlActive, ctrlPendingRef, onSendInput, playTap, triggerFlash]
+    [
+      ctrlActive,
+      ctrlPendingRef,
+      isConnected,
+      onSendInput,
+      playTap,
+      triggerFlash,
+    ]
   );
 
   const openInput = useCallback(() => {
+    if (!isConnected) return;
     triggerFlash("input");
     playTap();
     setInputOpen(true);
@@ -110,9 +121,10 @@ export function MobileTerminalToolbar({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => inputRef.current?.focus());
     });
-  }, [playTap, triggerFlash]);
+  }, [isConnected, playTap, triggerFlash]);
 
   const submitInput = useCallback(() => {
+    if (!isConnected) return;
     playTap();
     const text = inputRef.current?.value;
     if (text) {
@@ -120,7 +132,7 @@ export function MobileTerminalToolbar({
       if (inputRef.current) inputRef.current.value = "";
     }
     setInputOpen(false);
-  }, [onSendInput, playTap]);
+  }, [isConnected, onSendInput, playTap]);
 
   return (
     <>
@@ -134,6 +146,7 @@ export function MobileTerminalToolbar({
               className="relative h-full w-full overflow-hidden rounded-bl-[28px] px-2 text-xs"
               aria-label="Open text input"
               onClick={openInput}
+              disabled={!isConnected}
             >
               {renderFlash("input")}
               <Keyboard className="h-5 w-5" strokeWidth={2} />
@@ -149,6 +162,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
                 aria-label="Send Escape"
                 onClick={() => sendKey("\u001b", "esc")}
+                disabled={!isConnected}
               >
                 {renderFlash("esc")}
                 Esc
@@ -177,6 +191,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
                 aria-label="Send Tab"
                 onClick={() => sendKey("\t", "tab")}
+                disabled={!isConnected}
               >
                 {renderFlash("tab")}
                 Tab
@@ -191,6 +206,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Left"
                 onClick={() => sendKey("\u001b[D", "left")}
+                disabled={!isConnected}
               >
                 {renderFlash("left")}←
               </Button>
@@ -201,6 +217,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Up"
                 onClick={() => sendKey("\u001b[A", "up")}
+                disabled={!isConnected}
               >
                 {renderFlash("up")}↑
               </Button>
@@ -211,6 +228,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Down"
                 onClick={() => sendKey("\u001b[B", "down")}
+                disabled={!isConnected}
               >
                 {renderFlash("down")}↓
               </Button>
@@ -221,6 +239,7 @@ export function MobileTerminalToolbar({
                 className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Right"
                 onClick={() => sendKey("\u001b[C", "right")}
+                disabled={!isConnected}
               >
                 {renderFlash("right")}→
               </Button>
@@ -235,6 +254,7 @@ export function MobileTerminalToolbar({
               className="relative h-full w-full overflow-hidden rounded-br-[28px] px-2 text-xs"
               aria-label="Send Enter"
               onClick={() => sendKey("\r", "enter")}
+              disabled={!isConnected}
             >
               {renderFlash("enter")}
               Enter

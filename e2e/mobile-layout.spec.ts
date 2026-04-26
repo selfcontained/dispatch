@@ -53,15 +53,24 @@ async function seedTerminalAgent(
 }
 
 test.describe("Mobile layout", () => {
-  test("terminal mobile toolbar flashes shortcut buttons except ctrl", async ({
+  test("terminal mobile toolbar only flashes connected shortcut buttons", async ({
     page,
     request,
   }) => {
+    await gotoMobile(page, "/agents");
+
+    const disconnectedEnterButton = page.getByLabel("Send Enter");
+    const disconnectedInputButton = page.getByLabel("Open text input");
+    const ctrlButton = page.getByLabel("Toggle Control modifier");
+
+    await expect(disconnectedEnterButton).toBeDisabled();
+    await expect(disconnectedInputButton).toBeDisabled();
+    await expect(page.getByTestId("toolbar-flash-enter")).toHaveCount(0);
+
     const { id } = await seedTerminalAgent(request);
     await gotoMobile(page, `/agents/${id}`);
 
     const enterButton = page.getByLabel("Send Enter");
-    const ctrlButton = page.getByLabel("Toggle Control modifier");
 
     await enterButton.click();
     await expect(page.getByTestId("toolbar-flash-enter")).toBeVisible();
