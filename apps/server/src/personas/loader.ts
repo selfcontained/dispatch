@@ -153,20 +153,17 @@ Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback li
 
 /**
  * Round-trip guidance appended when the review was launched with
- * allowRecheck: true. Tells the reviewer to stay alive, poll for the
- * parent's resolutions, and deliver a second verdict.
+ * allowRecheck: true. Tells the reviewer to stay alive after round 1,
+ * wait for a server-injected round-2 prompt, and deliver a second verdict.
  */
 const RECHECK_ROUND_TRIP_GUIDANCE = `
 ## Recheck round-trip (this review has \`allowRecheck: true\`)
 
 This is a two-round review. You have a round-1 obligation (already described above) AND a round-2 obligation described below. Do not emit a terminal \`dispatch_event\` until BOTH rounds are complete or the recheck has been explicitly cancelled.
 
-**After round 1.** Once you've submitted your initial verdict via \`dispatch_complete_review\`, do not exit. Call \`dispatch_await_recheck\` — it returns one of three terminal shapes:
-- \`pending\` with a \`pollAgainInSeconds\` value — wait that many seconds (using whatever sleep mechanism your agent runtime provides) and call \`dispatch_await_recheck\` again. Do not busy-loop and do not invent your own cadence; trust the server's number.
-- \`ready\` with the parent's resolution summary, per-item resolutions, and the diff since your round-1 commit — this is the signal to start round 2.
-- \`cancelled\` — exit cleanly; the parent aborted the recheck.
+**After round 1.** Once you've submitted your initial verdict via \`dispatch_complete_review\`, do not exit. The server will push a new prompt into your terminal here when the parent submits their resolution — that prompt will include the parent's resolution summary, per-item resolutions, and the diff since your round-1 commit. There is no tool to poll. Keep this turn alive however your agent runtime allows, and act on the prompt when it arrives. If the parent cancels the recheck, you'll receive a cancellation prompt instead — wrap up cleanly when you see it.
 
-**Round 2.** When you receive \`ready\`, re-evaluate each original finding against what the parent actually did. For every original concern that remains unresolved, submit a new \`dispatch_feedback\` item with \`respondsToFeedbackId\` set to the original feedback item's ID so the parent can see which round-2 findings map back to which round-1 concerns. If the parent fully addressed everything, submit no new feedback and approve.
+**Round 2.** When the round-2 prompt arrives, re-evaluate each original finding against what the parent actually did. For every original concern that remains unresolved, submit a new \`dispatch_feedback\` item with \`respondsToFeedbackId\` set to the original feedback item's ID so the parent can see which round-2 findings map back to which round-1 concerns. If the parent fully addressed everything, submit no new feedback and approve.
 
 **Mandatory round-2 close.** After you finish round 2 — whether you found new issues or not — you MUST call \`dispatch_complete_review\` a second time with your round-2 verdict (\`approve\` or \`request_changes\`) and a fresh \`summary\`. The review is not closed until you do this. Only then emit a terminal \`dispatch_event\`.
 `.trim();

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { runCommand } from "../shared/lib/run-command.js";
 
@@ -36,14 +36,38 @@ export class TmuxTerminal {
     return result.stdout;
   }
 
+  // Inject `commandLine` into the target tmux pane as a single bracketed paste,
+  // then submit with Enter. Bracketed paste lets the receiving TUI (Claude,
+  // Codex, etc.) treat the burst as one paste event instead of as live typing —
+  // without it, Codex's input handler keeps the input in multi-line mode and
+  // the trailing Enter fails to submit.
   async sendCommand(commandLine: string): Promise<void> {
-    await runCommand("tmux", [
-      "send-keys",
-      "-t",
-      this.sessionName,
-      "-l",
-      commandLine,
-    ]);
+    // Strip bracketed-paste markers from the input. \x1b[201~ closes the paste
+    // span; without this, attacker-influenced fields (persona name, child
+    // reviewer feedback summaries, raw diff bytes) could end the paste early
+    // and inject the trailing bytes as live keystrokes — Ctrl-C / Ctrl-D into
+    // the receiving TUI, a cross-agent disruption channel.
+    const sanitized = commandLine.replace(/\x1b\[20[01]~/g, "");
+    const bufferName = `dispatch_${randomUUID()}`;
+    await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
+    try {
+      await runCommand("tmux", [
+        "paste-buffer",
+        "-t",
+        this.sessionName,
+        "-b",
+        bufferName,
+        "-p",
+        "-d",
+      ]);
+    } finally {
+      // paste-buffer -d already deletes on success, so this is a no-op then
+      // (exit 1 = buffer doesn't exist). On any failure between set-buffer
+      // and successful paste, the named buffer would otherwise leak.
+      await runCommand("tmux", ["delete-buffer", "-b", bufferName], {
+        allowedExitCodes: [0, 1],
+      }).catch(() => undefined);
+    }
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
   }
 

@@ -559,7 +559,6 @@ export function AgentCard({
                         <PersonaLauncher
                           agent={agent}
                           enabledAgentTypes={enabledAgentTypes}
-                          sendTerminalInput={sendTerminalInput}
                           disabled={
                             connectedAgentId !== agent.id ||
                             isStopped ||

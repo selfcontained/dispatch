@@ -53,12 +53,10 @@ function defaultReviewAgentType(agent: Agent): AgentType {
 export function PersonaLauncher({
   agent,
   enabledAgentTypes,
-  sendTerminalInput,
   disabled = false,
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
-  sendTerminalInput?: (data: string) => void;
   disabled?: boolean;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
@@ -119,23 +117,19 @@ export function PersonaLauncher({
     );
   };
 
-  const buildLaunchPrompt = () => {
-    if (!selectedPersona) return "";
-    return [
-      `Use the dispatch_launch_persona MCP tool to launch the "${selectedPersona}" persona on your current work.`,
-      `Use agentType: "${selectedAgentType}" and allowRecheck: ${allowRecheck ? "true" : "false"}.`,
-      "Treat this as an author-requested review for the current worktree/branch.",
-      "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet; wait using dispatch_await_review, address round-1 feedback, call dispatch_resolve_feedback for each item, submit the resolution, then wait for round 2.",
-      "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
-    ].join(" ");
-  };
-
   const launchPersona = async () => {
-    if (!selectedPersona || isLaunching || !sendTerminalInput) return;
+    if (!selectedPersona || isLaunching) return;
     setIsLaunching(true);
     try {
       await persistReviewAgentType(selectedAgentType);
-      sendTerminalInput(buildLaunchPrompt() + "\r");
+      await api(`/api/v1/agents/${agent.id}/launch-review`, {
+        method: "POST",
+        body: JSON.stringify({
+          persona: selectedPersona,
+          agentType: selectedAgentType,
+          allowRecheck,
+        }),
+      });
       setDialogOpen(false);
     } finally {
       setIsLaunching(false);
@@ -391,9 +385,7 @@ export function PersonaLauncher({
                 <Button
                   type="button"
                   variant="primary"
-                  disabled={
-                    !selectedPersona || isLaunching || !sendTerminalInput
-                  }
+                  disabled={!selectedPersona || isLaunching}
                   onClick={() => {
                     void launchPersona();
                   }}

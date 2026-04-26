@@ -12,12 +12,11 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).toBe(base);
   });
 
-  it("appends the parent driver-loop guidance when allowRecheck is true", () => {
+  it("appends round-trip guidance when allowRecheck is true", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
 
     expect(text.startsWith(base)).toBe(true);
     expect(text).toContain("Review was launched with recheck enabled");
-    expect(text).toContain("dispatch_await_review");
     expect(text).toContain("dispatch_get_feedback");
     expect(text).toContain("dispatch_resolve_feedback");
     expect(text).toContain("dispatch_submit_resolution");
@@ -25,50 +24,42 @@ describe("buildLaunchPersonaResponseText", () => {
   });
 
   it("tells the parent not to emit a terminal event yet (stay alive)", () => {
-    // Regression guard: the parent must be told it's a multi-turn flow.
-    // See CRU-133 dogfood (gpt-5.4 parent emitted done after launch because
-    // the guidance didn't make the stay-alive expectation explicit).
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
     expect(text).toContain("do not emit a terminal dispatch_event yet");
   });
 
-  it("points at dispatch_await_review and mentions the specific reviewer id", () => {
+  it("references the specific reviewer agent id in the guidance", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).toContain("dispatch_await_review");
     expect(text).toContain(`personaAgentId="${agentId}"`);
   });
 
-  it("describes sleeping in agent-runtime-neutral terms (no Claude-specific tool names)", () => {
-    // Dispatch supports claude/codex/opencode. The guidance can't name
-    // Claude Code's ScheduleWakeup or it becomes wrong for the other two.
+  it("describes waiting in agent-runtime-neutral terms (no Claude-specific tool names)", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
     expect(text).not.toContain("ScheduleWakeup");
-    expect(text).toMatch(/sleep mechanism.*agent runtime/i);
+    expect(text).toMatch(/keep this turn alive/i);
   });
 
-  it("watches review status via dispatch_await_review, not feedback items", () => {
-    // Regression guard: polling dispatch_get_feedback for status misfires
-    // on the first item that lands. See CRU-133 dogfood notes.
+  it("does not instruct the parent to call any await/poll tool", () => {
+    // Round-trip transitions are now pushed via terminal injection, not
+    // surfaced through a polling MCP tool.
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).toContain("Do not poll dispatch_get_feedback for status");
+    expect(text).not.toContain("dispatch_await_review");
+    expect(text).not.toContain("dispatch_await_recheck");
+    expect(text).not.toMatch(/pollAgainInSeconds/i);
+  });
+
+  it("explains that the next-round signal arrives via terminal injection", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    expect(text).toMatch(/inject .* prompt/i);
+    expect(text).toMatch(/this terminal/i);
   });
 
   it("tells the parent to commit fixes before submitting resolution", () => {
-    // Regression guard: dogfood surfaced a parent that submitted
-    // resolution with uncommitted fixes — reviewer's round-2 diff was
-    // empty and would re-flag the same issues.
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
     expect(text).toContain(
       "Commit your fixes before submitting the resolution"
     );
     expect(text).toContain("current HEAD");
-  });
-
-  it("does not promise an end-of-poll verdict signal from dispatch_get_feedback", () => {
-    // Regression guard: CRU-133 review (feedback #1113).
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).not.toMatch(/verdict is complete/i);
-    expect(text).not.toMatch(/poll dispatch_get_feedback for round-2 items/);
   });
 
   it("places the guidance block after a blank line separator", () => {

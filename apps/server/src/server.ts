@@ -58,6 +58,13 @@ import {
 import { buildPersonaReviewDiff } from "./personas/review-diff.js";
 import { truncateDiffForPrompt } from "./personas/loader.js";
 import {
+  buildParentRound1FeedbackPrompt,
+  buildParentReviewCompletePrompt,
+  buildPersonaKickoffPrompt,
+  buildReviewerRecheckCancelledPrompt,
+  buildReviewerRecheckReadyPrompt,
+} from "./reviews/injection-prompts.js";
+import {
   isPasswordSet,
   setPassword,
   verifyPassword,
@@ -93,6 +100,7 @@ import {
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
+import { TmuxTerminal } from "./terminal/tmux-terminal.js";
 import {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
@@ -1973,8 +1981,6 @@ async function registerRoutes() {
       getFeedback: mcpGetFeedback,
       resolveFeedback: mcpResolveFeedback,
       submitResolution: mcpSubmitResolution,
-      awaitRecheck: mcpAwaitRecheck,
-      awaitReview: mcpAwaitReview,
       cancelRecheck: mcpCancelRecheck,
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
@@ -4442,6 +4448,72 @@ async function registerRoutes() {
     }
   });
 
+  app.post("/api/v1/agents/:id/launch-review", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as {
+      persona?: unknown;
+      agentType?: unknown;
+      allowRecheck?: unknown;
+    } | null;
+    const agentId = params.id ?? "";
+
+    if (typeof body?.persona !== "string" || body.persona.trim().length === 0) {
+      return reply
+        .code(400)
+        .send({ error: "persona is required and must be a non-empty string." });
+    }
+    // Persona is interpolated into a server-injected prompt and used as a
+    // filename in loadPersonaBySlug — restrict to a slug character class to
+    // close prompt-injection (newlines/quotes breaking out) and path-traversal
+    // gaps in one shot.
+    if (!/^[a-zA-Z0-9_-]+$/.test(body.persona)) {
+      return reply.code(400).send({
+        error:
+          "persona must be a slug containing only letters, digits, underscore, or hyphen.",
+      });
+    }
+
+    if (
+      typeof body.agentType !== "string" ||
+      !CLI_AGENT_TYPES.includes(
+        body.agentType as (typeof CLI_AGENT_TYPES)[number]
+      )
+    ) {
+      return reply.code(400).send({
+        error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
+      });
+    }
+
+    if (typeof body.allowRecheck !== "boolean") {
+      return reply
+        .code(400)
+        .send({ error: "allowRecheck is required and must be a boolean." });
+    }
+
+    try {
+      const access = await agentManager.getTerminalAccess(agentId);
+      if (access.mode !== "tmux") {
+        return reply
+          .code(409)
+          .send({ error: "Agent does not have an active tmux session." });
+      }
+
+      const prompt = [
+        `Use the dispatch_launch_persona MCP tool to launch the "${body.persona}" persona on your current work.`,
+        `Use agentType: "${body.agentType}" and allowRecheck: ${body.allowRecheck ? "true" : "false"}.`,
+        "Treat this as an author-requested review for the current worktree/branch.",
+        "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
+        "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
+      ].join(" ");
+
+      const terminal = new TmuxTerminal(access.sessionName);
+      await terminal.sendCommand(prompt);
+      return { ok: true };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/persona-reviews", async (request, reply) => {
     const params = request.params as { id?: string };
     const body = request.body as {
@@ -5832,87 +5904,33 @@ async function mcpSubmitResolution(
       type: "agent.upsert",
       agent: withStreamFlag(parentAgent),
     });
+
+  if (result.review.status === "awaiting_recheck" && child) {
+    const [resolutions, rawDiff] = await Promise.all([
+      agentManager.listResolvedFeedbackForRound(
+        input.personaAgentId,
+        result.resolution.roundNumber
+      ),
+      result.review.lastReviewedCommit
+        ? diffSinceCommit(child.cwd, result.review.lastReviewedCommit)
+        : Promise.resolve(""),
+    ]);
+    const reviewerPrompt = buildReviewerRecheckReadyPrompt({
+      resolutionSummary: result.resolution.summary,
+      resolutions,
+      diffSincePreviousRound: truncateDiffForPrompt(rawDiff),
+    });
+    await injectTmuxPrompt(input.personaAgentId, reviewerPrompt);
+  }
+
   return result;
-}
-
-function reviewSnapshotFromRecord(
-  record: import("./agents/manager.js").PersonaReviewRecord
-): import("./shared/mcp/server.js").ReviewSnapshot {
-  const verdict = record.verdict;
-  return {
-    reviewId: record.id,
-    personaAgentId: record.agentId,
-    persona: record.persona,
-    status: record.status,
-    roundNumber: record.roundNumber,
-    verdict:
-      verdict === "approve" || verdict === "request_changes" ? verdict : null,
-    summary: record.summary ?? null,
-    allowRecheck: record.allowRecheck,
-  };
-}
-
-async function mcpAwaitReview(
-  parentAgentId: string,
-  personaAgentId: string | null
-): Promise<import("./shared/mcp/server.js").AwaitReviewResponse> {
-  const result = await agentManager.awaitReview(parentAgentId, personaAgentId);
-  if (result.status === "no_reviews") {
-    return result;
-  }
-  if (result.status === "pending") {
-    return {
-      status: "pending",
-      pollAgainInSeconds: result.pollAgainInSeconds,
-      review: reviewSnapshotFromRecord(result.review),
-    };
-  }
-  if (result.status === "cancelled") {
-    return {
-      status: "cancelled",
-      review: reviewSnapshotFromRecord(result.review),
-    };
-  }
-  return {
-    status: result.status,
-    review: reviewSnapshotFromRecord(result.review),
-    feedbackCount: result.feedbackCount,
-  };
-}
-
-async function mcpAwaitRecheck(
-  agentId: string
-): Promise<import("./shared/mcp/server.js").AwaitRecheckResponse> {
-  const reviewer = await agentManager.getAgent(agentId);
-  if (!reviewer?.persona) {
-    throw new Error(
-      "dispatch_await_recheck is only available to reviewer agents."
-    );
-  }
-
-  const result = await agentManager.awaitReviewRecheck(agentId);
-  if (result.status !== "ready") {
-    return result;
-  }
-
-  const diffSincePreviousRound =
-    reviewer.cwd && result.review.lastReviewedCommit
-      ? await diffSinceCommit(reviewer.cwd, result.review.lastReviewedCommit)
-      : "";
-
-  return {
-    status: "ready",
-    summary: result.resolution.summary,
-    resolutions: result.resolutions,
-    diffSincePreviousRound: truncateDiffForPrompt(diffSincePreviousRound),
-  };
 }
 
 async function mcpCancelRecheck(
   agentId: string,
   input: { personaAgentId: string; reason?: string }
 ): Promise<void> {
-  const review = await agentManager.cancelReviewRecheck({
+  const { review, transitioned } = await agentManager.cancelReviewRecheck({
     parentAgentId: agentId,
     personaAgentId: input.personaAgentId,
     reason: input.reason ?? null,
@@ -5933,6 +5951,15 @@ async function mcpCancelRecheck(
       agent: withStreamFlag(parent),
     });
   }
+
+  // Skip the inject when the review was already cancelled — calling cancel
+  // twice should not double-prompt the reviewer.
+  if (!transitioned) return;
+
+  const reviewerPrompt = buildReviewerRecheckCancelledPrompt({
+    reason: input.reason ?? null,
+  });
+  await injectTmuxPrompt(input.personaAgentId, reviewerPrompt);
 }
 
 async function mcpUpsertPin(
@@ -6009,6 +6036,25 @@ async function mcpCompleteReview(
       type: "agent.upsert",
       agent: withStreamFlag(parent),
     });
+
+  const feedbackCount = await agentManager.countFeedbackForAgent(agentId);
+  const isMidRoundTrip = review.allowRecheck && review.roundNumber < 2;
+  const parentPrompt = isMidRoundTrip
+    ? buildParentRound1FeedbackPrompt({
+        persona: review.persona,
+        personaAgentId: agentId,
+        verdict: input.verdict,
+        feedbackCount,
+      })
+    : buildParentReviewCompletePrompt({
+        persona: review.persona,
+        personaAgentId: agentId,
+        verdict: input.verdict,
+        summary: input.summary,
+        feedbackCount,
+        roundNumber: review.roundNumber,
+      });
+  await injectTmuxPrompt(review.parentAgentId, parentPrompt);
 }
 
 async function mcpGetParentContext(
@@ -6195,6 +6241,7 @@ async function mcpLaunchPersona(
     parentAgentId: agentId,
     personaContext: opts.context,
     cliSessionId,
+    initialPrompt: buildPersonaKickoffPrompt(),
   });
 
   // Create the persona review record. Capture parent HEAD at launch time so
@@ -6217,27 +6264,30 @@ async function mcpLaunchPersona(
     agent: withStreamFlag(agentWithReview ?? agent),
   });
 
-  // Send initial prompt to the persona agent after it starts up
-  if (agent.tmuxSession) {
-    const tmuxSession = agent.tmuxSession;
-    const initialMessage =
-      "Begin your review now. Follow your system prompt instructions.";
-    setTimeout(async () => {
-      try {
-        const { runCommand: run } = await import("./shared/lib/run-command.js");
-        await run("tmux", [
-          "send-keys",
-          "-t",
-          tmuxSession,
-          "-l",
-          initialMessage,
-        ]);
-        await run("tmux", ["send-keys", "-t", tmuxSession, "Enter"]);
-      } catch {}
-    }, 10_000);
-  }
-
   return { agentId: agent.id, persona: opts.persona, parentAgentId: agentId };
+}
+
+async function injectTmuxPrompt(
+  agentId: string,
+  prompt: string
+): Promise<void> {
+  try {
+    const access = await agentManager.getTerminalAccess(agentId);
+    if (access.mode !== "tmux") {
+      app.log.debug(
+        { agentId, mode: access.mode },
+        "Skipping tmux injection — agent has no tmux session"
+      );
+      return;
+    }
+    const terminal = new TmuxTerminal(access.sessionName);
+    await terminal.sendCommand(prompt);
+  } catch (error) {
+    app.log.warn(
+      { err: error, agentId },
+      "Failed to inject tmux prompt — agent may have exited"
+    );
+  }
 }
 
 async function diffSinceCommit(
