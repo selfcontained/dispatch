@@ -179,6 +179,17 @@ export function getClipboardFilesFromEvent(
     .filter((file): file is File => file !== null);
 }
 
+export function clipboardReadSupported(): boolean {
+  if (typeof navigator === "undefined" || !navigator.clipboard) {
+    return false;
+  }
+
+  return (
+    typeof navigator.clipboard.read === "function" ||
+    typeof navigator.clipboard.readText === "function"
+  );
+}
+
 export async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
   if (typeof navigator === "undefined" || !navigator.clipboard) {
     return {
@@ -188,9 +199,7 @@ export async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
     };
   }
 
-  const canRead =
-    typeof navigator.clipboard.read === "function" ||
-    typeof navigator.clipboard.readText === "function";
+  const canRead = clipboardReadSupported();
 
   if (typeof navigator.clipboard.read === "function") {
     try {

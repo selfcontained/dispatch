@@ -44,6 +44,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   type ClipboardSuggestion,
+  clipboardReadSupported,
   createClipboardSuggestionFromFile,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
@@ -490,6 +491,33 @@ function CreateAgentDialogContent({
     }
   }, [step]);
 
+  useEffect(() => {
+    if (step !== "context") return;
+
+    const clipboardSupported = clipboardReadSupported();
+    setCanReadClipboard(clipboardSupported);
+    setClipboardReadFeedback(null);
+    setClipboardSuggestion(null);
+
+    if (!clipboardSupported) {
+      setCheckingClipboard(false);
+      return;
+    }
+
+    setCheckingClipboard(true);
+    const requestId = clipboardRequestIdRef.current + 1;
+    clipboardRequestIdRef.current = requestId;
+
+    void getClipboardSuggestion().then((result) => {
+      if (clipboardRequestIdRef.current !== requestId) return;
+      setCheckingClipboard(false);
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
+        setClipboardSuggestion(result.suggestion);
+      }
+    });
+  }, [step]);
+
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -615,21 +643,9 @@ function CreateAgentDialogContent({
   const enterContextStep = useCallback(() => {
     setStep("context");
     setClipboardSuggestion(null);
-    setCheckingClipboard(true);
+    setCheckingClipboard(false);
     setCanReadClipboard(false);
     setClipboardReadFeedback(null);
-    const requestId = clipboardRequestIdRef.current + 1;
-    clipboardRequestIdRef.current = requestId;
-    void getClipboardSuggestion().then((result) => {
-      if (clipboardRequestIdRef.current !== requestId) return;
-      setCheckingClipboard(false);
-      setCanReadClipboard(result.canRead);
-      if (result.suggestion) {
-        setClipboardSuggestion(result.suggestion);
-        return;
-      }
-      setClipboardReadFeedback(null);
-    });
   }, []);
 
   const handleCheckClipboard = useCallback(() => {
