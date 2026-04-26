@@ -455,8 +455,13 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
                 {/*
                   Gate visibility per metadata mode:
-                  - required:    only the gate (standard buttons hidden — the
-                                 backend gates the generic path with 409).
+                  - required:    only the gate. We hide the standard buttons
+                                 when `info.assistedRequired` is true — the
+                                 server's own gate (`isAssistedUpdateRequired`)
+                                 is `mode === "required"` AND the appliesFrom
+                                 rule, so trusting `assistedRequired` keeps the
+                                 UI in lockstep with the 409 the server would
+                                 actually return.
                   - recommended: gate AND standard buttons (operator may opt
                                  into the assisted flow but isn't forced).
                   - normal/none: standard buttons only — metadata is purely
@@ -472,7 +477,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                     startError={null}
                   />
                 )}
-                {!(info.assisted && info.assisted.mode === "required") && (
+                {!(info.assistedRequired === true) && (
                   <>
                     <div className="flex flex-wrap gap-2">
                       <button

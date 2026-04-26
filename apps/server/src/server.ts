@@ -955,6 +955,12 @@ function dispatchBaseUrl(): string {
   return `${protocol}://127.0.0.1:${config.port}`;
 }
 
+function defaultServiceRestartCommand(): string {
+  return process.platform === "linux"
+    ? "systemctl --user restart dispatch"
+    : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
+}
+
 async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
   const result = await pool.query<{ count: string }>(
     `
@@ -974,10 +980,7 @@ function buildAssistedUpdatePrompt(input: {
   tag: string;
   currentTag: string | null;
 }): string {
-  const serviceCommand =
-    process.platform === "linux"
-      ? "systemctl --user restart dispatch"
-      : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
+  const serviceCommand = defaultServiceRestartCommand();
 
   return `
 You are running an assisted Dispatch update on the host machine.
@@ -2585,10 +2588,7 @@ async function registerRoutes() {
             metadata: assistedMeta,
             serverDir,
             recovery: {
-              serviceCommand:
-                process.platform === "linux"
-                  ? "systemctl --user restart dispatch"
-                  : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server",
+              serviceCommand: defaultServiceRestartCommand(),
               healthEndpoint: dispatchHealthUrl(),
               serviceLogPath: "~/.dispatch/logs/dispatch.log",
               failureLogPath: "~/.dispatch/logs/last-release-failure.log",

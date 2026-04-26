@@ -56,6 +56,15 @@ const normalInfoFixture = {
   assistedRequired: false,
 };
 
+// mode=required but appliesFrom hasn't been crossed by the current install,
+// so the server's `assistedRequired` is false. The UI should match — gate
+// visible (informational), standard button still available.
+const requiredButNotAppliedFixture = {
+  ...requiredInfoFixture,
+  currentTag: "v0.17.5", // below appliesFrom
+  assistedRequired: false,
+};
+
 test.describe("Release assisted-update gate", () => {
   test("renders the required-mode gate and hides the one-click button", async ({
     page,
@@ -130,6 +139,36 @@ test.describe("Release assisted-update gate", () => {
     // Recommended mode: the gate is informational AND the standard
     // one-click button stays available — the operator can still take
     // the generic path if they don't want the assisted agent.
+    await expect(
+      page.getByRole("button", { name: /^Update to v0\.19\.0$/ })
+    ).toBeVisible();
+  });
+
+  test("keeps standard button when mode=required but assistedRequired=false (below appliesFrom)", async ({
+    page,
+  }) => {
+    await page.route("**/api/v1/release/info", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(requiredButNotAppliedFixture),
+      })
+    );
+
+    await loadApp(page);
+    await page.getByTestId("settings-button").click();
+    await page
+      .locator("button", { hasText: /^Updates$/ })
+      .first()
+      .click();
+    await page.getByText("Check for updates").click();
+
+    // Gate is still visible (mode is required, so it's informational here)…
+    await expect(
+      page.getByText("Bun runtime migration", { exact: false })
+    ).toBeVisible();
+    // …but the standard one-click button must remain available — the
+    // server would 202 a /release/update POST for this install.
     await expect(
       page.getByRole("button", { name: /^Update to v0\.19\.0$/ })
     ).toBeVisible();
