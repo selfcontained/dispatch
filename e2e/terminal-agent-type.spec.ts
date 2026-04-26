@@ -567,7 +567,7 @@ test.describe("Terminal agent type", () => {
     ).toBeVisible();
   });
 
-  test("create step preserves queued context after going back", async ({
+  test("backing out of create with context clears queued context", async ({
     page,
   }) => {
     await loadApp(page);
@@ -584,23 +584,26 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-context-link-add").click();
 
     await page.getByTestId("create-agent-context-back").click();
+    await page.getByTestId("create-agent-with-context").click();
+    await expect(page.getByTestId("create-agent-initial-prompt")).toHaveValue(
+      ""
+    );
     await expect(
-      page.getByTestId("create-agent-context-summary")
-    ).toContainText("instructions, 1 link");
+      page.getByText("No links added yet.", { exact: true })
+    ).toBeVisible();
+    await page.getByTestId("create-agent-context-back").click();
 
     const createRequest = page.waitForRequest(
       (request) =>
-        request.method() === "POST" &&
-        request.url().includes("/api/v1/agents") &&
-        request.postData()?.includes("https://example.com/preserved") === true
+        request.method() === "POST" && request.url().includes("/api/v1/agents")
     );
 
     await page.getByTestId("create-agent-submit").click();
 
     const request = await createRequest;
-    expect(request.postData()).toContain("startupLinks");
-    expect(request.postData()).toContain("https://example.com/preserved");
-    expect(request.postData()).toContain("Use this.");
+    expect(request.postData()).not.toContain("startupLinks");
+    expect(request.postData()).not.toContain("https://example.com/preserved");
+    expect(request.postData()).not.toContain("Use this.");
   });
 
   test("create with context clears an unconfirmed link draft when the popover closes", async ({

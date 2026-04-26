@@ -675,10 +675,6 @@ function CreateAgentDialogContent({
   const trimmedLinkDraft = linkDraft.trim();
   const linkDraftIsValid =
     trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
-  const hasQueuedPrompt = initialPrompt.trim().length > 0;
-  const hasQueuedFiles = startupFiles.length > 0;
-  const hasQueuedLinks = startupLinks.length > 0;
-  const hasQueuedContext = hasQueuedPrompt || hasQueuedFiles || hasQueuedLinks;
 
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
@@ -753,6 +749,23 @@ function CreateAgentDialogContent({
     setAddOpen(false);
   }, [addStartupLink]);
 
+  const clearStartupContext = useCallback(() => {
+    for (const url of startupFilePreviewsRef.current.values()) {
+      URL.revokeObjectURL(url);
+    }
+    startupFilePreviewsRef.current.clear();
+    setInitialPrompt("");
+    setStartupFiles([]);
+    setStartupLinks([]);
+    setLinkDraft("");
+    setClipboardSuggestion(null);
+    setClipboardReadFeedback(null);
+    setCheckingClipboard(false);
+    setDraggingFiles(false);
+    setAddMode("menu");
+    setAddOpen(false);
+  }, []);
+
   // Radix Popover defaults to z-50 inline, but DialogContent is z-70.
   // Bump the popper wrapper while this dialog content is mounted.
   useEffect(() => {
@@ -779,6 +792,8 @@ function CreateAgentDialogContent({
         // try to run git in a non-repo directory.
         const submitUseWorktree =
           cwdIsGitRepo === false ? false : createUseWorktree;
+        const contextInitialPrompt =
+          step === "context" ? initialPrompt.trim() || undefined : undefined;
         const payloadBase = {
           name: createName.trim(),
           cwd,
@@ -795,11 +810,12 @@ function CreateAgentDialogContent({
             submitUseWorktree && createBaseBranch !== "main"
               ? createBaseBranch
               : undefined,
-          initialPrompt: initialPrompt.trim() || undefined,
+          initialPrompt: contextInitialPrompt,
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =
-          startupFiles.length > 0 || resolvedStartupLinks.length > 0;
+          step === "context" &&
+          (startupFiles.length > 0 || resolvedStartupLinks.length > 0);
         const payload = useStartupContext
           ? await (async () => {
               const formData = new FormData();
@@ -1167,24 +1183,6 @@ function CreateAgentDialogContent({
                 ) : null}
               </div>
             </div>
-            {hasQueuedContext ? (
-              <div
-                className="rounded-md border border-border/70 bg-muted/20 px-3 py-2"
-                data-testid="create-agent-context-summary"
-              >
-                <p className="text-xs text-muted-foreground">
-                  Startup context queued:
-                  {hasQueuedPrompt ? " instructions" : ""}
-                  {hasQueuedFiles
-                    ? `${hasQueuedPrompt ? "," : ""} ${startupFiles.length} file${startupFiles.length === 1 ? "" : "s"}`
-                    : ""}
-                  {hasQueuedLinks
-                    ? `${hasQueuedPrompt || hasQueuedFiles ? "," : ""} ${startupLinks.length} link${startupLinks.length === 1 ? "" : "s"}`
-                    : ""}
-                  . This context will be included if you create from this step.
-                </p>
-              </div>
-            ) : null}
             <div className="flex justify-end gap-2 pt-3">
               <Button
                 type="button"
@@ -1579,7 +1577,10 @@ function CreateAgentDialogContent({
                 variant="ghost"
                 tabIndex={0}
                 className="min-h-11 px-3"
-                onClick={() => setStep("config")}
+                onClick={() => {
+                  clearStartupContext();
+                  setStep("config");
+                }}
                 data-testid="create-agent-context-back"
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
