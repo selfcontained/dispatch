@@ -333,21 +333,22 @@ export function PersonaAgentRow({
         />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-1.5">
+        <div className="flex flex-wrap items-start gap-1.5">
           <span
             className="min-w-0 flex-1 truncate text-xs font-medium"
             style={{ color: `hsl(${colorVar})` }}
           >
             {child.persona ?? child.name}
           </span>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1 sm:shrink-0">
             {childIsActive ? (
               <Badge
                 variant="running"
                 className="h-5 px-1.5 text-[9px]"
                 data-testid={`review-agent-active-badge-${child.id}`}
               >
-                Active terminal
+                <span className="sm:hidden">Active</span>
+                <span className="hidden sm:inline">Active terminal</span>
               </Badge>
             ) : null}
             {roundBadge ? <RoundBadge badge={roundBadge} /> : null}
