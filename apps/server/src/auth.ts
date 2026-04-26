@@ -29,10 +29,20 @@ function validateMcpScopeToken(
 ): boolean {
   const actualScope = getValidMcpScope(secret, token);
   if (!actualScope) return false;
-  const actualBuffer = Buffer.from(actualScope, "utf-8");
-  const expectedBuffer = Buffer.from(expectedScope, "utf-8");
-  if (actualBuffer.length !== expectedBuffer.length) return false;
-  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+  return tokensEqual(actualScope, expectedScope);
+}
+
+/**
+ * Constant-time string equality. Used by the MCP scope-token check
+ * above and by the per-job nonce guards in the assisted-update
+ * framework. Falls back to a length-mismatch fail before
+ * timingSafeEqual to avoid the throw-on-different-length contract.
+ */
+export function tokensEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf-8");
+  const bb = Buffer.from(b, "utf-8");
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 function getValidMcpScope(secret: string, token: string): string | null {

@@ -47,11 +47,11 @@ export default defineConfig({
           ],
         },
         workbox: {
-          // The main app bundle now sits slightly above Workbox's 2 MiB default.
-          // Keep it precached unless we intentionally split it down further.
-          maximumFileSizeToCacheInBytes: 2_300_000,
           // Do not cache API traffic by default; this app is realtime-oriented.
           navigateFallbackDenylist: [/^\/api\//],
+          // Bundle has grown past the 2 MiB workbox default; bump to 4 MiB
+          // so the PWA precache continues to cover the whole app shell.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         },
       }),
   ].filter(Boolean),

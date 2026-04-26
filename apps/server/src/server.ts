@@ -90,6 +90,24 @@ import { runCommand } from "./shared/lib/run-command.js";
 import { resolveHeadSha } from "./shared/git/worktree.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
+import {
+  parseAssistedUpdateMetadata,
+  isAssistedUpdateRequired,
+  type AssistedUpdateMetadata,
+} from "./release-metadata.js";
+import {
+  buildAssistedUpdateContext,
+  applyAssistedPhase,
+  attachAssistedAgent,
+  runAndRecordChecks,
+} from "./assisted-update.js";
+import {
+  readAssistedUpdateState,
+  clearAssistedUpdateState,
+  isTerminalPhase,
+  type AssistedPhase,
+  type AssistedUpdateState,
+} from "./assisted-update-store.js";
 import { StreamManager } from "./stream-manager.js";
 import {
   SlackNotifier,
@@ -841,27 +859,53 @@ async function getAppVersionInfo(): Promise<{
 
 const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
 type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
-type ReleasePhase =
-  | "preflight"
-  | "triggering"
-  | "watching"
-  | "fetching"
-  | "deploying"
-  | "restarting"
-  | "done"
-  | "failed";
-type ReleaseJobType = "create" | "update";
+// Per-job-type phase sets. Each ReleaseJob variant owns its own subset
+// so an "update" job can't accidentally hold a "validate" phase, and an
+// assisted job's `assisted` payload becomes non-optional.
+type CreatePhase = "preflight" | "triggering" | "watching" | "done" | "failed";
+type UpdatePhase = "fetching" | "deploying" | "restarting" | "done" | "failed";
+// `restarting` deliberately overlaps with UpdatePhase — both surfaces
+// reuse the same UI label and the same SSE phase event for the
+// host-level service restart that follows `apply`.
+type AssistedReleasePhase = AssistedPhase;
 
-type ReleaseJob = {
-  jobType: ReleaseJobType;
-  versionType: ReleaseVersionType | null;
-  phase: ReleasePhase;
+// Broad union exposed on the wire `phase` event — receivers don't know
+// which variant produced it, so they accept any phase.
+type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
+
+type ReleaseJobType = "create" | "update" | "update-assisted";
+
+type CommonReleaseJobFields = {
   startedAt: string;
   log: string[];
   runUrl: string | null;
   tag: string | null;
   error: string | null;
 };
+
+type ReleaseJob =
+  | (CommonReleaseJobFields & {
+      jobType: "create";
+      versionType: ReleaseVersionType;
+      phase: CreatePhase;
+    })
+  | (CommonReleaseJobFields & {
+      jobType: "update";
+      versionType: null;
+      phase: UpdatePhase;
+    })
+  | (CommonReleaseJobFields & {
+      jobType: "update-assisted";
+      versionType: null;
+      phase: AssistedReleasePhase;
+      /**
+       * Mirrors the on-disk state so the UI snapshot has phase / checks
+       * / agent id without a follow-up request. Required on the
+       * assisted variant — the gate flow always populates it before the
+       * job is published.
+       */
+      assisted: AssistedUpdateState;
+    });
 
 type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
@@ -870,19 +914,59 @@ type ReleaseStreamEvent =
   | { type: "log.rewind"; count: number }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string };
+  | { type: "tag"; tag: string }
+  | { type: "assisted"; state: AssistedUpdateState };
 
 let activeReleaseJob: ReleaseJob | null = null;
 let activeAssistedUpdateLaunch = false;
 const releaseStreamClients = new Set<NodeJS.WritableStream>();
+
+/**
+ * If the server was restarted mid-assisted-update (the framework's
+ * worst-case crash mode for migration-driven releases), the in-memory
+ * `activeReleaseJob` is gone but `~/.dispatch/assisted-update.json`
+ * still describes the reached phase. Rebuild a minimal `update-assisted`
+ * job from disk so the operator UI sees the in-flight state on boot
+ * instead of a blank "no job" snapshot.
+ *
+ * Called once during boot and again on every SSE connect — the latter
+ * is a belt-and-braces guard against a snapshot subscriber arriving
+ * before whatever boot path fired this.
+ */
+async function rehydrateActiveAssistedJob(): Promise<void> {
+  if (activeReleaseJob) return;
+  const state = await readAssistedUpdateState().catch(() => null);
+  if (!state || isTerminalPhase(state.phase)) return;
+  activeReleaseJob = {
+    jobType: "update-assisted",
+    versionType: null,
+    phase: state.phase,
+    startedAt: state.startedAt,
+    log: [`==> resumed from on-disk state at phase ${state.phase}`],
+    runUrl: null,
+    tag: state.tag,
+    error: state.error,
+    assisted: state,
+  };
+}
 
 const serverDir =
   process.env.DISPATCH_SERVER_DIR ??
   path.join(os.homedir(), ".dispatch", "server");
 
 function dispatchHealthUrl(): string {
+  return `${dispatchBaseUrl()}/api/v1/health`;
+}
+
+function dispatchBaseUrl(): string {
   const protocol = config.tls ? "https" : "http";
-  return `${protocol}://127.0.0.1:${config.port}/api/v1/health`;
+  return `${protocol}://127.0.0.1:${config.port}`;
+}
+
+function defaultServiceRestartCommand(): string {
+  return process.platform === "linux"
+    ? "systemctl --user restart dispatch"
+    : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
 }
 
 async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
@@ -904,10 +988,7 @@ function buildAssistedUpdatePrompt(input: {
   tag: string;
   currentTag: string | null;
 }): string {
-  const serviceCommand =
-    process.platform === "linux"
-      ? "systemctl --user restart dispatch"
-      : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
+  const serviceCommand = defaultServiceRestartCommand();
 
   return `
 You are running an assisted Dispatch update on the host machine.
@@ -1570,6 +1651,11 @@ async function registerRoutes() {
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
     if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
+    // The assisted-update phase endpoint authenticates via a per-job nonce
+    // embedded in the launched agent's prompt — see assisted-update.ts. The
+    // agent runs as a separate process and does not share the server's
+    // session cookie or bearer token.
+    if (url === "/api/v1/release/assisted/phase") return;
 
     // If no password is set, all routes are open (first-run mode).
     if (!(await isPasswordSetCached())) return;
@@ -2109,9 +2195,24 @@ async function registerRoutes() {
         publishedAt: string;
         url: string;
       } | null = null;
+      let assistedMetadata: AssistedUpdateMetadata | null = null;
       if (latestTag && updateAvailable) {
-        latestRelease = await fetchLatestReleaseMetadata(latestTag);
+        const fullRelease = await fetchLatestReleaseMetadata(latestTag);
+        latestRelease = fullRelease
+          ? {
+              tag: fullRelease.tag,
+              publishedAt: fullRelease.publishedAt,
+              url: fullRelease.url,
+            }
+          : null;
+        assistedMetadata = parseAssistedUpdateMetadata(
+          fullRelease?.body ?? null
+        );
       }
+      const assistedRequired = isAssistedUpdateRequired(
+        assistedMetadata,
+        currentTag
+      );
 
       // Admin-only: unreleased commits on main.
       // Compare the absolute latest tag (across all channels) to main so
@@ -2173,6 +2274,8 @@ async function registerRoutes() {
         unreleasedCount,
         commits,
         refMissing,
+        assisted: assistedMetadata,
+        assistedRequired,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -2300,11 +2403,7 @@ async function registerRoutes() {
     const versionType = body.versionType as ReleaseVersionType;
 
     // Only one release at a time
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release is already in progress." });
@@ -2371,14 +2470,32 @@ async function registerRoutes() {
     }
 
     // Only one release/update at a time
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release or update is already in progress." });
+    }
+
+    // Gate: if the target release declares `mode: required`, the generic
+    // one-click path is not allowed for installs at or above `appliesFrom`.
+    // The UI must route the operator through the assisted-update agent
+    // launch instead. The launched agent itself bypasses this gate using
+    // its bearer token (releaseUpdateAgentId), so the recovery path still
+    // works once the assisted flow is in progress.
+    if (!releaseUpdateAgentId) {
+      const installed = await readReleaseStore().catch(() => null);
+      const targetMeta = await fetchReleaseMetadata(tag);
+      const targetAssisted = parseAssistedUpdateMetadata(
+        targetMeta?.body ?? null
+      );
+      if (isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null)) {
+        return reply.code(409).send({
+          error: "ASSISTED_UPDATE_REQUIRED",
+          message:
+            "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead.",
+          assisted: targetAssisted,
+        });
+      }
     }
 
     const job: ReleaseJob = {
@@ -2399,7 +2516,7 @@ async function registerRoutes() {
     return reply.code(202).send({ ok: true });
   });
 
-  app.post("/api/v1/release/update-assisted", async (request, reply) => {
+  app.post("/api/v1/release/assisted/launch", async (request, reply) => {
     const body = request.body as { tag?: unknown } | undefined;
 
     if (
@@ -2421,11 +2538,7 @@ async function registerRoutes() {
       });
     }
 
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release or update is already in progress." });
@@ -2455,6 +2568,53 @@ async function registerRoutes() {
           ? (worktreeLocationRaw as WorktreeLocation)
           : "sibling";
 
+      // Pull structured assisted-update metadata off the target release if
+      // the publisher attached one. This drives the framework's gated
+      // checks and structured-phase reporting, but is optional — the
+      // assisted flow still works for releases that don't declare it.
+      const targetMeta = await fetchReleaseMetadata(body.tag);
+      const assistedMeta = parseAssistedUpdateMetadata(
+        targetMeta?.body ?? null
+      );
+      let assistedState: AssistedUpdateState | null = null;
+      let assistedToken: string | null = null;
+      let initialPrompt: string;
+      if (assistedMeta) {
+        // The launched agent runs on the same host as the server, so we
+        // build the phase-callback URL from server config rather than the
+        // inbound request's Host header (which is attacker-controllable
+        // for non-browser clients). The framework prompt subsumes the
+        // recovery skeleton — it's the canonical instruction set when a
+        // release declares assisted-update metadata.
+        const baseUrl = dispatchBaseUrl();
+        const ctx = await buildAssistedUpdateContext(
+          {
+            tag: body.tag,
+            fromTag: record?.tag ?? null,
+            metadata: assistedMeta,
+            serverDir,
+            recovery: {
+              serviceCommand: defaultServiceRestartCommand(),
+              healthEndpoint: dispatchHealthUrl(),
+              serviceLogPath: "~/.dispatch/logs/dispatch.log",
+              failureLogPath: "~/.dispatch/logs/last-release-failure.log",
+            },
+          },
+          baseUrl
+        );
+        assistedState = ctx.state;
+        assistedToken = ctx.state.token;
+        initialPrompt = ctx.prompt;
+      } else {
+        // No metadata — fall back to the legacy recovery skeleton. This
+        // keeps the existing manual-rescue flow for releases that don't
+        // opt into the framework.
+        initialPrompt = buildAssistedUpdatePrompt({
+          tag: body.tag,
+          currentTag: record?.tag ?? null,
+        });
+      }
+
       const agent = await agentManager.createAgent({
         name: `update-${body.tag}`,
         type: assistedType,
@@ -2463,23 +2623,121 @@ async function registerRoutes() {
         fullAccess: true,
         useWorktree: false,
         worktreeLocation,
-        initialPrompt: buildAssistedUpdatePrompt({
-          tag: body.tag,
-          currentTag: record?.tag ?? null,
-        }),
+        initialPrompt,
       });
+
+      if (assistedState && assistedToken) {
+        await attachAssistedAgent(assistedToken, agent.id);
+        const job: ReleaseJob = {
+          jobType: "update-assisted",
+          versionType: null,
+          phase: "inspect",
+          startedAt: new Date().toISOString(),
+          log: [
+            `==> assisted update launched for ${body.tag}`,
+            `==> agent: ${agent.id}`,
+            `==> mode: ${assistedMeta!.mode}`,
+          ],
+          runUrl: null,
+          tag: body.tag,
+          error: null,
+          assisted: { ...assistedState, agentId: agent.id },
+        };
+        activeReleaseJob = job;
+        broadcastReleaseEvent({
+          type: "assisted",
+          state: { ...assistedState, agentId: agent.id },
+        });
+      }
 
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({
         type: "agent.upsert",
         agent: withStreamFlag(agent),
       });
-      return reply.code(201).send({ agent: withStreamFlag(agent) });
+      return reply
+        .code(201)
+        .send({ agent: withStreamFlag(agent), assisted: assistedState });
     } catch (error) {
       return handleAgentError(reply, error);
     } finally {
       activeAssistedUpdateLaunch = false;
     }
+  });
+
+  app.post("/api/v1/release/assisted/phase", async (request, reply) => {
+    const body = request.body as
+      | { token?: unknown; phase?: unknown; note?: unknown; error?: unknown }
+      | undefined;
+    if (!body?.token || typeof body.token !== "string") {
+      return reply.code(400).send({ error: "token is required" });
+    }
+    if (!body.phase || typeof body.phase !== "string") {
+      return reply.code(400).send({ error: "phase is required" });
+    }
+    const result = await applyAssistedPhase({
+      token: body.token,
+      phase: body.phase as AssistedPhase,
+      note: typeof body.note === "string" ? body.note : undefined,
+      error: typeof body.error === "string" ? body.error : undefined,
+    });
+    if (!result.ok) {
+      return reply.code(409).send({ error: result.reason });
+    }
+    if (activeReleaseJob && activeReleaseJob.jobType === "update-assisted") {
+      activeReleaseJob.phase = result.state.phase;
+      activeReleaseJob.assisted = result.state;
+      if (result.state.error) activeReleaseJob.error = result.state.error;
+      // The persisted note is already sanitized (sanitizeAgentString in
+      // applyAssistedPhase clamps + strips newlines), so we can drop it
+      // straight into the log line.
+      const persistedNote = result.state.notes[result.state.phase];
+      const summary = persistedNote
+        ? `==> phase ${result.state.phase}: ${persistedNote}`
+        : `==> phase ${result.state.phase}`;
+      appendReleaseLog(activeReleaseJob, summary);
+      broadcastReleaseEvent({ type: "phase", phase: activeReleaseJob.phase });
+      broadcastReleaseEvent({ type: "assisted", state: result.state });
+    }
+
+    // When the agent reports `validate`, run the metadata-declared checks
+    // and gate the success transition. Failed checks move state to
+    // `blocked` so the operator UI shows exactly what gated the release.
+    if (result.state.phase === "validate") {
+      const post = await runAndRecordChecks(result.state, {
+        serverDir,
+        targetTag: result.state.tag,
+        healthUrl: dispatchHealthUrl(),
+      });
+      if (activeReleaseJob && activeReleaseJob.jobType === "update-assisted") {
+        activeReleaseJob.phase = post.phase;
+        activeReleaseJob.assisted = post;
+        if (post.error) activeReleaseJob.error = post.error;
+        for (const c of post.checks) {
+          appendReleaseLog(
+            activeReleaseJob,
+            `  - ${c.ok ? "✓" : "✗"} ${c.name}: ${c.message}`
+          );
+        }
+        broadcastReleaseEvent({ type: "phase", phase: activeReleaseJob.phase });
+        broadcastReleaseEvent({ type: "assisted", state: post });
+      }
+    }
+
+    return reply.code(200).send({ ok: true, state: result.state });
+  });
+
+  app.get("/api/v1/release/assisted/state", async () => {
+    const state = await readAssistedUpdateState();
+    return { state };
+  });
+
+  app.delete("/api/v1/release/assisted/state", async () => {
+    await clearAssistedUpdateState();
+    if (activeReleaseJob?.jobType === "update-assisted") {
+      activeReleaseJob = null;
+    }
+    return { ok: true };
   });
 
   app.get("/api/v1/release/stream", async (_request, reply) => {
@@ -2496,10 +2754,25 @@ async function registerRoutes() {
       stream.write(": keepalive\n\n");
     }, 20_000);
 
-    // Send current job snapshot
+    // If the server was restarted mid-assisted-update, in-memory state
+    // is gone but the on-disk file still has the reached phase. Pull
+    // it back into `activeReleaseJob` before snapshotting so the UI
+    // sees a real in-flight job rather than null.
+    await rehydrateActiveAssistedJob();
+
+    // Send current job snapshot. For an in-flight assisted update, refresh
+    // from disk so a late reconnect rehydrates phase + checks even if the
+    // agent crashed mid-run between events.
+    let snapshotJob = activeReleaseJob;
+    if (snapshotJob && snapshotJob.jobType === "update-assisted") {
+      const persisted = await readAssistedUpdateState();
+      if (persisted) {
+        snapshotJob = { ...snapshotJob, assisted: persisted };
+      }
+    }
     const snapshot: ReleaseStreamEvent = {
       type: "snapshot",
-      job: activeReleaseJob,
+      job: snapshotJob,
     };
     stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
 
@@ -4949,6 +5222,10 @@ export async function initializeApp(options?: {
     await agentManager.reconcileAgents();
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
+    // If we crashed/restarted mid-assisted-update, repopulate the
+    // in-memory job from the on-disk state file so the operator UI
+    // surfaces the in-flight phase right away.
+    await rehydrateActiveAssistedJob();
     const agents = await agentManager.listAgents();
     queueGitContextRefresh(agents.map((agent) => agent.id));
     startGitContextRefreshLoop();

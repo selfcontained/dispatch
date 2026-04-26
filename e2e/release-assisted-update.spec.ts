@@ -34,7 +34,7 @@ test.describe("Assisted update launch", () => {
       });
     });
 
-    await page.route("**/api/v1/release/update-assisted", async (route) => {
+    await page.route("**/api/v1/release/assisted/launch", async (route) => {
       await route.fulfill({
         status: 201,
         json: {
