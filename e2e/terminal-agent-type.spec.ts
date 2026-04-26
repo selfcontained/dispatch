@@ -253,7 +253,7 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Copied link ready");
+    await expect(cta).toContainText("Add copied link?");
     await expect(
       page.getByText("No links added yet.", { exact: true })
     ).toBeVisible();
@@ -280,7 +280,7 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Copied link ready");
+    await expect(cta).toContainText("Add copied link?");
     await expect(cta).not.toContainText("Clipboard file ready");
   });
 
@@ -305,10 +305,10 @@ test.describe("Terminal agent type", () => {
       .click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Copied link ready");
+    await expect(cta).toContainText("Add copied link?");
   });
 
-  test("create with context explains blocked clipboard access", async ({
+  test("create with context keeps the read button when clipboard access is blocked", async ({
     page,
   }) => {
     await stubClipboard(page, { kind: "blocked" });
@@ -317,16 +317,19 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
-    const status = page.getByTestId("create-agent-context-clipboard-status");
-    await expect(status).toContainText("Clipboard blocked by the browser.");
+    const readButton = page.getByTestId(
+      "create-agent-context-clipboard-check-action"
+    );
+    await expect(readButton).toBeVisible();
 
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
-    await expect(status).toContainText("Clipboard blocked by the browser.");
+    await readButton.click();
+    await expect(readButton).toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).not.toBeVisible();
   });
 
-  test("create with context explains unsupported clipboard access", async ({
+  test("create with context hides the read button when clipboard APIs are unavailable", async ({
     page,
   }) => {
     await stubClipboard(page, { kind: "unsupported" });
@@ -335,11 +338,64 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
-    const status = page.getByTestId("create-agent-context-clipboard-status");
-    await expect(status).toContainText("Clipboard read is unavailable here.");
-    await expect(status).toContainText(
-      "Use files, links, or instructions instead."
-    );
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-check")
+    ).not.toBeVisible();
+  });
+
+  test("create with context intercepts pasted links in the prompt textarea", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const prompt = page.getByTestId("create-agent-initial-prompt");
+    const defaultAllowed = await prompt.evaluate((node) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "https://example.com/pasted-link");
+      return node.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: data,
+        })
+      );
+    });
+
+    expect(defaultAllowed).toBe(false);
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).toContainText("Add copied link?");
+    await expect(prompt).toHaveValue("");
+  });
+
+  test("create with context lets plain text paste pass through in the prompt textarea", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const prompt = page.getByTestId("create-agent-initial-prompt");
+    const defaultAllowed = await prompt.evaluate((node) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "ordinary prompt text");
+      return node.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: data,
+        })
+      );
+    });
+
+    expect(defaultAllowed).toBe(true);
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).not.toBeVisible();
   });
 
   test("create with context lets the user dismiss a clipboard suggestion", async ({
@@ -376,7 +432,7 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Clipboard image ready");
+    await expect(cta).toContainText("Add copied image?");
     await expect(
       page.getByText("No files added yet.", { exact: true })
     ).toBeVisible();

@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -93,23 +94,13 @@ type ClipboardSuggestion =
 
 type ClipboardLookupResult =
   | {
-      status: "found";
       suggestion: ClipboardSuggestion;
-      diagnostics: ClipboardDiagnostics;
+      canRead: boolean;
     }
   | {
-      status: "empty" | "blocked" | "unsupported";
       suggestion: null;
-      diagnostics: ClipboardDiagnostics;
+      canRead: boolean;
     };
-
-type ClipboardDiagnostics = {
-  permissionState: PermissionState | "unsupported" | "unavailable" | "unknown";
-  errorName?: string;
-  errorMessage?: string;
-  hasRead: boolean;
-  hasReadText: boolean;
-};
 
 function isLikelyUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -206,58 +197,62 @@ function createClipboardFile(blob: Blob): File {
   });
 }
 
-function isClipboardAccessBlocked(error: unknown): boolean {
-  if (
-    error &&
-    typeof error === "object" &&
-    "name" in error &&
-    typeof error.name === "string"
-  ) {
-    return ["NotAllowedError", "SecurityError", "NotFoundError"].includes(
-      error.name
-    );
-  }
-  return error instanceof Error;
+function createClipboardSuggestionFromFile(file: File): ClipboardSuggestion {
+  const typeInfo = describeClipboardFileType(file.type);
+  return {
+    kind: file.type.startsWith("image/") ? "image" : "file",
+    title: file.type.startsWith("image/")
+      ? "Clipboard image ready"
+      : "Clipboard file ready",
+    description: `Add copied ${typeInfo.noun}?`,
+    actionLabel: typeInfo.actionLabel,
+    file,
+  };
 }
 
-async function getClipboardPermissionState(): Promise<
-  ClipboardDiagnostics["permissionState"]
-> {
-  if (typeof navigator === "undefined" || !("permissions" in navigator)) {
-    return "unavailable";
+function createClipboardSuggestionFromText(
+  text: string
+): ClipboardSuggestion | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (isLikelyUrl(trimmed)) {
+    return {
+      kind: "url",
+      title: "Copied link ready",
+      description: "Add copied link?",
+      actionLabel: "Add copied link",
+      url: trimmed,
+    };
   }
+  return {
+    kind: "text",
+    title: "Copied prompt ready",
+    description: "Use copied text as instructions?",
+    actionLabel: "Use copied text",
+    text: trimmed,
+  };
+}
 
-  try {
-    const status = await navigator.permissions.query({
-      name: "clipboard-read" as PermissionName,
-    });
-    return status.state;
-  } catch {
-    return "unsupported";
-  }
+function getClipboardFilesFromEvent(
+  event: ClipboardEvent<HTMLElement>
+): File[] {
+  return Array.from(event.clipboardData.items)
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
 }
 
 async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
-  const permissionState = await getClipboardPermissionState();
-
   if (typeof navigator === "undefined" || !navigator.clipboard) {
     return {
-      status: "unsupported",
       suggestion: null,
-      diagnostics: {
-        permissionState,
-        hasRead: false,
-        hasReadText: false,
-      },
+      canRead: false,
     };
   }
 
-  let clipboardError: unknown = null;
-  const diagnostics: ClipboardDiagnostics = {
-    permissionState,
-    hasRead: typeof navigator.clipboard.read === "function",
-    hasReadText: typeof navigator.clipboard.readText === "function",
-  };
+  const canRead =
+    typeof navigator.clipboard.read === "function" ||
+    typeof navigator.clipboard.readText === "function";
 
   if (typeof navigator.clipboard.read === "function") {
     try {
@@ -266,91 +261,44 @@ async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
         const fileType = item.types.find(isClipboardAttachmentType);
         if (!fileType) continue;
         const blob = await item.getType(fileType);
-        const file = createClipboardFile(blob);
-        const typeInfo = describeClipboardFileType(file.type);
         return {
-          status: "found",
-          diagnostics,
-          suggestion: {
-            kind: file.type.startsWith("image/") ? "image" : "file",
-            title: file.type.startsWith("image/")
-              ? "Clipboard image ready"
-              : "Clipboard file ready",
-            description: `Attach the ${typeInfo.noun} from your clipboard to this context.`,
-            actionLabel: typeInfo.actionLabel,
-            file,
-          },
+          suggestion: createClipboardSuggestionFromFile(
+            createClipboardFile(blob)
+          ),
+          canRead,
         };
       }
-    } catch (error) {
-      clipboardError = error;
-      diagnostics.errorName =
-        error &&
-        typeof error === "object" &&
-        "name" in error &&
-        typeof error.name === "string"
-          ? error.name
-          : undefined;
-      diagnostics.errorMessage =
-        error instanceof Error ? error.message : undefined;
+    } catch {
+      // Fall through to readText.
     }
   }
 
   if (typeof navigator.clipboard.readText === "function") {
     try {
-      const text = (await navigator.clipboard.readText()).trim();
-      if (!text) {
-        return isClipboardAccessBlocked(clipboardError)
-          ? { status: "blocked", suggestion: null, diagnostics }
-          : { status: "empty", suggestion: null, diagnostics };
-      }
-      if (isLikelyUrl(text)) {
-        return {
-          status: "found",
-          diagnostics,
-          suggestion: {
-            kind: "url",
-            title: "Copied link ready",
-            description: "Add the copied URL to the new session.",
-            actionLabel: "Add copied link",
-            url: text,
-          },
-        };
-      }
+      const suggestion = createClipboardSuggestionFromText(
+        await navigator.clipboard.readText()
+      );
+      return suggestion
+        ? {
+            suggestion,
+            canRead,
+          }
+        : {
+            suggestion: null,
+            canRead,
+          };
+    } catch {
       return {
-        status: "found",
-        diagnostics,
-        suggestion: {
-          kind: "text",
-          title: "Copied prompt ready",
-          description: "Use the copied text as startup instructions.",
-          actionLabel: "Use copied prompt",
-          text,
-        },
+        suggestion: null,
+        canRead,
       };
-    } catch (error) {
-      clipboardError = clipboardError ?? error;
-      diagnostics.errorName =
-        diagnostics.errorName ||
-        (error &&
-        typeof error === "object" &&
-        "name" in error &&
-        typeof error.name === "string"
-          ? error.name
-          : undefined);
-      diagnostics.errorMessage =
-        diagnostics.errorMessage ||
-        (error instanceof Error ? error.message : undefined);
     }
   }
 
-  if (!diagnostics.hasRead && !diagnostics.hasReadText) {
-    return { status: "unsupported", suggestion: null, diagnostics };
-  }
-
-  return isClipboardAccessBlocked(clipboardError)
-    ? { status: "blocked", suggestion: null, diagnostics }
-    : { status: "empty", suggestion: null, diagnostics };
+  return {
+    suggestion: null,
+    canRead,
+  };
 }
 
 function getClipboardSuggestionClasses(suggestion: ClipboardSuggestion): {
@@ -574,11 +522,8 @@ function CreateAgentDialogContent({
   const [clipboardSuggestion, setClipboardSuggestion] =
     useState<ClipboardSuggestion | null>(null);
   const [checkingClipboard, setCheckingClipboard] = useState(false);
-  const [clipboardCheckState, setClipboardCheckState] = useState<
-    "idle" | "empty" | "blocked" | "unsupported"
-  >("idle");
-  const [clipboardDiagnostics, setClipboardDiagnostics] =
-    useState<ClipboardDiagnostics | null>(null);
+  const [canReadClipboard, setCanReadClipboard] = useState(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
     readCwdHistory()
@@ -637,8 +582,8 @@ function CreateAgentDialogContent({
       clipboardRequestIdRef.current += 1;
       setClipboardSuggestion(null);
       setCheckingClipboard(false);
-      setClipboardCheckState("idle");
-      setClipboardDiagnostics(null);
+      setCanReadClipboard(false);
+      setDraggingFiles(false);
     }
   }, [step]);
 
@@ -676,13 +621,37 @@ function CreateAgentDialogContent({
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
-      const pastedFiles = Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null);
-      if (pastedFiles.length === 0) return;
+      const pastedFiles = getClipboardFilesFromEvent(event);
+      if (pastedFiles.length > 0) {
+        event.preventDefault();
+        setClipboardSuggestion(
+          createClipboardSuggestionFromFile(pastedFiles[0])
+        );
+        return;
+      }
+
+      const target = event.target;
+      const textSuggestion = createClipboardSuggestionFromText(
+        event.clipboardData.getData("text/plain")
+      );
+      const targetIsPrompt =
+        target instanceof HTMLElement && target.id === CONTEXT_PROMPT_ID;
+
+      if (textSuggestion?.kind === "url" && targetIsPrompt) {
+        event.preventDefault();
+        setClipboardSuggestion(textSuggestion);
+      }
+    },
+    []
+  );
+
+  const handleStartupDrop = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      const droppedFiles = Array.from(event.dataTransfer.files ?? []);
+      if (droppedFiles.length === 0) return;
       event.preventDefault();
-      appendStartupFiles(pastedFiles);
+      setDraggingFiles(false);
+      appendStartupFiles(droppedFiles);
     },
     [appendStartupFiles]
   );
@@ -723,68 +692,32 @@ function CreateAgentDialogContent({
     setStep("context");
     setClipboardSuggestion(null);
     setCheckingClipboard(true);
-    setClipboardCheckState("idle");
-    setClipboardDiagnostics(null);
+    setCanReadClipboard(false);
     const requestId = clipboardRequestIdRef.current + 1;
     clipboardRequestIdRef.current = requestId;
     void getClipboardSuggestion().then((result) => {
       if (clipboardRequestIdRef.current !== requestId) return;
       setCheckingClipboard(false);
-      setClipboardDiagnostics(result.diagnostics);
-      if (result.status === "found") {
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
         setClipboardSuggestion(result.suggestion);
-        setClipboardCheckState("idle");
-        return;
       }
-      setClipboardSuggestion(null);
-      setClipboardCheckState(result.status);
     });
   }, []);
 
   const handleCheckClipboard = useCallback(() => {
     setCheckingClipboard(true);
-    setClipboardCheckState("idle");
-    setClipboardDiagnostics(null);
     const requestId = clipboardRequestIdRef.current + 1;
     clipboardRequestIdRef.current = requestId;
     void getClipboardSuggestion().then((result) => {
       if (clipboardRequestIdRef.current !== requestId) return;
       setCheckingClipboard(false);
-      setClipboardDiagnostics(result.diagnostics);
-      if (result.status === "found") {
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
         setClipboardSuggestion(result.suggestion);
-        setClipboardCheckState("idle");
-        return;
       }
-      setClipboardSuggestion(null);
-      setClipboardCheckState(result.status);
     });
   }, []);
-
-  const clipboardCheckMessage = checkingClipboard
-    ? "Checking clipboard..."
-    : clipboardCheckState === "blocked"
-      ? "Clipboard blocked by the browser. Allow access and try again, or add files, links, or instructions manually."
-      : clipboardCheckState === "unsupported"
-        ? "Clipboard read is unavailable here. Use files, links, or instructions instead."
-        : clipboardCheckState === "empty"
-          ? "No readable clipboard content found. Copy something and try again, or continue manually."
-          : null;
-
-  const clipboardCheckDetails =
-    clipboardCheckState === "blocked" && clipboardDiagnostics?.errorName
-      ? `${clipboardDiagnostics.errorName}${
-          clipboardDiagnostics.permissionState === "denied"
-            ? " • permission denied"
-            : ""
-        }`
-      : clipboardCheckState === "unsupported"
-        ? !clipboardDiagnostics?.hasRead && !clipboardDiagnostics?.hasReadText
-          ? "Clipboard API unavailable"
-          : clipboardDiagnostics?.permissionState === "unsupported"
-            ? "Permissions API unavailable"
-            : undefined
-        : undefined;
 
   const trimmedLinkDraft = linkDraft.trim();
   const linkDraftIsValid =
@@ -1280,8 +1213,29 @@ function CreateAgentDialogContent({
             className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void handleSubmit(event)}
             onPaste={handleStartupPaste}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) {
+                event.preventDefault();
+                setDraggingFiles(true);
+              }
+            }}
+            onDragLeave={(event) => {
+              if (
+                event.currentTarget.contains(event.relatedTarget as Node | null)
+              ) {
+                return;
+              }
+              setDraggingFiles(false);
+            }}
+            onDrop={handleStartupDrop}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto rounded-lg px-1 pb-1 transition-colors",
+                draggingFiles &&
+                  "bg-status-done/8 ring-1 ring-inset ring-status-done/30"
+              )}
+            >
               <div className="space-y-3">
                 {clipboardSuggestion ? (
                   <div
@@ -1292,19 +1246,14 @@ function CreateAgentDialogContent({
                     data-testid="create-agent-context-clipboard-cta"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div
-                          className={cn(
-                            "text-sm font-medium",
-                            clipboardSuggestionClasses?.title
-                          )}
-                        >
-                          {clipboardSuggestion.title}
-                        </div>
-                        <p className="text-xs leading-relaxed text-muted-foreground">
-                          {clipboardSuggestion.description}
-                        </p>
-                      </div>
+                      <p
+                        className={cn(
+                          "min-w-0 flex-1 text-sm leading-relaxed",
+                          clipboardSuggestionClasses?.title
+                        )}
+                      >
+                        {clipboardSuggestion.description}
+                      </p>
                       <Button
                         type="button"
                         variant="ghost"
@@ -1333,9 +1282,9 @@ function CreateAgentDialogContent({
                     </Button>
                   </div>
                 ) : null}
-                {!clipboardSuggestion ? (
+                {!clipboardSuggestion && canReadClipboard ? (
                   <div
-                    className="space-y-2 rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
+                    className="rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
                     data-testid="create-agent-context-clipboard-check"
                   >
                     <Button
@@ -1351,23 +1300,8 @@ function CreateAgentDialogContent({
                       ) : (
                         <Clipboard className="mr-1.5 h-3.5 w-3.5" />
                       )}
-                      Check clipboard
+                      Read clipboard
                     </Button>
-                    {clipboardCheckMessage ? (
-                      <div
-                        className="text-xs text-muted-foreground"
-                        role="status"
-                        aria-live="polite"
-                        data-testid="create-agent-context-clipboard-status"
-                      >
-                        {clipboardCheckMessage}
-                        {clipboardCheckDetails ? (
-                          <span className="ml-1 font-mono text-[11px]">
-                            {clipboardCheckDetails}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
 
