@@ -1271,14 +1271,6 @@ async function deployFromArtifact(
       serverDir,
     ]);
 
-    appendReleaseLog(job, "==> installing dependencies (native modules only)");
-    await streamProcess(
-      "pnpm",
-      ["install", "--frozen-lockfile"],
-      { cwd: serverDir },
-      job
-    );
-
     appendReleaseLog(
       job,
       "==> deployed from pre-built artifact (no build needed)"
@@ -1287,6 +1279,50 @@ async function deployFromArtifact(
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function currentReleaseBinaryGlob(): string {
+  const platform =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "linux"
+        ? "linux"
+        : null;
+  if (!platform) {
+    throw new Error(
+      `Unsupported platform for Bun release binary: ${process.platform}`
+    );
+  }
+
+  const arch =
+    process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : null;
+  if (!arch) {
+    throw new Error(
+      `Unsupported architecture for Bun release binary: ${process.arch}`
+    );
+  }
+
+  return `dist/bun/dispatch-*-bun-${platform}-${arch}`;
+}
+
+async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
+  const globPattern = currentReleaseBinaryGlob();
+  const result = await runCommand(
+    "bash",
+    [
+      "-lc",
+      `set -euo pipefail; shopt -s nullglob; matches=(${globPattern}); if [ "\${#matches[@]}" -eq 0 ]; then exit 1; fi; printf '%s\n' "\${matches[0]}"`,
+    ],
+    { cwd: serverDir, allowedExitCodes: [0, 1] }
+  );
+
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    throw new Error(
+      `Expected compiled Bun binary matching ${globPattern} after deploy/build, but none was found`
+    );
+  }
+
+  appendReleaseLog(job, `==> verified runtime binary ${result.stdout.trim()}`);
 }
 
 /** Shared deploy logic: checkout tag, install, build, write record, restart */
@@ -1312,8 +1348,10 @@ async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     );
 
     appendReleaseLog(job, "==> building from source");
-    await streamProcess("pnpm", ["run", "build"], { cwd: serverDir }, job);
+    await streamProcess("pnpm", ["run", "build:bun"], { cwd: serverDir }, job);
   }
+
+  await assertCurrentReleaseBinary(job);
 
   // Write release record BEFORE the restart — after the restart our
   // process is dead and can't write anything.
