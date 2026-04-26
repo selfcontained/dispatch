@@ -545,6 +545,64 @@ test.describe("Terminal agent type", () => {
     ).toBeDisabled();
   });
 
+  test("create with context keeps invalid manual-link drafts open on Enter", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+
+    const linkInput = page.getByTestId("create-agent-context-link-input");
+    await linkInput.fill("not-a-url");
+    await linkInput.press("Enter");
+
+    await expect(linkInput).toBeVisible();
+    await expect(linkInput).toHaveValue("not-a-url");
+    await expect(
+      page.getByTestId("create-agent-context-link-error")
+    ).toBeVisible();
+  });
+
+  test("create step preserves queued context after going back", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-initial-prompt").fill("Use this.");
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+    await page
+      .getByTestId("create-agent-context-link-input")
+      .fill("https://example.com/preserved");
+    await page.getByTestId("create-agent-context-link-add").click();
+
+    await page.getByTestId("create-agent-context-back").click();
+    await expect(
+      page.getByTestId("create-agent-context-summary")
+    ).toContainText("instructions, 1 link");
+
+    const createRequest = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        request.url().includes("/api/v1/agents") &&
+        request.postData()?.includes("https://example.com/preserved") === true
+    );
+
+    await page.getByTestId("create-agent-submit").click();
+
+    const request = await createRequest;
+    expect(request.postData()).toContain("startupLinks");
+    expect(request.postData()).toContain("https://example.com/preserved");
+    expect(request.postData()).toContain("Use this.");
+  });
+
   test("create with context clears an unconfirmed link draft when the popover closes", async ({
     page,
   }) => {

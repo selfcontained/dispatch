@@ -194,7 +194,9 @@ function AddContextLinkForm({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            onSubmit();
+            if (value.trim().length > 0 && isValid) {
+              onSubmit();
+            }
           }
         }}
         placeholder="https://..."
@@ -673,14 +675,19 @@ function CreateAgentDialogContent({
   const trimmedLinkDraft = linkDraft.trim();
   const linkDraftIsValid =
     trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
+  const hasQueuedPrompt = initialPrompt.trim().length > 0;
+  const hasQueuedFiles = startupFiles.length > 0;
+  const hasQueuedLinks = startupLinks.length > 0;
+  const hasQueuedContext = hasQueuedPrompt || hasQueuedFiles || hasQueuedLinks;
 
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
-    if (!trimmed || !isLikelyUrl(trimmed)) return;
+    if (!trimmed || !isLikelyUrl(trimmed)) return false;
     setStartupLinks((current) =>
       current.includes(trimmed) ? current : [...current, trimmed]
     );
     setLinkDraft("");
+    return true;
   }, [linkDraft]);
 
   const handleUseClipboardSuggestion = useCallback(() => {
@@ -741,7 +748,7 @@ function CreateAgentDialogContent({
   }, []);
 
   const handleAddLinkSubmit = useCallback(() => {
-    addStartupLink();
+    if (!addStartupLink()) return;
     setAddMode("menu");
     setAddOpen(false);
   }, [addStartupLink]);
@@ -792,10 +799,7 @@ function CreateAgentDialogContent({
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =
-          step === "context" &&
-          (payloadBase.initialPrompt ||
-            startupFiles.length > 0 ||
-            resolvedStartupLinks.length > 0);
+          startupFiles.length > 0 || resolvedStartupLinks.length > 0;
         const payload = useStartupContext
           ? await (async () => {
               const formData = new FormData();
@@ -1163,6 +1167,24 @@ function CreateAgentDialogContent({
                 ) : null}
               </div>
             </div>
+            {hasQueuedContext ? (
+              <div
+                className="rounded-md border border-border/70 bg-muted/20 px-3 py-2"
+                data-testid="create-agent-context-summary"
+              >
+                <p className="text-xs text-muted-foreground">
+                  Startup context queued:
+                  {hasQueuedPrompt ? " instructions" : ""}
+                  {hasQueuedFiles
+                    ? `${hasQueuedPrompt ? "," : ""} ${startupFiles.length} file${startupFiles.length === 1 ? "" : "s"}`
+                    : ""}
+                  {hasQueuedLinks
+                    ? `${hasQueuedPrompt || hasQueuedFiles ? "," : ""} ${startupLinks.length} link${startupLinks.length === 1 ? "" : "s"}`
+                    : ""}
+                  . This context will be included if you create from this step.
+                </p>
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2 pt-3">
               <Button
                 type="button"
