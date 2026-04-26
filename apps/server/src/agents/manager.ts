@@ -7,6 +7,7 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
@@ -185,6 +186,7 @@ type CreateAgentInput = {
   initialPins?: AgentPin[];
   initialFiles?: Array<{
     fileName: string;
+    originalName?: string;
     buffer: Buffer;
     source: "text" | "user";
     description?: string | null;
@@ -650,10 +652,27 @@ export class AgentManager {
       ]
     );
 
-    const initialMedia =
-      input.initialFiles && input.initialFiles.length > 0
-        ? await this.seedInitialMedia(id, mediaDir, input.initialFiles)
-        : [];
+    let initialMedia: Array<{
+      fileName: string;
+      displayName: string;
+      source: string;
+      description: string | null;
+    }> = [];
+    if (input.initialFiles && input.initialFiles.length > 0) {
+      try {
+        initialMedia = await this.seedInitialMedia(
+          id,
+          mediaDir,
+          input.initialFiles
+        );
+      } catch (error) {
+        await this.pool
+          .query("DELETE FROM agents WHERE id = $1", [id])
+          .catch(() => {});
+        await rm(mediaDir, { recursive: true, force: true }).catch(() => {});
+        throw error;
+      }
+    }
     const startupPrompt = this.buildStartupPrompt(
       input.initialPrompt,
       initialPins,
@@ -2571,6 +2590,7 @@ export class AgentManager {
     initialPins: AgentPin[],
     initialMedia: Array<{
       fileName: string;
+      displayName: string;
       source: string;
       description: string | null;
     }>
@@ -2582,7 +2602,7 @@ export class AgentManager {
 
     const sections = [
       "Startup context is attached to this session.",
-      "Inspect the provided pins and shared media before acting, acknowledge what you were able to access, incorporate that context into the task, and continue unless the instructions explicitly ask you to pause or wait for confirmation.",
+      "Inspect the provided pins and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
     ];
 
     if (trimmedPrompt) {
@@ -2593,7 +2613,21 @@ export class AgentManager {
       sections.push(
         [
           "Links:",
-          ...initialPins.map((pin) => `- ${pin.label}: ${pin.value}`),
+          ...initialPins.map((pin) => {
+            try {
+              const hostname =
+                new URL(pin.value).hostname.replace(/^www\./, "") || "Link";
+              const numberedHostPattern = new RegExp(
+                `^${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\d+)?$`,
+                "i"
+              );
+              return numberedHostPattern.test(pin.label)
+                ? `- ${pin.value}`
+                : `- ${pin.label}: ${pin.value}`;
+            } catch {
+              return `- ${pin.value}`;
+            }
+          }),
         ].join("\n")
       );
     }
@@ -2601,11 +2635,11 @@ export class AgentManager {
     if (initialMedia.length > 0) {
       sections.push(
         [
-          "Files shared into Dispatch media:",
+          "Attached files:",
           ...initialMedia.map((file) => {
             const detail = file.description?.trim();
             const suffix = detail ? ` — ${detail}` : "";
-            return `- ${file.fileName} (${file.source})${suffix}`;
+            return `- ${file.displayName}${suffix} (available via dispatch shared media)`;
           }),
         ].join("\n")
       );
@@ -2619,16 +2653,23 @@ export class AgentManager {
     mediaDir: string,
     files: Array<{
       fileName: string;
+      originalName?: string;
       buffer: Buffer;
       source: "text" | "user";
       description?: string | null;
     }>
   ): Promise<
-    Array<{ fileName: string; source: string; description: string | null }>
+    Array<{
+      fileName: string;
+      displayName: string;
+      source: string;
+      description: string | null;
+    }>
   > {
     const createdAt = new Date();
     const results: Array<{
       fileName: string;
+      displayName: string;
       source: string;
       description: string | null;
     }> = [];
@@ -2653,6 +2694,7 @@ export class AgentManager {
       );
       results.push({
         fileName: timestampedFileName,
+        displayName: file.originalName?.trim() || file.fileName,
         source: file.source,
         description: file.description ?? null,
       });

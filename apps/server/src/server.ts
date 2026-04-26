@@ -182,10 +182,14 @@ type CreateAgentBody = {
 
 type StartupFileUpload = {
   fileName: string;
+  originalName: string;
   buffer: Buffer;
   source: "text" | "user";
   description: string | null;
 };
+
+const MAX_STARTUP_FILE_COUNT = 10;
+const MAX_STARTUP_FILE_NAME_LENGTH = 128;
 
 function parseOptionalBooleanField(
   value: unknown,
@@ -255,6 +259,20 @@ function sanitizeUploadedFileName(name: string): string {
   return `${collapsed || "file"}${ext}`;
 }
 
+function sanitizeStartupDisplayName(
+  name: string | undefined,
+  fallback: string
+): string {
+  const normalized = path
+    .basename(name || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.slice(0, MAX_STARTUP_FILE_NAME_LENGTH);
+}
+
 async function parseCreateAgentRequest(request: {
   body?: unknown;
   isMultipart: () => boolean;
@@ -288,6 +306,11 @@ async function parseCreateAgentRequest(request: {
       if (part.fieldname !== "startupFiles") {
         throw new Error("Unexpected file field.");
       }
+      if (startupFiles.length >= MAX_STARTUP_FILE_COUNT) {
+        throw new Error(
+          `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`
+        );
+      }
       const fileName = sanitizeUploadedFileName(
         path.basename(part.filename || "")
       );
@@ -304,6 +327,7 @@ async function parseCreateAgentRequest(request: {
       }
       startupFiles.push({
         fileName,
+        originalName: sanitizeStartupDisplayName(part.filename, fileName),
         buffer: await part.toBuffer(),
         source: isTextFile(fileName) ? "text" : "user",
         description: null,
@@ -1457,7 +1481,12 @@ async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
   await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart, {
-    limits: { fileSize: 20 * 1024 * 1024 },
+    limits: {
+      fileSize: 20 * 1024 * 1024,
+      files: MAX_STARTUP_FILE_COUNT,
+      fields: 24,
+      parts: 32,
+    },
   });
   await app.register(fastifyWebsocket);
   await app.register(fastifyRateLimit, { global: false });

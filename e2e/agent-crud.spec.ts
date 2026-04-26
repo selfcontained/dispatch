@@ -198,6 +198,58 @@ test.describe("Agent CRUD", () => {
     });
   });
 
+  test("POST /api/v1/agents accepts multipart startup context", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      multipart: {
+        name: `e2e-agent-${Date.now()}`,
+        cwd: "/tmp",
+        useWorktree: "false",
+        initialPrompt: "inspect startup context and continue",
+        startupLinks: JSON.stringify(["https://example.com/task"]),
+        startupFiles: {
+          name: "Screenshot 2026-04-25 at 09.41.02.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("hello startup context"),
+        },
+      },
+    });
+    expect(res.status()).toBe(201);
+    const { agent } = (await res.json()) as {
+      agent: {
+        id: string;
+        pins: Array<{ label: string; value: string; type: string }>;
+      };
+    };
+    expect(agent.pins).toEqual([
+      {
+        label: "example.com",
+        value: "https://example.com/task",
+        type: "url",
+      },
+    ]);
+  });
+
+  test("POST /api/v1/agents rejects invalid multipart startup links", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/v1/agents", {
+      headers: AUTH_HEADER,
+      multipart: {
+        name: `e2e-agent-${Date.now()}`,
+        cwd: "/tmp",
+        useWorktree: "false",
+        startupLinks: JSON.stringify(["github.com/selfcontained/dispatch"]),
+      },
+    });
+    expect(res.status()).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "URL pins must be valid http or https URLs.",
+    });
+  });
+
   test("cancel create dialog does not create an agent", async ({ page }) => {
     await loadApp(page);
 
