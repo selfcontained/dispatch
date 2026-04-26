@@ -314,13 +314,13 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
-    const fallback = page.getByTestId("create-agent-context-clipboard-check");
-    await expect(fallback).toContainText("Clipboard access was blocked");
+    const status = page.getByTestId("create-agent-context-clipboard-status");
+    await expect(status).toContainText("Clipboard blocked by the browser.");
 
     await page
       .getByTestId("create-agent-context-clipboard-check-action")
       .click();
-    await expect(fallback).toContainText("Allow clipboard access");
+    await expect(status).toContainText("Clipboard blocked by the browser.");
   });
 
   test("create with context lets the user dismiss a clipboard suggestion", async ({
