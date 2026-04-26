@@ -13,6 +13,7 @@ import {
   type ReviewVerdict,
 } from "@/components/app/agent-event-utils";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
+import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
   TooltipContent,
@@ -316,11 +317,12 @@ export function PersonaAgentRow({
     <div
       data-testid={`agent-card-${child.id}`}
       className={cn(
-        "flex items-start gap-2.5 px-2.5 py-2.5 transition-colors duration-200",
+        "relative flex items-start gap-2.5 px-2.5 py-2.5 transition-colors duration-200",
         hasFeedback && "cursor-pointer hover:bg-muted/50",
         isSelected && "bg-muted/35",
         (isSelected || isReviewing) && "rounded-lg",
-        isReviewing && "persona-reviewing-row"
+        isReviewing && "persona-reviewing-row",
+        childIsActive && "bg-muted/35"
       )}
     >
       <div className="flex shrink-0 items-center pt-0.5">
@@ -339,6 +341,15 @@ export function PersonaAgentRow({
             {child.persona ?? child.name}
           </span>
           <div className="flex shrink-0 items-center gap-1">
+            {childIsActive ? (
+              <Badge
+                variant="running"
+                className="h-5 px-1.5 text-[9px]"
+                data-testid={`review-agent-active-badge-${child.id}`}
+              >
+                Active terminal
+              </Badge>
+            ) : null}
             {roundBadge ? <RoundBadge badge={roundBadge} /> : null}
             {feedbackCount != null && feedbackCount > 0 ? (
               <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-status-waiting/45 bg-status-waiting/15 px-1.5 text-[10px] font-semibold text-status-waiting">
@@ -444,6 +455,13 @@ export function PersonaAgentRow({
           )
         ) : null}
       </div>
+      {childIsActive ? (
+        <span
+          aria-hidden="true"
+          data-testid={`review-agent-active-band-${child.id}`}
+          className="absolute inset-y-0 right-0 w-1 rounded-r-lg bg-status-done"
+        />
+      ) : null}
     </div>
   );
 }
