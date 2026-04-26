@@ -2439,10 +2439,12 @@ export class AgentManager {
 
     const envPrefix = envPrefixParts.join(" ");
 
-    // Terminal agents have no CLI to launch — drop the user into a login shell
-    // in the chosen cwd/worktree. No MCP hookups, no session id tracking.
+    // Terminal agents have no CLI to launch — drop the user into an
+    // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
+    // non-interactive login shell that exits immediately under `bash -c`,
+    // which tears down the tmux session before the browser can attach.
     if (type === "terminal") {
-      return `${envPrefix} "\${SHELL:-/bin/bash}" -l`;
+      return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
     }
 
     const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
