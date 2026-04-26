@@ -344,9 +344,14 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-clipboard-check")
     ).toBeVisible();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    const readClipboard = page.getByTestId(
+      "create-agent-context-clipboard-check-action"
+    );
+    await readClipboard.click();
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-feedback")
+    ).toContainText("Nothing readable found.");
+    await readClipboard.click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied link?");
