@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { runCommand } from "../shared/lib/run-command.js";
 
@@ -36,14 +36,30 @@ export class TmuxTerminal {
     return result.stdout;
   }
 
+  // Inject `commandLine` into the target tmux pane as a single bracketed paste,
+  // then submit with Enter. Bracketed paste lets the receiving TUI (Claude,
+  // Codex, etc.) treat the burst as one paste event instead of as live typing —
+  // without it, Codex's input handler keeps the input in multi-line mode and
+  // the trailing Enter fails to submit.
   async sendCommand(commandLine: string): Promise<void> {
-    await runCommand("tmux", [
-      "send-keys",
-      "-t",
-      this.sessionName,
-      "-l",
-      commandLine,
-    ]);
+    const bufferName = `dispatch_${randomUUID()}`;
+    await runCommand("tmux", ["set-buffer", "-b", bufferName, commandLine]);
+    try {
+      await runCommand("tmux", [
+        "paste-buffer",
+        "-t",
+        this.sessionName,
+        "-b",
+        bufferName,
+        "-p",
+        "-d",
+      ]);
+    } catch (error) {
+      await runCommand("tmux", ["delete-buffer", "-b", bufferName], {
+        allowedExitCodes: [0, 1],
+      });
+      throw error;
+    }
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
   }
 

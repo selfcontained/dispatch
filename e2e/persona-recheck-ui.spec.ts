@@ -100,12 +100,18 @@ test.describe("Persona recheck UI", () => {
       useWorktree: false,
     });
     let launchRouteCalls = 0;
+    let lastLaunchPayload: unknown = null;
     page.on("request", (req) => {
       if (
         req.method() === "POST" &&
-        req.url().includes(`/api/v1/agents/${agent.id}/persona-reviews`)
+        req.url().includes(`/api/v1/agents/${agent.id}/launch-review`)
       ) {
         launchRouteCalls += 1;
+        try {
+          lastLaunchPayload = req.postDataJSON();
+        } catch {
+          lastLaunchPayload = null;
+        }
       }
     });
 
@@ -124,11 +130,10 @@ test.describe("Persona recheck UI", () => {
       .click();
     await page.getByTestId("launch-reviewer-submit").click();
 
-    await expect
-      .poll(() =>
-        page.getByRole("heading", { name: "Launch Review" }).isVisible()
-      )
-      .toBe(false);
-    await expect.poll(() => launchRouteCalls).toBe(0);
+    await expect.poll(() => launchRouteCalls).toBeGreaterThanOrEqual(1);
+    expect(lastLaunchPayload).toMatchObject({
+      persona: "architecture-review",
+      allowRecheck: true,
+    });
   });
 });
