@@ -138,7 +138,11 @@ export function AgentCard({
   enabledAgentTypes,
 }: AgentCardProps): JSX.Element {
   const state = getVisualState(agent);
-  const isSelected = selectedAgentId === agent.id;
+  const hasActiveChild = childAgents.some(
+    (child) => child.id === connectedAgentId
+  );
+  const effectiveState: AgentVisualState = hasActiveChild ? "idle" : state;
+  const isSelected = selectedAgentId === agent.id && !hasActiveChild;
   const isStopped = state === "stopped";
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
@@ -155,7 +159,7 @@ export function AgentCard({
         data-testid={`agent-card-${agent.id}`}
         className={cn(
           "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
-          borderForAgentState(state),
+          borderForAgentState(effectiveState),
           isSelected && "bg-muted/60",
           isStopped && "opacity-60"
         )}
