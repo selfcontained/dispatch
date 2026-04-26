@@ -31,13 +31,13 @@ case "$ARCH_NAME" in
     ;;
 esac
 
-BINARY=$(find "$ROOT_DIR/dist/bun" -maxdepth 1 -type f \
-  -name "dispatch-*-bun-${PLATFORM}-${ARCH}" | sort -V | tail -n 1)
-
-if [[ -z "$BINARY" ]]; then
+matches=("$ROOT_DIR"/dist/bun/dispatch-*-bun-${PLATFORM}-${ARCH})
+if [[ ! -e "${matches[1]}" ]]; then
   echo "error: no Dispatch binary found for ${PLATFORM}/${ARCH} in $ROOT_DIR/dist/bun" >&2
   exit 1
 fi
+
+BINARY="${matches[1]}"
 
 cd "$ROOT_DIR"
 exec "$BINARY"

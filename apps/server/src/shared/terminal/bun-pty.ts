@@ -56,12 +56,27 @@ export function spawn(
   const dataHandlers: DataHandler[] = [];
   const exitHandlers: ExitHandler[] = [];
   let exitFired = false;
+  let decoderFlushed = false;
   let lastExitCode: number | null = null;
   let lastSignal: string | null = null;
+
+  const emitData = (data: string): void => {
+    if (!data) return;
+    for (const handler of dataHandlers) {
+      handler(data);
+    }
+  };
+
+  const flushDecoder = (): void => {
+    if (decoderFlushed) return;
+    decoderFlushed = true;
+    emitData(decoder.decode());
+  };
 
   const fireExit = (): void => {
     if (exitFired) return;
     exitFired = true;
+    flushDecoder();
     const event = {
       exitCode: lastExitCode ?? 0,
       signal: lastSignal,
@@ -76,10 +91,7 @@ export function spawn(
     rows: opts.rows ?? 24,
     name: opts.name ?? "xterm-256color",
     data: (_terminal, bytes) => {
-      const text = decoder.decode(bytes);
-      for (const handler of dataHandlers) {
-        handler(text);
-      }
+      emitData(decoder.decode(bytes, { stream: true }));
     },
     exit: (_terminal, code, signal) => {
       if (lastExitCode === null) lastExitCode = code;

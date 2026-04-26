@@ -134,6 +134,9 @@ jobs:
           git push origin main
           git push origin "${{ steps.version.outputs.tag }}"
 
+      - name: Rebuild Bun binaries for release commit
+        run: pnpm run build:bun
+
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz
 
