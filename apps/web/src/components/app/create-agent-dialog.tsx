@@ -927,9 +927,9 @@ function CreateAgentDialogContent({
                     return (
                       <div
                         key={key}
-                        className="group flex w-[88px] flex-col gap-1.5"
+                        className="group flex w-24 flex-col gap-1.5"
                       >
-                        <div className="relative h-[72px] w-[72px] overflow-hidden rounded-md border border-border/70 bg-muted/40">
+                        <div className="relative h-24 w-24 overflow-hidden rounded-md border border-border/70 bg-muted/40">
                           {preview ? (
                             <img
                               src={preview}
@@ -954,7 +954,7 @@ function CreateAgentDialogContent({
                           </button>
                         </div>
                         <span
-                          className="w-[72px] truncate text-[11px] text-muted-foreground"
+                          className="w-full truncate text-[10px] text-muted-foreground"
                           title={file.name}
                         >
                           {file.name}
@@ -967,7 +967,7 @@ function CreateAgentDialogContent({
                     onClick={() => startupFileInputRef.current?.click()}
                     data-testid="create-agent-context-files-button"
                     aria-label="Add more files"
-                    className="flex h-[72px] w-[72px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border/70 bg-background/40 text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-background/70 hover:text-foreground"
+                    className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border/70 bg-background/40 text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-background/70 hover:text-foreground"
                   >
                     <Plus className="h-5 w-5" />
                     <span>Add</span>
