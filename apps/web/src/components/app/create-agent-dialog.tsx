@@ -44,6 +44,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   type ClipboardSuggestion,
+  clipboardReadSupported,
   createClipboardSuggestionFromFile,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
@@ -193,7 +194,9 @@ function AddContextLinkForm({
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            onSubmit();
+            if (value.trim().length > 0 && isValid) {
+              onSubmit();
+            }
           }
         }}
         placeholder="https://..."
@@ -490,6 +493,33 @@ function CreateAgentDialogContent({
     }
   }, [step]);
 
+  useEffect(() => {
+    if (step !== "context") return;
+
+    const clipboardSupported = clipboardReadSupported();
+    setCanReadClipboard(clipboardSupported);
+    setClipboardReadFeedback(null);
+    setClipboardSuggestion(null);
+
+    if (!clipboardSupported) {
+      setCheckingClipboard(false);
+      return;
+    }
+
+    setCheckingClipboard(true);
+    const requestId = clipboardRequestIdRef.current + 1;
+    clipboardRequestIdRef.current = requestId;
+
+    void getClipboardSuggestion().then((result) => {
+      if (clipboardRequestIdRef.current !== requestId) return;
+      setCheckingClipboard(false);
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
+        setClipboardSuggestion(result.suggestion);
+      }
+    });
+  }, [step]);
+
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -615,21 +645,9 @@ function CreateAgentDialogContent({
   const enterContextStep = useCallback(() => {
     setStep("context");
     setClipboardSuggestion(null);
-    setCheckingClipboard(true);
+    setCheckingClipboard(false);
     setCanReadClipboard(false);
     setClipboardReadFeedback(null);
-    const requestId = clipboardRequestIdRef.current + 1;
-    clipboardRequestIdRef.current = requestId;
-    void getClipboardSuggestion().then((result) => {
-      if (clipboardRequestIdRef.current !== requestId) return;
-      setCheckingClipboard(false);
-      setCanReadClipboard(result.canRead);
-      if (result.suggestion) {
-        setClipboardSuggestion(result.suggestion);
-        return;
-      }
-      setClipboardReadFeedback(null);
-    });
   }, []);
 
   const handleCheckClipboard = useCallback(() => {
@@ -660,11 +678,12 @@ function CreateAgentDialogContent({
 
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
-    if (!trimmed || !isLikelyUrl(trimmed)) return;
+    if (!trimmed || !isLikelyUrl(trimmed)) return false;
     setStartupLinks((current) =>
       current.includes(trimmed) ? current : [...current, trimmed]
     );
     setLinkDraft("");
+    return true;
   }, [linkDraft]);
 
   const handleUseClipboardSuggestion = useCallback(() => {
@@ -725,7 +744,7 @@ function CreateAgentDialogContent({
   }, []);
 
   const handleAddLinkSubmit = useCallback(() => {
-    addStartupLink();
+    if (!addStartupLink()) return;
     setAddMode("menu");
     setAddOpen(false);
   }, [addStartupLink]);
@@ -756,6 +775,8 @@ function CreateAgentDialogContent({
         // try to run git in a non-repo directory.
         const submitUseWorktree =
           cwdIsGitRepo === false ? false : createUseWorktree;
+        const contextInitialPrompt =
+          step === "context" ? initialPrompt.trim() || undefined : undefined;
         const payloadBase = {
           name: createName.trim(),
           cwd,
@@ -772,14 +793,12 @@ function CreateAgentDialogContent({
             submitUseWorktree && createBaseBranch !== "main"
               ? createBaseBranch
               : undefined,
-          initialPrompt: initialPrompt.trim() || undefined,
+          initialPrompt: contextInitialPrompt,
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =
           step === "context" &&
-          (payloadBase.initialPrompt ||
-            startupFiles.length > 0 ||
-            resolvedStartupLinks.length > 0);
+          (startupFiles.length > 0 || resolvedStartupLinks.length > 0);
         const payload = useStartupContext
           ? await (async () => {
               const formData = new FormData();

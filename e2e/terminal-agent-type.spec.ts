@@ -23,6 +23,7 @@ async function stubClipboard(
   config:
     | { kind: "text"; text: string }
     | { kind: "deferred-text"; firstText: string; nextText: string }
+    | { kind: "pending-text"; text: string }
     | { kind: "blocked" }
     | { kind: "unsupported" }
     | { kind: "rich-text-link"; text: string; html: string }
@@ -56,31 +57,40 @@ async function stubClipboard(
               ],
               readText: async () => value.text,
             }
-          : value.kind === "deferred-text"
+          : value.kind === "pending-text"
             ? {
                 read: async () => [],
-                readText: async () => {
-                  const current =
-                    window.__dispatchClipboardText ?? value.firstText;
-                  window.__dispatchClipboardText = value.nextText;
-                  return current;
-                },
+                readText: async () =>
+                  await new Promise<string>((resolve) => {
+                    window.__dispatchResolveClipboardRead = () =>
+                      resolve(value.text);
+                  }),
               }
-            : value.kind === "blocked"
+            : value.kind === "deferred-text"
               ? {
-                  read: async () => {
-                    throw new DOMException("Blocked", "NotAllowedError");
-                  },
+                  read: async () => [],
                   readText: async () => {
-                    throw new DOMException("Blocked", "NotAllowedError");
+                    const current =
+                      window.__dispatchClipboardText ?? value.firstText;
+                    window.__dispatchClipboardText = value.nextText;
+                    return current;
                   },
                 }
-              : value.kind === "unsupported"
-                ? undefined
-                : {
-                    read: async () => [],
-                    readText: async () => value.text,
-                  };
+              : value.kind === "blocked"
+                ? {
+                    read: async () => {
+                      throw new DOMException("Blocked", "NotAllowedError");
+                    },
+                    readText: async () => {
+                      throw new DOMException("Blocked", "NotAllowedError");
+                    },
+                  }
+                : value.kind === "unsupported"
+                  ? undefined
+                  : {
+                      read: async () => [],
+                      readText: async () => value.text,
+                    };
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -92,6 +102,7 @@ async function stubClipboard(
 declare global {
   interface Window {
     __dispatchClipboardText?: string;
+    __dispatchResolveClipboardRead?: () => void;
   }
 }
 
@@ -286,6 +297,28 @@ test.describe("Terminal agent type", () => {
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied link?");
     await expect(cta).not.toContainText("Clipboard file ready");
+  });
+
+  test("create with context advances before clipboard lookup resolves", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "pending-text",
+      text: "https://example.com/mounted-step-read",
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await expect(page.getByTestId("create-agent-context-form")).toBeVisible();
+    await expect(page.getByText("Create with context")).toBeVisible();
+
+    await page.evaluate(() => window.__dispatchResolveClipboardRead?.());
+
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).toContainText("Add copied link?");
   });
 
   test("create with context can retry clipboard detection from an explicit button", async ({
@@ -510,6 +543,67 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-submit")
     ).toBeDisabled();
+  });
+
+  test("create with context keeps invalid manual-link drafts open on Enter", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+
+    const linkInput = page.getByTestId("create-agent-context-link-input");
+    await linkInput.fill("not-a-url");
+    await linkInput.press("Enter");
+
+    await expect(linkInput).toBeVisible();
+    await expect(linkInput).toHaveValue("not-a-url");
+    await expect(
+      page.getByTestId("create-agent-context-link-error")
+    ).toBeVisible();
+  });
+
+  test("plain create ignores queued context after backing out", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-initial-prompt").fill("Use this.");
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+    await page
+      .getByTestId("create-agent-context-link-input")
+      .fill("https://example.com/preserved");
+    await page.getByTestId("create-agent-context-link-add").click();
+
+    await page.getByTestId("create-agent-context-back").click();
+    await page.getByTestId("create-agent-with-context").click();
+    await expect(page.getByTestId("create-agent-initial-prompt")).toHaveValue(
+      "Use this."
+    );
+    await expect(
+      page.locator('[title="https://example.com/preserved"]')
+    ).toBeVisible();
+    await page.getByTestId("create-agent-context-back").click();
+
+    const createRequest = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().includes("/api/v1/agents")
+    );
+
+    await page.getByTestId("create-agent-submit").click();
+
+    const request = await createRequest;
+    expect(request.postData()).not.toContain("startupLinks");
+    expect(request.postData()).not.toContain("https://example.com/preserved");
+    expect(request.postData()).not.toContain("Use this.");
   });
 
   test("create with context clears an unconfirmed link draft when the popover closes", async ({

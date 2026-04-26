@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clipboardReadSupported,
   createClipboardSuggestionFromFile,
   createClipboardSuggestionFromText,
   describeClipboardFileType,
@@ -118,6 +119,24 @@ describe("create-agent-dialog clipboard helpers", () => {
   });
 
   describe("getClipboardSuggestion", () => {
+    it("detects clipboard read support without reading", () => {
+      vi.stubGlobal("navigator", {
+        clipboard: {
+          readText: vi.fn(),
+        },
+      });
+
+      expect(clipboardReadSupported()).toBe(true);
+    });
+
+    it("returns false when clipboard read apis are unavailable", () => {
+      vi.stubGlobal("navigator", {
+        clipboard: {},
+      });
+
+      expect(clipboardReadSupported()).toBe(false);
+    });
+
     it("returns unsupported when clipboard api is absent", async () => {
       vi.stubGlobal("navigator", {});
 
