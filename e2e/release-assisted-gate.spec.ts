@@ -89,16 +89,9 @@ test.describe("Release assisted-update gate", () => {
       await expect(page.getByText(check)).toBeVisible();
     }
 
-    // The Start button is disabled until the operator acknowledges.
     const startButton = page.getByRole("button", {
       name: /Start assisted update to v0\.19\.0/,
     });
-    await expect(startButton).toBeDisabled();
-    await page
-      .getByRole("checkbox", {
-        name: /I have read the instructions/,
-      })
-      .check();
     await expect(startButton).toBeEnabled();
   });
 

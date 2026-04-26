@@ -47,8 +47,8 @@ type AssistedUpdateGateProps = {
 /**
  * The pre-launch card shown in place of the one-click update button when a
  * release declares assisted-update metadata. For required releases the
- * generic update path is unavailable — the operator must acknowledge the
- * displayed guidance before launching the assisted agent.
+ * generic update path is unavailable — the operator launches the assisted
+ * agent from this card.
  */
 export function AssistedUpdateGate({
   tag,
@@ -58,7 +58,6 @@ export function AssistedUpdateGate({
   starting,
   startError,
 }: AssistedUpdateGateProps): JSX.Element {
-  const [acknowledged, setAcknowledged] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(true);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const checks = metadata.requiredChecks.map(checkName);
@@ -154,17 +153,6 @@ export function AssistedUpdateGate({
         </div>
       )}
 
-      <label className="flex items-center gap-2 text-sm text-muted-foreground">
-        <input
-          type="checkbox"
-          className="h-4 w-4 cursor-pointer"
-          checked={acknowledged}
-          onChange={(e) => setAcknowledged(e.target.checked)}
-          disabled={starting}
-        />
-        I have read the instructions and understand the migration steps
-      </label>
-
       {startError && (
         <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {startError}
@@ -174,7 +162,7 @@ export function AssistedUpdateGate({
       <Button
         size="sm"
         variant="primary"
-        disabled={!acknowledged || starting}
+        disabled={starting}
         onClick={() => void onStart()}
         className="self-start"
       >
