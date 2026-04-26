@@ -2394,11 +2394,7 @@ async function registerRoutes() {
     const versionType = body.versionType as ReleaseVersionType;
 
     // Only one release at a time
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release is already in progress." });
@@ -2465,11 +2461,7 @@ async function registerRoutes() {
     }
 
     // Only one release/update at a time
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release or update is already in progress." });
@@ -2537,11 +2529,7 @@ async function registerRoutes() {
       });
     }
 
-    if (
-      activeReleaseJob &&
-      activeReleaseJob.phase !== "done" &&
-      activeReleaseJob.phase !== "failed"
-    ) {
+    if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
       return reply
         .code(409)
         .send({ error: "A release or update is already in progress." });
@@ -2581,12 +2569,14 @@ async function registerRoutes() {
       );
       let assistedState: AssistedUpdateState | null = null;
       let assistedToken: string | null = null;
-      let assistedPromptAddendum = "";
+      let initialPrompt: string;
       if (assistedMeta) {
         // The launched agent runs on the same host as the server, so we
         // build the phase-callback URL from server config rather than the
         // inbound request's Host header (which is attacker-controllable
-        // for non-browser clients).
+        // for non-browser clients). The framework prompt subsumes the
+        // recovery skeleton — it's the canonical instruction set when a
+        // release declares assisted-update metadata.
         const baseUrl = dispatchBaseUrl();
         const ctx = await buildAssistedUpdateContext(
           {
@@ -2594,12 +2584,29 @@ async function registerRoutes() {
             fromTag: record?.tag ?? null,
             metadata: assistedMeta,
             serverDir,
+            recovery: {
+              serviceCommand:
+                process.platform === "linux"
+                  ? "systemctl --user restart dispatch"
+                  : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server",
+              healthEndpoint: dispatchHealthUrl(),
+              serviceLogPath: "~/.dispatch/logs/dispatch.log",
+              failureLogPath: "~/.dispatch/logs/last-release-failure.log",
+            },
           },
           baseUrl
         );
         assistedState = ctx.state;
         assistedToken = ctx.state.token;
-        assistedPromptAddendum = `\n\n---\n${ctx.prompt}`;
+        initialPrompt = ctx.prompt;
+      } else {
+        // No metadata — fall back to the legacy recovery skeleton. This
+        // keeps the existing manual-rescue flow for releases that don't
+        // opt into the framework.
+        initialPrompt = buildAssistedUpdatePrompt({
+          tag: body.tag,
+          currentTag: record?.tag ?? null,
+        });
       }
 
       const agent = await agentManager.createAgent({
@@ -2610,11 +2617,7 @@ async function registerRoutes() {
         fullAccess: true,
         useWorktree: false,
         worktreeLocation,
-        initialPrompt:
-          buildAssistedUpdatePrompt({
-            tag: body.tag,
-            currentTag: record?.tag ?? null,
-          }) + assistedPromptAddendum,
+        initialPrompt,
       });
 
       if (assistedState && assistedToken) {

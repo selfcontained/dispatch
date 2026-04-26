@@ -46,6 +46,16 @@ const recommendedInfoFixture = {
   assistedRequired: false,
 };
 
+const normalInfoFixture = {
+  ...requiredInfoFixture,
+  assisted: {
+    ...requiredInfoFixture.assisted,
+    mode: "normal",
+    title: "Informational metadata",
+  },
+  assistedRequired: false,
+};
+
 test.describe("Release assisted-update gate", () => {
   test("renders the required-mode gate and hides the one-click button", async ({
     page,
@@ -117,11 +127,37 @@ test.describe("Release assisted-update gate", () => {
     await expect(
       page.getByText("Assisted update recommended", { exact: true })
     ).toBeVisible();
-    // For recommended mode the gate is informational; it still hides the
-    // standard one-click button by design (any release that publishes
-    // metadata is opting into the assisted flow).
+    // Recommended mode: the gate is informational AND the standard
+    // one-click button stays available — the operator can still take
+    // the generic path if they don't want the assisted agent.
     await expect(
       page.getByRole("button", { name: /^Update to v0\.19\.0$/ })
+    ).toBeVisible();
+  });
+
+  test("does not render the gate when mode is 'normal'", async ({ page }) => {
+    await page.route("**/api/v1/release/info", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(normalInfoFixture),
+      })
+    );
+
+    await loadApp(page);
+    await page.getByTestId("settings-button").click();
+    await page
+      .locator("button", { hasText: /^Updates$/ })
+      .first()
+      .click();
+    await page.getByText("Check for updates").click();
+
+    // Standard one-click button visible; no gate copy.
+    await expect(
+      page.getByRole("button", { name: /^Update to v0\.19\.0$/ })
+    ).toBeVisible();
+    await expect(
+      page.getByText(/^Assisted update (required|recommended)$/)
     ).toHaveCount(0);
   });
 

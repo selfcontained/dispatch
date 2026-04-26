@@ -453,7 +453,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </div>
                 )}
 
-                {info.assisted ? (
+                {/*
+                  Gate visibility per metadata mode:
+                  - required:    only the gate (standard buttons hidden — the
+                                 backend gates the generic path with 409).
+                  - recommended: gate AND standard buttons (operator may opt
+                                 into the assisted flow but isn't forced).
+                  - normal/none: standard buttons only — metadata is purely
+                                 informational and shouldn't change the UX.
+                */}
+                {info.assisted && info.assisted.mode !== "normal" && (
                   <AssistedUpdateGate
                     tag={info.latestTag}
                     metadata={info.assisted}
@@ -462,7 +471,8 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                     starting={assistedUpdateLaunching}
                     startError={null}
                   />
-                ) : (
+                )}
+                {!(info.assisted && info.assisted.mode === "required") && (
                   <>
                     <div className="flex flex-wrap gap-2">
                       <button

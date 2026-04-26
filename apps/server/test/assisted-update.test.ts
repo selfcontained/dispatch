@@ -61,6 +61,12 @@ const minimalMetadata = (
 });
 
 const TEST_SERVER_DIR = "/tmp/test-dispatch-server";
+const TEST_RECOVERY = {
+  serviceCommand: "launchctl kickstart -k gui/501/com.dispatch.server",
+  healthEndpoint: "http://127.0.0.1:6767/api/v1/health",
+  serviceLogPath: "~/.dispatch/logs/dispatch.log",
+  failureLogPath: "~/.dispatch/logs/last-release-failure.log",
+};
 
 describe("tokensEqual", () => {
   it("returns true for byte-identical strings", () => {
@@ -117,6 +123,7 @@ describe("buildAssistedUpdateContext", () => {
         fromTag: "v0.18.1",
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -143,6 +150,7 @@ describe("buildAssistedUpdateContext", () => {
           ],
         }),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -159,6 +167,7 @@ describe("buildAssistedUpdateContext", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -168,6 +177,7 @@ describe("buildAssistedUpdateContext", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -187,6 +197,7 @@ describe("buildAssistedUpdateContext", () => {
           requiredChecks: ["service_restarted", "version_converged"],
         }),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767/"
     );
@@ -218,6 +229,7 @@ describe("buildAssistedUpdateContext", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -235,6 +247,7 @@ describe("buildAssistedUpdateContext", () => {
           requiredChecks: [],
         }),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -252,6 +265,7 @@ describe("applyAssistedPhase", () => {
         fromTag: "v0.18.1",
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -329,6 +343,7 @@ describe("attachAssistedAgent", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -344,6 +359,7 @@ describe("attachAssistedAgent", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -366,6 +382,7 @@ describe("runAndRecordChecks", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -391,6 +408,7 @@ describe("runAndRecordChecks", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -416,6 +434,7 @@ describe("runAndRecordChecks", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );
@@ -447,6 +466,7 @@ describe("runAndRecordChecks", () => {
         fromTag: null,
         metadata: minimalMetadata(),
         serverDir: TEST_SERVER_DIR,
+        recovery: TEST_RECOVERY,
       },
       "http://127.0.0.1:6767"
     );

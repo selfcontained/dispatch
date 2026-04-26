@@ -116,6 +116,9 @@ export function isLegalTransition(
   return ni > ci;
 }
 
-export function isTerminalPhase(phase: AssistedPhase): boolean {
-  return TERMINAL.includes(phase);
+// `phase` accepts any string so callers holding the broader ReleasePhase
+// union (server.ts) don't need an extra cast — the membership check is
+// what determines the answer, and unknown phases correctly return false.
+export function isTerminalPhase(phase: string): boolean {
+  return (TERMINAL as readonly string[]).includes(phase);
 }

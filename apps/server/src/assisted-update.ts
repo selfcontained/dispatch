@@ -27,6 +27,24 @@ export type StartAssistedUpdateInput = {
    * environment lookups of its own.
    */
   serverDir: string;
+  /**
+   * Host-level recovery context the framework prompt embeds inline so
+   * the agent has one canonical instruction set (no need to stitch a
+   * separate recovery skeleton on top). All values come from server.ts;
+   * this module never reads env or process state.
+   */
+  recovery: AssistedRecoveryContext;
+};
+
+export type AssistedRecoveryContext = {
+  /** e.g. "systemctl --user restart dispatch" or launchctl kickstart. */
+  serviceCommand: string;
+  /** Local health endpoint URL the agent can curl to verify recovery. */
+  healthEndpoint: string;
+  /** Path to the main service log on disk. */
+  serviceLogPath: string;
+  /** Path the failed-deploy summary gets written to. */
+  failureLogPath: string;
 };
 
 export type AssistedAgentContext = {
@@ -56,7 +74,12 @@ export async function buildAssistedUpdateContext(
   };
   await writeAssistedUpdateState(state);
 
-  const prompt = renderAssistedPrompt(state, baseUrl, input.serverDir);
+  const prompt = renderAssistedPrompt(
+    state,
+    baseUrl,
+    input.serverDir,
+    input.recovery
+  );
   return { state, prompt };
 }
 
@@ -128,14 +151,20 @@ export async function runAndRecordChecks(
   const results = await runRequiredChecks(state.requiredChecks, ctx);
   state.checks = results;
   state.updatedAt = new Date().toISOString();
-  const allPassed = results.every((r) => r.ok);
-  if (!allPassed && state.phase !== "rollback" && state.phase !== "blocked") {
-    state.phase = "blocked";
-    state.error = state.error ?? "one or more required checks failed";
-    state.completedAt = state.completedAt ?? new Date().toISOString();
-  }
   await writeAssistedUpdateState(state);
-  return state;
+  const allPassed = results.every((r) => r.ok);
+  if (allPassed) return state;
+
+  // Route the failed-checks → blocked transition through the canonical
+  // helper so it goes through `isLegalTransition` (no-op when state is
+  // already terminal at rollback/blocked/failed) and the same
+  // persist + completedAt stamping every other phase change uses.
+  const transition = await applyAssistedPhase({
+    token: state.token,
+    phase: "blocked",
+    error: "one or more required checks failed",
+  });
+  return transition.ok ? transition.state : state;
 }
 
 export { isAssistedUpdateRequired };
@@ -143,7 +172,8 @@ export { isAssistedUpdateRequired };
 function renderAssistedPrompt(
   state: AssistedUpdateState,
   baseUrl: string,
-  serverDir: string
+  serverDir: string,
+  recovery: AssistedRecoveryContext
 ): string {
   const { metadata, tag, fromTag, requiredChecks, token } = state;
   const checksList =
@@ -160,6 +190,11 @@ function renderAssistedPrompt(
     `Your job is to perform a migration-driven upgrade and report structured`,
     `phases back to the release job so an operator can see progress.`,
     ``,
+    `Primary objective:`,
+    `1. Update Dispatch to ${tag}.`,
+    `2. If restart or health fails, restore the Dispatch service first.`,
+    `3. After service is healthy again, diagnose what went wrong and leave a concise report in the terminal.`,
+    ``,
     `## Release context`,
     ``,
     `- target: ${tag}`,
@@ -167,6 +202,20 @@ function renderAssistedPrompt(
     `- platform: ${platform}`,
     `- service dir: ${serverDir}`,
     `- mode: ${metadata.mode}`,
+    `- health endpoint: ${recovery.healthEndpoint}`,
+    `- service restart command: ${recovery.serviceCommand}`,
+    `- main service log: ${recovery.serviceLogPath}`,
+    `- failure log path: ${recovery.failureLogPath}`,
+    `- API base URL env: $DISPATCH_API_URL`,
+    `- Bearer token env: $DISPATCH_RELEASE_UPDATE_TOKEN`,
+    ``,
+    `## Guardrails`,
+    ``,
+    `- Operate on ${serverDir}, not the user's development worktree.`,
+    `- Do not edit secrets or .env unless explicitly required to restore service and you can explain why.`,
+    `- Do not make source-code changes as part of the recovery path unless absolutely necessary.`,
+    `- Do not assume release.json points to a healthy rollback target after a failed deploy; confirm the last healthy tag from git/service history before rolling back.`,
+    `- Restore service availability before deeper diagnosis.`,
     ``,
     `## Title`,
     ``,
@@ -192,8 +241,17 @@ function renderAssistedPrompt(
     ``,
     `  inspect → prepare → apply → restarting → validate → done`,
     ``,
+    `Suggested per-phase work:`,
+    `- inspect: capture current repo/tag/service state and confirm the install is recoverable.`,
+    `- prepare: line up artifacts and any migration-specific scaffolding from "Instructions".`,
+    `- apply: invoke the managed update endpoint, e.g.`,
+    `    \`curl -sf -X POST "$DISPATCH_API_URL/api/v1/release/update" -H "Content-Type: application/json" -H "Authorization: Bearer $DISPATCH_RELEASE_UPDATE_TOKEN" -d '{"tag":"${tag}"}'\``,
+    `- restarting: wait for the service to come back via the health endpoint.`,
+    `- validate: run the metadata's "Required checks" against the new install (the framework will re-run them server-side too).`,
+    ``,
     `If you cannot proceed, report \`blocked\` with a reason. If you have to`,
-    `revert state, report \`rollback\`. Reaching a terminal phase ends the run.`,
+    `revert state, report \`rollback\` after restoring service to the last`,
+    `confirmed healthy tag. Reaching a terminal phase ends the run.`,
     ``,
     `Report a phase by POSTing to:`,
     ``,
