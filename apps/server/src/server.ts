@@ -2051,7 +2051,9 @@ async function registerRoutes() {
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
-        review: review ? { allowRecheck: review.allowRecheck } : null,
+        review: review
+          ? { allowRecheck: review.allowRecheck, status: review.status }
+          : null,
       },
       repoRoot,
       worktreeRoot,

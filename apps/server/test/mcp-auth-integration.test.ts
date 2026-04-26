@@ -184,13 +184,14 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("never exposes dispatch_await_recheck or dispatch_await_review (round-trip is push-based)", async () => {
+  it("never exposes removed await tools and only exposes recheck context in round 2", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
        VALUES
        ('agt_parentreview', 'parent', 'codex', 'running', '/tmp', null, null, false),
        ('agt_persona_plain', 'plain-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
-       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
+       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
+       ('agt_persona_round2', 'round2-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
     );
     await pool.query(
       `INSERT INTO persona_reviews (
@@ -198,7 +199,8 @@ describe("MCP auth integration", () => {
         )
         VALUES
         ('agt_persona_plain', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, false),
-        ('agt_persona_recheck', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, true)`
+        ('agt_persona_recheck', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, true),
+        ('agt_persona_round2', 'agt_parentreview', 'backend-security-review', 'awaiting_recheck', 1, true)`
     );
 
     const authTokenResult = await pool.query<{ value: string }>(
@@ -234,7 +236,23 @@ describe("MCP auth integration", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toContain("dispatch_await_recheck");
       expect(response.body).not.toContain("dispatch_await_review");
+      expect(response.body).not.toContain("dispatch_get_recheck_context");
     }
+
+    const round2Response = await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_persona_round2",
+      headers: {
+        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_persona_round2")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+    expect(round2Response.statusCode).toBe(200);
+    expect(round2Response.body).toContain("dispatch_get_recheck_context");
+    expect(round2Response.body).not.toContain("dispatch_await_recheck");
+    expect(round2Response.body).not.toContain("dispatch_await_review");
   });
 
   it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {

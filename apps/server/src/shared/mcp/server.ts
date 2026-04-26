@@ -16,6 +16,7 @@ export type McpAgent = {
   baseBranch?: string | null;
   review?: {
     allowRecheck?: boolean;
+    status?: string | null;
   } | null;
 };
 
@@ -395,10 +396,10 @@ export type McpRequestContext = {
 };
 
 /**
- * Builds the text body returned by dispatch_launch_persona. When allowRecheck
- * is true, appends the parent-facing round-trip guidance; otherwise returns
- * the base confirmation only. Kept as a pure function so the branching text
- * is unit-testable without spinning up the MCP server.
+ * Builds the text body returned by dispatch_launch_persona. The parent-facing
+ * guidance is push-based in both modes: for single-pass reviews the parent
+ * waits for one completion prompt; for recheck reviews the parent waits for a
+ * round-1 prompt and, after submitting a resolution, a round-2 prompt.
  *
  * The recheck round-trip is driven by server-side prompt injection: the
  * parent receives a fresh prompt in this terminal when the reviewer reports
@@ -410,7 +411,13 @@ export function buildLaunchPersonaResponseText(
   allowRecheck: boolean
 ): string {
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
-  if (!allowRecheck) return base;
+  if (!allowRecheck) {
+    return `${base}
+
+This review is push-based. Do not emit a terminal dispatch_event yet. Keep this turn alive and wait for the server to inject a completion prompt into this terminal when the reviewer finishes.
+
+There is no tool to poll while waiting. When the completion prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") only if that prompt says feedback items were recorded, then wrap up.`;
+  }
   return `${base}
 
 Review was launched with recheck enabled. This is a multi-step round-trip — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution, and the server will push a new prompt into this terminal when each round transitions.
@@ -598,6 +605,7 @@ async function createDispatchMcpServer(
   if (
     allowed.has("dispatch_get_recheck_context") &&
     context.agent &&
+    context.agent.review?.status === "awaiting_recheck" &&
     context.getRecheckContext
   ) {
     const agentId = context.agent.id;

@@ -7,9 +7,12 @@ describe("buildLaunchPersonaResponseText", () => {
   const agentId = "agt_test123";
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
 
-  it("returns only the base confirmation when allowRecheck is false", () => {
+  it("adds single-pass wait guidance when allowRecheck is false", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, false);
-    expect(text).toBe(base);
+    expect(text.startsWith(base)).toBe(true);
+    expect(text).toContain("This review is push-based");
+    expect(text).toContain("There is no tool to poll");
+    expect(text).toContain(`personaAgentId="${agentId}"`);
   });
 
   it("appends round-trip guidance when allowRecheck is true", () => {
@@ -43,6 +46,13 @@ describe("buildLaunchPersonaResponseText", () => {
     // Round-trip transitions are now pushed via terminal injection, not
     // surfaced through a polling MCP tool.
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    expect(text).not.toContain("dispatch_await_review");
+    expect(text).not.toContain("dispatch_await_recheck");
+    expect(text).not.toMatch(/pollAgainInSeconds/i);
+  });
+
+  it("uses the same non-polling guidance for single-pass reviews", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId, false);
     expect(text).not.toContain("dispatch_await_review");
     expect(text).not.toContain("dispatch_await_recheck");
     expect(text).not.toMatch(/pollAgainInSeconds/i);

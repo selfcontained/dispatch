@@ -2363,7 +2363,7 @@ export class AgentManager {
       );
       if (autoReview) {
         rules.push(
-          "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. Poll dispatch_get_feedback until all reviews complete. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
+          "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, keep the turn alive and wait for server-injected review prompts instead of polling dispatch_get_feedback. For single-pass reviews you'll receive one completion prompt; for recheck reviews you'll receive a round-1 prompt and, after dispatch_submit_resolution, a round-2 prompt. Only call dispatch_get_feedback after a completion prompt says findings are ready. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
         );
       }
     }

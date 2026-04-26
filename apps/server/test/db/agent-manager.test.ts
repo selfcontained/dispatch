@@ -528,7 +528,9 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("list_personas");
       expect(setupScript).toContain("dispatch_launch_persona");
       expect(setupScript).toContain("dispatch_get_feedback");
+      expect(setupScript).toContain("wait for server-injected review prompts");
       expect(setupScript).toContain("launch 1 relevant reviewer");
+      expect(setupScript).not.toContain("Poll dispatch_get_feedback");
       expect(setupScript).not.toContain("Only launch additional reviewers");
     });
 
