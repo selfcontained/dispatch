@@ -51,6 +51,16 @@ export default {
         md: "0.6rem",
         sm: "0.45rem",
       },
+      keyframes: {
+        "mobile-toolbar-flash": {
+          "0%": { opacity: "0" },
+          "18%": { opacity: "1" },
+          "100%": { opacity: "0" },
+        },
+      },
+      animation: {
+        "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
+      },
     },
   },
   plugins: [typography],

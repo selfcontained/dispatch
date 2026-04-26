@@ -32,21 +32,6 @@ export function MobileTerminalToolbar({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const soundCuesEnabled = useAtomValue(soundCuesEnabledAtom);
 
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent = `
-      @keyframes mobile-toolbar-flash {
-        0% { opacity: 0; }
-        18% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
-  }, []);
-
   const playTap = useCallback(() => {
     if (soundCuesEnabled) playTapCue();
   }, [soundCuesEnabled]);
@@ -74,7 +59,7 @@ export function MobileTerminalToolbar({
         <span
           key={`${key}-${flashState.token}`}
           data-testid={`toolbar-flash-${key}`}
-          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 [animation-fill-mode:forwards] animate-[mobile-toolbar-flash_420ms_ease-out] bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
+          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 animate-mobile-toolbar-flash bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
         />
       ) : null,
     [flashState]
