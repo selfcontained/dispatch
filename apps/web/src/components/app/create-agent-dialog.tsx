@@ -1,6 +1,7 @@
 import {
   type ChangeEvent,
   type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -12,6 +13,7 @@ import { useAtom } from "jotai";
 import {
   Check,
   ChevronDown,
+  Clipboard,
   ChevronLeft,
   FileText,
   GitBranch,
@@ -41,6 +43,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  type ClipboardSuggestion,
+  createClipboardSuggestionFromFile,
+  createClipboardSuggestionFromText,
+  getClipboardFilesFromEvent,
+  getClipboardSuggestion,
+  isLikelyUrl,
+} from "@/components/app/create-agent-dialog-clipboard";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -55,7 +65,6 @@ import {
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { createNewBranchPrefAtom } from "@/lib/store";
-import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
@@ -67,6 +76,37 @@ const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
 const STARTUP_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
+const CONTEXT_LINK_INPUT_ID = "create-agent-context-link-input";
+const CONTEXT_LINK_ERROR_ID = "create-agent-context-link-error";
+const ROUND_ICON_BUTTON_CLASS =
+  "h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground";
+
+function getClipboardSuggestionClasses(suggestion: ClipboardSuggestion): {
+  container: string;
+  title: string;
+} {
+  switch (suggestion.kind) {
+    case "url":
+      return {
+        container:
+          "border-status-done/35 bg-status-done/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-done)/0.08)]",
+        title: "text-status-done",
+      };
+    case "text":
+      return {
+        container:
+          "border-status-working/35 bg-status-working/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-working)/0.08)]",
+        title: "text-status-working",
+      };
+    default:
+      return {
+        container:
+          "border-status-waiting/35 bg-status-waiting/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-waiting)/0.08)]",
+        title: "text-status-waiting",
+      };
+  }
+}
 
 function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
@@ -129,15 +169,24 @@ function AddContextLinkForm({
   onChange,
   onSubmit,
   onBack,
+  isValid,
 }: {
   value: string;
   onChange: (next: string) => void;
   onSubmit: () => void;
   onBack: () => void;
+  isValid: boolean;
 }) {
   return (
     <div className="space-y-1.5 p-1">
+      <label
+        htmlFor={CONTEXT_LINK_INPUT_ID}
+        className="text-xs text-muted-foreground"
+      >
+        Link URL
+      </label>
       <Input
+        id={CONTEXT_LINK_INPUT_ID}
         autoFocus
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -149,7 +198,18 @@ function AddContextLinkForm({
         }}
         placeholder="https://..."
         data-testid="create-agent-context-link-input"
+        aria-invalid={!isValid}
+        aria-describedby={!isValid ? CONTEXT_LINK_ERROR_ID : undefined}
       />
+      {!isValid ? (
+        <p
+          id={CONTEXT_LINK_ERROR_ID}
+          className="text-xs text-status-blocked"
+          data-testid="create-agent-context-link-error"
+        >
+          Enter a valid `http:` or `https:` URL.
+        </p>
+      ) : null}
       <div className="flex justify-between gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
           <ChevronLeft className="mr-1 h-3 w-3" />
@@ -160,7 +220,7 @@ function AddContextLinkForm({
           variant="default"
           size="sm"
           onClick={onSubmit}
-          disabled={value.trim().length === 0}
+          disabled={value.trim().length === 0 || !isValid}
           data-testid="create-agent-context-link-add"
         >
           Add link
@@ -336,6 +396,7 @@ function CreateAgentDialogContent({
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const startupFileInputRef = useRef<HTMLInputElement>(null);
+  const clipboardRequestIdRef = useRef(0);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -357,6 +418,14 @@ function CreateAgentDialogContent({
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [linkDraft, setLinkDraft] = useState("");
+  const [clipboardSuggestion, setClipboardSuggestion] =
+    useState<ClipboardSuggestion | null>(null);
+  const [checkingClipboard, setCheckingClipboard] = useState(false);
+  const [canReadClipboard, setCanReadClipboard] = useState(false);
+  const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
+    string | null
+  >(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
     readCwdHistory()
@@ -410,6 +479,17 @@ function CreateAgentDialogContent({
     }
   }, [step]);
 
+  useEffect(() => {
+    if (step !== "context") {
+      clipboardRequestIdRef.current += 1;
+      setClipboardSuggestion(null);
+      setCheckingClipboard(false);
+      setCanReadClipboard(false);
+      setClipboardReadFeedback(null);
+      setDraggingFiles(false);
+    }
+  }, [step]);
+
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -456,13 +536,41 @@ function CreateAgentDialogContent({
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
-      const pastedFiles = Array.from(event.clipboardData.items)
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => file !== null);
-      if (pastedFiles.length === 0) return;
+      const target = event.target;
+      const targetIsPrompt =
+        target instanceof HTMLElement && target.id === CONTEXT_PROMPT_ID;
+      if (!targetIsPrompt) return;
+
+      const pastedFiles = getClipboardFilesFromEvent(event);
+      if (pastedFiles.length > 0) {
+        event.preventDefault();
+        setClipboardSuggestion(
+          createClipboardSuggestionFromFile(pastedFiles[0])
+        );
+        setClipboardReadFeedback(null);
+        return;
+      }
+
+      const textSuggestion = createClipboardSuggestionFromText(
+        event.clipboardData.getData("text/plain")
+      );
+
+      if (textSuggestion?.kind === "url" && targetIsPrompt) {
+        event.preventDefault();
+        setClipboardSuggestion(textSuggestion);
+        setClipboardReadFeedback(null);
+      }
+    },
+    []
+  );
+
+  const handleStartupDrop = useCallback(
+    (event: DragEvent<HTMLElement>) => {
+      const droppedFiles = Array.from(event.dataTransfer.files ?? []);
+      if (droppedFiles.length === 0) return;
       event.preventDefault();
-      appendStartupFiles(pastedFiles);
+      setDraggingFiles(false);
+      appendStartupFiles(droppedFiles);
     },
     [appendStartupFiles]
   );
@@ -504,17 +612,100 @@ function CreateAgentDialogContent({
     );
   }, []);
 
-  // Add-context popover: clicking the Add CTA opens a small menu with
-  // "Add file" / "Add link"; "Add link" swaps the popover content for an
-  // inline URL form rather than navigating away.
+  const enterContextStep = useCallback(() => {
+    setStep("context");
+    setClipboardSuggestion(null);
+    setCheckingClipboard(true);
+    setCanReadClipboard(false);
+    setClipboardReadFeedback(null);
+    const requestId = clipboardRequestIdRef.current + 1;
+    clipboardRequestIdRef.current = requestId;
+    void getClipboardSuggestion().then((result) => {
+      if (clipboardRequestIdRef.current !== requestId) return;
+      setCheckingClipboard(false);
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
+        setClipboardSuggestion(result.suggestion);
+        return;
+      }
+      setClipboardReadFeedback(null);
+    });
+  }, []);
+
+  const handleCheckClipboard = useCallback(() => {
+    setCheckingClipboard(true);
+    setClipboardReadFeedback(null);
+    const requestId = clipboardRequestIdRef.current + 1;
+    clipboardRequestIdRef.current = requestId;
+    void getClipboardSuggestion().then((result) => {
+      if (clipboardRequestIdRef.current !== requestId) return;
+      setCheckingClipboard(false);
+      setCanReadClipboard(result.canRead);
+      if (result.suggestion) {
+        setClipboardSuggestion(result.suggestion);
+        setClipboardReadFeedback(null);
+        return;
+      }
+      setClipboardReadFeedback(
+        result.status === "blocked"
+          ? "Clipboard access was blocked. Paste into Instructions instead."
+          : "Nothing readable found. Try pasting into Instructions instead."
+      );
+    });
+  }, []);
+
+  const trimmedLinkDraft = linkDraft.trim();
+  const linkDraftIsValid =
+    trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
+
+  const addStartupLink = useCallback(() => {
+    const trimmed = linkDraft.trim();
+    if (!trimmed || !isLikelyUrl(trimmed)) return;
+    setStartupLinks((current) =>
+      current.includes(trimmed) ? current : [...current, trimmed]
+    );
+    setLinkDraft("");
+  }, [linkDraft]);
+
+  const handleUseClipboardSuggestion = useCallback(() => {
+    if (!clipboardSuggestion) return;
+
+    switch (clipboardSuggestion.kind) {
+      case "image":
+      case "file":
+        appendStartupFiles([clipboardSuggestion.file]);
+        break;
+      case "url":
+        setStartupLinks((current) =>
+          current.includes(clipboardSuggestion.url)
+            ? current
+            : [...current, clipboardSuggestion.url]
+        );
+        break;
+      case "text": {
+        const suggestionText = clipboardSuggestion.text;
+        setInitialPrompt((current) => {
+          if (!current.trim()) return suggestionText;
+          return `${current.trimEnd()}\n\n${suggestionText}`;
+        });
+        requestAnimationFrame(() => promptTextareaRef.current?.focus());
+        break;
+      }
+    }
+
+    setClipboardSuggestion(null);
+    setClipboardReadFeedback(null);
+  }, [appendStartupFiles, clipboardSuggestion]);
+
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<"menu" | "link">("menu");
-  const [dragOver, setDragOver] = useState(false);
-  const dragDepthRef = useRef(0);
 
   const handleAddOpenChange = useCallback((next: boolean) => {
     setAddOpen(next);
-    if (!next) setAddMode("menu");
+    if (!next) {
+      setAddMode("menu");
+      setLinkDraft("");
+    }
   }, []);
 
   const handleAddFileFromMenu = useCallback(() => {
@@ -528,54 +719,35 @@ function CreateAgentDialogContent({
     setAddMode("link");
   }, []);
 
-  const handleAddLinkSubmit = useCallback(() => {
-    const trimmed = linkDraft.trim();
-    if (!trimmed) return;
-    setStartupLinks((current) =>
-      current.includes(trimmed) ? current : [...current, trimmed]
-    );
+  const handleAddLinkBack = useCallback(() => {
     setLinkDraft("");
     setAddMode("menu");
-    setAddOpen(false);
-  }, [linkDraft]);
-
-  const handleContextDragEnter = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!Array.from(event.dataTransfer.types).includes("Files")) return;
-      dragDepthRef.current += 1;
-      setDragOver(true);
-    },
-    []
-  );
-  const handleContextDragLeave = useCallback(() => {
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDragOver(false);
   }, []);
-  const handleContextDragOver = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (Array.from(event.dataTransfer.types).includes("Files")) {
-        event.preventDefault();
-      }
-    },
-    []
-  );
-  const handleContextDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      const dropped = Array.from(event.dataTransfer.files);
-      if (dropped.length === 0) return;
-      event.preventDefault();
-      dragDepthRef.current = 0;
-      setDragOver(false);
-      appendStartupFiles(dropped);
-    },
-    [appendStartupFiles]
-  );
+
+  const handleAddLinkSubmit = useCallback(() => {
+    addStartupLink();
+    setAddMode("menu");
+    setAddOpen(false);
+  }, [addStartupLink]);
+
+  // Radix Popover defaults to z-50 inline, but DialogContent is z-70.
+  // Bump the popper wrapper while this dialog content is mounted.
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent =
+      "[data-radix-popper-content-wrapper]{z-index:80!important}";
+    document.head.appendChild(style);
+    return () => {
+      style.remove();
+    };
+  }, []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
       if (!cwd) return;
+      if (step === "context" && !linkDraftIsValid) return;
 
       setCreating(true);
       try {
@@ -602,10 +774,7 @@ function CreateAgentDialogContent({
               : undefined,
           initialPrompt: initialPrompt.trim() || undefined,
         };
-        const resolvedStartupLinks =
-          step === "context" && linkDraft.trim()
-            ? Array.from(new Set([...startupLinks, linkDraft.trim()]))
-            : startupLinks;
+        const resolvedStartupLinks = startupLinks;
         const useStartupContext =
           step === "context" &&
           (payloadBase.initialPrompt ||
@@ -657,8 +826,8 @@ function CreateAgentDialogContent({
       createWorktreeBranch,
       cwdIsGitRepo,
       initialPrompt,
+      linkDraftIsValid,
       onCreated,
-      linkDraft,
       startupFiles,
       startupLinks,
       step,
@@ -667,6 +836,9 @@ function CreateAgentDialogContent({
 
   const worktreeAvailable = cwdIsGitRepo !== false;
   const worktreeChecked = worktreeAvailable && createUseWorktree;
+  const clipboardSuggestionClasses = clipboardSuggestion
+    ? getClipboardSuggestionClasses(clipboardSuggestion)
+    : null;
 
   return (
     <DialogContent
@@ -992,7 +1164,7 @@ function CreateAgentDialogContent({
                   tabIndex={0}
                   disabled={creating || !createCwd.trim()}
                   data-testid="create-agent-with-context"
-                  onClick={() => setStep("context")}
+                  onClick={enterContextStep}
                 >
                   Create with context
                 </Button>
@@ -1024,226 +1196,351 @@ function CreateAgentDialogContent({
 
           <form
             data-testid="create-agent-context-form"
-            className="space-y-3"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void handleSubmit(event)}
-            onPaste={handleStartupPaste}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) {
+                event.preventDefault();
+                setDraggingFiles(true);
+              }
+            }}
+            onDragLeave={(event) => {
+              if (
+                event.currentTarget.contains(event.relatedTarget as Node | null)
+              ) {
+                return;
+              }
+              setDraggingFiles(false);
+            }}
+            onDrop={handleStartupDrop}
           >
-            <div className="space-y-1">
-              <label className="text-sm text-muted-foreground">
-                Instructions
-              </label>
-              <textarea
-                ref={promptTextareaRef}
-                value={initialPrompt}
-                onChange={(event) => setInitialPrompt(event.target.value)}
-                placeholder="Enter instructions for the agent..."
-                data-testid="create-agent-initial-prompt"
-                className={cn(
-                  "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                  "ring-offset-background placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                )}
-              />
-            </div>
-
             <div
               className={cn(
-                "space-y-3 rounded-md border bg-muted/20 px-3 py-3 transition-colors",
-                dragOver ? "border-primary/60 bg-primary/5" : "border-border/70"
+                "min-h-0 flex-1 overflow-y-auto rounded-lg px-1 pb-1"
               )}
-              onDragEnter={handleContextDragEnter}
-              onDragLeave={handleContextDragLeave}
-              onDragOver={handleContextDragOver}
-              onDrop={handleContextDrop}
             >
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  Context
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Attach files or links to give the agent context.
-                </p>
-              </div>
-              <input
-                ref={startupFileInputRef}
-                type="file"
-                multiple
-                accept={STARTUP_FILE_ACCEPT}
-                className="hidden"
-                onChange={handleStartupFileChange}
-                data-testid="create-agent-context-files-input"
-              />
-              {startupFiles.length === 0 && startupLinks.length === 0 ? (
-                <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="create-agent-context-files-button"
-                      className={cn(
-                        "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-sm transition-colors",
-                        dragOver
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
-                      )}
-                    >
-                      {dragOver ? (
-                        <>
-                          <Upload className="h-5 w-5" />
-                          <span>Drop file to add</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="h-5 w-5" />
-                          <span>Add files or links</span>
-                          <span className="text-[11px] text-muted-foreground/80">
-                            Click to choose, or drop a file here
-                          </span>
-                        </>
-                      )}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="center"
-                    className={cn("w-56 p-1", glassOverlay)}
-                  >
-                    {addMode === "menu" ? (
-                      <AddContextMenu
-                        onAddFile={handleAddFileFromMenu}
-                        onAddLink={handleAddLinkFromMenu}
-                      />
-                    ) : (
-                      <AddContextLinkForm
-                        value={linkDraft}
-                        onChange={setLinkDraft}
-                        onSubmit={handleAddLinkSubmit}
-                        onBack={() => setAddMode("menu")}
-                      />
+              <div className="space-y-3">
+                {clipboardSuggestion ? (
+                  <div
+                    className={cn(
+                      "space-y-3 rounded-lg border px-3 py-3",
+                      clipboardSuggestionClasses?.container
                     )}
-                  </PopoverContent>
-                </Popover>
-              ) : (
-                <div className="flex flex-wrap items-start gap-3">
-                  {startupFiles.map((file) => {
-                    const key = startupFileKey(file);
-                    const preview = startupFilePreviewsRef.current.get(key);
-                    return (
-                      <div
-                        key={key}
-                        className="group relative flex w-12 flex-col gap-0.5"
+                    data-testid="create-agent-context-clipboard-cta"
+                  >
+                    <div className="flex items-start gap-3">
+                      <p
+                        className={cn(
+                          "min-w-0 flex-1 text-sm leading-relaxed",
+                          clipboardSuggestionClasses?.title
+                        )}
                       >
-                        <div className="h-12 w-12 overflow-hidden rounded-md border border-border/70 bg-muted/40">
-                          {preview ? (
-                            <img
-                              src={preview}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
+                        {clipboardSuggestion.description}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn("mt-[-2px]", ROUND_ICON_BUTTON_CLASS)}
+                        onClick={() => setClipboardSuggestion(null)}
+                        data-testid="create-agent-context-clipboard-dismiss"
+                        aria-label="Dismiss clipboard suggestion"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="default"
+                      className="min-h-11 w-full justify-center px-3"
+                      onClick={handleUseClipboardSuggestion}
+                      data-testid="create-agent-context-clipboard-action"
+                    >
+                      {clipboardSuggestion.kind === "url" ? (
+                        <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                      ) : (
+                        <Upload className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {clipboardSuggestion.actionLabel}
+                    </Button>
+                  </div>
+                ) : null}
+                {!clipboardSuggestion && canReadClipboard ? (
+                  <div
+                    className="rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
+                    data-testid="create-agent-context-clipboard-check"
+                  >
+                    <Button
+                      type="button"
+                      variant="default"
+                      className="min-h-11 w-full justify-center px-3"
+                      onClick={handleCheckClipboard}
+                      disabled={checkingClipboard}
+                      data-testid="create-agent-context-clipboard-check-action"
+                    >
+                      {checkingClipboard ? (
+                        <ActivityBars size={16} className="mr-1.5" />
+                      ) : (
+                        <Clipboard className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      Read clipboard
+                    </Button>
+                    {clipboardReadFeedback ? (
+                      <p
+                        className="mt-2 text-xs text-muted-foreground"
+                        role="status"
+                        aria-live="polite"
+                        data-testid="create-agent-context-clipboard-feedback"
+                      >
+                        {clipboardReadFeedback}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor={CONTEXT_PROMPT_ID}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Instructions
+                  </label>
+                  <textarea
+                    id={CONTEXT_PROMPT_ID}
+                    ref={promptTextareaRef}
+                    value={initialPrompt}
+                    onChange={(event) => setInitialPrompt(event.target.value)}
+                    onPaste={handleStartupPaste}
+                    placeholder="Enter instructions for the agent..."
+                    data-testid="create-agent-initial-prompt"
+                    className={cn(
+                      "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                      "ring-offset-background placeholder:text-muted-foreground",
+                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    )}
+                  />
+                </div>
+
+                <div
+                  className={cn(
+                    "space-y-3 rounded-md border bg-muted/20 px-3 py-3 transition-colors",
+                    draggingFiles
+                      ? "border-status-done/35 bg-status-done/8 ring-1 ring-inset ring-status-done/30"
+                      : "border-border/70"
+                  )}
+                >
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      Context
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Attach files or links to give the agent context.
+                    </p>
+                  </div>
+                  <input
+                    ref={startupFileInputRef}
+                    type="file"
+                    multiple
+                    accept={STARTUP_FILE_ACCEPT}
+                    className="hidden"
+                    onChange={handleStartupFileChange}
+                    data-testid="create-agent-context-files-input"
+                  />
+                  {startupFiles.length === 0 && startupLinks.length === 0 ? (
+                    <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          data-testid="create-agent-context-files-button"
+                          className={cn(
+                            "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-sm transition-colors",
+                            draggingFiles
+                              ? "border-status-done bg-status-done/10 text-foreground"
+                              : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
+                          )}
+                        >
+                          {draggingFiles ? (
+                            <>
+                              <Upload className="h-5 w-5" />
+                              <span>Drop file to add</span>
+                            </>
                           ) : (
-                            <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
-                              <FileText className="h-3.5 w-3.5" />
-                              <span className="text-[8px] font-medium tracking-wide">
-                                {startupFileExt(file.name)}
+                            <>
+                              <Plus className="h-5 w-5" />
+                              <span>Add files or links</span>
+                              <span className="text-[11px] text-muted-foreground/80">
+                                Click to choose, or drop a file here
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-72 p-1"
+                        forceMount
+                      >
+                        {addMode === "menu" ? (
+                          <AddContextMenu
+                            onAddFile={handleAddFileFromMenu}
+                            onAddLink={handleAddLinkFromMenu}
+                          />
+                        ) : (
+                          <AddContextLinkForm
+                            value={linkDraft}
+                            onChange={setLinkDraft}
+                            onSubmit={handleAddLinkSubmit}
+                            onBack={handleAddLinkBack}
+                            isValid={linkDraftIsValid}
+                          />
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <div className="flex flex-wrap items-start gap-3">
+                      {startupFiles.map((file) => {
+                        const key = startupFileKey(file);
+                        const preview = startupFilePreviewsRef.current.get(key);
+                        return (
+                          <div
+                            key={key}
+                            className="group flex w-12 flex-col gap-0.5"
+                          >
+                            <div className="relative h-12 w-12 overflow-hidden rounded-md border border-border/70 bg-muted/40">
+                              {preview ? (
+                                <img
+                                  src={preview}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
+                                  <FileText className="h-3.5 w-3.5" />
+                                  <span className="text-[8px] font-medium tracking-wide">
+                                    {startupFileExt(file.name)}
+                                  </span>
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                className="absolute -right-2 -top-2 flex h-10 w-10 items-start justify-end rounded-full p-2 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                                onClick={() => handleRemoveStartupFile(file)}
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <span className="rounded-full border border-border/70 bg-background p-0.5">
+                                  <X className="h-2.5 w-2.5" />
+                                </span>
+                              </button>
+                            </div>
+                            <span
+                              className="w-full truncate text-[8px] leading-tight text-muted-foreground"
+                              title={file.name}
+                            >
+                              {file.name}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {startupLinks.map((link) => {
+                        const { host, rest } = startupLinkLabel(link);
+                        return (
+                          <div
+                            key={link}
+                            className="group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight"
+                            title={link}
+                          >
+                            <div className="flex items-center gap-1 text-[10px] text-foreground">
+                              <Link2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                              <span className="truncate font-medium">
+                                {host}
                               </span>
                             </div>
+                            {rest ? (
+                              <span className="truncate text-[9px] text-muted-foreground">
+                                {rest}
+                              </span>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="absolute -right-2 -top-2 flex h-10 w-10 items-start justify-end rounded-full p-2 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                              onClick={() => handleRemoveStartupLink(link)}
+                              aria-label={`Remove ${link}`}
+                            >
+                              <span className="rounded-full border border-border/70 bg-background p-0.5">
+                                <X className="h-2.5 w-2.5" />
+                              </span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <Popover
+                        open={addOpen}
+                        onOpenChange={handleAddOpenChange}
+                      >
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            data-testid="create-agent-context-files-button"
+                            aria-label="Add context"
+                            className={cn(
+                              "flex h-12 w-12 items-center justify-center rounded-md border border-dashed transition-colors",
+                              draggingFiles
+                                ? "border-status-done bg-status-done/10 text-foreground"
+                                : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
+                            )}
+                          >
+                            {draggingFiles ? (
+                              <Upload className="h-4 w-4" />
+                            ) : (
+                              <Plus className="h-4 w-4" />
+                            )}
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          align="start"
+                          className="w-72 p-1"
+                          forceMount
+                        >
+                          {addMode === "menu" ? (
+                            <AddContextMenu
+                              onAddFile={handleAddFileFromMenu}
+                              onAddLink={handleAddLinkFromMenu}
+                            />
+                          ) : (
+                            <AddContextLinkForm
+                              value={linkDraft}
+                              onChange={setLinkDraft}
+                              onSubmit={handleAddLinkSubmit}
+                              onBack={handleAddLinkBack}
+                              isValid={linkDraftIsValid}
+                            />
                           )}
-                        </div>
-                        <button
-                          type="button"
-                          className="absolute -right-3 -top-3 flex h-11 w-11 items-start justify-end p-1.5 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 sm:-right-1 sm:-top-1 sm:h-4 sm:w-4 sm:items-center sm:justify-center sm:p-0 sm:opacity-0 sm:group-hover:opacity-100"
-                          onClick={() => handleRemoveStartupFile(file)}
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background shadow-sm">
-                            <X className="h-2.5 w-2.5" />
-                          </span>
-                        </button>
-                        <span
-                          className="w-full truncate text-[8px] leading-tight text-muted-foreground"
-                          title={file.name}
-                        >
-                          {file.name}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {startupLinks.map((link) => {
-                    const { host, rest } = startupLinkLabel(link);
-                    return (
-                      <div
-                        key={link}
-                        className="group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight"
-                        title={link}
-                      >
-                        <div className="flex items-center gap-1 text-[10px] text-foreground">
-                          <Link2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate font-medium">{host}</span>
-                        </div>
-                        {rest ? (
-                          <span className="truncate text-[9px] text-muted-foreground">
-                            {rest}
-                          </span>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="absolute -right-3 -top-3 flex h-11 w-11 items-start justify-end p-1.5 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 sm:-right-1 sm:-top-1 sm:h-4 sm:w-4 sm:items-center sm:justify-center sm:p-0 sm:opacity-0 sm:group-hover:opacity-100"
-                          onClick={() => handleRemoveStartupLink(link)}
-                          aria-label={`Remove ${link}`}
-                        >
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background shadow-sm">
-                            <X className="h-2.5 w-2.5" />
-                          </span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        data-testid="create-agent-context-files-button"
-                        aria-label="Add context"
-                        className={cn(
-                          "flex h-12 w-12 items-center justify-center rounded-md border border-dashed transition-colors",
-                          dragOver
-                            ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
-                        )}
-                      >
-                        {dragOver ? (
-                          <Upload className="h-4 w-4" />
-                        ) : (
-                          <Plus className="h-4 w-4" />
-                        )}
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      align="start"
-                      className={cn("w-56 p-1", glassOverlay)}
-                    >
-                      {addMode === "menu" ? (
-                        <AddContextMenu
-                          onAddFile={handleAddFileFromMenu}
-                          onAddLink={handleAddLinkFromMenu}
-                        />
-                      ) : (
-                        <AddContextLinkForm
-                          value={linkDraft}
-                          onChange={setLinkDraft}
-                          onSubmit={handleAddLinkSubmit}
-                          onBack={() => setAddMode("menu")}
-                        />
-                      )}
-                    </PopoverContent>
-                  </Popover>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {startupFiles.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No files added yet.
+                      </p>
+                    ) : null}
+                    {startupLinks.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No links added yet.
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
 
-            <div className="flex justify-between pt-1">
+            <div className="flex justify-between gap-2 border-t border-white/[0.08] pt-3">
               <Button
                 type="button"
                 variant="ghost"
                 tabIndex={0}
+                className="min-h-11 px-3"
                 onClick={() => setStep("config")}
                 data-testid="create-agent-context-back"
               >
@@ -1255,6 +1552,7 @@ function CreateAgentDialogContent({
                   type="button"
                   variant="ghost"
                   tabIndex={0}
+                  className="min-h-11 px-3"
                   onClick={() => setOpen(false)}
                 >
                   Cancel
@@ -1263,7 +1561,8 @@ function CreateAgentDialogContent({
                   type="submit"
                   variant="primary"
                   tabIndex={0}
-                  disabled={creating}
+                  className="min-h-11 px-3"
+                  disabled={creating || !linkDraftIsValid}
                   data-testid="create-agent-context-submit"
                 >
                   {creating ? (
