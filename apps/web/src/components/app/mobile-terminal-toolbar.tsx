@@ -45,7 +45,7 @@ export function MobileTerminalToolbar({
 
   useEffect(() => {
     if (!flashState) return;
-    const timeout = window.setTimeout(() => setFlashState(null), 450);
+    const timeout = window.setTimeout(() => setFlashState(null), 420);
     return () => window.clearTimeout(timeout);
   }, [flashState]);
 
@@ -58,9 +58,7 @@ export function MobileTerminalToolbar({
 
   const flashButtonClass = useCallback(
     (key: string) =>
-      flashState?.key === key
-        ? "animate-mobile-toolbar-flash bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
-        : "",
+      flashState?.key === key ? "animate-mobile-toolbar-flash" : "",
     [flashState]
   );
 

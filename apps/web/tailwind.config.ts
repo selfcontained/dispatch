@@ -53,9 +53,21 @@ export default {
       },
       keyframes: {
         "mobile-toolbar-flash": {
-          "0%": { opacity: "0" },
-          "18%": { opacity: "1" },
-          "100%": { opacity: "0" },
+          "0%": {
+            backgroundColor: "transparent",
+            boxShadow:
+              "inset 0 0 0 0 rgba(190,240,255,0), 0 0 0 rgba(100,190,255,0)",
+          },
+          "18%": {
+            backgroundColor: "rgba(190,240,255,0.14)",
+            boxShadow:
+              "inset 0 0 0 1px rgba(190,240,255,0.22), 0 0 30px rgba(100,190,255,0.12)",
+          },
+          "100%": {
+            backgroundColor: "transparent",
+            boxShadow:
+              "inset 0 0 0 0 rgba(190,240,255,0), 0 0 0 rgba(100,190,255,0)",
+          },
         },
       },
       animation: {
