@@ -158,6 +158,10 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-files-button")
     ).toBeVisible();
+
+    // The link input lives in the Add Context popover behind "Add link".
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
     await expect(
       page.getByTestId("create-agent-context-link-input")
     ).toBeVisible();
