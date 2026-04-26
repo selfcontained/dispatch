@@ -25,10 +25,12 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   recordHTTPRequest();
 
   const hasBody = init?.body !== undefined && init?.body !== null;
+  const isFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(path, {
     credentials: "include",
     headers: {
-      ...(hasBody ? { "content-type": "application/json" } : {}),
+      ...(hasBody && !isFormData ? { "content-type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,

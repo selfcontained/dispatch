@@ -161,6 +161,186 @@ jobService.onRunStateChange((run) => {
 const WEB_NOTIFY_ACK_TIMEOUT_MS = 3_000;
 const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
 
+type CreateAgentBody = {
+  name?: unknown;
+  type?: unknown;
+  cwd?: unknown;
+  agentArgs?: unknown;
+  codexArgs?: unknown;
+  fullAccess?: unknown;
+  useWorktree?: unknown;
+  createNewBranch?: unknown;
+  worktreeBranch?: unknown;
+  baseBranch?: unknown;
+  persona?: unknown;
+  parentAgentId?: unknown;
+  personaContext?: unknown;
+  autoReview?: unknown;
+  initialPrompt?: unknown;
+  startupLinks?: unknown;
+};
+
+type StartupFileUpload = {
+  fileName: string;
+  originalName: string;
+  buffer: Buffer;
+  source: "text" | "user";
+  description: string | null;
+};
+
+const MAX_STARTUP_FILE_COUNT = 10;
+const MAX_STARTUP_FILE_NAME_LENGTH = 128;
+
+function parseOptionalBooleanField(
+  value: unknown,
+  fieldName: string,
+  allowStringCoercion: boolean
+): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value;
+  if (allowStringCoercion && value === "true") return true;
+  if (allowStringCoercion && value === "false") return false;
+  throw new Error(`${fieldName} must be a boolean when provided.`);
+}
+
+function parseOptionalStringArrayField(
+  value: unknown,
+  fieldName: string,
+  allowStringCoercion: boolean
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+  if (!allowStringCoercion || typeof value !== "string") {
+    throw new Error(`${fieldName} must be an array of strings.`);
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((item) => typeof item === "string")
+    ) {
+      return parsed;
+    }
+  } catch {}
+  throw new Error(`${fieldName} must be an array of strings.`);
+}
+
+function createStartupPins(urls: string[]): Array<{
+  label: string;
+  value: string;
+  type: "url";
+}> {
+  const counts = new Map<string, number>();
+  return urls.map((rawUrl) => {
+    validatePinValue("url", rawUrl);
+    const hostname = new URL(rawUrl).hostname.replace(/^www\./, "") || "Link";
+    const seen = counts.get(hostname) ?? 0;
+    counts.set(hostname, seen + 1);
+    return {
+      label: seen === 0 ? hostname : `${hostname} ${seen + 1}`,
+      value: rawUrl,
+      type: "url",
+    };
+  });
+}
+
+function sanitizeUploadedFileName(name: string): string {
+  const ext = path.extname(name).toLowerCase();
+  const baseName = path.basename(name, ext).normalize("NFKD");
+  const collapsed = baseName
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9._() -]+/g, "-")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+  return `${collapsed || "file"}${ext}`;
+}
+
+function sanitizeStartupDisplayName(
+  name: string | undefined,
+  fallback: string
+): string {
+  const normalized = path
+    .basename(name || "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.slice(0, MAX_STARTUP_FILE_NAME_LENGTH);
+}
+
+async function parseCreateAgentRequest(request: {
+  body?: unknown;
+  isMultipart: () => boolean;
+  parts: () => AsyncIterable<unknown>;
+}): Promise<{
+  body: CreateAgentBody;
+  startupFiles: StartupFileUpload[];
+  isMultipart: boolean;
+}> {
+  const multipart = request.isMultipart();
+  if (!multipart) {
+    return {
+      body: (request.body as CreateAgentBody | undefined) ?? {},
+      startupFiles: [],
+      isMultipart: false,
+    };
+  }
+
+  const body: CreateAgentBody = {};
+  const startupFiles: StartupFileUpload[] = [];
+
+  for await (const rawPart of request.parts()) {
+    const part = rawPart as {
+      type: "file" | "field";
+      fieldname: string;
+      filename?: string;
+      value?: unknown;
+      toBuffer?: () => Promise<Buffer>;
+    };
+    if (part.type === "file") {
+      if (part.fieldname !== "startupFiles") {
+        throw new Error("Unexpected file field.");
+      }
+      if (startupFiles.length >= MAX_STARTUP_FILE_COUNT) {
+        throw new Error(
+          `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`
+        );
+      }
+      const fileName = sanitizeUploadedFileName(
+        path.basename(part.filename || "")
+      );
+      if (!fileName) {
+        throw new Error("Invalid file name.");
+      }
+      if (!isMediaFile(fileName)) {
+        throw new Error(
+          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
+        );
+      }
+      if (!part.toBuffer) {
+        throw new Error("Invalid file upload.");
+      }
+      startupFiles.push({
+        fileName,
+        originalName: sanitizeStartupDisplayName(part.filename, fileName),
+        buffer: await part.toBuffer(),
+        source: isTextFile(fileName) ? "text" : "user",
+        description: null,
+      });
+      continue;
+    }
+
+    body[part.fieldname as keyof CreateAgentBody] = part.value;
+  }
+
+  return { body, startupFiles, isMultipart: true };
+}
+
 /** Called by the ack endpoint when a client confirms delivery. */
 function ackWebNotification(notificationId: string): boolean {
   const timer = pendingWebNotifications.get(notificationId);
@@ -1301,7 +1481,12 @@ async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
   await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart, {
-    limits: { fileSize: 20 * 1024 * 1024 },
+    limits: {
+      fileSize: 20 * 1024 * 1024,
+      files: MAX_STARTUP_FILE_COUNT,
+      fields: 24,
+      parts: 32,
+    },
   });
   await app.register(fastifyWebsocket);
   await app.register(fastifyRateLimit, { global: false });
@@ -3620,8 +3805,8 @@ async function registerRoutes() {
       return reply.code(400).send({ error: "A file field is required." });
     }
 
-    const fileName = path.basename(data.filename);
-    if (!/^[A-Za-z0-9._-]+$/.test(fileName)) {
+    const fileName = sanitizeUploadedFileName(path.basename(data.filename));
+    if (!fileName) {
       return reply.code(400).send({ error: "Invalid file name." });
     }
     if (!isMediaFile(fileName)) {
@@ -3830,23 +4015,19 @@ async function registerRoutes() {
   });
 
   app.post("/api/v1/agents", async (request, reply) => {
-    const body = request.body as {
-      name?: unknown;
-      type?: unknown;
-      cwd?: unknown;
-      agentArgs?: unknown;
-      codexArgs?: unknown;
-      fullAccess?: unknown;
-      useWorktree?: unknown;
-      createNewBranch?: unknown;
-      worktreeBranch?: unknown;
-      baseBranch?: unknown;
-      persona?: unknown;
-      parentAgentId?: unknown;
-      personaContext?: unknown;
-      autoReview?: unknown;
-      initialPrompt?: unknown;
+    let parsedRequest: {
+      body: CreateAgentBody;
+      startupFiles: StartupFileUpload[];
+      isMultipart: boolean;
     };
+    try {
+      parsedRequest = await parseCreateAgentRequest(request);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid request body.",
+      });
+    }
+    const { body, startupFiles } = parsedRequest;
 
     if (typeof body?.cwd !== "string") {
       return reply
@@ -3854,16 +4035,48 @@ async function registerRoutes() {
         .send({ error: "Body must include cwd as a string." });
     }
 
-    const providedAgentArgs = body.agentArgs ?? body.codexArgs;
-    const agentArgsValid =
-      providedAgentArgs === undefined ||
-      (Array.isArray(providedAgentArgs) &&
-        providedAgentArgs.every((item) => typeof item === "string"));
+    let parsedAgentArgs: string[] | undefined;
+    let startupLinks: string[] | undefined;
+    let fullAccess: boolean | undefined;
+    let useWorktree: boolean | undefined;
+    let createNewBranch: boolean | undefined;
+    let autoReview: boolean | undefined;
 
-    if (!agentArgsValid) {
-      return reply
-        .code(400)
-        .send({ error: "agentArgs must be an array of strings." });
+    try {
+      parsedAgentArgs = parseOptionalStringArrayField(
+        body.agentArgs ?? body.codexArgs,
+        "agentArgs",
+        parsedRequest.isMultipart
+      );
+      startupLinks = parseOptionalStringArrayField(
+        body.startupLinks,
+        "startupLinks",
+        parsedRequest.isMultipart
+      );
+      fullAccess = parseOptionalBooleanField(
+        body.fullAccess,
+        "fullAccess",
+        parsedRequest.isMultipart
+      );
+      useWorktree = parseOptionalBooleanField(
+        body.useWorktree,
+        "useWorktree",
+        parsedRequest.isMultipart
+      );
+      createNewBranch = parseOptionalBooleanField(
+        body.createNewBranch,
+        "createNewBranch",
+        parsedRequest.isMultipart
+      );
+      autoReview = parseOptionalBooleanField(
+        body.autoReview,
+        "autoReview",
+        parsedRequest.isMultipart
+      );
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid request body.",
+      });
     }
 
     if (
@@ -3877,36 +4090,6 @@ async function registerRoutes() {
         error:
           "type must be codex, claude, opencode, or terminal when provided.",
       });
-    }
-
-    if (body.fullAccess !== undefined && typeof body.fullAccess !== "boolean") {
-      return reply
-        .code(400)
-        .send({ error: "fullAccess must be a boolean when provided." });
-    }
-
-    if (
-      body.useWorktree !== undefined &&
-      typeof body.useWorktree !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "useWorktree must be a boolean when provided." });
-    }
-
-    if (
-      body.createNewBranch !== undefined &&
-      typeof body.createNewBranch !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "createNewBranch must be a boolean when provided." });
-    }
-
-    if (body.autoReview !== undefined && typeof body.autoReview !== "boolean") {
-      return reply
-        .code(400)
-        .send({ error: "autoReview must be a boolean when provided." });
     }
 
     if (
@@ -3942,7 +4125,6 @@ async function registerRoutes() {
       });
     }
 
-    const agentArgs = providedAgentArgs as string[] | undefined;
     const agentType =
       body.type === "claude"
         ? "claude"
@@ -3970,9 +4152,17 @@ async function registerRoutes() {
           ? CODEX_FULL_ACCESS_ARG
           : null;
     const resolvedAgentArgs =
-      !isTerminalAgent && body.fullAccess === true && fullAccessArg
-        ? Array.from(new Set([...(agentArgs ?? []), fullAccessArg]))
-        : agentArgs;
+      !isTerminalAgent && fullAccess === true && fullAccessArg
+        ? Array.from(new Set([...(parsedAgentArgs ?? []), fullAccessArg]))
+        : parsedAgentArgs;
+    let startupPins: ReturnType<typeof createStartupPins>;
+    try {
+      startupPins = createStartupPins(startupLinks ?? []);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Invalid startupLinks.",
+      });
+    }
 
     try {
       const worktreeLocationRaw = await getSetting(pool, WORKTREE_LOCATION_KEY);
@@ -3987,13 +4177,9 @@ async function registerRoutes() {
         type: agentType,
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
-        fullAccess: !isTerminalAgent && body.fullAccess === true,
-        useWorktree:
-          typeof body.useWorktree === "boolean" ? body.useWorktree : undefined,
-        createNewBranch:
-          typeof body.createNewBranch === "boolean"
-            ? body.createNewBranch
-            : undefined,
+        fullAccess: !isTerminalAgent && fullAccess === true,
+        useWorktree,
+        createNewBranch,
         worktreeBranch:
           typeof body.worktreeBranch === "string"
             ? body.worktreeBranch
@@ -4010,11 +4196,13 @@ async function registerRoutes() {
           typeof body.personaContext === "string"
             ? body.personaContext
             : undefined,
-        autoReview: !isTerminalAgent && body.autoReview === true,
+        autoReview: !isTerminalAgent && autoReview === true,
         initialPrompt:
           !isTerminalAgent && typeof body.initialPrompt === "string"
             ? body.initialPrompt.trim() || undefined
             : undefined,
+        initialPins: !isTerminalAgent ? startupPins : [],
+        initialFiles: !isTerminalAgent ? startupFiles : [],
       });
       queueGitContextRefresh([agent.id]);
       uiEventBroker.publish({
