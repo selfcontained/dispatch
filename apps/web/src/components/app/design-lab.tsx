@@ -55,48 +55,60 @@ function ThemePicker({
 }
 
 type FeedbackConcept = {
-  id: "halo" | "sweep" | "chip";
+  id: "halo-crisp" | "halo-soft" | "halo-edge";
   badge: string;
   title: string;
   description: string;
   rationale: string;
   effectLabel: string;
-  accentClass: string;
+  effectKind: "outline" | "wash" | "surface";
+  effectClass: string;
+  stageClass: string;
 };
 
 const FEEDBACK_CONCEPTS: FeedbackConcept[] = [
   {
-    id: "halo",
-    badge: "Low noise",
-    title: "Halo Pulse",
+    id: "halo-crisp",
+    badge: "Crisp",
+    title: "Crisp Halo",
     description:
-      "A soft ring blooms around Enter and fades quickly, so the tap reads without cluttering the rest of the keyboard.",
+      "A single bright ring snaps on and fades quickly, keeping the feedback precise and readable.",
     rationale:
-      "Best when the reinforcement should feel premium and quiet, especially for repeated command entry.",
+      "Best when the callout should feel exact and intentional without a lot of haze around the key.",
     effectLabel: "Tap confirmed",
-    accentClass: "from-cyan-400/70 via-sky-300/35 to-transparent",
+    effectKind: "outline",
+    effectClass: "border-cyan-300/80",
+    stageClass:
+      "bg-[radial-gradient(circle_at_50%_20%,rgba(81,144,255,0.12),transparent_46%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))]",
   },
   {
-    id: "sweep",
-    badge: "Directional",
-    title: "Signal Sweep",
+    id: "halo-soft",
+    badge: "Soft",
+    title: "Soft Halo",
     description:
-      "A bright seam races into Enter, making the action feel like a command being pushed forward into the terminal.",
+      "A single soft wash blooms around the key and fades, making the tap feel warmer and more atmospheric.",
     rationale:
-      "Best when the keyboard should feel connected to the terminal transport instead of just being a button deck.",
-    effectLabel: "Command sent",
-    accentClass: "from-amber-300/85 via-orange-300/60 to-transparent",
+      "Best when the visual confirmation should read more premium and ambient than sharp or technical.",
+    effectLabel: "Tap confirmed",
+    effectKind: "wash",
+    effectClass: "bg-sky-200/20",
+    stageClass:
+      "bg-[radial-gradient(circle_at_50%_15%,rgba(146,219,255,0.16),transparent_48%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))]",
   },
   {
-    id: "chip",
-    badge: "Explicit",
-    title: "Confirmation Chip",
+    id: "halo-edge",
+    badge: "Subtle",
+    title: "Edge Halo",
     description:
-      "A tiny chip lifts off the key with a terse label so silent-mode users get a stronger acknowledgment on each tap.",
+      "The key face itself flashes with a cool edge-light, so the feedback feels integrated instead of floating outside the button.",
     rationale:
-      "Best when the action should be unmistakable, or when the sound cue is doing real confirmation work today.",
-    effectLabel: "New line",
-    accentClass: "from-emerald-300/80 via-lime-300/45 to-transparent",
+      "Best when the treatment should stay contained to the key and avoid a separate halo shape around it.",
+    effectLabel: "Tap confirmed",
+    effectKind: "surface",
+    effectClass:
+      "bg-[linear-gradient(180deg,rgba(190,240,255,0.2),rgba(190,240,255,0.05))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]",
+    stageClass:
+      "bg-[radial-gradient(circle_at_50%_20%,rgba(120,198,255,0.08),transparent_46%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))]",
   },
 ];
 
@@ -114,9 +126,9 @@ function KeyCap({
   testId?: string;
 }) {
   const classes = cn(
-    "relative flex w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/[0.05] px-3 py-3 text-base font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] transition-transform duration-150 sm:rounded-[1.75rem] sm:px-4 sm:py-4 sm:text-lg",
+    "relative flex w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/[0.05] px-3 py-3 text-base font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] sm:rounded-[1.75rem] sm:px-4 sm:py-4 sm:text-lg",
     "min-h-[5rem] sm:min-h-[6.5rem]",
-    onClick && "cursor-pointer active:scale-[0.98]",
+    onClick && "cursor-pointer",
     className
   );
 
@@ -144,14 +156,8 @@ function KeyCap({
 
 function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
   const [tapCount, setTapCount] = useState(0);
-  const [pressed, setPressed] = useState(false);
   const [effectRun, setEffectRun] = useState(0);
-
-  useEffect(() => {
-    if (!pressed) return;
-    const timeout = window.setTimeout(() => setPressed(false), 180);
-    return () => window.clearTimeout(timeout);
-  }, [pressed]);
+  const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
     if (effectRun === 0) return;
@@ -159,25 +165,39 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
     return () => window.clearTimeout(timeout);
   }, [effectRun]);
 
-  const trigger = () => {
-    setTapCount((value) => value + 1);
-    setPressed(true);
+  const trigger = (source: "enter" | "replay") => {
+    setTapCount((value) => {
+      const next = value + 1;
+      setAnnouncement(
+        `${concept.effectLabel}. ${source === "replay" ? "Replay cue." : "Enter pressed."} ${next} preview taps.`
+      );
+      return next;
+    });
     setEffectRun(Date.now());
   };
 
   return (
     <Card className="overflow-hidden border border-border/70 bg-card/70">
       <CardHeader className="gap-3 border-b border-border/60">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Badge variant="default">{concept.badge}</Badge>
           <button
             type="button"
-            onClick={trigger}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => trigger("replay")}
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            data-testid={`replay-cue-${concept.id}`}
           >
             <Sparkles className="h-3.5 w-3.5" />
             Replay cue
           </button>
+        </div>
+        <div
+          className="sr-only"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid={`feedback-live-${concept.id}`}
+        >
+          {announcement}
         </div>
         <div className="space-y-1">
           <CardTitle>{concept.title}</CardTitle>
@@ -195,59 +215,51 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
               <div className="mt-3 h-16 rounded-[1rem] border border-white/8 bg-black/25 sm:h-20 sm:rounded-[1.2rem]" />
             </div>
 
-            <div className="rounded-[1.75rem] border border-white/8 bg-[radial-gradient(circle_at_50%_20%,rgba(81,144,255,0.12),transparent_46%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-5 py-6 sm:px-6 sm:py-7">
+            <div
+              className={cn(
+                "rounded-[1.75rem] border border-white/8 px-5 py-6 sm:px-6 sm:py-7",
+                concept.stageClass
+              )}
+            >
               <div className="mx-auto max-w-[12rem]">
                 <div className="mb-3 text-center text-xs uppercase tracking-[0.2em] text-white/45">
                   Tap target
                 </div>
                 <KeyCap
                   label="Enter"
-                  onClick={trigger}
+                  onClick={() => trigger("enter")}
                   testId={`enter-feedback-${concept.id}`}
-                  className={cn(
-                    "overflow-visible min-h-[6rem] rounded-[1.9rem] text-lg sm:min-h-[7rem] sm:rounded-[2.1rem] sm:text-xl",
-                    pressed &&
-                      "scale-[0.985] border-white/20 bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_0_0_1px_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.4)]"
-                  )}
+                  className="overflow-visible min-h-[6rem] rounded-[1.9rem] text-lg sm:min-h-[7rem] sm:rounded-[2.1rem] sm:text-xl"
                 >
                   {effectRun !== 0 ? (
-                    <>
-                      {concept.id === "halo" ? (
-                        <>
-                          <span
-                            key={`halo-ring-${effectRun}`}
-                            data-testid={`effect-halo-ring-${concept.id}`}
-                            className="pointer-events-none absolute -inset-2 rounded-[1.9rem] border border-cyan-300/70 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)] sm:rounded-[2rem]"
-                          />
-                          <span
-                            key={`halo-glow-${effectRun}`}
-                            data-testid={`effect-halo-glow-${concept.id}`}
-                            className="pointer-events-none absolute -inset-3 rounded-[2.2rem] bg-cyan-300/20 blur-xl animate-[design-lab-glow_680ms_ease-out] sm:rounded-[2.4rem]"
-                          />
-                        </>
-                      ) : null}
-
-                      {concept.id === "sweep" ? (
-                        <span
-                          key={`sweep-${effectRun}`}
-                          data-testid={`effect-sweep-${concept.id}`}
-                          className={cn(
-                            "pointer-events-none absolute left-[-4.5rem] top-1/2 h-1.5 w-24 -translate-y-1/2 rounded-full bg-gradient-to-r blur-[1px] animate-[design-lab-sweep_760ms_cubic-bezier(0.16,1,0.3,1)] sm:left-[-6rem] sm:h-2 sm:w-28",
-                            concept.accentClass
-                          )}
-                        />
-                      ) : null}
-
-                      {concept.id === "chip" ? (
-                        <span
-                          key={`chip-${effectRun}`}
-                          data-testid={`effect-chip-${concept.id}`}
-                          className="pointer-events-none absolute -top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-emerald-300/35 bg-emerald-300/16 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100 animate-[design-lab-chip_820ms_cubic-bezier(0.16,1,0.3,1)] sm:-top-4 sm:px-3 sm:text-[11px]"
-                        >
-                          {concept.effectLabel}
-                        </span>
-                      ) : null}
-                    </>
+                    concept.effectKind === "outline" ? (
+                      <span
+                        key={`outline-${effectRun}`}
+                        data-testid={`effect-outline-${concept.id}`}
+                        className={cn(
+                          "pointer-events-none absolute -inset-2 rounded-[1.9rem] border opacity-0 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)] [animation-fill-mode:forwards] sm:rounded-[2rem]",
+                          concept.effectClass
+                        )}
+                      />
+                    ) : concept.effectKind === "wash" ? (
+                      <span
+                        key={`wash-${effectRun}`}
+                        data-testid={`effect-wash-${concept.id}`}
+                        className={cn(
+                          "pointer-events-none absolute -inset-4 rounded-[2.4rem] opacity-0 blur-2xl animate-[design-lab-glow_720ms_ease-out] [animation-fill-mode:forwards] sm:rounded-[2.8rem]",
+                          concept.effectClass
+                        )}
+                      />
+                    ) : (
+                      <span
+                        key={`surface-${effectRun}`}
+                        data-testid={`effect-surface-${concept.id}`}
+                        className={cn(
+                          "pointer-events-none absolute inset-0 rounded-[1.9rem] opacity-0 animate-[design-lab-surface_620ms_ease-out] [animation-fill-mode:forwards] sm:rounded-[2.1rem]",
+                          concept.effectClass
+                        )}
+                      />
+                    )
                   ) : null}
                 </KeyCap>
               </div>
@@ -284,25 +296,19 @@ export function DesignLab() {
       html, body, #root { overflow: auto !important; height: auto !important; }
 
       @keyframes design-lab-halo {
-        0% { opacity: 0.9; transform: scale(0.92); }
-        100% { opacity: 0; transform: scale(1.12); }
+        0% { opacity: 0.95; }
+        100% { opacity: 0; }
       }
 
       @keyframes design-lab-glow {
-        0% { opacity: 0.5; transform: scale(0.96); }
-        100% { opacity: 0; transform: scale(1.18); }
+        0% { opacity: 0.5; }
+        100% { opacity: 0; }
       }
 
-      @keyframes design-lab-sweep {
-        0% { opacity: 0; transform: translate(-3.5rem, -50%) scaleX(0.72); }
-        20% { opacity: 1; }
-        100% { opacity: 0; transform: translate(14rem, -50%) scaleX(1.08); }
-      }
-
-      @keyframes design-lab-chip {
-        0% { opacity: 0; transform: translate(-50%, 0.5rem) scale(0.92); }
-        15% { opacity: 1; transform: translate(-50%, -0.1rem) scale(1); }
-        100% { opacity: 0; transform: translate(-50%, -1.5rem) scale(1); }
+      @keyframes design-lab-surface {
+        0% { opacity: 0; }
+        18% { opacity: 1; }
+        100% { opacity: 0; }
       }
     `;
     document.head.appendChild(style);

@@ -23,8 +23,27 @@ export function MobileTerminalToolbar({
 }: MobileTerminalToolbarProps): JSX.Element {
   const [inputOpen, setInputOpen] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
+  const [flashState, setFlashState] = useState<{
+    key: string;
+    token: number;
+  } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const soundCuesEnabled = useAtomValue(soundCuesEnabledAtom);
+
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes mobile-toolbar-flash {
+        0% { opacity: 0; }
+        18% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      style.remove();
+    };
+  }, []);
 
   const playTap = useCallback(() => {
     if (soundCuesEnabled) playTapCue();
@@ -37,6 +56,28 @@ export function MobileTerminalToolbar({
     return () => window.removeEventListener("ctrl-consumed", onConsumed);
   }, []);
 
+  useEffect(() => {
+    if (!flashState) return;
+    const timeout = window.setTimeout(() => setFlashState(null), 450);
+    return () => window.clearTimeout(timeout);
+  }, [flashState]);
+
+  const triggerFlash = useCallback((key: string) => {
+    setFlashState({ key, token: Date.now() });
+  }, []);
+
+  const renderFlash = useCallback(
+    (key: string) =>
+      flashState?.key === key ? (
+        <span
+          key={`${key}-${flashState.token}`}
+          data-testid={`toolbar-flash-${key}`}
+          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 [animation-fill-mode:forwards] animate-[mobile-toolbar-flash_420ms_ease-out] bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
+        />
+      ) : null,
+    [flashState]
+  );
+
   const toggleCtrl = useCallback(() => {
     playTap();
     setCtrlActive((v) => {
@@ -47,7 +88,8 @@ export function MobileTerminalToolbar({
   }, [ctrlPendingRef, playTap]);
 
   const sendKey = useCallback(
-    (key: string) => {
+    (key: string, flashKey?: string) => {
+      if (flashKey) triggerFlash(flashKey);
       playTap();
       onSendInput(key);
       // After any toolbar key press, clear ctrl
@@ -56,10 +98,11 @@ export function MobileTerminalToolbar({
         ctrlPendingRef.current = false;
       }
     },
-    [ctrlActive, ctrlPendingRef, onSendInput, playTap]
+    [ctrlActive, ctrlPendingRef, onSendInput, playTap, triggerFlash]
   );
 
   const openInput = useCallback(() => {
+    triggerFlash("input");
     playTap();
     setInputOpen(true);
     // Double-rAF ensures the modal is rendered and laid out before focusing,
@@ -67,7 +110,7 @@ export function MobileTerminalToolbar({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => inputRef.current?.focus());
     });
-  }, [playTap]);
+  }, [playTap, triggerFlash]);
 
   const submitInput = useCallback(() => {
     playTap();
@@ -88,10 +131,11 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="h-full w-full rounded-bl-[28px] px-2 text-xs"
+              className="relative h-full w-full overflow-hidden rounded-bl-[28px] px-2 text-xs"
               aria-label="Open text input"
               onClick={openInput}
             >
+              {renderFlash("input")}
               <Keyboard className="h-5 w-5" strokeWidth={2} />
             </Button>
           </div>
@@ -102,10 +146,11 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 shrink-0 px-3 text-xs"
+                className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
                 aria-label="Send Escape"
-                onClick={() => sendKey("\u001b")}
+                onClick={() => sendKey("\u001b", "esc")}
               >
+                {renderFlash("esc")}
                 Esc
               </Button>
               <Button
@@ -129,10 +174,11 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 shrink-0 px-3 text-xs"
+                className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
                 aria-label="Send Tab"
-                onClick={() => sendKey("\t")}
+                onClick={() => sendKey("\t", "tab")}
               >
+                {renderFlash("tab")}
                 Tab
               </Button>
             </div>
@@ -142,41 +188,41 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Left"
-                onClick={() => sendKey("\u001b[D")}
+                onClick={() => sendKey("\u001b[D", "left")}
               >
-                ←
+                {renderFlash("left")}←
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Up"
-                onClick={() => sendKey("\u001b[A")}
+                onClick={() => sendKey("\u001b[A", "up")}
               >
-                ↑
+                {renderFlash("up")}↑
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Down"
-                onClick={() => sendKey("\u001b[B")}
+                onClick={() => sendKey("\u001b[B", "down")}
               >
-                ↓
+                {renderFlash("down")}↓
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
                 aria-label="Send Arrow Right"
-                onClick={() => sendKey("\u001b[C")}
+                onClick={() => sendKey("\u001b[C", "right")}
               >
-                →
+                {renderFlash("right")}→
               </Button>
             </div>
           </div>
@@ -186,10 +232,11 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="h-full w-full rounded-br-[28px] px-2 text-xs"
+              className="relative h-full w-full overflow-hidden rounded-br-[28px] px-2 text-xs"
               aria-label="Send Enter"
-              onClick={() => sendKey("\r")}
+              onClick={() => sendKey("\r", "enter")}
             >
+              {renderFlash("enter")}
               Enter
             </Button>
           </div>

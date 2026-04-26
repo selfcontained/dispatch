@@ -35,7 +35,44 @@ async function seedJob(request: APIRequestContext): Promise<void> {
   });
 }
 
+async function seedTerminalAgent(
+  request: APIRequestContext
+): Promise<{ id: string }> {
+  const res = await request.post("/api/v1/agents", {
+    headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
+    data: {
+      name: `mobile-toolbar-${Date.now()}`,
+      type: "terminal",
+      cwd: "/tmp",
+      useWorktree: false,
+    },
+  });
+  expect(res.status()).toBe(201);
+  const body = (await res.json()) as { agent: { id: string } };
+  return { id: body.agent.id };
+}
+
 test.describe("Mobile layout", () => {
+  test("terminal mobile toolbar flashes shortcut buttons except ctrl", async ({
+    page,
+    request,
+  }) => {
+    const { id } = await seedTerminalAgent(request);
+    await gotoMobile(page, `/agents/${id}`);
+
+    const enterButton = page.getByLabel("Send Enter");
+    const ctrlButton = page.getByLabel("Toggle Control modifier");
+
+    await enterButton.click();
+    await expect(page.getByTestId("toolbar-flash-enter")).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId("toolbar-flash-enter")).toHaveCount(0);
+
+    await ctrlButton.click();
+    await expect(ctrlButton).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("toolbar-flash-ctrl")).toHaveCount(0);
+  });
+
   test("design lab previews silent-mode enter feedback concepts", async ({
     page,
   }) => {
@@ -47,13 +84,17 @@ test.describe("Mobile layout", () => {
       page.getByRole("heading", { name: "Mobile Enter feedback studies" })
     ).toBeVisible();
 
-    const haloEnter = page.getByTestId("enter-feedback-halo");
-    const haloCount = page.getByTestId("feedback-count-halo");
+    const haloEnter = page.getByTestId("enter-feedback-halo-crisp");
+    const haloCount = page.getByTestId("feedback-count-halo-crisp");
+    const haloLive = page.getByTestId("feedback-live-halo-crisp");
+    const haloReplay = page.getByTestId("replay-cue-halo-crisp");
 
     await expect(haloCount).toContainText("0 preview taps");
     await haloEnter.click();
     await expect(haloCount).toContainText("1 preview taps");
-    await expect(page.getByTestId("effect-halo-ring-halo")).toBeVisible();
+    await expect(haloLive).toContainText("Tap confirmed.");
+    await expect(haloLive).toContainText("Enter pressed.");
+    await expect(page.getByTestId("effect-outline-halo-crisp")).toBeVisible();
 
     await expect
       .poll(async () => {
@@ -62,11 +103,18 @@ test.describe("Mobile layout", () => {
       })
       .toBeLessThanOrEqual(320);
 
-    await page.waitForTimeout(950);
-    await expect(page.getByTestId("effect-halo-ring-halo")).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const box = await haloReplay.boundingBox();
+        return box ? Math.round(box.height) : null;
+      })
+      .toBeGreaterThanOrEqual(44);
 
-    await expect(page.getByTestId("enter-feedback-sweep")).toBeVisible();
-    await expect(page.getByTestId("enter-feedback-chip")).toBeVisible();
+    await page.waitForTimeout(950);
+    await expect(page.getByTestId("effect-outline-halo-crisp")).toHaveCount(0);
+
+    await expect(page.getByTestId("enter-feedback-halo-soft")).toBeVisible();
+    await expect(page.getByTestId("enter-feedback-halo-edge")).toBeVisible();
   });
 
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
