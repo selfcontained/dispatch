@@ -1,4 +1,4 @@
-import { CornerDownLeft, Keyboard, Sparkles, Waves } from "lucide-react";
+import { CornerDownLeft, Sparkles, Waves } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -102,23 +102,21 @@ const FEEDBACK_CONCEPTS: FeedbackConcept[] = [
 
 function KeyCap({
   label,
-  wide = false,
   onClick,
   children,
   className,
   testId,
 }: {
   label: string;
-  wide?: boolean;
   onClick?: () => void;
   children?: ReactNode;
   className?: string;
   testId?: string;
 }) {
   const classes = cn(
-    "relative flex items-center justify-center rounded-[1.75rem] border border-white/10 bg-white/[0.05] px-4 py-4 text-lg font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] transition-transform duration-150",
-    wide ? "min-h-[6.5rem] w-[8.2rem]" : "min-h-[4.3rem] w-[4.7rem]",
-    onClick && "active:scale-[0.98]",
+    "relative flex w-full items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/[0.05] px-3 py-3 text-base font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] transition-transform duration-150 sm:rounded-[1.75rem] sm:px-4 sm:py-4 sm:text-lg",
+    "min-h-[5rem] sm:min-h-[6.5rem]",
+    onClick && "cursor-pointer active:scale-[0.98]",
     className
   );
 
@@ -147,6 +145,7 @@ function KeyCap({
 function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
   const [tapCount, setTapCount] = useState(0);
   const [pressed, setPressed] = useState(false);
+  const [effectRun, setEffectRun] = useState(0);
 
   useEffect(() => {
     if (!pressed) return;
@@ -154,9 +153,16 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
     return () => window.clearTimeout(timeout);
   }, [pressed]);
 
+  useEffect(() => {
+    if (effectRun === 0) return;
+    const timeout = window.setTimeout(() => setEffectRun(0), 900);
+    return () => window.clearTimeout(timeout);
+  }, [effectRun]);
+
   const trigger = () => {
     setTapCount((value) => value + 1);
     setPressed(true);
+    setEffectRun(Date.now());
   };
 
   return (
@@ -181,66 +187,52 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
 
       <CardContent className="space-y-4 p-4">
         <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[#0a0c11] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <div className="mx-auto h-[16rem] w-full max-w-[22rem] overflow-visible sm:h-auto">
-            <div className="w-fit origin-top scale-[0.67] sm:scale-[0.8] md:scale-100">
-              <div className="mb-4 rounded-[1.4rem] border border-white/8 bg-[radial-gradient(circle_at_30%_0%,rgba(87,132,255,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] p-3">
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <Keyboard className="h-3.5 w-3.5" />
-                  Mobile shortcut keys
-                </div>
-                <div className="mt-3 h-20 rounded-[1.2rem] border border-white/8 bg-black/25" />
+          <div className="mx-auto w-full max-w-[22rem] overflow-visible">
+            <div className="mb-4 rounded-[1.25rem] border border-white/8 bg-[radial-gradient(circle_at_30%_0%,rgba(87,132,255,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] p-3 sm:rounded-[1.4rem]">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/50 sm:text-xs">
+                Enter key feedback
               </div>
+              <div className="mt-3 h-16 rounded-[1rem] border border-white/8 bg-black/25 sm:h-20 sm:rounded-[1.2rem]" />
+            </div>
 
-              <div className="grid grid-cols-[1.15fr_2fr_1.15fr] gap-3">
-                <KeyCap label="" wide className="justify-center">
-                  <Keyboard className="h-7 w-7 text-white/90" strokeWidth={2} />
-                </KeyCap>
-
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-3">
-                    <KeyCap label="Esc" className="min-h-[4rem]" />
-                    <KeyCap label="Ctrl" className="min-h-[4rem]" />
-                    <KeyCap label="Tab" className="min-h-[4rem]" />
-                  </div>
-                  <div className="grid grid-cols-4 gap-3">
-                    <KeyCap label="←" className="min-h-[4rem]" />
-                    <KeyCap label="↑" className="min-h-[4rem]" />
-                    <KeyCap label="↓" className="min-h-[4rem]" />
-                    <KeyCap label="→" className="min-h-[4rem]" />
-                  </div>
+            <div className="rounded-[1.75rem] border border-white/8 bg-[radial-gradient(circle_at_50%_20%,rgba(81,144,255,0.12),transparent_46%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-5 py-6 sm:px-6 sm:py-7">
+              <div className="mx-auto max-w-[12rem]">
+                <div className="mb-3 text-center text-xs uppercase tracking-[0.2em] text-white/45">
+                  Tap target
                 </div>
-
                 <KeyCap
                   label="Enter"
-                  wide
                   onClick={trigger}
                   testId={`enter-feedback-${concept.id}`}
                   className={cn(
-                    "overflow-visible",
+                    "overflow-visible min-h-[6rem] rounded-[1.9rem] text-lg sm:min-h-[7rem] sm:rounded-[2.1rem] sm:text-xl",
                     pressed &&
                       "scale-[0.985] border-white/20 bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_0_0_1px_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.4)]"
                   )}
                 >
-                  {tapCount > 0 ? (
+                  {effectRun !== 0 ? (
                     <>
                       {concept.id === "halo" ? (
                         <>
                           <span
-                            key={`halo-ring-${tapCount}`}
-                            className="pointer-events-none absolute -inset-2 rounded-[2rem] border border-cyan-300/70 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)]"
+                            key={`halo-ring-${effectRun}`}
+                            data-testid={`effect-halo-ring-${concept.id}`}
+                            className="pointer-events-none absolute -inset-2 rounded-[1.9rem] border border-cyan-300/70 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)] sm:rounded-[2rem]"
                           />
                           <span
-                            key={`halo-glow-${tapCount}`}
-                            className="pointer-events-none absolute -inset-3 rounded-[2.4rem] bg-cyan-300/20 blur-xl animate-[design-lab-glow_680ms_ease-out]"
+                            key={`halo-glow-${effectRun}`}
+                            data-testid={`effect-halo-glow-${concept.id}`}
+                            className="pointer-events-none absolute -inset-3 rounded-[2.2rem] bg-cyan-300/20 blur-xl animate-[design-lab-glow_680ms_ease-out] sm:rounded-[2.4rem]"
                           />
                         </>
                       ) : null}
 
                       {concept.id === "sweep" ? (
                         <span
-                          key={`sweep-${tapCount}`}
+                          key={`sweep-${effectRun}`}
+                          data-testid={`effect-sweep-${concept.id}`}
                           className={cn(
-                            "pointer-events-none absolute left-[-7rem] top-1/2 h-2 w-28 -translate-y-1/2 rounded-full bg-gradient-to-r blur-[1px] animate-[design-lab-sweep_760ms_cubic-bezier(0.16,1,0.3,1)]",
+                            "pointer-events-none absolute left-[-4.5rem] top-1/2 h-1.5 w-24 -translate-y-1/2 rounded-full bg-gradient-to-r blur-[1px] animate-[design-lab-sweep_760ms_cubic-bezier(0.16,1,0.3,1)] sm:left-[-6rem] sm:h-2 sm:w-28",
                             concept.accentClass
                           )}
                         />
@@ -248,8 +240,9 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
 
                       {concept.id === "chip" ? (
                         <span
-                          key={`chip-${tapCount}`}
-                          className="pointer-events-none absolute -top-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-emerald-300/35 bg-emerald-300/16 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 animate-[design-lab-chip_820ms_cubic-bezier(0.16,1,0.3,1)]"
+                          key={`chip-${effectRun}`}
+                          data-testid={`effect-chip-${concept.id}`}
+                          className="pointer-events-none absolute -top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-emerald-300/35 bg-emerald-300/16 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100 animate-[design-lab-chip_820ms_cubic-bezier(0.16,1,0.3,1)] sm:-top-4 sm:px-3 sm:text-[11px]"
                         >
                           {concept.effectLabel}
                         </span>
