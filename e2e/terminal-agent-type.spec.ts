@@ -567,7 +567,7 @@ test.describe("Terminal agent type", () => {
     ).toBeVisible();
   });
 
-  test("backing out of create with context clears queued context", async ({
+  test("plain create ignores queued context after backing out", async ({
     page,
   }) => {
     await loadApp(page);
@@ -586,10 +586,10 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-context-back").click();
     await page.getByTestId("create-agent-with-context").click();
     await expect(page.getByTestId("create-agent-initial-prompt")).toHaveValue(
-      ""
+      "Use this."
     );
     await expect(
-      page.getByText("No links added yet.", { exact: true })
+      page.locator('[title="https://example.com/preserved"]')
     ).toBeVisible();
     await page.getByTestId("create-agent-context-back").click();
 

@@ -749,23 +749,6 @@ function CreateAgentDialogContent({
     setAddOpen(false);
   }, [addStartupLink]);
 
-  const clearStartupContext = useCallback(() => {
-    for (const url of startupFilePreviewsRef.current.values()) {
-      URL.revokeObjectURL(url);
-    }
-    startupFilePreviewsRef.current.clear();
-    setInitialPrompt("");
-    setStartupFiles([]);
-    setStartupLinks([]);
-    setLinkDraft("");
-    setClipboardSuggestion(null);
-    setClipboardReadFeedback(null);
-    setCheckingClipboard(false);
-    setDraggingFiles(false);
-    setAddMode("menu");
-    setAddOpen(false);
-  }, []);
-
   // Radix Popover defaults to z-50 inline, but DialogContent is z-70.
   // Bump the popper wrapper while this dialog content is mounted.
   useEffect(() => {
@@ -1577,10 +1560,7 @@ function CreateAgentDialogContent({
                 variant="ghost"
                 tabIndex={0}
                 className="min-h-11 px-3"
-                onClick={() => {
-                  clearStartupContext();
-                  setStep("config");
-                }}
+                onClick={() => setStep("config")}
                 data-testid="create-agent-context-back"
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
