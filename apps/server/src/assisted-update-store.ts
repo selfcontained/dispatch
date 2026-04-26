@@ -54,11 +54,11 @@ export type AssistedUpdateState = {
   notes: Partial<Record<AssistedPhase, string>>;
 };
 
-// Isolated dev stacks and E2E runs set DISPATCH_ASSISTED_UPDATE_STORE_PATH
-// to keep their state file out of the operator's real ~/.dispatch.
-export const ASSISTED_UPDATE_STORE_PATH =
-  process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH ??
-  path.join(os.homedir(), ".dispatch", "assisted-update.json");
+export const ASSISTED_UPDATE_STORE_PATH = path.join(
+  os.homedir(),
+  ".dispatch",
+  "assisted-update.json"
+);
 
 export async function readAssistedUpdateState(): Promise<AssistedUpdateState | null> {
   try {

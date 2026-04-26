@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyAssistedPhase,
+  attachAssistedAgent,
   buildAssistedUpdateContext,
   clampNote,
   MAX_NOTE_BYTES,
+  runAndRecordChecks,
   tokensEqual,
 } from "../src/assisted-update.js";
 import type { AssistedUpdateMetadata } from "../src/release-metadata.js";
@@ -26,8 +29,17 @@ vi.mock("../src/assisted-update-store.js", async (importOriginal) => {
   };
 });
 
+// Stub the check runner so `runAndRecordChecks` can be tested without
+// shelling out to the real fs/health probes.
+let stagedCheckResults: Array<{ name: string; ok: boolean; message: string }> =
+  [];
+vi.mock("../src/release-checks.js", () => ({
+  runRequiredChecks: vi.fn(async () => stagedCheckResults),
+}));
+
 beforeEach(() => {
   lastPersistedState = null;
+  stagedCheckResults = [];
 });
 
 afterEach(() => {
@@ -201,5 +213,194 @@ describe("buildAssistedUpdateContext", () => {
     expect(ctx.prompt).not.toContain("## Instructions");
     expect(ctx.prompt).not.toContain("## Rollback guidance");
     expect(ctx.prompt).toContain("(none)");
+  });
+});
+
+describe("applyAssistedPhase", () => {
+  async function seed() {
+    return buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: "v0.18.1", metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+  }
+
+  it("returns ok=false when no state exists", async () => {
+    lastPersistedState = null;
+    const r = await applyAssistedPhase({ token: "x", phase: "prepare" });
+    expect(r).toEqual({ ok: false, reason: "no active assisted update" });
+  });
+
+  it("rejects an unknown token via tokensEqual", async () => {
+    await seed();
+    const r = await applyAssistedPhase({ token: "wrong", phase: "prepare" });
+    expect(r).toEqual({ ok: false, reason: "invalid token" });
+  });
+
+  it("rejects an unknown phase name", async () => {
+    const ctx = await seed();
+    const r = await applyAssistedPhase({
+      token: ctx.state.token,
+      phase: "totally_made_up" as never,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/unknown phase/);
+  });
+
+  it("rejects an illegal backwards transition", async () => {
+    const ctx = await seed();
+    await applyAssistedPhase({ token: ctx.state.token, phase: "apply" });
+    const back = await applyAssistedPhase({
+      token: ctx.state.token,
+      phase: "inspect",
+    });
+    expect(back.ok).toBe(false);
+    if (!back.ok) expect(back.reason).toMatch(/illegal transition/);
+  });
+
+  it("persists notes per phase and clamps oversized strings", async () => {
+    const ctx = await seed();
+    const huge = "z".repeat(MAX_NOTE_BYTES + 1024);
+    const r = await applyAssistedPhase({
+      token: ctx.state.token,
+      phase: "prepare",
+      note: huge,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.state.phase).toBe("prepare");
+      expect(r.state.notes.prepare?.length).toBe(MAX_NOTE_BYTES);
+    }
+  });
+
+  it("records error and stamps completedAt on a terminal transition", async () => {
+    const ctx = await seed();
+    const r = await applyAssistedPhase({
+      token: ctx.state.token,
+      phase: "blocked",
+      error: "operator-cancelled",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.state.phase).toBe("blocked");
+      expect(r.state.error).toBe("operator-cancelled");
+      expect(r.state.completedAt).not.toBeNull();
+    }
+  });
+});
+
+describe("attachAssistedAgent", () => {
+  it("writes the agent id back to state on a valid token", async () => {
+    const ctx = await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    const updated = await attachAssistedAgent(ctx.state.token, "agt_abc");
+    expect(updated?.agentId).toBe("agt_abc");
+    expect(lastPersistedState?.agentId).toBe("agt_abc");
+  });
+
+  it("returns null on a token mismatch (constant-time compare)", async () => {
+    await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    const updated = await attachAssistedAgent("not-my-token", "agt_abc");
+    expect(updated).toBeNull();
+  });
+
+  it("returns null when no assisted update is in flight", async () => {
+    lastPersistedState = null;
+    const updated = await attachAssistedAgent("anything", "agt_abc");
+    expect(updated).toBeNull();
+  });
+});
+
+describe("runAndRecordChecks", () => {
+  it("records every check result in order", async () => {
+    const ctx = await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    stagedCheckResults = [
+      { name: "service_restarted", ok: true, message: "ok" },
+      { name: "version_converged", ok: true, message: "converged" },
+    ];
+    const post = await runAndRecordChecks(ctx.state, {
+      serverDir: "/srv",
+      targetTag: "v0.19.0",
+    });
+    expect(post.checks.map((c) => c.name)).toEqual([
+      "service_restarted",
+      "version_converged",
+    ]);
+    expect(lastPersistedState?.checks.length).toBe(2);
+  });
+
+  it("does NOT downgrade phase when every check passes", async () => {
+    const ctx = await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    // Move to validate first so the orchestrator sees a non-inspect
+    // baseline phase.
+    await applyAssistedPhase({ token: ctx.state.token, phase: "validate" });
+    const state = lastPersistedState!;
+    stagedCheckResults = [
+      { name: "service_restarted", ok: true, message: "ok" },
+    ];
+    const post = await runAndRecordChecks(state, {
+      serverDir: "/srv",
+      targetTag: "v0.19.0",
+    });
+    expect(post.phase).toBe("validate");
+    expect(post.error).toBeNull();
+  });
+
+  it("routes to blocked + sets error when any check fails", async () => {
+    const ctx = await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    await applyAssistedPhase({ token: ctx.state.token, phase: "validate" });
+    const state = lastPersistedState!;
+    stagedCheckResults = [
+      { name: "service_restarted", ok: true, message: "ok" },
+      {
+        name: "version_converged",
+        ok: false,
+        message: "release.json not present",
+      },
+    ];
+    const post = await runAndRecordChecks(state, {
+      serverDir: "/srv",
+      targetTag: "v0.19.0",
+    });
+    expect(post.phase).toBe("blocked");
+    expect(post.error).toMatch(/checks failed/);
+    expect(post.completedAt).not.toBeNull();
+  });
+
+  it("leaves a rollback / blocked terminal phase alone on failure", async () => {
+    // If the agent already routed itself to rollback, a downstream
+    // failure shouldn't overwrite that with `blocked`.
+    const ctx = await buildAssistedUpdateContext(
+      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      "http://127.0.0.1:6767"
+    );
+    await applyAssistedPhase({
+      token: ctx.state.token,
+      phase: "rollback",
+      error: "agent reverted symlink",
+    });
+    const state = lastPersistedState!;
+    stagedCheckResults = [
+      { name: "version_converged", ok: false, message: "still wrong" },
+    ];
+    const post = await runAndRecordChecks(state, {
+      serverDir: "/srv",
+      targetTag: "v0.19.0",
+    });
+    expect(post.phase).toBe("rollback");
+    expect(post.error).toBe("agent reverted symlink");
   });
 });
