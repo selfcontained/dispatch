@@ -3,9 +3,18 @@ import { describe, it, expect } from "vitest";
 import {
   buildParentRound1FeedbackPrompt,
   buildParentReviewCompletePrompt,
+  buildPersonaKickoffPrompt,
   buildReviewerRecheckCancelledPrompt,
   buildReviewerRecheckReadyPrompt,
 } from "../src/reviews/injection-prompts.js";
+
+describe("buildPersonaKickoffPrompt", () => {
+  it("nudges the agent to begin and references the loaded context", () => {
+    const text = buildPersonaKickoffPrompt();
+    expect(text).toMatch(/begin your review/i);
+    expect(text).toMatch(/loaded into your context/i);
+  });
+});
 
 describe("buildParentRound1FeedbackPrompt", () => {
   it("includes the persona name, agent id, verdict, and item count", () => {

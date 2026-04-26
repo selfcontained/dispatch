@@ -24,6 +24,7 @@ import {
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
+import { buildPersonaKickoffPrompt } from "../../src/reviews/injection-prompts.js";
 
 // Mock runCommand so AgentManager never touches tmux
 vi.mock("../../src/shared/lib/run-command.js", () => ({
@@ -399,6 +400,30 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("--model");
       expect(setupScript).not.toContain("--append-system-prompt");
     });
+
+    it.each(["claude", "codex", "opencode"] as const)(
+      "should deliver the persona kickoff prompt to %s launches",
+      async (type) => {
+        const personaPrompt = "Persona review instructions";
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type,
+          useWorktree: false,
+          agentArgs: ["--append-system-prompt", personaPrompt],
+          initialPrompt: buildPersonaKickoffPrompt(),
+        });
+
+        const setupScript = await readFile(
+          `/tmp/dispatch_setup_${agent.id}.sh`,
+          "utf-8"
+        );
+        const kickoffMatches = setupScript.match(/Begin your review now\./g);
+
+        expect(kickoffMatches).toHaveLength(1);
+        expect(setupScript).toContain(personaPrompt);
+        expect(setupScript).toContain("loaded into your context");
+      }
+    );
 
     it("should inject an agent-scoped MCP URL into Claude launches", async () => {
       const agent = await manager.createAgent({

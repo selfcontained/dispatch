@@ -1,5 +1,15 @@
 import type { PersonaReviewResolutionItem } from "../agents/manager.js";
 
+/**
+ * First user message handed to a freshly-launched persona agent. The persona
+ * body, feedback guidance, parent context, and diff to review are already
+ * loaded into the launch context — all the agent needs is a "go" signal so it
+ * doesn't sit waiting for input on launch.
+ */
+export function buildPersonaKickoffPrompt(): string {
+  return "Begin your review now. Your persona instructions, the parent's context briefing, and the diff to review are already loaded into your context — use them.";
+}
+
 export type ParentRound1FeedbackInput = {
   persona: string;
   personaAgentId: string;

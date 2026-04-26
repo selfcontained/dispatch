@@ -60,6 +60,7 @@ import { truncateDiffForPrompt } from "./personas/loader.js";
 import {
   buildParentRound1FeedbackPrompt,
   buildParentReviewCompletePrompt,
+  buildPersonaKickoffPrompt,
   buildReviewerRecheckCancelledPrompt,
   buildReviewerRecheckReadyPrompt,
 } from "./reviews/injection-prompts.js";
@@ -6038,6 +6039,7 @@ async function mcpLaunchPersona(
     parentAgentId: agentId,
     personaContext: opts.context,
     cliSessionId,
+    initialPrompt: buildPersonaKickoffPrompt(),
   });
 
   // Create the persona review record. Capture parent HEAD at launch time so
