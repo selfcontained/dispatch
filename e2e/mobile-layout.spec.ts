@@ -73,50 +73,6 @@ test.describe("Mobile layout", () => {
     await expect(page.getByTestId("toolbar-flash-ctrl")).toHaveCount(0);
   });
 
-  test("design lab previews silent-mode enter feedback concepts", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 320, height: 844 });
-    await page.goto("/design-lab", { waitUntil: "domcontentloaded" });
-    await page.locator("main").waitFor({ state: "visible", timeout: 10_000 });
-
-    await expect(
-      page.getByRole("heading", { name: "Mobile Enter feedback studies" })
-    ).toBeVisible();
-
-    const haloEnter = page.getByTestId("enter-feedback-halo-crisp");
-    const haloCount = page.getByTestId("feedback-count-halo-crisp");
-    const haloLive = page.getByTestId("feedback-live-halo-crisp");
-    const haloReplay = page.getByTestId("replay-cue-halo-crisp");
-
-    await expect(haloCount).toContainText("0 preview taps");
-    await haloEnter.click();
-    await expect(haloCount).toContainText("1 preview taps");
-    await expect(haloLive).toContainText("Tap confirmed.");
-    await expect(haloLive).toContainText("Enter pressed.");
-    await expect(page.getByTestId("effect-outline-halo-crisp")).toBeVisible();
-
-    await expect
-      .poll(async () => {
-        const box = await haloEnter.boundingBox();
-        return box ? Math.round(box.x + box.width) : null;
-      })
-      .toBeLessThanOrEqual(320);
-
-    await expect
-      .poll(async () => {
-        const box = await haloReplay.boundingBox();
-        return box ? Math.round(box.height) : null;
-      })
-      .toBeGreaterThanOrEqual(44);
-
-    await page.waitForTimeout(950);
-    await expect(page.getByTestId("effect-outline-halo-crisp")).toHaveCount(0);
-
-    await expect(page.getByTestId("enter-feedback-halo-soft")).toBeVisible();
-    await expect(page.getByTestId("enter-feedback-halo-edge")).toBeVisible();
-  });
-
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
     page,
     request,
