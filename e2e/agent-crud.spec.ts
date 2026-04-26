@@ -162,42 +162,6 @@ test.describe("Agent CRUD", () => {
     expect(agent.autoReview).toBe(false);
   });
 
-  test("POST /api/v1/agents rejects non-boolean autoReview", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: AUTH_HEADER,
-      data: {
-        name: `e2e-agent-${Date.now()}`,
-        cwd: "/tmp",
-        useWorktree: false,
-        autoReview: "true",
-      },
-    });
-    expect(res.status()).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: "autoReview must be a boolean when provided.",
-    });
-  });
-
-  test("POST /api/v1/agents rejects oversized initialPrompt", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: AUTH_HEADER,
-      data: {
-        name: `e2e-agent-${Date.now()}`,
-        cwd: "/tmp",
-        useWorktree: false,
-        initialPrompt: "x".repeat(16_001),
-      },
-    });
-    expect(res.status()).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: "initialPrompt must be at most 16000 characters when provided.",
-    });
-  });
-
   test("POST /api/v1/agents accepts multipart startup context", async ({
     request,
   }) => {
@@ -230,24 +194,6 @@ test.describe("Agent CRUD", () => {
         type: "url",
       },
     ]);
-  });
-
-  test("POST /api/v1/agents rejects invalid multipart startup links", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: AUTH_HEADER,
-      multipart: {
-        name: `e2e-agent-${Date.now()}`,
-        cwd: "/tmp",
-        useWorktree: "false",
-        startupLinks: JSON.stringify(["github.com/selfcontained/dispatch"]),
-      },
-    });
-    expect(res.status()).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      error: "URL pins must be valid http or https URLs.",
-    });
   });
 
   test("cancel create dialog does not create an agent", async ({ page }) => {

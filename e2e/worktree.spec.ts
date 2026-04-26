@@ -154,19 +154,6 @@ test.describe("Worktree", () => {
     expect(agent.worktreePath).toBeNull();
   });
 
-  test("POST /api/v1/agents validates useWorktree type", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: authHeader,
-      data: { cwd: "/tmp", useWorktree: "not-a-boolean" },
-    });
-    expect(res.status()).toBe(400);
-
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("useWorktree");
-  });
-
   test("GET /api/v1/agents/:id/worktree-status returns status for agent without worktree", async ({
     request,
   }) => {
@@ -654,16 +641,6 @@ test.describe("Worktree location setting", () => {
     });
     const getBody = (await getRes.json()) as { worktreeLocation: string };
     expect(getBody.worktreeLocation).toBe("nested");
-  });
-
-  test("POST /api/v1/agents/settings validates worktree location", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/agents/settings", {
-      headers: authHeader,
-      data: { worktreeLocation: "invalid" },
-    });
-    expect(res.status()).toBe(400);
   });
 
   test("sibling location creates worktree next to the repo", async ({

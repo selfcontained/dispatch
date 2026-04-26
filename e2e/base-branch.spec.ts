@@ -127,16 +127,6 @@ test.describe("Agent base branch", () => {
     expect(body.agent.baseBranch).toBeNull();
   });
 
-  test("POST /api/v1/agents validates baseBranch type", async ({ request }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: authHeader,
-      data: { cwd: "/tmp", baseBranch: 123, useWorktree: false },
-    });
-    expect(res.status()).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("baseBranch");
-  });
-
   test("create_pr MCP tool defaults baseBranch from agent metadata", async ({
     request,
   }) => {

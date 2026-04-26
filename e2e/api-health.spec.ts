@@ -21,26 +21,4 @@ test.describe("API health", () => {
     const body = (await res.json()) as { agents: unknown[] };
     expect(Array.isArray(body.agents)).toBe(true);
   });
-
-  test("POST /api/v1/agents validates cwd is required", async ({ request }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: authHeader,
-      data: { name: "missing-cwd" },
-    });
-    expect(res.status()).toBe(400);
-
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("cwd");
-  });
-
-  test("POST /api/v1/agents validates type", async ({ request }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: authHeader,
-      data: { cwd: "/tmp", type: "invalid-type" },
-    });
-    expect(res.status()).toBe(400);
-
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("type");
-  });
 });

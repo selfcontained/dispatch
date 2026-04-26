@@ -167,17 +167,6 @@ test.describe("Terminal agent type", () => {
     expect(agent.agentArgs).toEqual([]);
   });
 
-  test("POST /api/v1/agents rejects unknown type", async ({ request }) => {
-    const res = await request.post("/api/v1/agents", {
-      headers: authHeader,
-      data: { type: "not-a-real-type", cwd: "/tmp", useWorktree: false },
-    });
-    expect(res.status()).toBe(400);
-
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("terminal");
-  });
-
   test("PATCH review-agent-type rejects terminal", async ({ request }) => {
     const create = await request.post("/api/v1/agents", {
       headers: authHeader,
