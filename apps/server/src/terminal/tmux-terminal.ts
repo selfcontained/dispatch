@@ -42,8 +42,14 @@ export class TmuxTerminal {
   // without it, Codex's input handler keeps the input in multi-line mode and
   // the trailing Enter fails to submit.
   async sendCommand(commandLine: string): Promise<void> {
+    // Strip bracketed-paste markers from the input. \x1b[201~ closes the paste
+    // span; without this, attacker-influenced fields (persona name, child
+    // reviewer feedback summaries, raw diff bytes) could end the paste early
+    // and inject the trailing bytes as live keystrokes — Ctrl-C / Ctrl-D into
+    // the receiving TUI, a cross-agent disruption channel.
+    const sanitized = commandLine.replace(/\x1b\[20[01]~/g, "");
     const bufferName = `dispatch_${randomUUID()}`;
-    await runCommand("tmux", ["set-buffer", "-b", bufferName, commandLine]);
+    await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
     try {
       await runCommand("tmux", [
         "paste-buffer",
@@ -54,11 +60,13 @@ export class TmuxTerminal {
         "-p",
         "-d",
       ]);
-    } catch (error) {
+    } finally {
+      // paste-buffer -d already deletes on success, so this is a no-op then
+      // (exit 1 = buffer doesn't exist). On any failure between set-buffer
+      // and successful paste, the named buffer would otherwise leak.
       await runCommand("tmux", ["delete-buffer", "-b", bufferName], {
         allowedExitCodes: [0, 1],
-      });
-      throw error;
+      }).catch(() => undefined);
     }
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
   }

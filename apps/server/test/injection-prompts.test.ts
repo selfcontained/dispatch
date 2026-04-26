@@ -6,7 +6,30 @@ import {
   buildPersonaKickoffPrompt,
   buildReviewerRecheckCancelledPrompt,
   buildReviewerRecheckReadyPrompt,
+  wrapInDiffFence,
 } from "../src/reviews/injection-prompts.js";
+
+describe("wrapInDiffFence", () => {
+  it("uses a default 3-backtick fence when content has no backticks", () => {
+    const text = wrapInDiffFence("+ added\n- removed\n");
+    expect(text).toBe("```diff\n+ added\n- removed\n\n```");
+  });
+
+  it("uses a longer fence when the diff contains a triple-backtick run", () => {
+    const diff = "diff --git a/x.md b/x.md\n+```\n+inner\n+```\n";
+    const text = wrapInDiffFence(diff);
+    expect(text.startsWith("````diff\n")).toBe(true);
+    expect(text.endsWith("\n````")).toBe(true);
+    expect(text).toContain("```\n+inner\n+```");
+  });
+
+  it("scales with the longest backtick run in the content", () => {
+    const diff = "intro `````` outro";
+    const text = wrapInDiffFence(diff);
+    expect(text.startsWith("```````diff\n")).toBe(true);
+    expect(text.endsWith("\n```````")).toBe(true);
+  });
+});
 
 describe("buildPersonaKickoffPrompt", () => {
   it("nudges the agent to begin and references the loaded context", () => {

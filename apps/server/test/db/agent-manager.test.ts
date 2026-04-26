@@ -2172,13 +2172,14 @@ describe("AgentManager", () => {
       it("cancels recheck from the parent and rejects cancelling after round 2 completes", async () => {
         const { parent, child } = await seedAwaitingRecheckReview();
 
-        const cancelled = await manager.cancelReviewRecheck({
+        const result = await manager.cancelReviewRecheck({
           parentAgentId: parent.id,
           personaAgentId: child.id,
           reason: "shipping without recheck",
         });
-        expect(cancelled.status).toBe("cancelled");
-        expect(cancelled.message).toBe("shipping without recheck");
+        expect(result.transitioned).toBe(true);
+        expect(result.review.status).toBe("cancelled");
+        expect(result.review.message).toBe("shipping without recheck");
 
         const { parent: parent2, child: child2 } =
           await seedAwaitingRecheckReview();
@@ -2193,6 +2194,27 @@ describe("AgentManager", () => {
             personaAgentId: child2.id,
           })
         ).rejects.toThrow(/after round 2 is already complete/);
+      });
+
+      it("returns transitioned: false when called on an already-cancelled review", async () => {
+        const { parent, child } = await seedAwaitingRecheckReview();
+
+        const first = await manager.cancelReviewRecheck({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          reason: "first",
+        });
+        expect(first.transitioned).toBe(true);
+
+        const second = await manager.cancelReviewRecheck({
+          parentAgentId: parent.id,
+          personaAgentId: child.id,
+          reason: "second",
+        });
+        expect(second.transitioned).toBe(false);
+        expect(second.review.status).toBe("cancelled");
+        // Original cancellation reason is preserved — second call is a no-op.
+        expect(second.review.message).toBe("first");
       });
 
       it("rejects cancelling while round 1 review is still in progress", async () => {

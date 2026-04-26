@@ -4274,6 +4274,16 @@ async function registerRoutes() {
         .code(400)
         .send({ error: "persona is required and must be a non-empty string." });
     }
+    // Persona is interpolated into a server-injected prompt and used as a
+    // filename in loadPersonaBySlug — restrict to a slug character class to
+    // close prompt-injection (newlines/quotes breaking out) and path-traversal
+    // gaps in one shot.
+    if (!/^[a-zA-Z0-9_-]+$/.test(body.persona)) {
+      return reply.code(400).send({
+        error:
+          "persona must be a slug containing only letters, digits, underscore, or hyphen.",
+      });
+    }
 
     if (
       typeof body.agentType !== "string" ||
@@ -5732,7 +5742,7 @@ async function mcpCancelRecheck(
   agentId: string,
   input: { personaAgentId: string; reason?: string }
 ): Promise<void> {
-  const review = await agentManager.cancelReviewRecheck({
+  const { review, transitioned } = await agentManager.cancelReviewRecheck({
     parentAgentId: agentId,
     personaAgentId: input.personaAgentId,
     reason: input.reason ?? null,
@@ -5753,6 +5763,10 @@ async function mcpCancelRecheck(
       agent: withStreamFlag(parent),
     });
   }
+
+  // Skip the inject when the review was already cancelled — calling cancel
+  // twice should not double-prompt the reviewer.
+  if (!transitioned) return;
 
   const reviewerPrompt = buildReviewerRecheckCancelledPrompt({
     reason: input.reason ?? null,

@@ -82,6 +82,19 @@ export function buildParentReviewCompletePrompt(
   ].join("\n");
 }
 
+/**
+ * Wraps a diff in a markdown code fence whose backtick run is one longer than
+ * the longest run that appears inside the diff. A diff of a markdown file
+ * (or anything else containing ```) would otherwise close the outer fence
+ * early, leaving the rest of the prompt parsed as prose by the receiving LLM.
+ */
+export function wrapInDiffFence(content: string): string {
+  const matches = content.match(/`+/g) ?? [];
+  const longestRun = matches.reduce((max, m) => Math.max(max, m.length), 0);
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  return `${fence}diff\n${content}\n${fence}`;
+}
+
 export type ReviewerRecheckReadyInput = {
   resolutionSummary: string;
   resolutions: PersonaReviewResolutionItem[];
@@ -112,7 +125,7 @@ export function buildReviewerRecheckReadyPrompt(
     : "(no per-item resolutions recorded)";
 
   const diffBlock = diffSincePreviousRound.trim().length
-    ? `\`\`\`diff\n${diffSincePreviousRound}\n\`\`\``
+    ? wrapInDiffFence(diffSincePreviousRound)
     : "(no diff since your round-1 commit)";
 
   return [

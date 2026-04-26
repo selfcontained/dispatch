@@ -4030,7 +4030,7 @@ export class AgentManager {
     parentAgentId: string;
     personaAgentId: string;
     reason?: string | null;
-  }): Promise<PersonaReviewRecord> {
+  }): Promise<{ review: PersonaReviewRecord; transitioned: boolean }> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -4063,7 +4063,7 @@ export class AgentManager {
       }
       if (review.status === "cancelled") {
         await client.query("COMMIT");
-        return review;
+        return { review, transitioned: false };
       }
       if (
         review.status !== "awaiting_recheck" &&
@@ -4092,7 +4092,7 @@ export class AgentManager {
       );
 
       await client.query("COMMIT");
-      return updatedResult.rows[0]!;
+      return { review: updatedResult.rows[0]!, transitioned: true };
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
