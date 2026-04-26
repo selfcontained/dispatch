@@ -55,6 +55,7 @@ import {
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { createNewBranchPrefAtom } from "@/lib/store";
+import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
@@ -1101,7 +1102,10 @@ function CreateAgentDialogContent({
                       )}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="center" className="w-56 p-1">
+                  <PopoverContent
+                    align="center"
+                    className={cn("w-56 p-1", glassOverlay)}
+                  >
                     {addMode === "menu" ? (
                       <AddContextMenu
                         onAddFile={handleAddFileFromMenu}
@@ -1125,9 +1129,9 @@ function CreateAgentDialogContent({
                     return (
                       <div
                         key={key}
-                        className="group flex w-12 flex-col gap-0.5"
+                        className="group relative flex w-12 flex-col gap-0.5"
                       >
-                        <div className="relative h-12 w-12 overflow-hidden rounded-md border border-border/70 bg-muted/40">
+                        <div className="h-12 w-12 overflow-hidden rounded-md border border-border/70 bg-muted/40">
                           {preview ? (
                             <img
                               src={preview}
@@ -1142,15 +1146,17 @@ function CreateAgentDialogContent({
                               </span>
                             </div>
                           )}
-                          <button
-                            type="button"
-                            className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
-                            onClick={() => handleRemoveStartupFile(file)}
-                            aria-label={`Remove ${file.name}`}
-                          >
-                            <X className="h-2.5 w-2.5" />
-                          </button>
                         </div>
+                        <button
+                          type="button"
+                          className="absolute -right-3 -top-3 flex h-11 w-11 items-start justify-end p-1.5 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 sm:-right-1 sm:-top-1 sm:h-4 sm:w-4 sm:items-center sm:justify-center sm:p-0 sm:opacity-0 sm:group-hover:opacity-100"
+                          onClick={() => handleRemoveStartupFile(file)}
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background shadow-sm">
+                            <X className="h-2.5 w-2.5" />
+                          </span>
+                        </button>
                         <span
                           className="w-full truncate text-[8px] leading-tight text-muted-foreground"
                           title={file.name}
@@ -1165,7 +1171,7 @@ function CreateAgentDialogContent({
                     return (
                       <div
                         key={link}
-                        className="group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-5 leading-tight"
+                        className="group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight"
                         title={link}
                       >
                         <div className="flex items-center gap-1 text-[10px] text-foreground">
@@ -1179,11 +1185,13 @@ function CreateAgentDialogContent({
                         ) : null}
                         <button
                           type="button"
-                          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                          className="absolute -right-3 -top-3 flex h-11 w-11 items-start justify-end p-1.5 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 sm:-right-1 sm:-top-1 sm:h-4 sm:w-4 sm:items-center sm:justify-center sm:p-0 sm:opacity-0 sm:group-hover:opacity-100"
                           onClick={() => handleRemoveStartupLink(link)}
                           aria-label={`Remove ${link}`}
                         >
-                          <X className="h-2.5 w-2.5" />
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border/70 bg-background shadow-sm">
+                            <X className="h-2.5 w-2.5" />
+                          </span>
                         </button>
                       </div>
                     );
@@ -1208,7 +1216,10 @@ function CreateAgentDialogContent({
                         )}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-56 p-1">
+                    <PopoverContent
+                      align="start"
+                      className={cn("w-56 p-1", glassOverlay)}
+                    >
                       {addMode === "menu" ? (
                         <AddContextMenu
                           onAddFile={handleAddFileFromMenu}
