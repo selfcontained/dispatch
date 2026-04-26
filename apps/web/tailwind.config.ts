@@ -54,19 +54,19 @@ export default {
       keyframes: {
         "mobile-toolbar-flash": {
           "0%": {
-            backgroundColor: "transparent",
+            backgroundColor: "rgba(255,255,255,0.06)",
             boxShadow:
-              "inset 0 0 0 0 rgba(190,240,255,0), 0 0 0 rgba(100,190,255,0)",
+              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
           },
           "18%": {
             backgroundColor: "rgba(190,240,255,0.14)",
             boxShadow:
-              "inset 0 0 0 1px rgba(190,240,255,0.22), 0 0 30px rgba(100,190,255,0.12)",
+              "0 1px 4px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(190,240,255,0.22), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(100,190,255,0.12)",
           },
           "100%": {
-            backgroundColor: "transparent",
+            backgroundColor: "rgba(255,255,255,0.06)",
             boxShadow:
-              "inset 0 0 0 0 rgba(190,240,255,0), 0 0 0 rgba(100,190,255,0)",
+              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
           },
         },
       },
