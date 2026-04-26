@@ -8,9 +8,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const BIN = path.join(REPO_ROOT, "bin", "pack-release");
 const OUTPUT = `/tmp/dispatch-pack-release-test-${process.pid}.tar.gz`;
 
-const BUILDS_EXIST =
-  existsSync(path.join(REPO_ROOT, "apps/server/dist")) &&
-  existsSync(path.join(REPO_ROOT, "apps/web/dist"));
+const BUILDS_EXIST = existsSync(path.join(REPO_ROOT, "dist/bun"));
 
 function run(args = ""): string {
   return execSync(`${BIN} ${args}`, {
@@ -41,28 +39,16 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(existsSync(OUTPUT)).toBe(true);
   });
 
-  it("includes pre-built dist directories", () => {
+  it("includes pre-built Bun binaries", () => {
     const files = tarList();
-    expect(files.some((f) => f.startsWith("apps/server/dist/"))).toBe(true);
-    expect(files.some((f) => f.startsWith("apps/web/dist/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("dist/bun/"))).toBe(true);
+    expect(files).toContain("dist/bun/SHA256SUMS.txt");
   });
 
-  it("includes package.json files for dependency install", () => {
+  it("includes install/runtime scaffolding", () => {
     const files = tarList();
-    expect(files).toContain("package.json");
-    expect(files).toContain("apps/server/package.json");
-    expect(files).toContain("apps/web/package.json");
-  });
-
-  it("includes pnpm workspace config and lockfile", () => {
-    const files = tarList();
-    expect(files).toContain("pnpm-lock.yaml");
-    expect(files).toContain("pnpm-workspace.yaml");
-  });
-
-  it("includes .nvmrc", () => {
-    const files = tarList();
-    expect(files).toContain(".nvmrc");
+    expect(files).toContain("README.md");
+    expect(files).toContain(".env.example");
   });
 
   it("includes bin/ scripts", () => {
@@ -74,31 +60,15 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     );
   });
 
-  it("includes database migrations", () => {
-    const files = tarList();
-    expect(
-      files.some((f) => f.startsWith("apps/server/src/db/migrations/"))
-    ).toBe(true);
-  });
-
-  it("includes release notes when present", () => {
-    const files = tarList();
-    // release-notes/current.md is generated during release; may or may not exist locally
-    if (existsSync(path.join(REPO_ROOT, "release-notes/current.md"))) {
-      expect(files).toContain("release-notes/current.md");
-    }
-  });
-
   it("does NOT include node_modules", () => {
     const files = tarList();
     expect(files.some((f) => f.includes("node_modules"))).toBe(false);
   });
 
-  it("does NOT include source .ts files (except migrations and declarations)", () => {
+  it("does NOT include source .ts files", () => {
     const files = tarList();
     const tsFiles = files.filter(
-      (f) =>
-        f.endsWith(".ts") && !f.endsWith(".d.ts") && !f.includes("migrations/")
+      (f) => f.endsWith(".ts") && !f.endsWith(".d.ts")
     );
     expect(tsFiles).toEqual([]);
   });

@@ -9,13 +9,13 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **nvm**, **Node.js 22+** (installed via nvm — Dispatch's service-management scripts require nvm), **PostgreSQL** (14+), **tmux**, **pnpm**, and build tools for native npm modules (Xcode CLI Tools on macOS, `build-essential`/`python3`/`xclip`/`xvfb` on Linux).
+> 2. Install system dependencies: **Bun 1.3+**, **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch. For source builds and local development, also install **pnpm**.
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
-> 4. `pnpm install && pnpm run build`
+> 4. If installing from source instead of a GitHub release artifact: `pnpm install && pnpm run build:bun`
 > 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
 > 6. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
->    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs `node apps/server/dist/main.js` with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
+>    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the compiled `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
 > 7. Verify: `curl http://127.0.0.1:6767/api/v1/health`
 > 8. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
@@ -49,15 +49,13 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Prerequisites
 
-| Dependency                 | Purpose                                                                                                                                                  | macOS                                                              | Linux                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| **Build tools**            | Compile native npm modules (node-pty)                                                                                                                    | `xcode-select --install`                                           | `apt install build-essential python3`                              |
-| **nvm**                    | Node version manager (required by Dispatch's service-management scripts: `bin/install-launchd`, `bin/dispatch-server`, `bin/preflight`, launchd wrapper) | [install.sh](https://github.com/nvm-sh/nvm#install--update-script) | [install.sh](https://github.com/nvm-sh/nvm#install--update-script) |
-| **Node.js 22+**            | Runtime                                                                                                                                                  | `nvm install 22`                                                   | `nvm install 22`                                                   |
-| **pnpm**                   | Package manager                                                                                                                                          | `npm i -g pnpm`                                                    | `npm i -g pnpm`                                                    |
-| **PostgreSQL 14+**         | Database                                                                                                                                                 | `brew install postgresql@17`                                       | `apt install postgresql`                                           |
-| **tmux**                   | Agent session management                                                                                                                                 | `brew install tmux`                                                | `apt install tmux`                                                 |
-| **At least one agent CLI** | The agents Dispatch runs                                                                                                                                 | See below                                                          | See below                                                          |
+| Dependency                 | Purpose                                                 | macOS                               | Linux                    |
+| -------------------------- | ------------------------------------------------------- | ----------------------------------- | ------------------------ | ----------------------------------- | ----- |
+| **Bun 1.3+**               | Dispatch runtime and binary build tool                  | `curl -fsSL https://bun.com/install | bash`                    | `curl -fsSL https://bun.com/install | bash` |
+| **pnpm**                   | Package manager for source builds and local development | `npm i -g pnpm`                     | `npm i -g pnpm`          |
+| **PostgreSQL 14+**         | Database                                                | `brew install postgresql@17`        | `apt install postgresql` |
+| **tmux**                   | Agent session management                                | `brew install tmux`                 | `apt install tmux`       |
+| **At least one agent CLI** | The agents Dispatch runs                                | See below                           | See below                |
 
 ### Optional
 
@@ -94,16 +92,13 @@ bin/preflight
 git clone git@github.com:selfcontained/dispatch.git
 cd dispatch
 
-# 2. Use the correct Node version
-nvm install && nvm use
-
-# 3. Install dependencies
+# 2. Install dependencies
 pnpm install
 
-# 4. Copy the example env file
+# 3. Copy the example env file
 cp .env.example .env
 
-# 5. Start Dispatch
+# 4. Start Dispatch
 bin/dispatch-dev up --live
 ```
 
@@ -193,6 +188,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 - Cut releases from the Dispatch UI: **Settings → Releases** (release admin only)
 - CLI/API path for updates and releases: `bin/dispatch-server update`
 - Service management: `bin/dispatch-server start|stop|restart|status|logs|build`
+- Production runtime note: the launchd/systemd service runs the compiled Bun binary, so Node/npx is not required on the host just to run Dispatch.
 
 ## Docs
 

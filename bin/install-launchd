@@ -10,17 +10,6 @@ LOG_FILE="$LOG_DIR/dispatch.log"
 WRAPPER="$SERVER_DIR/bin/dispatch-launchd-wrapper"
 PORT=""
 
-load_nvm() {
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  if [ -s "$NVM_DIR/nvm.sh" ]; then
-    # shellcheck disable=SC1090
-    . "$NVM_DIR/nvm.sh"
-  else
-    echo "error: nvm not found at $NVM_DIR/nvm.sh" >&2
-    return 1
-  fi
-}
-
 deploy_from_artifact() {
   local tag="$1"
   local tarball="/tmp/dispatch-release-${tag}.tar.gz"
@@ -42,21 +31,18 @@ deploy_from_artifact() {
 
   tar xzf "$tarball" --no-same-owner -C "$SERVER_DIR"
   rm -f "$tarball"
-
-  load_nvm
-  cd "$SERVER_DIR"
-  nvm use >/dev/null
-  pnpm install --frozen-lockfile
 }
 
 build_from_source() {
   local tag="$1"
   git -C "$SERVER_DIR" checkout "$tag"
-  load_nvm
+  if ! command -v bun &>/dev/null; then
+    echo "error: bun is required to build Dispatch from source" >&2
+    return 1
+  fi
   cd "$SERVER_DIR"
-  nvm use >/dev/null
   pnpm install --frozen-lockfile
-  pnpm run build
+  pnpm run build:bun
 }
 
 usage() {
@@ -64,7 +50,7 @@ usage() {
 Usage: bin/install-launchd [--port <port>]
 
 Installs Dispatch as a launchd service. Clones the repo to $SERVER_DIR,
-does an initial build, and loads the service.
+downloads the latest compiled binary release when available, and loads the service.
 
 Options:
   --port <port>   Port to listen on (default: 6767)
@@ -138,20 +124,21 @@ if [[ -z "$INSTALL_TAG" ]]; then
   fi
 fi
 
-# Initial build — prefer pre-built release artifact if available.
-# If no tag exists (fresh clone without releases), just install and build
-# from whatever commit is checked out.
+# Initial deploy — prefer the pre-built release artifact if available.
+# If no tag exists (fresh clone without releases), build from source.
 if [[ -n "$INSTALL_TAG" ]] && deploy_from_artifact "$INSTALL_TAG"; then
   echo "==> deployed from pre-built artifact"
 elif [[ -n "$INSTALL_TAG" ]]; then
   build_from_source "$INSTALL_TAG"
 else
   echo "==> no release tag found, building from HEAD"
-  load_nvm
+  if ! command -v bun &>/dev/null; then
+    echo "error: bun is required to build Dispatch from source" >&2
+    exit 1
+  fi
   cd "$SERVER_DIR"
-  nvm use >/dev/null
   pnpm install --frozen-lockfile
-  pnpm run build
+  pnpm run build:bun
 fi
 
 # Seed release.json so the server knows what version it's running.

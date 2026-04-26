@@ -11,12 +11,18 @@
  * since there's no upgrade path to test yet.
  */
 import { readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Pool } from "pg";
 
-import { runMigrations, migrationsDir } from "../../src/db/migrate.js";
+import { runMigrations } from "../../src/db/migrate.js";
 import { setupTestDb, teardownTestDb, getTestDatabaseUrl } from "./setup.js";
 
+const migrationsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../src/db/migrations"
+);
 const migrationFiles = readdirSync(migrationsDir)
   .filter((f) => f.endsWith(".sql") || f.endsWith(".ts") || f.endsWith(".js"))
   .sort();

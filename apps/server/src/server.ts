@@ -16,33 +16,14 @@ import { existsSync, readFileSync } from "node:fs";
 
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
-import fastifyStatic from "@fastify/static";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import type WebSocket from "ws";
-import type nodePty from "node-pty";
 import * as z from "zod/v4";
 
-let pty: typeof nodePty;
-try {
-  // node-pty is CJS with __esModule: true. Under Node.js native ESM
-  // (production), .default === module.exports. Under tsx/esbuild (dev),
-  // .default is undefined because esbuild respects __esModule and looks
-  // for exports.default which doesn't exist. Fall back to the module
-  // namespace itself which always has the named exports.
-  const m = await import("node-pty");
-  pty = (m.default ?? m) as typeof nodePty;
-} catch {
-  console.error(
-    "\n✗ Failed to load node-pty native module.\n" +
-      "  This usually means the native addon was not compiled during install.\n" +
-      "  Fix: run 'pnpm rebuild node-pty' in the server directory, or ensure\n" +
-      "  'node-pty' is listed in pnpm.onlyBuiltDependencies in package.json.\n"
-  );
-  process.exit(1);
-}
+import { spawn as spawnPty } from "./shared/terminal/bun-pty.js";
 
 import { AgentError, AgentManager } from "./agents/manager.js";
 import type {
@@ -129,6 +110,10 @@ import { isPinType, validatePinValue } from "./pins.js";
 import { JobService } from "./jobs/service.js";
 import { randomUUID } from "node:crypto";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
+import {
+  releaseNotesMarkdown,
+  staticFiles as embeddedStaticFiles,
+} from "./generated/runtime-assets.js";
 import {
   computeActivityStats,
   computeDailyStatus,
@@ -730,17 +715,19 @@ let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appRootDir = path.resolve(__dirname, "..");
-const repoRootDir = path.resolve(appRootDir, "../..");
-if (!existsSync(path.join(repoRootDir, "pnpm-workspace.yaml"))) {
-  throw new Error(
-    `repoRootDir "${repoRootDir}" does not contain pnpm-workspace.yaml — monorepo layout may have changed`
-  );
-}
-const releaseNotesFile = path.join(repoRootDir, "release-notes", "current.md");
-const webDistDir = path.resolve(repoRootDir, "apps/web/dist");
-
-const legacyPublicDir = path.resolve(repoRootDir, "public");
-const staticDir = existsSync(webDistDir) ? webDistDir : legacyPublicDir;
+const staticAssets = new Map(
+  embeddedStaticFiles.map((asset) => [
+    asset.routePath,
+    {
+      contentType: asset.contentType,
+      body: Buffer.from(asset.base64, "base64"),
+    },
+  ])
+);
+const indexHtmlTemplate =
+  staticAssets.get("/index.html")?.body.toString("utf8") ?? "";
+const manifestTemplate =
+  staticAssets.get("/manifest.webmanifest")?.body.toString("utf8") ?? "";
 
 // ---------------------------------------------------------------------------
 // Icon color templating — rewrite index.html and manifest for active color
@@ -758,15 +745,6 @@ const VALID_ICON_COLORS = [
 type IconColor = (typeof VALID_ICON_COLORS)[number];
 const DEFAULT_ICON_COLOR: IconColor = "teal";
 const ICON_COLOR_KEY = "icon_color";
-
-const indexHtmlPath = path.join(staticDir, "index.html");
-const manifestPath = path.join(staticDir, "manifest.webmanifest");
-const indexHtmlTemplate = existsSync(indexHtmlPath)
-  ? readFileSync(indexHtmlPath, "utf-8")
-  : "";
-const manifestTemplate = existsSync(manifestPath)
-  ? readFileSync(manifestPath, "utf-8")
-  : "";
 
 let cachedIconColor: IconColor = DEFAULT_ICON_COLOR;
 let cachedIndexHtml: string = indexHtmlTemplate;
@@ -827,8 +805,11 @@ async function getAppVersionInfo(): Promise<{
   try {
     const gitResult = await runCommand(
       "git",
-      ["-C", repoRootDir, "rev-parse", "--short=12", "HEAD"],
-      { allowedExitCodes: [0, 128] }
+      ["rev-parse", "--short=12", "HEAD"],
+      {
+        allowedExitCodes: [0, 128],
+        cwd: process.env.DISPATCH_REPO_ROOT ?? process.cwd(),
+      }
     );
     if (gitResult.exitCode === 0) {
       gitSha = gitResult.stdout.trim() || null;
@@ -836,9 +817,7 @@ async function getAppVersionInfo(): Promise<{
   } catch {}
 
   const releaseTag = record?.tag ?? null;
-  const releaseNotes = await readFile(releaseNotesFile, "utf8")
-    .then((raw) => raw.trim() || null)
-    .catch(() => null);
+  const releaseNotes = releaseNotesMarkdown.trim() || null;
   const releaseUrl = releaseTag
     ? `https://github.com/${await getGitHubRepo()}/releases/tag/${releaseTag}`
     : null;
@@ -1614,20 +1593,18 @@ async function registerRoutes() {
       .send(cachedManifest);
   });
 
-  await app.register(fastifyStatic, {
-    root: staticDir,
-    prefix: "/",
-    setHeaders(res, filePath) {
-      const base = path.basename(filePath);
-      if (base === "sw.js") {
-        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      }
-    },
-  });
-
   // SPA fallback — serve templated index.html for client-side routes
   app.setNotFoundHandler(async (request, reply) => {
     const url = request.url.split("?")[0];
+    const staticAsset = staticAssets.get(url);
+    if (staticAsset) {
+      const isServiceWorker = path.basename(url) === "sw.js";
+      const response = reply.type(staticAsset.contentType);
+      if (isServiceWorker) {
+        response.headers(noCacheHeaders);
+      }
+      return response.send(staticAsset.body);
+    }
     if (!url.startsWith("/api/") && !path.extname(url)) {
       return reply
         .type("text/html")
@@ -2831,6 +2808,10 @@ async function registerRoutes() {
       db: "ok",
       now: result.rows[0]?.now,
     };
+  });
+
+  app.get("/ping", async () => {
+    return { status: "ok" };
   });
 
   // Write an image from the browser clipboard to the host's system clipboard.
@@ -5167,7 +5148,7 @@ async function registerRoutes() {
 
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
-      const ptyProcess = pty.spawn(
+      const ptyProcess = spawnPty(
         "tmux",
         ["attach-session", "-t", tmuxSession],
         {

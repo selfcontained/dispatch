@@ -1,16 +1,12 @@
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import pg from "pg";
 import { runner } from "node-pg-migrate";
 
 import { loadConfig } from "../config.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Resolve to src/db/migrations whether running from src/ (tsx) or dist/ (tsc)
-const migrationsDir = __dirname.includes("/dist/")
-  ? path.resolve(__dirname, "..", "..", "src", "db", "migrations")
-  : path.join(__dirname, "migrations");
+import { migrationFiles } from "../generated/runtime-assets.js";
 
 // Arbitrary fixed key for pg_advisory_lock to prevent concurrent migrations.
 const MIGRATION_LOCK_ID = 8675309;
@@ -23,6 +19,16 @@ export interface MigrationOptions {
 
 export function shouldLogMigrationMessage(msg: string): boolean {
   return !TIMESTAMP_PARSE_NOISE_RE.test(msg);
+}
+
+async function materializeEmbeddedMigrations(): Promise<string> {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-migrations-"));
+  await Promise.all(
+    migrationFiles.map(async (migration) => {
+      await writeFile(path.join(tempDir, migration.name), migration.sql);
+    })
+  );
+  return tempDir;
 }
 
 export async function runMigrations(
@@ -38,6 +44,7 @@ export async function runMigrations(
   // Acquire an advisory lock so concurrent server starts don't race migrations
   const lockClient = new pg.Client({ connectionString: url });
   await lockClient.connect();
+  const migrationsDir = await materializeEmbeddedMigrations();
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
 
@@ -56,14 +63,13 @@ export async function runMigrations(
 
     console.log("Migrations completed.");
   } finally {
+    await rm(migrationsDir, { recursive: true, force: true }).catch(() => null);
     await lockClient
       .query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID])
       .catch(() => null);
     await lockClient.end().catch(() => null);
   }
 }
-
-export { migrationsDir };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   runMigrations().catch((error) => {
