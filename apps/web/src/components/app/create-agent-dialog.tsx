@@ -64,6 +64,8 @@ const URL_PROTOCOLS = new Set(["http:", "https:"]);
 const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
 const CONTEXT_LINK_INPUT_ID = "create-agent-context-link-input";
 const CONTEXT_LINK_ERROR_ID = "create-agent-context-link-error";
+const ROUND_ICON_BUTTON_CLASS =
+  "h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground";
 
 type ClipboardSuggestion =
   | {
@@ -199,7 +201,7 @@ async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
         title: file.type.startsWith("image/")
           ? "Clipboard image ready"
           : "Clipboard file ready",
-        description: `Your clipboard contains a ${typeInfo.noun} you can attach to the agent context.`,
+        description: `Attach the ${typeInfo.noun} from your clipboard to this context.`,
         actionLabel: typeInfo.actionLabel,
         file,
       };
@@ -215,8 +217,7 @@ async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
     return {
       kind: "url",
       title: "Copied link ready",
-      description:
-        "Your clipboard contains a URL you can pin into the new session.",
+      description: "Add the copied URL to the new session.",
       actionLabel: "Add copied link",
       url: text,
     };
@@ -224,8 +225,7 @@ async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
   return {
     kind: "text",
     title: "Copied prompt ready",
-    description:
-      "Your clipboard contains text you can use as startup instructions.",
+    description: "Use the copied text as startup instructions.",
     actionLabel: "Use copied prompt",
     text,
   };
@@ -427,6 +427,7 @@ function CreateAgentDialogContent({
   const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const startupFileInputRef = useRef<HTMLInputElement>(null);
+  const clipboardRequestIdRef = useRef(0);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -505,26 +506,9 @@ function CreateAgentDialogContent({
 
   useEffect(() => {
     if (step !== "context") {
+      clipboardRequestIdRef.current += 1;
       setClipboardSuggestion(null);
-      return;
     }
-
-    let cancelled = false;
-    setClipboardSuggestion(null);
-
-    void getClipboardSuggestion()
-      .then((suggestion) => {
-        if (cancelled) return;
-        setClipboardSuggestion(suggestion);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setClipboardSuggestion(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, [step]);
 
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
@@ -602,6 +586,22 @@ function CreateAgentDialogContent({
     setStartupLinks((current) =>
       current.filter((link) => link !== linkToRemove)
     );
+  }, []);
+
+  const enterContextStep = useCallback(() => {
+    setStep("context");
+    setClipboardSuggestion(null);
+    const requestId = clipboardRequestIdRef.current + 1;
+    clipboardRequestIdRef.current = requestId;
+    void getClipboardSuggestion()
+      .then((suggestion) => {
+        if (clipboardRequestIdRef.current !== requestId) return;
+        setClipboardSuggestion(suggestion);
+      })
+      .catch(() => {
+        if (clipboardRequestIdRef.current !== requestId) return;
+        setClipboardSuggestion(null);
+      });
   }, []);
 
   const trimmedLinkDraft = linkDraft.trim();
@@ -1063,7 +1063,7 @@ function CreateAgentDialogContent({
                   tabIndex={0}
                   disabled={creating || !createCwd.trim()}
                   data-testid="create-agent-with-context"
-                  onClick={() => setStep("context")}
+                  onClick={enterContextStep}
                 >
                   Create with context
                 </Button>
@@ -1095,228 +1095,237 @@ function CreateAgentDialogContent({
 
           <form
             data-testid="create-agent-context-form"
-            className="space-y-3"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void handleSubmit(event)}
             onPaste={handleStartupPaste}
           >
-            {clipboardSuggestion ? (
-              <div
-                className={cn(
-                  "space-y-3 rounded-lg border px-3 py-3",
-                  clipboardSuggestionClasses?.container
-                )}
-                data-testid="create-agent-context-clipboard-cta"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div
-                      className={cn(
-                        "text-sm font-medium",
-                        clipboardSuggestionClasses?.title
-                      )}
-                    >
-                      {clipboardSuggestion.title}
+            <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+              <div className="space-y-3">
+                {clipboardSuggestion ? (
+                  <div
+                    className={cn(
+                      "space-y-3 rounded-lg border px-3 py-3",
+                      clipboardSuggestionClasses?.container
+                    )}
+                    data-testid="create-agent-context-clipboard-cta"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div
+                          className={cn(
+                            "text-sm font-medium",
+                            clipboardSuggestionClasses?.title
+                          )}
+                        >
+                          {clipboardSuggestion.title}
+                        </div>
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {clipboardSuggestion.description}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn("mt-[-2px]", ROUND_ICON_BUTTON_CLASS)}
+                        onClick={() => setClipboardSuggestion(null)}
+                        data-testid="create-agent-context-clipboard-dismiss"
+                        aria-label="Dismiss clipboard suggestion"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      {clipboardSuggestion.description}
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="w-full justify-center"
+                      onClick={handleUseClipboardSuggestion}
+                      data-testid="create-agent-context-clipboard-action"
+                    >
+                      {clipboardSuggestion.kind === "url" ? (
+                        <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                      ) : (
+                        <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {clipboardSuggestion.actionLabel}
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor={CONTEXT_PROMPT_ID}
+                    className="text-sm text-muted-foreground"
+                  >
+                    Instructions
+                  </label>
+                  <textarea
+                    id={CONTEXT_PROMPT_ID}
+                    ref={promptTextareaRef}
+                    value={initialPrompt}
+                    onChange={(event) => setInitialPrompt(event.target.value)}
+                    placeholder="Enter instructions for the agent..."
+                    data-testid="create-agent-initial-prompt"
+                    className={cn(
+                      "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                      "ring-offset-background placeholder:text-muted-foreground",
+                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        Files
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Attach files or paste images/documents from the
+                        clipboard.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      onClick={() => startupFileInputRef.current?.click()}
+                      data-testid="create-agent-context-files-button"
+                    >
+                      <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                      Add files
+                    </Button>
+                  </div>
+                  <input
+                    ref={startupFileInputRef}
+                    type="file"
+                    multiple
+                    accept={STARTUP_FILE_ACCEPT}
+                    className="hidden"
+                    onChange={handleStartupFileChange}
+                    data-testid="create-agent-context-files-input"
+                  />
+                  {startupFiles.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {startupFiles.map((file) => (
+                        <div
+                          key={startupFileKey(file)}
+                          className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1 text-xs text-foreground"
+                        >
+                          <Paperclip className="h-3 w-3 text-muted-foreground" />
+                          <span className="max-w-[260px] truncate">
+                            {file.name}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={ROUND_ICON_BUTTON_CLASS}
+                            onClick={() => handleRemoveStartupFile(file)}
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No files added yet.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      Links
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Add one or more URLs to pin into the new session.
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="mt-[-2px] h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-                    onClick={() => setClipboardSuggestion(null)}
-                    data-testid="create-agent-context-clipboard-dismiss"
-                    aria-label="Dismiss clipboard suggestion"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  className="w-full justify-center"
-                  onClick={handleUseClipboardSuggestion}
-                  data-testid="create-agent-context-clipboard-action"
-                >
-                  {clipboardSuggestion.kind === "url" ? (
-                    <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                  ) : (
-                    <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  {clipboardSuggestion.actionLabel}
-                </Button>
-              </div>
-            ) : null}
-
-            <div className="space-y-1">
-              <label
-                htmlFor={CONTEXT_PROMPT_ID}
-                className="text-sm text-muted-foreground"
-              >
-                Instructions
-              </label>
-              <textarea
-                id={CONTEXT_PROMPT_ID}
-                ref={promptTextareaRef}
-                value={initialPrompt}
-                onChange={(event) => setInitialPrompt(event.target.value)}
-                placeholder="Enter instructions for the agent..."
-                data-testid="create-agent-initial-prompt"
-                className={cn(
-                  "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                  "ring-offset-background placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                )}
-              />
-            </div>
-
-            <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-foreground">
-                    Files
+                  <div className="space-y-2">
+                    <label
+                      htmlFor={CONTEXT_LINK_INPUT_ID}
+                      className="text-sm text-muted-foreground"
+                    >
+                      Link URL
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        id={CONTEXT_LINK_INPUT_ID}
+                        value={linkDraft}
+                        onChange={(event) => setLinkDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            addStartupLink();
+                          }
+                        }}
+                        placeholder="https://..."
+                        data-testid="create-agent-context-link-input"
+                        aria-invalid={!linkDraftIsValid}
+                        aria-describedby={
+                          !linkDraftIsValid ? CONTEXT_LINK_ERROR_ID : undefined
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="default"
+                        onClick={addStartupLink}
+                        data-testid="create-agent-context-link-add"
+                        disabled={!trimmedLinkDraft || !linkDraftIsValid}
+                      >
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        Add
+                      </Button>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Attach files or paste images/documents from the clipboard.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() => startupFileInputRef.current?.click()}
-                  data-testid="create-agent-context-files-button"
-                >
-                  <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                  Add files
-                </Button>
-              </div>
-              <input
-                ref={startupFileInputRef}
-                type="file"
-                multiple
-                accept={STARTUP_FILE_ACCEPT}
-                className="hidden"
-                onChange={handleStartupFileChange}
-                data-testid="create-agent-context-files-input"
-              />
-              {startupFiles.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {startupFiles.map((file) => (
-                    <div
-                      key={startupFileKey(file)}
-                      className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1 text-xs text-foreground"
+                  {!linkDraftIsValid ? (
+                    <p
+                      id={CONTEXT_LINK_ERROR_ID}
+                      className="text-xs text-status-blocked"
+                      data-testid="create-agent-context-link-error"
                     >
-                      <Paperclip className="h-3 w-3 text-muted-foreground" />
-                      <span className="max-w-[260px] truncate">
-                        {file.name}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-                        onClick={() => handleRemoveStartupFile(file)}
-                        aria-label={`Remove ${file.name}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
+                      Enter a valid `http:` or `https:` URL.
+                    </p>
+                  ) : null}
+                  {startupLinks.length > 0 ? (
+                    <div className="space-y-2">
+                      {startupLinks.map((link) => (
+                        <div
+                          key={link}
+                          className="flex items-center gap-2 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs text-foreground"
+                        >
+                          <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {link}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={ROUND_ICON_BUTTON_CLASS}
+                            onClick={() => handleRemoveStartupLink(link)}
+                            aria-label={`Remove ${link}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No links added yet.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  No files added yet.
-                </p>
-              )}
+              </div>
             </div>
 
-            <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-              <div>
-                <div className="text-sm font-medium text-foreground">Links</div>
-                <p className="text-xs text-muted-foreground">
-                  Add one or more URLs to pin into the new session.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <label
-                  htmlFor={CONTEXT_LINK_INPUT_ID}
-                  className="text-sm text-muted-foreground"
-                >
-                  Link URL
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id={CONTEXT_LINK_INPUT_ID}
-                    value={linkDraft}
-                    onChange={(event) => setLinkDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        addStartupLink();
-                      }
-                    }}
-                    placeholder="https://..."
-                    data-testid="create-agent-context-link-input"
-                    aria-invalid={!linkDraftIsValid}
-                    aria-describedby={
-                      !linkDraftIsValid ? CONTEXT_LINK_ERROR_ID : undefined
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="default"
-                    onClick={addStartupLink}
-                    data-testid="create-agent-context-link-add"
-                    disabled={!trimmedLinkDraft || !linkDraftIsValid}
-                  >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
-                    Add
-                  </Button>
-                </div>
-              </div>
-              {!linkDraftIsValid ? (
-                <p
-                  id={CONTEXT_LINK_ERROR_ID}
-                  className="text-xs text-status-blocked"
-                  data-testid="create-agent-context-link-error"
-                >
-                  Enter a valid `http:` or `https:` URL.
-                </p>
-              ) : null}
-              {startupLinks.length > 0 ? (
-                <div className="space-y-2">
-                  {startupLinks.map((link) => (
-                    <div
-                      key={link}
-                      className="flex items-center gap-2 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs text-foreground"
-                    >
-                      <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">{link}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-                        onClick={() => handleRemoveStartupLink(link)}
-                        aria-label={`Remove ${link}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  No links added yet.
-                </p>
-              )}
-            </div>
-
-            <div className="flex justify-between pt-1">
+            <div className="flex justify-between gap-2 border-t border-white/[0.08] pt-3">
               <Button
                 type="button"
                 variant="ghost"

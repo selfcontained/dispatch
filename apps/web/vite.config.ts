@@ -47,6 +47,9 @@ export default defineConfig({
           ],
         },
         workbox: {
+          // The main app bundle now sits slightly above Workbox's 2 MiB default.
+          // Keep it precached unless we intentionally split it down further.
+          maximumFileSizeToCacheInBytes: 2_300_000,
           // Do not cache API traffic by default; this app is realtime-oriented.
           navigateFallbackDenylist: [/^\/api\//],
         },
