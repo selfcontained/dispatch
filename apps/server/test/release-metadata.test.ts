@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendAssistedUpdateMetadataBlock,
+  canonicalizeAssistedUpdateMetadata,
   isAssistedUpdateRequired,
   normalizeRequiredChecks,
   parseAssistedUpdateMetadata,
   type AssistedUpdateMetadata,
+  validateAssistedUpdateMetadataJson,
 } from "../src/release-metadata.js";
 
 const sampleBody = (block: string) => `Some prose at the top.
@@ -146,5 +149,79 @@ describe("isAssistedUpdateRequired", () => {
     expect(
       isAssistedUpdateRequired(required({ appliesFrom: "v0.18.0" }), "v0.17.5")
     ).toBe(false);
+  });
+});
+
+describe("validateAssistedUpdateMetadataJson", () => {
+  it("returns a schema error with a zod path", () => {
+    const result = validateAssistedUpdateMetadataJson(
+      JSON.stringify({
+        mode: "required",
+        title: "x",
+        summary: "y",
+        requiredChecks: ["not-a-real-check"],
+      })
+    );
+    expect(result.success).toBe(false);
+    expect(result.success ? "" : result.error).toContain(
+      "metadata schema mismatch at requiredChecks.0"
+    );
+  });
+
+  it("rejects prose fields containing triple backticks", () => {
+    const result = validateAssistedUpdateMetadataJson(
+      JSON.stringify({
+        mode: "required",
+        title: "x",
+        summary: "contains ``` fence",
+      })
+    );
+    expect(result.success).toBe(false);
+    expect(result.success ? "" : result.error).toContain("summary");
+  });
+
+  it("includes a line and column hint for malformed json", () => {
+    const result = validateAssistedUpdateMetadataJson(`{
+  "mode": "required",
+  "title": "x",
+  "summary":
+}`);
+    expect(result.success).toBe(false);
+    expect(result.success ? "" : result.error).toContain("line");
+    expect(result.success ? "" : result.error).toContain("column");
+  });
+});
+
+describe("assisted-update metadata embedding", () => {
+  const metadata: AssistedUpdateMetadata = {
+    mode: "required",
+    title: "Bun runtime migration",
+    summary: "Switches the runtime from Node to Bun.",
+    instructions: "1. Stop the service.",
+    requiredChecks: ["service_restarted", "version_converged"],
+    rollbackGuidance: "Restore the previous symlink.",
+    appliesFrom: "v0.18.0",
+  };
+
+  it("canonicalizes keys in a stable order", () => {
+    expect(canonicalizeAssistedUpdateMetadata(metadata)).toBe(`{
+  "mode": "required",
+  "title": "Bun runtime migration",
+  "summary": "Switches the runtime from Node to Bun.",
+  "instructions": "1. Stop the service.",
+  "requiredChecks": [
+    "service_restarted",
+    "version_converged"
+  ],
+  "rollbackGuidance": "Restore the previous symlink.",
+  "appliesFrom": "v0.18.0"
+}`);
+  });
+
+  it("appends a fenced block to release notes", () => {
+    const notes = appendAssistedUpdateMetadataBlock("Release prose", metadata);
+    expect(notes).toContain("Release prose\n\n```dispatch-update\n");
+    expect(notes).toContain('"mode": "required"');
+    expect(notes.endsWith("```\n")).toBe(true);
   });
 });
