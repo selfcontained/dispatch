@@ -96,10 +96,12 @@ type ClipboardLookupResult =
   | {
       suggestion: ClipboardSuggestion;
       canRead: boolean;
+      status: "found";
     }
   | {
       suggestion: null;
       canRead: boolean;
+      status: "empty" | "blocked" | "unsupported";
     };
 
 function isLikelyUrl(value: string): boolean {
@@ -247,6 +249,7 @@ async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
     return {
       suggestion: null,
       canRead: false,
+      status: "unsupported",
     };
   }
 
@@ -266,10 +269,23 @@ async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
             createClipboardFile(blob)
           ),
           canRead,
+          status: "found",
         };
       }
-    } catch {
-      // Fall through to readText.
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "name" in error &&
+        typeof error.name === "string" &&
+        ["NotAllowedError", "SecurityError"].includes(error.name)
+      ) {
+        return {
+          suggestion: null,
+          canRead,
+          status: "blocked",
+        };
+      }
     }
   }
 
@@ -282,15 +298,25 @@ async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
         ? {
             suggestion,
             canRead,
+            status: "found",
           }
         : {
             suggestion: null,
             canRead,
+            status: "empty",
           };
-    } catch {
+    } catch (error) {
       return {
         suggestion: null,
         canRead,
+        status:
+          error &&
+          typeof error === "object" &&
+          "name" in error &&
+          typeof error.name === "string" &&
+          ["NotAllowedError", "SecurityError"].includes(error.name)
+            ? "blocked"
+            : "empty",
       };
     }
   }
@@ -298,6 +324,7 @@ async function getClipboardSuggestion(): Promise<ClipboardLookupResult> {
   return {
     suggestion: null,
     canRead,
+    status: "unsupported",
   };
 }
 
@@ -523,6 +550,9 @@ function CreateAgentDialogContent({
     useState<ClipboardSuggestion | null>(null);
   const [checkingClipboard, setCheckingClipboard] = useState(false);
   const [canReadClipboard, setCanReadClipboard] = useState(false);
+  const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
+    string | null
+  >(null);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
@@ -583,6 +613,7 @@ function CreateAgentDialogContent({
       setClipboardSuggestion(null);
       setCheckingClipboard(false);
       setCanReadClipboard(false);
+      setClipboardReadFeedback(null);
       setDraggingFiles(false);
     }
   }, [step]);
@@ -621,25 +652,29 @@ function CreateAgentDialogContent({
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
+      const target = event.target;
+      const targetIsPrompt =
+        target instanceof HTMLElement && target.id === CONTEXT_PROMPT_ID;
+      if (!targetIsPrompt) return;
+
       const pastedFiles = getClipboardFilesFromEvent(event);
       if (pastedFiles.length > 0) {
         event.preventDefault();
         setClipboardSuggestion(
           createClipboardSuggestionFromFile(pastedFiles[0])
         );
+        setClipboardReadFeedback(null);
         return;
       }
 
-      const target = event.target;
       const textSuggestion = createClipboardSuggestionFromText(
         event.clipboardData.getData("text/plain")
       );
-      const targetIsPrompt =
-        target instanceof HTMLElement && target.id === CONTEXT_PROMPT_ID;
 
       if (textSuggestion?.kind === "url" && targetIsPrompt) {
         event.preventDefault();
         setClipboardSuggestion(textSuggestion);
+        setClipboardReadFeedback(null);
       }
     },
     []
@@ -693,6 +728,7 @@ function CreateAgentDialogContent({
     setClipboardSuggestion(null);
     setCheckingClipboard(true);
     setCanReadClipboard(false);
+    setClipboardReadFeedback(null);
     const requestId = clipboardRequestIdRef.current + 1;
     clipboardRequestIdRef.current = requestId;
     void getClipboardSuggestion().then((result) => {
@@ -701,12 +737,15 @@ function CreateAgentDialogContent({
       setCanReadClipboard(result.canRead);
       if (result.suggestion) {
         setClipboardSuggestion(result.suggestion);
+        return;
       }
+      setClipboardReadFeedback(null);
     });
   }, []);
 
   const handleCheckClipboard = useCallback(() => {
     setCheckingClipboard(true);
+    setClipboardReadFeedback(null);
     const requestId = clipboardRequestIdRef.current + 1;
     clipboardRequestIdRef.current = requestId;
     void getClipboardSuggestion().then((result) => {
@@ -715,7 +754,14 @@ function CreateAgentDialogContent({
       setCanReadClipboard(result.canRead);
       if (result.suggestion) {
         setClipboardSuggestion(result.suggestion);
+        setClipboardReadFeedback(null);
+        return;
       }
+      setClipboardReadFeedback(
+        result.status === "blocked"
+          ? "Clipboard access was blocked. Paste into Instructions instead."
+          : "Nothing readable found. Try pasting into Instructions instead."
+      );
     });
   }, []);
 
@@ -750,6 +796,7 @@ function CreateAgentDialogContent({
     }
 
     setClipboardSuggestion(null);
+    setClipboardReadFeedback(null);
   }, [appendStartupFiles, clipboardSuggestion]);
 
   const handleSubmit = useCallback(
@@ -1212,7 +1259,6 @@ function CreateAgentDialogContent({
             data-testid="create-agent-context-form"
             className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void handleSubmit(event)}
-            onPaste={handleStartupPaste}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes("Files")) {
                 event.preventDefault();
@@ -1302,6 +1348,16 @@ function CreateAgentDialogContent({
                       )}
                       Read clipboard
                     </Button>
+                    {clipboardReadFeedback ? (
+                      <p
+                        className="mt-2 text-xs text-muted-foreground"
+                        role="status"
+                        aria-live="polite"
+                        data-testid="create-agent-context-clipboard-feedback"
+                      >
+                        {clipboardReadFeedback}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1317,6 +1373,7 @@ function CreateAgentDialogContent({
                     ref={promptTextareaRef}
                     value={initialPrompt}
                     onChange={(event) => setInitialPrompt(event.target.value)}
+                    onPaste={handleStartupPaste}
                     placeholder="Enter instructions for the agent..."
                     data-testid="create-agent-initial-prompt"
                     className={cn(
