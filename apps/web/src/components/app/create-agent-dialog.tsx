@@ -12,10 +12,10 @@ import { useAtom } from "jotai";
 import {
   Check,
   ChevronDown,
-  GitBranch,
   ChevronLeft,
+  FileText,
+  GitBranch,
   Link2,
-  Paperclip,
   Plus,
   X,
 } from "lucide-react";
@@ -63,6 +63,16 @@ const STARTUP_FILE_ACCEPT =
 
 function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function startupFileExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1
+    ? "FILE"
+    : name
+        .slice(dot + 1)
+        .toUpperCase()
+        .slice(0, 4);
 }
 
 function readStoredString(key: string): string {
@@ -322,6 +332,12 @@ function CreateAgentDialogContent({
     []
   );
 
+  // Object URLs for image previews are tracked in a ref so they're created
+  // and revoked synchronously alongside the file list, not derived from an
+  // effect — that avoids both a one-frame paperclip→thumbnail flicker on add
+  // and unnecessary URL churn for unchanged chips on every mutation.
+  const startupFilePreviewsRef = useRef<Map<string, string>>(new Map());
+
   const appendStartupFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
     setStartupFiles((current) => {
@@ -332,6 +348,12 @@ function CreateAgentDialogContent({
         if (seen.has(key)) continue;
         seen.add(key);
         next.push(file);
+        if (
+          file.type.startsWith("image/") &&
+          !startupFilePreviewsRef.current.has(key)
+        ) {
+          startupFilePreviewsRef.current.set(key, URL.createObjectURL(file));
+        }
       }
       return next;
     });
@@ -360,31 +382,26 @@ function CreateAgentDialogContent({
   );
 
   const handleRemoveStartupFile = useCallback((fileToRemove: File) => {
+    const key = startupFileKey(fileToRemove);
+    const url = startupFilePreviewsRef.current.get(key);
+    if (url) {
+      URL.revokeObjectURL(url);
+      startupFilePreviewsRef.current.delete(key);
+    }
     setStartupFiles((current) =>
-      current.filter(
-        (file) => startupFileKey(file) !== startupFileKey(fileToRemove)
-      )
+      current.filter((file) => startupFileKey(file) !== key)
     );
   }, []);
 
-  const [startupFilePreviews, setStartupFilePreviews] = useState<
-    Record<string, string>
-  >({});
-
   useEffect(() => {
-    const next: Record<string, string> = {};
-    for (const file of startupFiles) {
-      if (file.type.startsWith("image/")) {
-        next[startupFileKey(file)] = URL.createObjectURL(file);
-      }
-    }
-    setStartupFilePreviews(next);
+    const previews = startupFilePreviewsRef.current;
     return () => {
-      for (const url of Object.values(next)) {
+      for (const url of previews.values()) {
         URL.revokeObjectURL(url);
       }
+      previews.clear();
     };
-  }, [startupFiles]);
+  }, []);
 
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
@@ -876,26 +893,12 @@ function CreateAgentDialogContent({
               />
             </div>
 
-            <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-foreground">
-                    Files
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Attach images or documents.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() => startupFileInputRef.current?.click()}
-                  data-testid="create-agent-context-files-button"
-                >
-                  <Paperclip className="mr-1.5 h-3.5 w-3.5" />
-                  Add files
-                </Button>
+            <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">Files</div>
+                <p className="text-xs text-muted-foreground">
+                  Attach images or documents.
+                </p>
               </div>
               <input
                 ref={startupFileInputRef}
@@ -906,46 +909,70 @@ function CreateAgentDialogContent({
                 onChange={handleStartupFileChange}
                 data-testid="create-agent-context-files-input"
               />
-              {startupFiles.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
+              {startupFiles.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => startupFileInputRef.current?.click()}
+                  data-testid="create-agent-context-files-button"
+                  className="flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border/70 bg-background/40 px-4 py-6 text-sm text-muted-foreground transition-colors hover:border-border hover:bg-background/70 hover:text-foreground"
+                >
+                  <Plus className="h-5 w-5" />
+                  <span>Add images or documents</span>
+                </button>
+              ) : (
+                <div className="flex flex-wrap gap-3">
                   {startupFiles.map((file) => {
                     const key = startupFileKey(file);
-                    const preview = startupFilePreviews[key];
+                    const preview = startupFilePreviewsRef.current.get(key);
                     return (
                       <div
                         key={key}
-                        className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 py-1 pr-3 pl-1 text-xs text-foreground"
+                        className="group flex w-[88px] flex-col gap-1.5"
                       >
-                        {preview ? (
-                          <img
-                            src={preview}
-                            alt=""
-                            className="h-7 w-7 shrink-0 rounded-full object-cover"
-                          />
-                        ) : (
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60">
-                            <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-                          </span>
-                        )}
-                        <span className="max-w-[260px] truncate">
+                        <div className="relative h-[72px] w-[72px] overflow-hidden rounded-md border border-border/70 bg-muted/40">
+                          {preview ? (
+                            <img
+                              src={preview}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                              <FileText className="h-6 w-6" />
+                              <span className="text-[10px] font-medium tracking-wide">
+                                {startupFileExt(file.name)}
+                              </span>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                            onClick={() => handleRemoveStartupFile(file)}
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                        <span
+                          className="w-[72px] truncate text-[11px] text-muted-foreground"
+                          title={file.name}
+                        >
                           {file.name}
                         </span>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground"
-                          onClick={() => handleRemoveStartupFile(file)}
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
                       </div>
                     );
                   })}
+                  <button
+                    type="button"
+                    onClick={() => startupFileInputRef.current?.click()}
+                    data-testid="create-agent-context-files-button"
+                    aria-label="Add more files"
+                    className="flex h-[72px] w-[72px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border/70 bg-background/40 text-[11px] text-muted-foreground transition-colors hover:border-border hover:bg-background/70 hover:text-foreground"
+                  >
+                    <Plus className="h-5 w-5" />
+                    <span>Add</span>
+                  </button>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  No files added yet.
-                </p>
               )}
             </div>
 
