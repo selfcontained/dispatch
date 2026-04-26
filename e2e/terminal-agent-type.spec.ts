@@ -255,7 +255,7 @@ test.describe("Terminal agent type", () => {
     ).toBeVisible();
   });
 
-  test("create with context suggests a copied link without auto-attaching it", async ({
+  test("create with context reads a copied link only from the explicit action", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -266,6 +266,13 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
+
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).not.toBeVisible();
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied link?");
@@ -281,7 +288,7 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toBeVisible();
   });
 
-  test("create with context treats rich-text links as links, not files", async ({
+  test("create with context treats rich-text clipboard links as links, not files", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -293,13 +300,16 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied link?");
     await expect(cta).not.toContainText("Clipboard file ready");
   });
 
-  test("create with context advances before clipboard lookup resolves", async ({
+  test("create with context opens without auto-reading the clipboard", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -313,12 +323,9 @@ test.describe("Terminal agent type", () => {
 
     await expect(page.getByTestId("create-agent-context-form")).toBeVisible();
     await expect(page.getByText("Create with context")).toBeVisible();
-
-    await page.evaluate(() => window.__dispatchResolveClipboardRead?.());
-
     await expect(
       page.getByTestId("create-agent-context-clipboard-cta")
-    ).toContainText("Add copied link?");
+    ).not.toBeVisible();
   });
 
   test("create with context can retry clipboard detection from an explicit button", async ({
@@ -337,9 +344,14 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-clipboard-check")
     ).toBeVisible();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    const readClipboard = page.getByTestId(
+      "create-agent-context-clipboard-check-action"
+    );
+    await readClipboard.click();
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-feedback")
+    ).toContainText("Nothing readable found.");
+    await readClipboard.click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied link?");
@@ -480,6 +492,10 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).not.toBeVisible();
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
     await expect(cta).toBeVisible();
 
     await page.getByTestId("create-agent-context-clipboard-dismiss").click();
@@ -487,7 +503,7 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toBeVisible();
   });
 
-  test("create with context suggests a clipboard image without auto-attaching it", async ({
+  test("create with context reads a clipboard image only from the explicit action", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -499,6 +515,9 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Add copied image?");

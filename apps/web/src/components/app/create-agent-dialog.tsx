@@ -493,33 +493,6 @@ function CreateAgentDialogContent({
     }
   }, [step]);
 
-  useEffect(() => {
-    if (step !== "context") return;
-
-    const clipboardSupported = clipboardReadSupported();
-    setCanReadClipboard(clipboardSupported);
-    setClipboardReadFeedback(null);
-    setClipboardSuggestion(null);
-
-    if (!clipboardSupported) {
-      setCheckingClipboard(false);
-      return;
-    }
-
-    setCheckingClipboard(true);
-    const requestId = clipboardRequestIdRef.current + 1;
-    clipboardRequestIdRef.current = requestId;
-
-    void getClipboardSuggestion().then((result) => {
-      if (clipboardRequestIdRef.current !== requestId) return;
-      setCheckingClipboard(false);
-      setCanReadClipboard(result.canRead);
-      if (result.suggestion) {
-        setClipboardSuggestion(result.suggestion);
-      }
-    });
-  }, [step]);
-
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -646,7 +619,7 @@ function CreateAgentDialogContent({
     setStep("context");
     setClipboardSuggestion(null);
     setCheckingClipboard(false);
-    setCanReadClipboard(false);
+    setCanReadClipboard(clipboardReadSupported());
     setClipboardReadFeedback(null);
   }, []);
 
