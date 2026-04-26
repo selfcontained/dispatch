@@ -24,6 +24,7 @@ async function stubClipboard(
     | { kind: "text"; text: string }
     | { kind: "deferred-text"; firstText: string; nextText: string }
     | { kind: "blocked" }
+    | { kind: "unsupported" }
     | { kind: "rich-text-link"; text: string; html: string }
     | { kind: "image"; mimeType?: string; bytes?: number[] }
 ): Promise<void> {
@@ -74,10 +75,12 @@ async function stubClipboard(
                     throw new DOMException("Blocked", "NotAllowedError");
                   },
                 }
-              : {
-                  read: async () => [],
-                  readText: async () => value.text,
-                };
+              : value.kind === "unsupported"
+                ? undefined
+                : {
+                    read: async () => [],
+                    readText: async () => value.text,
+                  };
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -321,6 +324,22 @@ test.describe("Terminal agent type", () => {
       .getByTestId("create-agent-context-clipboard-check-action")
       .click();
     await expect(status).toContainText("Clipboard blocked by the browser.");
+  });
+
+  test("create with context explains unsupported clipboard access", async ({
+    page,
+  }) => {
+    await stubClipboard(page, { kind: "unsupported" });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const status = page.getByTestId("create-agent-context-clipboard-status");
+    await expect(status).toContainText("Clipboard read is unavailable here.");
+    await expect(status).toContainText(
+      "Use files, links, or instructions instead."
+    );
   });
 
   test("create with context lets the user dismiss a clipboard suggestion", async ({

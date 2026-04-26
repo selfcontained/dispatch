@@ -764,11 +764,11 @@ function CreateAgentDialogContent({
   const clipboardCheckMessage = checkingClipboard
     ? "Checking clipboard..."
     : clipboardCheckState === "blocked"
-      ? "Clipboard blocked by the browser."
+      ? "Clipboard blocked by the browser. Allow access and try again, or add files, links, or instructions manually."
       : clipboardCheckState === "unsupported"
-        ? "Clipboard read is unavailable here."
+        ? "Clipboard read is unavailable here. Use files, links, or instructions instead."
         : clipboardCheckState === "empty"
-          ? "No readable clipboard content found."
+          ? "No readable clipboard content found. Copy something and try again, or continue manually."
           : null;
 
   const clipboardCheckDetails =
