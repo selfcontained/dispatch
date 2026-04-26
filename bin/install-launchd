@@ -29,6 +29,7 @@ deploy_from_artifact() {
   git -C "$SERVER_DIR" fetch --tags --quiet
   git -C "$SERVER_DIR" checkout "$tag" 2>/dev/null || true
 
+  rm -rf "$SERVER_DIR/dist/bun"
   tar xzf "$tarball" --no-same-owner -C "$SERVER_DIR"
   rm -f "$tarball"
 }

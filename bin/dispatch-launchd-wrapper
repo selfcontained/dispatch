@@ -37,7 +37,11 @@ if [[ ! -e "${matches[1]}" ]]; then
   exit 1
 fi
 
-BINARY="${matches[1]}"
+BINARY=$(ls -t "$ROOT_DIR"/dist/bun/dispatch-*-bun-${PLATFORM}-${ARCH} 2>/dev/null | head -n 1)
+if [[ -z "$BINARY" ]]; then
+  echo "error: failed to select Dispatch binary for ${PLATFORM}/${ARCH}" >&2
+  exit 1
+fi
 
 cd "$ROOT_DIR"
 exec "$BINARY"
