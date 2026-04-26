@@ -904,8 +904,12 @@ const serverDir =
   path.join(os.homedir(), ".dispatch", "server");
 
 function dispatchHealthUrl(): string {
+  return `${dispatchBaseUrl()}/api/v1/health`;
+}
+
+function dispatchBaseUrl(): string {
   const protocol = config.tls ? "https" : "http";
-  return `${protocol}://127.0.0.1:${config.port}/api/v1/health`;
+  return `${protocol}://127.0.0.1:${config.port}`;
 }
 
 async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
@@ -2536,7 +2540,11 @@ async function registerRoutes() {
       let assistedToken: string | null = null;
       let assistedPromptAddendum = "";
       if (assistedMeta) {
-        const baseUrl = `${request.protocol}://${request.headers.host ?? "127.0.0.1:6767"}`;
+        // The launched agent runs on the same host as the server, so we
+        // build the phase-callback URL from server config rather than the
+        // inbound request's Host header (which is attacker-controllable
+        // for non-browser clients).
+        const baseUrl = dispatchBaseUrl();
         const ctx = await buildAssistedUpdateContext(
           {
             tag: body.tag,
@@ -2627,10 +2635,15 @@ async function registerRoutes() {
       activeReleaseJob.phase = result.state.phase as ReleasePhase;
       activeReleaseJob.assisted = result.state;
       if (result.state.error) activeReleaseJob.error = result.state.error;
-      const summary =
-        body.note && typeof body.note === "string"
-          ? `==> phase ${result.state.phase}: ${body.note}`
-          : `==> phase ${result.state.phase}`;
+      // Use the persisted (clamped) note rather than the raw post body so
+      // a single oversized POST can't produce a multi-megabyte log line,
+      // and strip newlines so an embedded "\n==>" can't fake adjacent
+      // log lines in the operator UI.
+      const persistedNote = result.state.notes[result.state.phase];
+      const safeNote = persistedNote?.replace(/[\r\n]+/g, " ");
+      const summary = safeNote
+        ? `==> phase ${result.state.phase}: ${safeNote}`
+        : `==> phase ${result.state.phase}`;
       appendReleaseLog(activeReleaseJob, summary);
       broadcastReleaseEvent({ type: "phase", phase: activeReleaseJob.phase });
       broadcastReleaseEvent({ type: "assisted", state: result.state });

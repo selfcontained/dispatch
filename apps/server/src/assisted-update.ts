@@ -1,5 +1,19 @@
 import os from "node:os";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+
+const MAX_NOTE_BYTES = 4096;
+
+function tokensEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf-8");
+  const bb = Buffer.from(b, "utf-8");
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+function clampNote(s: string | undefined): string | undefined {
+  if (s === undefined) return undefined;
+  return s.length > MAX_NOTE_BYTES ? s.slice(0, MAX_NOTE_BYTES) : s;
+}
 import {
   isAssistedUpdateRequired,
   normalizeRequiredChecks,
@@ -77,7 +91,7 @@ export async function applyAssistedPhase(input: {
 > {
   const state = await readAssistedUpdateState();
   if (!state) return { ok: false, reason: "no active assisted update" };
-  if (state.token !== input.token)
+  if (!tokensEqual(state.token, input.token))
     return { ok: false, reason: "invalid token" };
   if (!ASSISTED_PHASES.includes(input.phase)) {
     return { ok: false, reason: `unknown phase: ${input.phase}` };
@@ -90,8 +104,13 @@ export async function applyAssistedPhase(input: {
   }
   state.phase = input.phase;
   state.updatedAt = new Date().toISOString();
-  if (input.note) state.notes[input.phase] = input.note;
-  if (input.error) state.error = input.error;
+  // Cap the per-phase strings before they hit disk + SSE replay so a
+  // misbehaving agent can't bloat ~/.dispatch/assisted-update.json or
+  // every snapshot reconnect.
+  const note = clampNote(input.note);
+  const error = clampNote(input.error);
+  if (note) state.notes[input.phase] = note;
+  if (error) state.error = error;
   if (isTerminalPhase(input.phase)) {
     state.completedAt = state.completedAt ?? new Date().toISOString();
   }
@@ -104,7 +123,7 @@ export async function attachAssistedAgent(
   agentId: string
 ): Promise<AssistedUpdateState | null> {
   const state = await readAssistedUpdateState();
-  if (!state || state.token !== token) return null;
+  if (!state || !tokensEqual(state.token, token)) return null;
   state.agentId = agentId;
   state.updatedAt = new Date().toISOString();
   await writeAssistedUpdateState(state);
