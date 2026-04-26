@@ -39,7 +39,9 @@ test.describe("Mobile layout", () => {
   test("design lab previews silent-mode enter feedback concepts", async ({
     page,
   }) => {
-    await gotoMobile(page, "/design-lab");
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.goto("/design-lab", { waitUntil: "domcontentloaded" });
+    await page.locator("main").waitFor({ state: "visible", timeout: 10_000 });
 
     await expect(
       page.getByRole("heading", { name: "Mobile Enter feedback studies" })
@@ -51,6 +53,15 @@ test.describe("Mobile layout", () => {
     await expect(haloCount).toContainText("0 preview taps");
     await haloEnter.click();
     await expect(haloCount).toContainText("1 preview taps");
+
+    await expect(page.getByRole("button", { name: "Esc" })).toHaveCount(0);
+
+    await expect
+      .poll(async () => {
+        const box = await haloEnter.boundingBox();
+        return box ? Math.round(box.x + box.width) : null;
+      })
+      .toBeLessThanOrEqual(320);
 
     await expect(page.getByTestId("enter-feedback-sweep")).toBeVisible();
     await expect(page.getByTestId("enter-feedback-chip")).toBeVisible();

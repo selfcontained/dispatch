@@ -115,17 +115,28 @@ function KeyCap({
   className?: string;
   testId?: string;
 }) {
+  const classes = cn(
+    "relative flex items-center justify-center rounded-[1.75rem] border border-white/10 bg-white/[0.05] px-4 py-4 text-lg font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] transition-transform duration-150",
+    wide ? "min-h-[6.5rem] w-[8.2rem]" : "min-h-[4.3rem] w-[4.7rem]",
+    onClick && "active:scale-[0.98]",
+    className
+  );
+
+  if (!onClick) {
+    return (
+      <div aria-hidden="true" data-testid={testId} className={classes}>
+        <span className="relative z-10">{label}</span>
+        {children}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
       data-testid={testId}
-      className={cn(
-        "relative flex items-center justify-center rounded-[1.75rem] border border-white/10 bg-white/[0.05] px-4 py-4 text-lg font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.32)] transition-transform duration-150",
-        wide ? "min-h-[6.5rem] w-[8.2rem]" : "min-h-[4.3rem] w-[4.7rem]",
-        onClick && "active:scale-[0.98]",
-        className
-      )}
+      className={classes}
     >
       <span className="relative z-10">{label}</span>
       {children}
@@ -170,81 +181,83 @@ function FeedbackDemo({ concept }: { concept: FeedbackConcept }) {
 
       <CardContent className="space-y-4 p-4">
         <div className="overflow-hidden rounded-[2rem] border border-white/8 bg-[#0a0c11] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <div className="mx-auto max-w-[22rem]">
-            <div className="mb-4 rounded-[1.4rem] border border-white/8 bg-[radial-gradient(circle_at_30%_0%,rgba(87,132,255,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] p-3">
-              <div className="flex items-center gap-2 text-xs text-white/60">
-                <Keyboard className="h-3.5 w-3.5" />
-                Mobile shortcut keys
-              </div>
-              <div className="mt-3 h-20 rounded-[1.2rem] border border-white/8 bg-black/25" />
-            </div>
-
-            <div className="grid grid-cols-[1.15fr_2fr_1.15fr] gap-3">
-              <KeyCap label="" wide className="justify-center">
-                <Keyboard className="h-7 w-7 text-white/90" strokeWidth={2} />
-              </KeyCap>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <KeyCap label="Esc" className="min-h-[4rem]" />
-                  <KeyCap label="Ctrl" className="min-h-[4rem]" />
-                  <KeyCap label="Tab" className="min-h-[4rem]" />
+          <div className="mx-auto h-[16rem] w-full max-w-[22rem] overflow-visible sm:h-auto">
+            <div className="w-fit origin-top scale-[0.67] sm:scale-[0.8] md:scale-100">
+              <div className="mb-4 rounded-[1.4rem] border border-white/8 bg-[radial-gradient(circle_at_30%_0%,rgba(87,132,255,0.14),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))] p-3">
+                <div className="flex items-center gap-2 text-xs text-white/60">
+                  <Keyboard className="h-3.5 w-3.5" />
+                  Mobile shortcut keys
                 </div>
-                <div className="grid grid-cols-4 gap-3">
-                  <KeyCap label="←" className="min-h-[4rem]" />
-                  <KeyCap label="↑" className="min-h-[4rem]" />
-                  <KeyCap label="↓" className="min-h-[4rem]" />
-                  <KeyCap label="→" className="min-h-[4rem]" />
-                </div>
+                <div className="mt-3 h-20 rounded-[1.2rem] border border-white/8 bg-black/25" />
               </div>
 
-              <KeyCap
-                label="Enter"
-                wide
-                onClick={trigger}
-                testId={`enter-feedback-${concept.id}`}
-                className={cn(
-                  "overflow-visible",
-                  pressed &&
-                    "scale-[0.985] border-white/20 bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_0_0_1px_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.4)]"
-                )}
-              >
-                {tapCount > 0 ? (
-                  <>
-                    {concept.id === "halo" ? (
-                      <>
-                        <span
-                          key={`halo-ring-${tapCount}`}
-                          className="pointer-events-none absolute -inset-2 rounded-[2rem] border border-cyan-300/70 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)]"
-                        />
-                        <span
-                          key={`halo-glow-${tapCount}`}
-                          className="pointer-events-none absolute -inset-3 rounded-[2.4rem] bg-cyan-300/20 blur-xl animate-[design-lab-glow_680ms_ease-out]"
-                        />
-                      </>
-                    ) : null}
+              <div className="grid grid-cols-[1.15fr_2fr_1.15fr] gap-3">
+                <KeyCap label="" wide className="justify-center">
+                  <Keyboard className="h-7 w-7 text-white/90" strokeWidth={2} />
+                </KeyCap>
 
-                    {concept.id === "sweep" ? (
-                      <span
-                        key={`sweep-${tapCount}`}
-                        className={cn(
-                          "pointer-events-none absolute left-[-7rem] top-1/2 h-2 w-28 -translate-y-1/2 rounded-full bg-gradient-to-r blur-[1px] animate-[design-lab-sweep_760ms_cubic-bezier(0.16,1,0.3,1)]",
-                          concept.accentClass
-                        )}
-                      />
-                    ) : null}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <KeyCap label="Esc" className="min-h-[4rem]" />
+                    <KeyCap label="Ctrl" className="min-h-[4rem]" />
+                    <KeyCap label="Tab" className="min-h-[4rem]" />
+                  </div>
+                  <div className="grid grid-cols-4 gap-3">
+                    <KeyCap label="←" className="min-h-[4rem]" />
+                    <KeyCap label="↑" className="min-h-[4rem]" />
+                    <KeyCap label="↓" className="min-h-[4rem]" />
+                    <KeyCap label="→" className="min-h-[4rem]" />
+                  </div>
+                </div>
 
-                    {concept.id === "chip" ? (
-                      <span
-                        key={`chip-${tapCount}`}
-                        className="pointer-events-none absolute -top-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-emerald-300/35 bg-emerald-300/16 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 animate-[design-lab-chip_820ms_cubic-bezier(0.16,1,0.3,1)]"
-                      >
-                        {concept.effectLabel}
-                      </span>
-                    ) : null}
-                  </>
-                ) : null}
-              </KeyCap>
+                <KeyCap
+                  label="Enter"
+                  wide
+                  onClick={trigger}
+                  testId={`enter-feedback-${concept.id}`}
+                  className={cn(
+                    "overflow-visible",
+                    pressed &&
+                      "scale-[0.985] border-white/20 bg-white/[0.09] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_0_0_1px_rgba(255,255,255,0.08),0_14px_36px_rgba(0,0,0,0.4)]"
+                  )}
+                >
+                  {tapCount > 0 ? (
+                    <>
+                      {concept.id === "halo" ? (
+                        <>
+                          <span
+                            key={`halo-ring-${tapCount}`}
+                            className="pointer-events-none absolute -inset-2 rounded-[2rem] border border-cyan-300/70 animate-[design-lab-halo_680ms_cubic-bezier(0.16,1,0.3,1)]"
+                          />
+                          <span
+                            key={`halo-glow-${tapCount}`}
+                            className="pointer-events-none absolute -inset-3 rounded-[2.4rem] bg-cyan-300/20 blur-xl animate-[design-lab-glow_680ms_ease-out]"
+                          />
+                        </>
+                      ) : null}
+
+                      {concept.id === "sweep" ? (
+                        <span
+                          key={`sweep-${tapCount}`}
+                          className={cn(
+                            "pointer-events-none absolute left-[-7rem] top-1/2 h-2 w-28 -translate-y-1/2 rounded-full bg-gradient-to-r blur-[1px] animate-[design-lab-sweep_760ms_cubic-bezier(0.16,1,0.3,1)]",
+                            concept.accentClass
+                          )}
+                        />
+                      ) : null}
+
+                      {concept.id === "chip" ? (
+                        <span
+                          key={`chip-${tapCount}`}
+                          className="pointer-events-none absolute -top-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-emerald-300/35 bg-emerald-300/16 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100 animate-[design-lab-chip_820ms_cubic-bezier(0.16,1,0.3,1)]"
+                        >
+                          {concept.effectLabel}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+                </KeyCap>
+              </div>
             </div>
           </div>
         </div>
