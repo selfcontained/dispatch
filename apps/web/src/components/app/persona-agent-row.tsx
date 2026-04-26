@@ -321,8 +321,7 @@ export function PersonaAgentRow({
         hasFeedback && "cursor-pointer hover:bg-muted/50",
         isSelected && "bg-muted/35",
         (isSelected || isReviewing) && "rounded-lg",
-        isReviewing && "persona-reviewing-row",
-        childIsActive && "bg-muted/35"
+        isReviewing && "persona-reviewing-row"
       )}
     >
       <div className="flex shrink-0 items-center pt-0.5">
@@ -456,13 +455,6 @@ export function PersonaAgentRow({
           )
         ) : null}
       </div>
-      {childIsActive ? (
-        <span
-          aria-hidden="true"
-          data-testid={`review-agent-active-band-${child.id}`}
-          className="absolute inset-y-0 right-0 w-1 rounded-r-lg bg-status-done"
-        />
-      ) : null}
     </div>
   );
 }
