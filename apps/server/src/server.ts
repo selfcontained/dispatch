@@ -56,7 +56,6 @@ import {
   assemblePersonaPrompt,
 } from "./personas/loader.js";
 import { buildPersonaReviewDiff } from "./personas/review-diff.js";
-import { truncateDiffForPrompt } from "./personas/loader.js";
 import {
   buildParentRound1FeedbackPrompt,
   buildParentReviewCompletePrompt,
@@ -2071,6 +2070,7 @@ async function registerRoutes() {
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
       getParentContext: mcpGetParentContext,
+      getRecheckContext: mcpGetRecheckContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
       getActivitySummary: (params) =>
@@ -6183,21 +6183,10 @@ async function mcpSubmitResolution(
     });
 
   if (result.review.status === "awaiting_recheck" && child) {
-    const [resolutions, rawDiff] = await Promise.all([
-      agentManager.listResolvedFeedbackForRound(
-        input.personaAgentId,
-        result.resolution.roundNumber
-      ),
-      result.review.lastReviewedCommit
-        ? diffSinceCommit(child.cwd, result.review.lastReviewedCommit)
-        : Promise.resolve(""),
-    ]);
-    const reviewerPrompt = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: result.resolution.summary,
-      resolutions,
-      diffSincePreviousRound: truncateDiffForPrompt(rawDiff),
-    });
-    await injectTmuxPrompt(input.personaAgentId, reviewerPrompt);
+    await injectTmuxPrompt(
+      input.personaAgentId,
+      buildReviewerRecheckReadyPrompt()
+    );
   }
 
   return result;
@@ -6356,6 +6345,41 @@ async function mcpGetParentContext(
       source: m.source,
       createdAt: m.createdAt,
     })),
+  };
+}
+
+async function mcpGetRecheckContext(
+  agentId: string
+): Promise<import("./shared/mcp/server.js").RecheckContextResult | null> {
+  const context = await agentManager.getReviewerRecheckContext(agentId);
+  if (!context) {
+    return null;
+  }
+  if (context.review.status !== "awaiting_recheck") {
+    throw new Error(
+      "Recheck context is only available while the review is awaiting recheck."
+    );
+  }
+
+  const lastReviewedCommit = context.review.lastReviewedCommit;
+  const resolutionCommit = context.resolution.resolutionCommit;
+  const compareRange =
+    lastReviewedCommit && resolutionCommit
+      ? `${lastReviewedCommit}...${resolutionCommit}`
+      : null;
+
+  return {
+    persona: context.review.persona,
+    reviewId: context.review.id,
+    reviewRoundNumber: context.review.roundNumber,
+    resolutionRoundNumber: context.resolution.roundNumber,
+    resolutionSummary: context.resolution.summary,
+    lastReviewedCommit,
+    resolutionCommit,
+    compareRange,
+    gitDiffCommand: compareRange ? `git diff ${compareRange}` : null,
+    submittedAt: context.resolution.submittedAt,
+    resolutions: context.resolutions,
   };
 }
 
@@ -6565,21 +6589,6 @@ async function injectTmuxPrompt(
       "Failed to inject tmux prompt — agent may have exited"
     );
   }
-}
-
-async function diffSinceCommit(
-  cwd: string,
-  baseCommit: string
-): Promise<string> {
-  const result = await runCommand(
-    "git",
-    ["-C", cwd, "diff", `${baseCommit}...HEAD`],
-    { allowedExitCodes: [0, 128] }
-  );
-  if (result.exitCode !== 0) {
-    return "";
-  }
-  return result.stdout;
 }
 
 async function mcpShareMedia(

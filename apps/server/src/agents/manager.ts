@@ -273,6 +273,12 @@ export type PersonaReviewResolutionItem = {
   roundNumber: number;
 };
 
+export type ReviewerRecheckContext = {
+  review: PersonaReviewRecord;
+  resolution: PersonaReviewResolutionRecord;
+  resolutions: PersonaReviewResolutionItem[];
+};
+
 type AgentLatestEventInput = {
   type: AgentLatestEventType;
   message: string;
@@ -4161,6 +4167,29 @@ export class AgentManager {
       [reviewId]
     );
     return result.rows;
+  }
+
+  async getReviewerRecheckContext(
+    agentId: string
+  ): Promise<ReviewerRecheckContext | null> {
+    const review = await this.getPersonaReview(agentId);
+    if (!review) {
+      return null;
+    }
+
+    const resolution = (await this.getReviewResolutions(review.id)).at(-1);
+    if (!resolution) {
+      return null;
+    }
+
+    return {
+      review,
+      resolution,
+      resolutions: await this.listResolvedFeedbackForRound(
+        agentId,
+        resolution.roundNumber
+      ),
+    };
   }
 
   async countFeedbackForAgent(agentId: string): Promise<number> {

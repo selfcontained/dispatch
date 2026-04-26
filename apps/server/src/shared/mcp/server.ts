@@ -190,6 +190,7 @@ const JOB_TOOLS = new Set([
 const PERSONA_TOOLS = new Set([
   "review_status",
   "dispatch_complete_review",
+  "dispatch_get_recheck_context",
   "dispatch_event",
   "dispatch_pin",
   "dispatch_share",
@@ -226,6 +227,32 @@ export type ParentContextResult = {
     description: string | null;
     source: string;
     createdAt: string;
+  }>;
+};
+
+export type RecheckContextResult = {
+  persona: string;
+  reviewId: number;
+  reviewRoundNumber: number;
+  resolutionRoundNumber: number;
+  resolutionSummary: string;
+  lastReviewedCommit: string | null;
+  resolutionCommit: string | null;
+  compareRange: string | null;
+  gitDiffCommand: string | null;
+  submittedAt: string;
+  resolutions: Array<{
+    feedbackId: number;
+    originalDescription: string;
+    originalSeverity: string;
+    status: string;
+    reason: string | null;
+    filePath: string | null;
+    lineNumber: number | null;
+    suggestion: string | null;
+    resolutionCommit: string | null;
+    resolvedAt: string | null;
+    roundNumber: number;
   }>;
 };
 
@@ -323,6 +350,7 @@ export type McpRequestContext = {
   ) => Promise<void>;
   deletePin?: (agentId: string, label: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
+  getRecheckContext?: (agentId: string) => Promise<RecheckContextResult | null>;
   updateReviewStatus?: (
     agentId: string,
     input: { status: string; message?: string }
@@ -557,6 +585,42 @@ async function createDispatchMcpServer(
           }
           return {
             content: [{ type: "text", text: parts.join("\n") }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_get_recheck_context (persona) ────────────────────────
+  if (
+    allowed.has("dispatch_get_recheck_context") &&
+    context.agent &&
+    context.getRecheckContext
+  ) {
+    const agentId = context.agent.id;
+    const getRecheckContext = context.getRecheckContext;
+
+    server.registerTool(
+      "dispatch_get_recheck_context",
+      {
+        description:
+          "Reviewer-only. Available during round-2 recheck. Returns the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await getRecheckContext(agentId);
+          if (!result) {
+            throw new Error("No recheck context is available for this review.");
+          }
+          const compareText = result.compareRange
+            ? `Inspect ${result.compareRange}.`
+            : "No compare range is available for this recheck.";
+          return {
+            content: [{ type: "text", text: compareText }],
             structuredContent: result,
           };
         } catch (error) {

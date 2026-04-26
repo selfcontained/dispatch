@@ -186,10 +186,12 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Recheck round-trip");
     expect(result).toContain("dispatch_complete_review");
     expect(result).toContain("respondsToFeedbackId");
+    expect(result).toContain("dispatch_get_recheck_context");
     // Round-trip transitions are pushed via terminal injection, not polled.
     expect(result).not.toContain("dispatch_await_recheck");
     expect(result).not.toContain("pollAgainInSeconds");
-    expect(result).toMatch(/push a new prompt/i);
+    expect(result).toMatch(/push a short prompt/i);
+    expect(result).toMatch(/exact commit range/i);
 
     const guidanceIdx = result.indexOf("Recheck round-trip");
     const contextIdx = result.indexOf("## Context from parent agent");
