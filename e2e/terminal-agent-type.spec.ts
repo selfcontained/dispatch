@@ -23,6 +23,7 @@ async function stubClipboard(
   config:
     | { kind: "text"; text: string }
     | { kind: "deferred-text"; firstText: string; nextText: string }
+    | { kind: "blocked" }
     | { kind: "rich-text-link"; text: string; html: string }
     | { kind: "image"; mimeType?: string; bytes?: number[] }
 ): Promise<void> {
@@ -64,10 +65,19 @@ async function stubClipboard(
                   return current;
                 },
               }
-            : {
-                read: async () => [],
-                readText: async () => value.text,
-              };
+            : value.kind === "blocked"
+              ? {
+                  read: async () => {
+                    throw new DOMException("Blocked", "NotAllowedError");
+                  },
+                  readText: async () => {
+                    throw new DOMException("Blocked", "NotAllowedError");
+                  },
+                }
+              : {
+                  read: async () => [],
+                  readText: async () => value.text,
+                };
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -293,6 +303,24 @@ test.describe("Terminal agent type", () => {
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).toContainText("Copied link ready");
+  });
+
+  test("create with context explains blocked clipboard access", async ({
+    page,
+  }) => {
+    await stubClipboard(page, { kind: "blocked" });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const fallback = page.getByTestId("create-agent-context-clipboard-check");
+    await expect(fallback).toContainText("Clipboard access was blocked");
+
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
+    await expect(fallback).toContainText("Allow clipboard access");
   });
 
   test("create with context lets the user dismiss a clipboard suggestion", async ({
