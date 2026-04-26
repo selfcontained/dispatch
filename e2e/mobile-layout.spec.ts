@@ -65,6 +65,7 @@ test.describe("Mobile layout", () => {
 
     await expect(disconnectedEnterButton).toBeDisabled();
     await expect(disconnectedInputButton).toBeDisabled();
+    await expect(ctrlButton).toBeDisabled();
     await expect(page.getByTestId("toolbar-flash-enter")).toHaveCount(0);
 
     const { id } = await seedTerminalAgent(request);

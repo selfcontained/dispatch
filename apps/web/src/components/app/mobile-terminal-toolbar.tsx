@@ -181,6 +181,7 @@ export function MobileTerminalToolbar({
                   e.preventDefault();
                   toggleCtrl();
                 }}
+                disabled={!isConnected}
               >
                 Ctrl
               </Button>
