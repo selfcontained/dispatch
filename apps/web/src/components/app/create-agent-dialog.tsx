@@ -538,18 +538,6 @@ function CreateAgentDialogContent({
     setAddOpen(false);
   }, [linkDraft]);
 
-  // Radix Popover defaults to z-50 inline, but DialogContent is z-70.
-  // Bump the popper wrapper while this dialog content is mounted.
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent =
-      "[data-radix-popper-content-wrapper]{z-index:80!important}";
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
-  }, []);
-
   const handleContextDragEnter = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -1113,7 +1101,7 @@ function CreateAgentDialogContent({
                       )}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-56 p-1">
+                  <PopoverContent align="center" className="w-56 p-1">
                     {addMode === "menu" ? (
                       <AddContextMenu
                         onAddFile={handleAddFileFromMenu}
