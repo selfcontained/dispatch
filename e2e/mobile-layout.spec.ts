@@ -36,6 +36,26 @@ async function seedJob(request: APIRequestContext): Promise<void> {
 }
 
 test.describe("Mobile layout", () => {
+  test("design lab previews silent-mode enter feedback concepts", async ({
+    page,
+  }) => {
+    await gotoMobile(page, "/design-lab");
+
+    await expect(
+      page.getByRole("heading", { name: "Mobile Enter feedback studies" })
+    ).toBeVisible();
+
+    const haloEnter = page.getByTestId("enter-feedback-halo");
+    const haloCount = page.getByTestId("feedback-count-halo");
+
+    await expect(haloCount).toContainText("0 preview taps");
+    await haloEnter.click();
+    await expect(haloCount).toContainText("1 preview taps");
+
+    await expect(page.getByTestId("enter-feedback-sweep")).toBeVisible();
+    await expect(page.getByTestId("enter-feedback-chip")).toBeVisible();
+  });
+
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
     page,
     request,

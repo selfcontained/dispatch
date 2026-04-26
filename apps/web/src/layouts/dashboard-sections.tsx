@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { lazy, Suspense, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { BarChart3, History, PanelRightOpen } from "lucide-react";
 
@@ -16,12 +16,16 @@ import {
 } from "@/components/app/settings-pane";
 import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
 import { type ServiceState } from "@/components/app/types";
-import { DesignLab } from "@/components/app/design-lab";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/App";
 import { agentRoute } from "@/lib/agent-routes";
+
+const DesignLab = lazy(async () => {
+  const module = await import("@/components/app/design-lab");
+  return { default: module.DesignLab };
+});
 
 function serviceDotClass(state: ServiceState): string {
   if (state === "ok") return "bg-status-working";
@@ -304,7 +308,15 @@ export function DesignLabRoute(): JSX.Element {
   return (
     <SectionShell>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-        <DesignLab />
+        <Suspense
+          fallback={
+            <div className="p-8 text-sm text-muted-foreground">
+              Loading design lab…
+            </div>
+          }
+        >
+          <DesignLab />
+        </Suspense>
       </div>
     </SectionShell>
   );
