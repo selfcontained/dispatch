@@ -1,5 +1,6 @@
 ## What's Changed
-* Upgrade Fastify server stack to v5 by @selfcontained in https://github.com/selfcontained/dispatch/pull/413
+* docs: update Worktrees + Agents sections for CRU-139 by @selfcontained in https://github.com/selfcontained/dispatch/pull/417
+* Expand create agent startup context by @selfcontained in https://github.com/selfcontained/dispatch/pull/415
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.17.13...v0.18.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.0...v0.18.1
