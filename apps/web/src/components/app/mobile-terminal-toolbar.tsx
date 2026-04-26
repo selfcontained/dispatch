@@ -50,18 +50,23 @@ export function MobileTerminalToolbar({
   }, [flashState]);
 
   const triggerFlash = useCallback((key: string) => {
-    setFlashState({ key, token: Date.now() });
+    setFlashState(null);
+    requestAnimationFrame(() => {
+      setFlashState({ key, token: Date.now() });
+    });
   }, []);
 
-  const renderFlash = useCallback(
+  const flashButtonClass = useCallback(
     (key: string) =>
-      flashState?.key === key ? (
-        <span
-          key={`${key}-${flashState.token}`}
-          data-testid={`toolbar-flash-${key}`}
-          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 animate-mobile-toolbar-flash bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
-        />
-      ) : null,
+      flashState?.key === key
+        ? "animate-mobile-toolbar-flash bg-[linear-gradient(180deg,rgba(190,240,255,0.22),rgba(190,240,255,0.06))] shadow-[inset_0_0_0_1px_rgba(190,240,255,0.22),0_0_30px_rgba(100,190,255,0.12)]"
+        : "",
+    [flashState]
+  );
+
+  const flashDataState = useCallback(
+    (key: string) =>
+      flashState?.key === key ? `flash-${flashState.token}` : "",
     [flashState]
   );
 
@@ -128,12 +133,15 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="relative h-full w-full overflow-hidden rounded-bl-[28px] px-2 text-xs"
+              className={cn(
+                "h-full w-full rounded-bl-[28px] px-2 text-xs",
+                flashButtonClass("input")
+              )}
               aria-label="Open text input"
               onClick={openInput}
               disabled={!isConnected}
+              data-flash-state={flashDataState("input")}
             >
-              {renderFlash("input")}
               <Keyboard className="h-5 w-5" strokeWidth={2} />
             </Button>
           </div>
@@ -144,12 +152,15 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
+                className={cn(
+                  "h-8 shrink-0 px-3 text-xs",
+                  flashButtonClass("esc")
+                )}
                 aria-label="Send Escape"
                 onClick={() => sendKey("\u001b", "esc")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("esc")}
               >
-                {renderFlash("esc")}
                 Esc
               </Button>
               <Button
@@ -174,12 +185,15 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 shrink-0 overflow-hidden px-3 text-xs"
+                className={cn(
+                  "h-8 shrink-0 px-3 text-xs",
+                  flashButtonClass("tab")
+                )}
                 aria-label="Send Tab"
                 onClick={() => sendKey("\t", "tab")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("tab")}
               >
-                {renderFlash("tab")}
                 Tab
               </Button>
             </div>
@@ -189,45 +203,61 @@ export function MobileTerminalToolbar({
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
+                className={cn(
+                  "h-8 w-10 shrink-0 px-0 text-base",
+                  flashButtonClass("left")
+                )}
                 aria-label="Send Arrow Left"
                 onClick={() => sendKey("\u001b[D", "left")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("left")}
               >
-                {renderFlash("left")}←
+                ←
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
+                className={cn(
+                  "h-8 w-10 shrink-0 px-0 text-base",
+                  flashButtonClass("up")
+                )}
                 aria-label="Send Arrow Up"
                 onClick={() => sendKey("\u001b[A", "up")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("up")}
               >
-                {renderFlash("up")}↑
+                ↑
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
+                className={cn(
+                  "h-8 w-10 shrink-0 px-0 text-base",
+                  flashButtonClass("down")
+                )}
                 aria-label="Send Arrow Down"
                 onClick={() => sendKey("\u001b[B", "down")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("down")}
               >
-                {renderFlash("down")}↓
+                ↓
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="default"
-                className="relative h-8 w-10 shrink-0 overflow-hidden px-0 text-base"
+                className={cn(
+                  "h-8 w-10 shrink-0 px-0 text-base",
+                  flashButtonClass("right")
+                )}
                 aria-label="Send Arrow Right"
                 onClick={() => sendKey("\u001b[C", "right")}
                 disabled={!isConnected}
+                data-flash-state={flashDataState("right")}
               >
-                {renderFlash("right")}→
+                →
               </Button>
             </div>
           </div>
@@ -237,12 +267,15 @@ export function MobileTerminalToolbar({
               type="button"
               size="sm"
               variant="default"
-              className="relative h-full w-full overflow-hidden rounded-br-[28px] px-2 text-xs"
+              className={cn(
+                "h-full w-full rounded-br-[28px] px-2 text-xs",
+                flashButtonClass("enter")
+              )}
               aria-label="Send Enter"
               onClick={() => sendKey("\r", "enter")}
               disabled={!isConnected}
+              data-flash-state={flashDataState("enter")}
             >
-              {renderFlash("enter")}
               Enter
             </Button>
           </div>

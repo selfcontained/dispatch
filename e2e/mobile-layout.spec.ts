@@ -66,7 +66,10 @@ test.describe("Mobile layout", () => {
     await expect(disconnectedEnterButton).toBeDisabled();
     await expect(disconnectedInputButton).toBeDisabled();
     await expect(ctrlButton).toBeDisabled();
-    await expect(page.getByTestId("toolbar-flash-enter")).toHaveCount(0);
+    await expect(disconnectedEnterButton).toHaveAttribute(
+      "data-flash-state",
+      ""
+    );
 
     const { id } = await seedTerminalAgent(request);
     await gotoMobile(page, `/agents/${id}`);
@@ -74,13 +77,13 @@ test.describe("Mobile layout", () => {
     const enterButton = page.getByLabel("Send Enter");
 
     await enterButton.click();
-    await expect(page.getByTestId("toolbar-flash-enter")).toBeVisible();
+    await expect(enterButton).not.toHaveAttribute("data-flash-state", "");
     await page.waitForTimeout(500);
-    await expect(page.getByTestId("toolbar-flash-enter")).toHaveCount(0);
+    await expect(enterButton).toHaveAttribute("data-flash-state", "");
 
     await ctrlButton.click();
     await expect(ctrlButton).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("toolbar-flash-ctrl")).toHaveCount(0);
+    await expect(ctrlButton).not.toHaveAttribute("data-flash-state", /flash-/);
   });
 
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
