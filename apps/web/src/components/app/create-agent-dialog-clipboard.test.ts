@@ -174,6 +174,25 @@ describe("create-agent-dialog clipboard helpers", () => {
       });
     });
 
+    it("falls back to readText when read fails with a non-permission error", async () => {
+      vi.stubGlobal("navigator", {
+        clipboard: {
+          read: vi.fn().mockRejectedValue(new Error("clipboard read failed")),
+          readText: vi.fn().mockResolvedValue("https://example.com/fallback"),
+        },
+      });
+
+      await expect(getClipboardSuggestion()).resolves.toMatchObject({
+        canRead: true,
+        status: "found",
+        suggestion: {
+          kind: "url",
+          description: "Add copied link?",
+          url: "https://example.com/fallback",
+        },
+      });
+    });
+
     it("returns blocked when clipboard access is denied", async () => {
       vi.stubGlobal("navigator", {
         clipboard: {
