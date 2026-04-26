@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendAssistedUpdateMetadataBlock,
   canonicalizeAssistedUpdateMetadata,
+  inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
   normalizeRequiredChecks,
   parseAssistedUpdateMetadata,
@@ -32,6 +33,13 @@ describe("parseAssistedUpdateMetadata", () => {
   it("returns null when the fence body is malformed JSON", () => {
     const body = sampleBody("{ not: valid json }");
     expect(parseAssistedUpdateMetadata(body)).toBeNull();
+  });
+
+  it("reports invalid metadata distinctly when the fence is malformed", () => {
+    const body = sampleBody("{ not: valid json }");
+    expect(inspectAssistedUpdateMetadata(body)).toMatchObject({
+      state: "invalid",
+    });
   });
 
   it("returns null when required fields are missing", () => {
@@ -178,6 +186,26 @@ describe("validateAssistedUpdateMetadataJson", () => {
     );
     expect(result.success).toBe(false);
     expect(result.success ? "" : result.error).toContain("summary");
+  });
+
+  it("rejects triple backticks inside required check descriptions", () => {
+    const result = validateAssistedUpdateMetadataJson(
+      JSON.stringify({
+        mode: "required",
+        title: "x",
+        summary: "y",
+        requiredChecks: [
+          {
+            name: "service_restarted",
+            description: "contains ``` fence",
+          },
+        ],
+      })
+    );
+    expect(result.success).toBe(false);
+    expect(result.success ? "" : result.error).toContain(
+      "requiredChecks.0.description"
+    );
   });
 
   it("includes a line and column hint for malformed json", () => {

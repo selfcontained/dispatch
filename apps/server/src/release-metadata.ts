@@ -47,6 +47,11 @@ export type AssistedUpdateMetadata = z.infer<
   >;
 };
 
+export type AssistedUpdateMetadataInspection =
+  | { state: "absent" }
+  | { state: "invalid"; error: string }
+  | { state: "valid"; metadata: AssistedUpdateMetadata };
+
 const FENCE_RE = /```dispatch-update[ \t]*\r?\n([\s\S]*?)\r?\n```/i;
 const EMBEDDED_FENCE_RE = /```/;
 
@@ -64,20 +69,23 @@ const EMBEDDED_FENCE_RE = /```/;
 export function parseAssistedUpdateMetadata(
   body: string | null | undefined
 ): AssistedUpdateMetadata | null {
-  if (!body) return null;
+  const inspected = inspectAssistedUpdateMetadata(body);
+  return inspected.state === "valid" ? inspected.metadata : null;
+}
+
+export function inspectAssistedUpdateMetadata(
+  body: string | null | undefined
+): AssistedUpdateMetadataInspection {
+  if (!body) return { state: "absent" };
   const match = body.match(FENCE_RE);
-  if (!match) return null;
+  if (!match) return { state: "absent" };
   const raw = match[1].trim();
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
+  if (!raw) return { state: "invalid", error: "metadata block is empty" };
+  const validated = validateAssistedUpdateMetadataJson(raw);
+  if (!validated.success) {
+    return { state: "invalid", error: validated.error };
   }
-  const result = AssistedUpdateMetadataSchema.safeParse(parsed);
-  if (!result.success) return null;
-  return result.data as AssistedUpdateMetadata;
+  return { state: "valid", metadata: validated.data };
 }
 
 export function validateAssistedUpdateMetadataJson(
@@ -194,7 +202,13 @@ function compareSemver(a: string, b: string): number {
 
 function findFenceBreakerField(
   metadata: AssistedUpdateMetadata
-): "title" | "summary" | "instructions" | "rollbackGuidance" | null {
+):
+  | "title"
+  | "summary"
+  | "instructions"
+  | "rollbackGuidance"
+  | `requiredChecks.${number}.description`
+  | null {
   const proseFields = [
     ["title", metadata.title],
     ["summary", metadata.summary],
@@ -205,6 +219,16 @@ function findFenceBreakerField(
   for (const [field, value] of proseFields) {
     if (typeof value === "string" && EMBEDDED_FENCE_RE.test(value)) {
       return field;
+    }
+  }
+
+  for (const [index, check] of metadata.requiredChecks.entries()) {
+    if (
+      typeof check === "object" &&
+      typeof check.description === "string" &&
+      EMBEDDED_FENCE_RE.test(check.description)
+    ) {
+      return `requiredChecks.${index}.description`;
     }
   }
 
