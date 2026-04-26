@@ -235,6 +235,10 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-files-button")
     ).toBeVisible();
+
+    // The link input lives in the Add Context popover behind "Add link".
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
     await expect(
       page.getByTestId("create-agent-context-link-input")
     ).toBeVisible();
@@ -261,7 +265,7 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-context-clipboard-action").click();
 
     await expect(
-      page.getByText("https://example.com/docs/launch-context")
+      page.locator('[title="https://example.com/docs/launch-context"]')
     ).toBeVisible();
     await expect(cta).not.toBeVisible();
   });
@@ -408,6 +412,8 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
 
     const linkInput = page.getByTestId("create-agent-context-link-input");
     const defaultAllowed = await linkInput.evaluate((node) => {
@@ -483,6 +489,9 @@ test.describe("Terminal agent type", () => {
 
     const prompt = page.getByTestId("create-agent-initial-prompt");
     await expect(prompt).toHaveAccessibleName("Instructions");
+
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
 
     const linkInput = page.getByTestId("create-agent-context-link-input");
     await expect(linkInput).toHaveAccessibleName("Link URL");

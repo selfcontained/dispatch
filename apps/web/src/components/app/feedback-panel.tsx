@@ -512,7 +512,11 @@ export function ParentFeedbackPanel({
             return (
               <div
                 key={child.id}
-                className="rounded-xl border border-border/60 bg-background/25 px-1.5 py-1.5"
+                data-testid={`review-agent-block-${child.id}`}
+                className={cn(
+                  "rounded-xl border border-border/60 border-r-4 border-r-transparent bg-background/25 px-1.5 py-1.5 transition-colors duration-200",
+                  childState === "active" && "border-r-status-done bg-muted/20"
+                )}
               >
                 {getVisualState && detachTerminal && attachToAgent ? (
                   <div
