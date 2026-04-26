@@ -2115,35 +2115,12 @@ describe("AgentManager", () => {
         );
       });
 
-      it("returns pending cadence while the reviewer waits for resolution", async () => {
-        const { child } = await seedCompletedReviewWithRecheck();
-        const review = await manager.getPersonaReview(child.id);
-        const eightMinutesFiftyNineSecondsLater = new Date(
-          new Date(review!.updatedAt).getTime() + (8 * 60 + 59) * 1000
-        );
-
-        await expect(
-          manager.awaitReviewRecheck(
-            child.id,
-            eightMinutesFiftyNineSecondsLater
-          )
-        ).resolves.toEqual({
-          status: "pending",
-          pollAgainInSeconds: 180,
-        });
-      });
-
-      it("returns ready with the stored resolution payload after submitResolution", async () => {
+      it("listResolvedFeedbackForRound returns the per-item resolutions for a round", async () => {
         const { child, original } = await seedAwaitingRecheckReview();
 
-        const result = await manager.awaitReviewRecheck(child.id);
+        const items = await manager.listResolvedFeedbackForRound(child.id, 1);
 
-        expect(result.status).toBe("ready");
-        if (result.status !== "ready") {
-          throw new Error("expected ready");
-        }
-        expect(result.resolution.summary).toBe("Patched the finding.");
-        expect(result.resolutions).toEqual([
+        expect(items).toEqual([
           expect.objectContaining({
             feedbackId: original.id,
             originalDescription: "round 1 finding",
@@ -2158,29 +2135,13 @@ describe("AgentManager", () => {
         ]);
       });
 
-      it("times out awaitReviewRecheck after two hours and cancels the review", async () => {
-        const { child } = await seedCompletedReviewWithRecheck();
-        const review = await manager.getPersonaReview(child.id);
-        const twoHoursAndOneSecondLater = new Date(
-          new Date(review!.updatedAt).getTime() + (2 * 60 * 60 + 1) * 1000
-        );
+      it("countFeedbackForAgent returns the total feedback count for an agent", async () => {
+        const { child } = await seedAwaitingRecheckReview();
+        await manager.submitFeedback(child.id, {
+          description: "round 2 follow-up",
+        });
 
-        const result = await manager.awaitReviewRecheck(
-          child.id,
-          twoHoursAndOneSecondLater
-        );
-
-        expect(result).toEqual({ status: "cancelled" });
-        const cancelledReview = await manager.getPersonaReview(child.id);
-        expect(cancelledReview!.status).toBe("cancelled");
-      });
-
-      it("rejects awaitReviewRecheck when allowRecheck is false", async () => {
-        const { child } = await seedCompletedReview();
-
-        await expect(manager.awaitReviewRecheck(child.id)).rejects.toThrow(
-          /allowRecheck: true/
-        );
+        await expect(manager.countFeedbackForAgent(child.id)).resolves.toBe(2);
       });
 
       it("cancels recheck from the parent and rejects cancelling after round 2 completes", async () => {
@@ -2292,18 +2253,6 @@ describe("AgentManager", () => {
         ).rejects.toThrow(/round-1/i);
       });
 
-      it("returns complete once round 2 has already been submitted", async () => {
-        const { child } = await seedAwaitingRecheckReview();
-        await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "Round 2 complete",
-        });
-
-        await expect(manager.awaitReviewRecheck(child.id)).resolves.toEqual({
-          status: "complete",
-        });
-      });
-
       it("updatePersonaReviewStatus rejects a ping on a completed review with a specific 409", async () => {
         const { child } = await seedCompletedReview();
 
@@ -2383,257 +2332,6 @@ describe("AgentManager", () => {
         });
         expect(completed.status).toBe("complete");
         expect(completed.roundNumber).toBe(2);
-      });
-    });
-
-    describe("awaitReview (parent-side polling)", () => {
-      async function seedReviewingReview() {
-        const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
-          agentId: child.id,
-          parentAgentId: parent.id,
-          persona: "security-review",
-          lastReviewedCommit: "launchsha",
-          allowRecheck: true,
-        });
-        return { parent, child };
-      }
-
-      async function seedAwaitingRecheckReviewForAwaitReview() {
-        const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
-          agentId: child.id,
-          parentAgentId: parent.id,
-          persona: "security-review",
-          lastReviewedCommit: "launchsha",
-          allowRecheck: true,
-        });
-        await manager.completePersonaReview(child.id, {
-          verdict: "request_changes",
-          summary: "Found an issue",
-          lastReviewedCommit: "round1sha",
-        });
-        const original = await manager.submitFeedback(child.id, {
-          description: "round 1 finding",
-        });
-        await manager.updateFeedbackStatus(original.id, child.id, "fixed", {
-          reason: "patched",
-        });
-        await manager.submitReviewResolution({
-          parentAgentId: parent.id,
-          personaAgentId: child.id,
-          summary: "Patched the finding.",
-          resolutionCommit: "parentsha",
-        });
-        return { parent, child };
-      }
-
-      it("returns pending with a cadence while the reviewer is still in 'reviewing'", async () => {
-        const { parent, child } = await seedReviewingReview();
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("pending");
-        if (result.status === "pending") {
-          expect(result.review.status).toBe("reviewing");
-          expect(result.review.roundNumber).toBe(1);
-          expect(result.review.agentId).toBe(child.id);
-          expect(result.pollAgainInSeconds).toBeGreaterThan(0);
-        }
-      });
-
-      it("returns feedback_ready after round 1 completes on an allowRecheck review", async () => {
-        const { parent, child } = await seedReviewingReview();
-        await manager.completePersonaReview(child.id, {
-          verdict: "request_changes",
-          summary: "Found an issue",
-          lastReviewedCommit: "round1sha",
-        });
-        await manager.submitFeedback(child.id, {
-          description: "round 1 finding",
-        });
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("feedback_ready");
-        if (result.status === "feedback_ready") {
-          expect(result.review.status).toBe("complete");
-          expect(result.review.roundNumber).toBe(1);
-          expect(result.review.verdict).toBe("request_changes");
-          expect(result.feedbackCount).toBe(1);
-        }
-      });
-
-      it("returns feedback_ready with feedbackCount=0 when round 1 approves with no findings", async () => {
-        const { parent, child } = await seedReviewingReview();
-        await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "All clear",
-          lastReviewedCommit: "round1sha",
-        });
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("feedback_ready");
-        if (result.status === "feedback_ready") {
-          expect(result.review.verdict).toBe("approve");
-          expect(result.feedbackCount).toBe(0);
-        }
-      });
-
-      it("returns complete for a single-pass review (allowRecheck=false) once round 1 closes", async () => {
-        const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
-          agentId: child.id,
-          parentAgentId: parent.id,
-          persona: "security-review",
-        });
-        await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "All good",
-        });
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("complete");
-        if (result.status === "complete") {
-          expect(result.review.roundNumber).toBe(1);
-          expect(result.review.allowRecheck).toBe(false);
-        }
-      });
-
-      it("returns pending while the reviewer is doing round 2 (awaiting_recheck)", async () => {
-        const { parent, child } =
-          await seedAwaitingRecheckReviewForAwaitReview();
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("pending");
-        if (result.status === "pending") {
-          expect(result.review.status).toBe("awaiting_recheck");
-          expect(result.review.agentId).toBe(child.id);
-        }
-      });
-
-      it("returns complete with round 2 verdict after the reviewer finishes round 2", async () => {
-        const { parent, child } =
-          await seedAwaitingRecheckReviewForAwaitReview();
-        await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "Round 2 looks good",
-        });
-
-        const result = await manager.awaitReview(parent.id, child.id);
-
-        expect(result.status).toBe("complete");
-        if (result.status === "complete") {
-          expect(result.review.roundNumber).toBe(2);
-          expect(result.review.verdict).toBe("approve");
-        }
-      });
-
-      it("returns cancelled when the review was cancelled", async () => {
-        const { parent, child } =
-          await seedAwaitingRecheckReviewForAwaitReview();
-        await manager.cancelReviewRecheck({
-          parentAgentId: parent.id,
-          personaAgentId: child.id,
-          reason: "aborted",
-        });
-
-        const result = await manager.awaitReview(parent.id, child.id);
-        expect(result.status).toBe("cancelled");
-        if (result.status === "cancelled") {
-          expect(result.review.agentId).toBe(child.id);
-        }
-      });
-
-      it("rejects when the caller isn't the review's parent", async () => {
-        const { parent, child } = await seedReviewingReview();
-        const stranger = await manager.createAgent({
-          name: "stranger",
-          cwd: "/tmp",
-          useWorktree: false,
-        });
-
-        await expect(
-          manager.awaitReview(stranger.id, child.id)
-        ).rejects.toThrow(/different parent/);
-        // Real parent still works.
-        await expect(
-          manager.awaitReview(parent.id, child.id)
-        ).resolves.toMatchObject({ status: "pending" });
-      });
-
-      it("returns 404 when no review exists for the named persona agent", async () => {
-        const { parent } = await seedParentChild();
-
-        await expect(
-          manager.awaitReview(parent.id, "agt_does_not_exist")
-        ).rejects.toThrow(/No persona review found/);
-      });
-
-      it("returns no_reviews when the parent has never launched a persona review (null personaAgentId)", async () => {
-        const lonelyParent = await manager.createAgent({
-          name: "lonely-parent",
-          cwd: "/tmp",
-          useWorktree: false,
-        });
-
-        await expect(
-          manager.awaitReview(lonelyParent.id, null)
-        ).resolves.toEqual({ status: "no_reviews" });
-      });
-
-      it("with null personaAgentId, prefers a feedback_ready review over an in-progress one", async () => {
-        const { parent, child: ready } = await seedParentChild();
-        await manager.createPersonaReview({
-          agentId: ready.id,
-          parentAgentId: parent.id,
-          persona: "security-review",
-          allowRecheck: true,
-        });
-        await manager.completePersonaReview(ready.id, {
-          verdict: "request_changes",
-          summary: "Found an issue",
-          lastReviewedCommit: "round1sha",
-        });
-        await manager.submitFeedback(ready.id, {
-          description: "round 1 finding",
-        });
-        // Launch a second reviewer under the same parent that's still
-        // in-progress.
-        const inProgress = await manager.createAgent({
-          cwd: "/tmp",
-          useWorktree: false,
-          persona: "security-review",
-          parentAgentId: parent.id,
-        });
-        await manager.createPersonaReview({
-          agentId: inProgress.id,
-          parentAgentId: parent.id,
-          persona: "security-review",
-          allowRecheck: true,
-        });
-
-        const result = await manager.awaitReview(parent.id, null);
-
-        expect(result.status).toBe("feedback_ready");
-        if (result.status === "feedback_ready") {
-          // Should point at the completed review, not the still-reviewing one.
-          expect(result.review.agentId).toBe(ready.id);
-        }
-      });
-
-      it("with null personaAgentId, returns pending when every launched review is still in-progress", async () => {
-        const { parent } = await seedReviewingReview();
-
-        const result = await manager.awaitReview(parent.id, null);
-
-        expect(result.status).toBe("pending");
-        if (result.status === "pending") {
-          expect(result.review.status).toBe("reviewing");
-        }
       });
     });
   });

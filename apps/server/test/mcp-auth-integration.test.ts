@@ -184,7 +184,7 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("only exposes dispatch_await_recheck to reviewers launched with allowRecheck", async () => {
+  it("never exposes dispatch_await_recheck or dispatch_await_review (round-trip is push-based)", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
        VALUES
@@ -206,31 +206,35 @@ describe("MCP auth integration", () => {
     );
     const authToken = authTokenResult.rows[0]!.value;
 
-    const plainResponse = await app.inject({
+    const parentResponse = await app.inject({
       method: "POST",
-      url: "/api/mcp/agt_persona_plain",
+      url: "/api/mcp/agt_parentreview",
       headers: {
-        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_persona_plain")}`,
+        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_parentreview")}`,
         accept: "application/json, text/event-stream",
         "content-type": "application/json",
       },
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
     });
-    expect(plainResponse.statusCode).toBe(200);
-    expect(plainResponse.body).not.toContain("dispatch_await_recheck");
+    expect(parentResponse.statusCode).toBe(200);
+    expect(parentResponse.body).not.toContain("dispatch_await_review");
+    expect(parentResponse.body).not.toContain("dispatch_await_recheck");
 
-    const recheckResponse = await app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_persona_recheck",
-      headers: {
-        authorization: `Bearer ${createAgentMcpToken(authToken, "agt_persona_recheck")}`,
-        accept: "application/json, text/event-stream",
-        "content-type": "application/json",
-      },
-      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
-    });
-    expect(recheckResponse.statusCode).toBe(200);
-    expect(recheckResponse.body).toContain("dispatch_await_recheck");
+    for (const personaAgentId of ["agt_persona_plain", "agt_persona_recheck"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/mcp/${personaAgentId}`,
+        headers: {
+          authorization: `Bearer ${createAgentMcpToken(authToken, personaAgentId)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain("dispatch_await_recheck");
+      expect(response.body).not.toContain("dispatch_await_review");
+    }
   });
 
   it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {

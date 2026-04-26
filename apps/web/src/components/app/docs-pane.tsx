@@ -693,18 +693,16 @@ issues caused or worsened by this diff.`}</CodeBlock>
             submit a resolution — then performs a second pass and emits a final
             verdict.
           </P>
-          <P>The parent drives the loop with these tools:</P>
+          <P>
+            The handoff is push-based: when each round transitions, the server
+            injects a fresh prompt into the receiving agent's terminal. There is
+            no tool to poll. The parent uses these tools to act on each prompt
+            as it arrives:
+          </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
-              <Code>dispatch_await_review</Code> — wait for the reviewer's next
-              state change (still working, round 1 done and feedback is ready,
-              whole review complete, or cancelled). Returns a{" "}
-              <Code>pollAgainInSeconds</Code> value when pending; trust the
-              server's cadence rather than inventing one.
-            </li>
-            <li>
               <Code>dispatch_get_feedback</Code> — read the findings for a
-              specific review.
+              specific review when the round-1 prompt arrives.
             </li>
             <li>
               <Code>dispatch_resolve_feedback</Code> — mark each item{" "}
@@ -725,14 +723,13 @@ issues caused or worsened by this diff.`}</CodeBlock>
             </li>
           </ul>
           <P>
-            On round 2 the reviewer calls <Code>dispatch_await_recheck</Code> to
-            pick up the parent's resolution summary and the round-1 diff,
-            performs a second pass, and calls{" "}
-            <Code>dispatch_complete_review</Code> a second time with a final
-            verdict. Round number, the parent's resolution, and the round-2
-            verdict are stacked on the reviewer's card in the UI. The recheck
-            wait times out after roughly two hours without a resolution, at
-            which point the review is auto-cancelled.
+            For round 2, the server pushes a prompt into the reviewer's terminal
+            containing the parent's resolution summary, per-item resolutions,
+            and the diff since round 1. The reviewer performs a second pass and
+            calls <Code>dispatch_complete_review</Code> a second time with a
+            final verdict — at which point the server pushes a final prompt into
+            the parent's terminal. Round number, the parent's resolution, and
+            the round-2 verdict are stacked on the reviewer's card in the UI.
           </P>
         </Section>
       </>

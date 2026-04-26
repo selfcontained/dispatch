@@ -176,7 +176,6 @@ describe("assemblePersonaPrompt", () => {
   it("omits the recheck round-trip block by default", () => {
     const result = assemblePersonaPrompt(basePersona, "", "");
     expect(result).not.toContain("Recheck round-trip");
-    expect(result).not.toContain("dispatch_await_recheck");
   });
 
   it("appends the recheck round-trip block when allowRecheck is true", () => {
@@ -185,10 +184,12 @@ describe("assemblePersonaPrompt", () => {
     });
 
     expect(result).toContain("Recheck round-trip");
-    expect(result).toContain("dispatch_await_recheck");
     expect(result).toContain("dispatch_complete_review");
     expect(result).toContain("respondsToFeedbackId");
-    expect(result).toContain("pollAgainInSeconds");
+    // Round-trip transitions are pushed via terminal injection, not polled.
+    expect(result).not.toContain("dispatch_await_recheck");
+    expect(result).not.toContain("pollAgainInSeconds");
+    expect(result).toMatch(/push a new prompt/i);
 
     const guidanceIdx = result.indexOf("Recheck round-trip");
     const contextIdx = result.indexOf("## Context from parent agent");
