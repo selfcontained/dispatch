@@ -35,7 +35,57 @@ async function seedJob(request: APIRequestContext): Promise<void> {
   });
 }
 
+async function seedTerminalAgent(
+  request: APIRequestContext
+): Promise<{ id: string }> {
+  const res = await request.post("/api/v1/agents", {
+    headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
+    data: {
+      name: `mobile-toolbar-${Date.now()}`,
+      type: "terminal",
+      cwd: "/tmp",
+      useWorktree: false,
+    },
+  });
+  expect(res.status()).toBe(201);
+  const body = (await res.json()) as { agent: { id: string } };
+  return { id: body.agent.id };
+}
+
 test.describe("Mobile layout", () => {
+  test("terminal mobile toolbar only flashes connected shortcut buttons", async ({
+    page,
+    request,
+  }) => {
+    await gotoMobile(page, "/agents");
+
+    const disconnectedEnterButton = page.getByLabel("Send Enter");
+    const disconnectedInputButton = page.getByLabel("Open text input");
+    const ctrlButton = page.getByLabel("Toggle Control modifier");
+
+    await expect(disconnectedEnterButton).toBeDisabled();
+    await expect(disconnectedInputButton).toBeDisabled();
+    await expect(ctrlButton).toBeDisabled();
+    await expect(disconnectedEnterButton).toHaveAttribute(
+      "data-flash-state",
+      ""
+    );
+
+    const { id } = await seedTerminalAgent(request);
+    await gotoMobile(page, `/agents/${id}`);
+
+    const enterButton = page.getByLabel("Send Enter");
+
+    await enterButton.click();
+    await expect(enterButton).not.toHaveAttribute("data-flash-state", "");
+    await page.waitForTimeout(500);
+    await expect(enterButton).toHaveAttribute("data-flash-state", "");
+
+    await ctrlButton.click();
+    await expect(ctrlButton).toHaveAttribute("aria-pressed", "true");
+    await expect(ctrlButton).not.toHaveAttribute("data-flash-state", /flash-/);
+  });
+
   test("tapping a job row on mobile closes the sidebar and reveals the detail pane", async ({
     page,
     request,
