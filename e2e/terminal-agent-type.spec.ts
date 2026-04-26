@@ -254,6 +254,26 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toContainText("Clipboard file ready");
   });
 
+  test("create with context lets the user dismiss a clipboard suggestion", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "text",
+      text: "https://example.com/dismiss-me",
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).toBeVisible();
+
+    await page.getByTestId("create-agent-context-clipboard-dismiss").click();
+
+    await expect(cta).not.toBeVisible();
+  });
+
   test("create with context suggests a clipboard image without auto-attaching it", async ({
     page,
   }) => {

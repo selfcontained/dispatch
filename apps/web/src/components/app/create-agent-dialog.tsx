@@ -228,6 +228,32 @@ async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
   };
 }
 
+function getClipboardSuggestionClasses(suggestion: ClipboardSuggestion): {
+  container: string;
+  title: string;
+} {
+  switch (suggestion.kind) {
+    case "url":
+      return {
+        container:
+          "border-status-done/35 bg-status-done/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-done)/0.08)]",
+        title: "text-status-done",
+      };
+    case "text":
+      return {
+        container:
+          "border-status-working/35 bg-status-working/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-working)/0.08)]",
+        title: "text-status-working",
+      };
+    default:
+      return {
+        container:
+          "border-status-waiting/35 bg-status-waiting/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-waiting)/0.08)]",
+        title: "text-status-waiting",
+      };
+  }
+}
+
 function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
@@ -706,6 +732,9 @@ function CreateAgentDialogContent({
 
   const worktreeAvailable = cwdIsGitRepo !== false;
   const worktreeChecked = worktreeAvailable && createUseWorktree;
+  const clipboardSuggestionClasses = clipboardSuggestion
+    ? getClipboardSuggestionClasses(clipboardSuggestion)
+    : null;
 
   return (
     <DialogContent
@@ -1069,22 +1098,43 @@ function CreateAgentDialogContent({
           >
             {clipboardSuggestion ? (
               <div
-                className="flex items-start justify-between gap-3 rounded-md border border-white/[0.12] bg-white/[0.05] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                className={cn(
+                  "space-y-3 rounded-lg border px-3 py-3",
+                  clipboardSuggestionClasses?.container
+                )}
                 data-testid="create-agent-context-clipboard-cta"
               >
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-foreground">
-                    {clipboardSuggestion.title}
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div
+                      className={cn(
+                        "text-sm font-medium",
+                        clipboardSuggestionClasses?.title
+                      )}
+                    >
+                      {clipboardSuggestion.title}
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {clipboardSuggestion.description}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {clipboardSuggestion.description}
-                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mt-[-2px] h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setClipboardSuggestion(null)}
+                    data-testid="create-agent-context-clipboard-dismiss"
+                    aria-label="Dismiss clipboard suggestion"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
                 <Button
                   type="button"
                   variant="default"
                   size="sm"
-                  className="shrink-0"
+                  className="w-full justify-center"
                   onClick={handleUseClipboardSuggestion}
                   data-testid="create-agent-context-clipboard-action"
                 >
