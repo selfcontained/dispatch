@@ -367,6 +367,25 @@ function CreateAgentDialogContent({
     );
   }, []);
 
+  const [startupFilePreviews, setStartupFilePreviews] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const file of startupFiles) {
+      if (file.type.startsWith("image/")) {
+        next[startupFileKey(file)] = URL.createObjectURL(file);
+      }
+    }
+    setStartupFilePreviews(next);
+    return () => {
+      for (const url of Object.values(next)) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [startupFiles]);
+
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
     if (!trimmed) return;
@@ -864,7 +883,7 @@ function CreateAgentDialogContent({
                     Files
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Attach files or paste images/documents from the clipboard.
+                    Attach images or documents.
                   </p>
                 </div>
                 <Button
@@ -889,25 +908,39 @@ function CreateAgentDialogContent({
               />
               {startupFiles.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                  {startupFiles.map((file) => (
-                    <div
-                      key={startupFileKey(file)}
-                      className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1 text-xs text-foreground"
-                    >
-                      <Paperclip className="h-3 w-3 text-muted-foreground" />
-                      <span className="max-w-[260px] truncate">
-                        {file.name}
-                      </span>
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => handleRemoveStartupFile(file)}
-                        aria-label={`Remove ${file.name}`}
+                  {startupFiles.map((file) => {
+                    const key = startupFileKey(file);
+                    const preview = startupFilePreviews[key];
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 py-1 pr-3 pl-1 text-xs text-foreground"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
+                        {preview ? (
+                          <img
+                            src={preview}
+                            alt=""
+                            className="h-7 w-7 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60">
+                            <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                          </span>
+                        )}
+                        <span className="max-w-[260px] truncate">
+                          {file.name}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => handleRemoveStartupFile(file)}
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
