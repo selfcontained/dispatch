@@ -173,7 +173,7 @@ export function AssistedUpdateGate({
 }
 
 type AssistedUpdateProgressProps = {
-  job: ReleaseJob;
+  job: Extract<ReleaseJob, { jobType: "update-assisted" }>;
   onDismiss: () => void;
 };
 
@@ -189,7 +189,7 @@ export function AssistedUpdateProgress({
   job,
   onDismiss,
 }: AssistedUpdateProgressProps): JSX.Element {
-  const assisted = job.assisted ?? null;
+  const { assisted } = job;
   const logRef = useRef<HTMLDivElement>(null);
   const isFailed =
     job.phase === "failed" ||
@@ -211,9 +211,9 @@ export function AssistedUpdateProgress({
             Assisted update
           </div>
           <div className="text-sm font-semibold text-foreground">
-            {assisted?.metadata.title ?? `Updating to ${job.tag ?? "?"}`}
+            {assisted.metadata.title}
           </div>
-          {assisted?.metadata.summary && (
+          {assisted.metadata.summary && (
             <div className="mt-1 text-xs text-muted-foreground">
               {assisted.metadata.summary}
             </div>
@@ -227,15 +227,13 @@ export function AssistedUpdateProgress({
           isRestarting={job.phase === "restarting"}
         />
 
-        {assisted && Object.keys(assisted.notes).length > 0 && (
+        {Object.keys(assisted.notes).length > 0 && (
           <PhaseNotesList notes={assisted.notes} />
         )}
 
-        {assisted && assisted.checks.length > 0 && (
-          <ChecksList checks={assisted.checks} />
-        )}
+        {assisted.checks.length > 0 && <ChecksList checks={assisted.checks} />}
 
-        {assisted?.agentId && (
+        {assisted.agentId && (
           <a
             href={`/agents/${assisted.agentId}`}
             className="inline-flex items-center gap-1.5 self-start rounded border border-white/[0.12] px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-white/[0.25]"

@@ -182,7 +182,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       setAssistedUpdateLaunching(true);
       try {
         const payload = await api<{ agent: { id: string } }>(
-          "/api/v1/release/update-assisted",
+          "/api/v1/release/assisted/launch",
           {
             method: "POST",
             body: JSON.stringify({ tag }),
@@ -244,7 +244,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       <AssistedUpdateProgress
         job={assistedJob}
         onDismiss={() => {
-          void fetch("/api/v1/release/update/assisted/state", {
+          void fetch("/api/v1/release/assisted/state", {
             method: "DELETE",
           }).catch(() => {});
           setJob(null);

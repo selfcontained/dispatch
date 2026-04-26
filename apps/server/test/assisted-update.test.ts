@@ -3,11 +3,13 @@ import {
   applyAssistedPhase,
   attachAssistedAgent,
   buildAssistedUpdateContext,
-  clampNote,
-  MAX_NOTE_BYTES,
   runAndRecordChecks,
-  tokensEqual,
 } from "../src/assisted-update.js";
+import { tokensEqual } from "../src/auth.js";
+import {
+  MAX_NOTE_BYTES,
+  sanitizeAgentString,
+} from "../src/shared/lib/agent-strings.js";
 import type { AssistedUpdateMetadata } from "../src/release-metadata.js";
 import type { AssistedUpdateState } from "../src/assisted-update-store.js";
 
@@ -58,6 +60,8 @@ const minimalMetadata = (
   ...overrides,
 });
 
+const TEST_SERVER_DIR = "/tmp/test-dispatch-server";
+
 describe("tokensEqual", () => {
   it("returns true for byte-identical strings", () => {
     expect(tokensEqual("abc", "abc")).toBe(true);
@@ -80,17 +84,24 @@ describe("tokensEqual", () => {
   });
 });
 
-describe("clampNote", () => {
+describe("sanitizeAgentString", () => {
   it("passes through undefined and short strings unchanged", () => {
-    expect(clampNote(undefined)).toBeUndefined();
-    expect(clampNote("")).toBe("");
-    expect(clampNote("short note")).toBe("short note");
+    expect(sanitizeAgentString(undefined)).toBeUndefined();
+    expect(sanitizeAgentString("")).toBe("");
+    expect(sanitizeAgentString("short note")).toBe("short note");
   });
 
   it("truncates anything longer than MAX_NOTE_BYTES", () => {
     const big = "x".repeat(MAX_NOTE_BYTES + 100);
-    const clamped = clampNote(big)!;
+    const clamped = sanitizeAgentString(big)!;
     expect(clamped.length).toBe(MAX_NOTE_BYTES);
+  });
+
+  it("collapses newlines to a space (blocks fake adjacent log lines)", () => {
+    expect(sanitizeAgentString("real prefix\n==> phase fake")).toBe(
+      "real prefix ==> phase fake"
+    );
+    expect(sanitizeAgentString("a\r\n\r\nb")).toBe("a b");
   });
 
   it("MAX_NOTE_BYTES is 4 KiB", () => {
@@ -105,6 +116,7 @@ describe("buildAssistedUpdateContext", () => {
         tag: "v0.19.0",
         fromTag: "v0.18.1",
         metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
       },
       "http://127.0.0.1:6767"
     );
@@ -130,6 +142,7 @@ describe("buildAssistedUpdateContext", () => {
             { name: "version_converged", description: "must match" },
           ],
         }),
+        serverDir: TEST_SERVER_DIR,
       },
       "http://127.0.0.1:6767"
     );
@@ -141,11 +154,21 @@ describe("buildAssistedUpdateContext", () => {
 
   it("rotates the nonce between launches", async () => {
     const a = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     const b = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     expect(a.state.token).not.toBe(b.state.token);
@@ -163,6 +186,7 @@ describe("buildAssistedUpdateContext", () => {
           rollbackGuidance: "Restore the previous symlink.",
           requiredChecks: ["service_restarted", "version_converged"],
         }),
+        serverDir: TEST_SERVER_DIR,
       },
       "http://127.0.0.1:6767/"
     );
@@ -175,9 +199,7 @@ describe("buildAssistedUpdateContext", () => {
     expect(p).toContain("service_restarted");
     expect(p).toContain("version_converged");
     // Strips the trailing slash on the supplied baseUrl.
-    expect(p).toContain(
-      "http://127.0.0.1:6767/api/v1/release/update/assisted/phase"
-    );
+    expect(p).toContain("http://127.0.0.1:6767/api/v1/release/assisted/phase");
     expect(p).toContain(`"token": "${ctx.state.token}"`);
     // Phase ordering must match what the runtime accepts.
     expect(p).toContain(
@@ -191,7 +213,12 @@ describe("buildAssistedUpdateContext", () => {
 
   it("reports installed=(unknown) when fromTag is null", async () => {
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     expect(ctx.prompt).toContain("- installed: (unknown)");
@@ -207,6 +234,7 @@ describe("buildAssistedUpdateContext", () => {
           rollbackGuidance: undefined,
           requiredChecks: [],
         }),
+        serverDir: TEST_SERVER_DIR,
       },
       "http://127.0.0.1:6767"
     );
@@ -219,7 +247,12 @@ describe("buildAssistedUpdateContext", () => {
 describe("applyAssistedPhase", () => {
   async function seed() {
     return buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: "v0.18.1", metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: "v0.18.1",
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
   }
@@ -291,7 +324,12 @@ describe("applyAssistedPhase", () => {
 describe("attachAssistedAgent", () => {
   it("writes the agent id back to state on a valid token", async () => {
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     const updated = await attachAssistedAgent(ctx.state.token, "agt_abc");
@@ -301,7 +339,12 @@ describe("attachAssistedAgent", () => {
 
   it("returns null on a token mismatch (constant-time compare)", async () => {
     await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     const updated = await attachAssistedAgent("not-my-token", "agt_abc");
@@ -318,7 +361,12 @@ describe("attachAssistedAgent", () => {
 describe("runAndRecordChecks", () => {
   it("records every check result in order", async () => {
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     stagedCheckResults = [
@@ -338,7 +386,12 @@ describe("runAndRecordChecks", () => {
 
   it("does NOT downgrade phase when every check passes", async () => {
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     // Move to validate first so the orchestrator sees a non-inspect
@@ -358,7 +411,12 @@ describe("runAndRecordChecks", () => {
 
   it("routes to blocked + sets error when any check fails", async () => {
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     await applyAssistedPhase({ token: ctx.state.token, phase: "validate" });
@@ -384,7 +442,12 @@ describe("runAndRecordChecks", () => {
     // If the agent already routed itself to rollback, a downstream
     // failure shouldn't overwrite that with `blocked`.
     const ctx = await buildAssistedUpdateContext(
-      { tag: "v0.19.0", fromTag: null, metadata: minimalMetadata() },
+      {
+        tag: "v0.19.0",
+        fromTag: null,
+        metadata: minimalMetadata(),
+        serverDir: TEST_SERVER_DIR,
+      },
       "http://127.0.0.1:6767"
     );
     await applyAssistedPhase({

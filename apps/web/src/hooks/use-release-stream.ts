@@ -3,21 +3,35 @@ import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 import { forcePWAUpdate } from "@/lib/pwa-update";
 
 export type ReleaseVersionType = "patch" | "minor" | "major";
-export type ReleasePhase =
+
+export type CreatePhase =
   | "preflight"
   | "triggering"
   | "watching"
+  | "done"
+  | "failed";
+export type UpdatePhase =
   | "fetching"
   | "deploying"
   | "restarting"
   | "done"
-  | "failed"
+  | "failed";
+export type AssistedReleasePhase =
   | "inspect"
   | "prepare"
   | "apply"
+  | "restarting"
   | "validate"
+  | "done"
   | "rollback"
-  | "blocked";
+  | "blocked"
+  | "failed";
+
+// Broad union for stream `phase` events whose source variant is opaque
+// to the receiver. Per-variant phase narrowing happens through
+// `ReleaseJob` below.
+export type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
+
 export type ReleaseJobType = "create" | "update" | "update-assisted";
 
 export type ReleaseChannel = "stable" | "latest";
@@ -84,17 +98,36 @@ export type ReleaseStatus = {
   deployedAt: string | null;
 };
 
-export type ReleaseJob = {
-  jobType: ReleaseJobType;
-  versionType: ReleaseVersionType | null;
-  phase: ReleasePhase;
+type CommonReleaseJobFields = {
   startedAt: string;
   log: string[];
   runUrl: string | null;
   tag: string | null;
   error: string | null;
-  assisted?: AssistedUpdateState | null;
 };
+
+export type ReleaseJob =
+  | (CommonReleaseJobFields & {
+      jobType: "create";
+      versionType: ReleaseVersionType;
+      phase: CreatePhase;
+    })
+  | (CommonReleaseJobFields & {
+      jobType: "update";
+      versionType: null;
+      phase: UpdatePhase;
+    })
+  | (CommonReleaseJobFields & {
+      jobType: "update-assisted";
+      versionType: null;
+      phase: AssistedReleasePhase;
+      /**
+       * Required on the assisted variant — the gate flow always
+       * populates it before the job is published, and the takeover
+       * unconditionally renders against it.
+       */
+      assisted: AssistedUpdateState;
+    });
 
 type ReleaseStreamEvent =
   | { type: "snapshot"; job: ReleaseJob | null }
@@ -104,7 +137,58 @@ type ReleaseStreamEvent =
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string }
-  | { type: "assisted"; state: AssistedUpdateState | null };
+  | { type: "assisted"; state: AssistedUpdateState };
+
+/**
+ * Apply a non-snapshot stream event to the previous job state. The
+ * union narrowing keeps us honest: the `phase` event carries a broad
+ * `ReleasePhase`, and we have to cast it to whichever variant `prev`
+ * actually is — that cast is the one place "trust the wire" lives.
+ */
+function applyStreamEvent(
+  prev: ReleaseJob | null,
+  event: Exclude<ReleaseStreamEvent, { type: "snapshot" }>
+): ReleaseJob | null {
+  if (!prev) return prev;
+  switch (event.type) {
+    case "log":
+      return { ...prev, log: [...prev.log, event.line] };
+    case "log.rewind":
+      return { ...prev, log: prev.log.slice(0, -event.count) };
+    case "log.replace": {
+      const updated = [...prev.log];
+      if (updated.length > 0) {
+        updated[updated.length - 1] = event.line;
+      } else {
+        updated.push(event.line);
+      }
+      return { ...prev, log: updated };
+    }
+    case "phase": {
+      // The wire phase is a broad union; the variant's `phase` is
+      // narrower. The server is the authority on which phase belongs
+      // to which jobType, so we cast at the boundary per variant.
+      const error = event.error ?? prev.error;
+      if (prev.jobType === "create") {
+        return { ...prev, phase: event.phase as CreatePhase, error };
+      }
+      if (prev.jobType === "update") {
+        return { ...prev, phase: event.phase as UpdatePhase, error };
+      }
+      return { ...prev, phase: event.phase as AssistedReleasePhase, error };
+    }
+    case "runUrl":
+      return { ...prev, runUrl: event.url };
+    case "tag":
+      return { ...prev, tag: event.tag };
+    case "assisted":
+      // Only the assisted variant has a place to put this; ignore for
+      // any other in-flight job. (The server only emits this for
+      // `update-assisted` jobs in practice.)
+      if (prev.jobType !== "update-assisted") return prev;
+      return { ...prev, assisted: event.state };
+  }
+}
 
 export type UseReleaseStreamResult = {
   status: ReleaseStatus | null;
@@ -175,34 +259,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
         setJob(event.job);
         return;
       }
-      setJob((prev) => {
-        if (!prev) return prev;
-        if (event.type === "log")
-          return { ...prev, log: [...prev.log, event.line] };
-        if (event.type === "log.rewind") {
-          return { ...prev, log: prev.log.slice(0, -event.count) };
-        }
-        if (event.type === "log.replace") {
-          const updated = [...prev.log];
-          if (updated.length > 0) {
-            updated[updated.length - 1] = event.line;
-          } else {
-            updated.push(event.line);
-          }
-          return { ...prev, log: updated };
-        }
-        if (event.type === "phase")
-          return {
-            ...prev,
-            phase: event.phase,
-            error: event.error ?? prev.error,
-          };
-        if (event.type === "runUrl") return { ...prev, runUrl: event.url };
-        if (event.type === "tag") return { ...prev, tag: event.tag };
-        if (event.type === "assisted")
-          return { ...prev, assisted: event.state };
-        return prev;
-      });
+      setJob((prev) => applyStreamEvent(prev, event));
     };
 
     es.onerror = () => {

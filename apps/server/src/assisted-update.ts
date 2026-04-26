@@ -1,31 +1,6 @@
-import os from "node:os";
-import { randomBytes, timingSafeEqual } from "node:crypto";
-
-export const MAX_NOTE_BYTES = 4096;
-
-/**
- * Constant-time per-job nonce comparison. The token has 192 bits of
- * entropy (`randomBytes(24)`) so the wall-clock difference between a
- * length-mismatch fail and a constant-time fail is negligible, but the
- * rest of the codebase standardizes on this pattern (see
- * `validateMcpScopeToken` in auth.ts) and this avoids a future foot-gun.
- */
-export function tokensEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a, "utf-8");
-  const bb = Buffer.from(b, "utf-8");
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
-
-/**
- * Cap arbitrary strings posted by the launched agent before they hit
- * disk + SSE replay so a misbehaving agent can't bloat the state file
- * (`~/.dispatch/assisted-update.json`) or every snapshot reconnect.
- */
-export function clampNote(s: string | undefined): string | undefined {
-  if (s === undefined) return undefined;
-  return s.length > MAX_NOTE_BYTES ? s.slice(0, MAX_NOTE_BYTES) : s;
-}
+import { randomBytes } from "node:crypto";
+import { tokensEqual } from "./auth.js";
+import { sanitizeAgentString } from "./shared/lib/agent-strings.js";
 import {
   isAssistedUpdateRequired,
   normalizeRequiredChecks,
@@ -46,21 +21,19 @@ export type StartAssistedUpdateInput = {
   tag: string;
   fromTag: string | null;
   metadata: AssistedUpdateMetadata;
+  /**
+   * The directory the launched agent will run in. Owned by the caller
+   * (server.ts) so this module stays a pure orchestrator with no
+   * environment lookups of its own.
+   */
+  serverDir: string;
 };
 
 export type AssistedAgentContext = {
   state: AssistedUpdateState;
   /** Pre-rendered prompt the agent receives as its initial instruction. */
   prompt: string;
-  /** Where the agent should run — defaults to ~/.dispatch/server. */
-  cwd: string;
 };
-
-const DEFAULT_SERVER_DIR =
-  process.env.DISPATCH_SERVER_DIR ??
-  // We intentionally avoid pulling node:path here so this module is easy to
-  // import in unit tests; the orchestrator passes an explicit cwd anyway.
-  `${os.homedir()}/.dispatch/server`;
 
 export async function buildAssistedUpdateContext(
   input: StartAssistedUpdateInput,
@@ -83,8 +56,8 @@ export async function buildAssistedUpdateContext(
   };
   await writeAssistedUpdateState(state);
 
-  const prompt = renderAssistedPrompt(state, baseUrl);
-  return { state, prompt, cwd: DEFAULT_SERVER_DIR };
+  const prompt = renderAssistedPrompt(state, baseUrl, input.serverDir);
+  return { state, prompt };
 }
 
 /**
@@ -116,11 +89,12 @@ export async function applyAssistedPhase(input: {
   }
   state.phase = input.phase;
   state.updatedAt = new Date().toISOString();
-  // Cap the per-phase strings before they hit disk + SSE replay so a
-  // misbehaving agent can't bloat ~/.dispatch/assisted-update.json or
-  // every snapshot reconnect.
-  const note = clampNote(input.note);
-  const error = clampNote(input.error);
+  // Sanitize the per-phase strings before they hit disk + SSE replay so
+  // a misbehaving agent can't bloat ~/.dispatch/assisted-update.json,
+  // every snapshot reconnect, or the operator log line projection in
+  // server.ts. The single sanitization point covers all consumers.
+  const note = sanitizeAgentString(input.note);
+  const error = sanitizeAgentString(input.error);
   if (note) state.notes[input.phase] = note;
   if (error) state.error = error;
   if (isTerminalPhase(input.phase)) {
@@ -168,7 +142,8 @@ export { isAssistedUpdateRequired };
 
 function renderAssistedPrompt(
   state: AssistedUpdateState,
-  baseUrl: string
+  baseUrl: string,
+  serverDir: string
 ): string {
   const { metadata, tag, fromTag, requiredChecks, token } = state;
   const checksList =
@@ -176,7 +151,7 @@ function renderAssistedPrompt(
       ? requiredChecks.map((c) => `  - ${c}`).join("\n")
       : "  (none)";
   const platform = `${process.platform}/${process.arch}`;
-  const phaseUrl = `${baseUrl.replace(/\/$/, "")}/api/v1/release/update/assisted/phase`;
+  const phaseUrl = `${baseUrl.replace(/\/$/, "")}/api/v1/release/assisted/phase`;
 
   return [
     `# Assisted release update`,
@@ -190,7 +165,7 @@ function renderAssistedPrompt(
     `- target: ${tag}`,
     `- installed: ${fromTag ?? "(unknown)"}`,
     `- platform: ${platform}`,
-    `- service dir: ${DEFAULT_SERVER_DIR}`,
+    `- service dir: ${serverDir}`,
     `- mode: ${metadata.mode}`,
     ``,
     `## Title`,
