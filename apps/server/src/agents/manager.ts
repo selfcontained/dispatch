@@ -182,6 +182,13 @@ type CreateAgentInput = {
   cliSessionId?: string;
   jobRunId?: string;
   initialPrompt?: string;
+  initialPins?: AgentPin[];
+  initialFiles?: Array<{
+    fileName: string;
+    buffer: Buffer;
+    source: "text" | "user";
+    description?: string | null;
+  }>;
 };
 
 type WorktreeCleanupMode = "auto" | "keep" | "force";
@@ -543,6 +550,7 @@ export class AgentManager {
     const tmuxSession = this.toSessionName(id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
+    const initialPins = input.initialPins ?? [];
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
@@ -617,8 +625,8 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, pins, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW())
       `,
       [
         id,
@@ -638,7 +646,18 @@ export class AgentManager {
         cliSessionId,
         input.autoReview ?? false,
         normalizedBaseBranch ?? null,
+        JSON.stringify(initialPins),
       ]
+    );
+
+    const initialMedia =
+      input.initialFiles && input.initialFiles.length > 0
+        ? await this.seedInitialMedia(id, mediaDir, input.initialFiles)
+        : [];
+    const startupPrompt = this.buildStartupPrompt(
+      input.initialPrompt,
+      initialPins,
+      initialMedia
     );
 
     if (this.config.agentRuntime === "inert") {
@@ -719,7 +738,7 @@ export class AgentManager {
             jobRunId: input.jobRunId,
           }),
           !input.persona && !input.jobRunId && (input.autoReview ?? false),
-          input.initialPrompt
+          startupPrompt
         );
         const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
 
@@ -2545,6 +2564,116 @@ export class AgentManager {
       .map((arg) => this.shellEscape(arg))
       .join(" ");
     return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(startupPrompt)}`;
+  }
+
+  private buildStartupPrompt(
+    initialPrompt: string | undefined,
+    initialPins: AgentPin[],
+    initialMedia: Array<{
+      fileName: string;
+      source: string;
+      description: string | null;
+    }>
+  ): string | undefined {
+    const trimmedPrompt = initialPrompt?.trim() || "";
+    if (initialPins.length === 0 && initialMedia.length === 0) {
+      return trimmedPrompt || undefined;
+    }
+
+    const sections = [
+      "Startup context is attached to this session.",
+      "Inspect the provided pins and shared media before acting, acknowledge what you were able to access, incorporate that context into the task, and continue unless the instructions explicitly ask you to pause or wait for confirmation.",
+    ];
+
+    if (trimmedPrompt) {
+      sections.push(`Instructions:\n${trimmedPrompt}`);
+    }
+
+    if (initialPins.length > 0) {
+      sections.push(
+        [
+          "Links:",
+          ...initialPins.map((pin) => `- ${pin.label}: ${pin.value}`),
+        ].join("\n")
+      );
+    }
+
+    if (initialMedia.length > 0) {
+      sections.push(
+        [
+          "Files shared into Dispatch media:",
+          ...initialMedia.map((file) => {
+            const detail = file.description?.trim();
+            const suffix = detail ? ` — ${detail}` : "";
+            return `- ${file.fileName} (${file.source})${suffix}`;
+          }),
+        ].join("\n")
+      );
+    }
+
+    return sections.join("\n\n");
+  }
+
+  private async seedInitialMedia(
+    agentId: string,
+    mediaDir: string,
+    files: Array<{
+      fileName: string;
+      buffer: Buffer;
+      source: "text" | "user";
+      description?: string | null;
+    }>
+  ): Promise<
+    Array<{ fileName: string; source: string; description: string | null }>
+  > {
+    const createdAt = new Date();
+    const results: Array<{
+      fileName: string;
+      source: string;
+      description: string | null;
+    }> = [];
+
+    for (const [index, file] of files.entries()) {
+      const timestampedFileName = this.timestampMediaFileName(
+        file.fileName,
+        createdAt,
+        index
+      );
+      await writeFile(path.join(mediaDir, timestampedFileName), file.buffer);
+      await this.pool.query(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          agentId,
+          timestampedFileName,
+          file.source,
+          file.buffer.length,
+          file.description ?? null,
+        ]
+      );
+      results.push({
+        fileName: timestampedFileName,
+        source: file.source,
+        description: file.description ?? null,
+      });
+    }
+
+    return results;
+  }
+
+  private timestampMediaFileName(
+    fileName: string,
+    createdAt: Date,
+    index: number
+  ): string {
+    const timestamp = createdAt
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .replace("T", "-")
+      .replace("Z", "");
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext);
+    return `${base}-${timestamp}-${index + 1}${ext}`;
   }
 
   private dispatchMcpUrl(agentId: string, jobRunId?: string): string {

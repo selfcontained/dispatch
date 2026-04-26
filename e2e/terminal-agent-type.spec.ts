@@ -124,11 +124,11 @@ test.describe("Terminal agent type", () => {
     const form = page.getByTestId("create-agent-form");
     await expect(form).toBeVisible();
 
-    // Full access + auto review + "Create with prompt" are all visible for
+    // Full access + auto review + "Create with context" are all visible for
     // the default CLI type.
     await expect(form.getByText("Start in full access mode")).toBeVisible();
     await expect(form.getByText("Autonomous Review")).toBeVisible();
-    await expect(page.getByTestId("create-agent-with-prompt")).toBeVisible();
+    await expect(page.getByTestId("create-agent-with-context")).toBeVisible();
 
     // Switch to terminal.
     const typeTrigger = form.getByRole("combobox").first();
@@ -140,8 +140,26 @@ test.describe("Terminal agent type", () => {
     await expect(form.getByText("Start in full access mode")).not.toBeVisible();
     await expect(form.getByText("Autonomous Review")).not.toBeVisible();
     await expect(
-      page.getByTestId("create-agent-with-prompt")
+      page.getByTestId("create-agent-with-context")
     ).not.toBeVisible();
     await expect(page.getByTestId("create-agent-worktree")).toBeVisible();
+  });
+
+  test("create with context shows instructions, files, and links", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await expect(page.getByText("Create with context")).toBeVisible();
+    await expect(page.getByTestId("create-agent-initial-prompt")).toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-files-button")
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-link-input")
+    ).toBeVisible();
   });
 });

@@ -121,10 +121,10 @@ const SECTIONS: SectionDef[] = [
           </ul>
           <P>
             Click <strong>Create</strong> to start the agent immediately. For
-            CLI types, <strong>Create with prompt</strong> opens a second step
-            where you can enter an initial prompt that is sent as the agent's
-            first message; terminal agents skip this since there is no CLI to
-            send a message to.
+            CLI types, <strong>Create with context</strong> opens a second step
+            where you can add startup instructions, attach files, and pin links
+            for the new session before launch; terminal agents skip this since
+            there is no CLI to send a message to.
           </P>
         </Section>
 

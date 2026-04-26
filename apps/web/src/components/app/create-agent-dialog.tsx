@@ -1,4 +1,6 @@
 import {
+  type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -7,7 +9,16 @@ import {
   useState,
 } from "react";
 import { useAtom } from "jotai";
-import { Check, ChevronDown, GitBranch, ChevronLeft } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  GitBranch,
+  ChevronLeft,
+  Link2,
+  Paperclip,
+  Plus,
+  X,
+} from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
 import { PathInput } from "@/components/app/path-input";
@@ -47,6 +58,12 @@ const CWD_HISTORY_MAX = 20;
 const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
 const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
+const STARTUP_FILE_ACCEPT =
+  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+
+function startupFileKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
 
 function readStoredString(key: string): string {
   if (typeof window === "undefined") return "";
@@ -211,8 +228,9 @@ function CreateAgentDialogContent({
   resolveDefaultCwd,
   onCreated,
 }: Omit<CreateAgentDialogProps, "open">): JSX.Element {
-  const [step, setStep] = useState<"config" | "prompt">("config");
+  const [step, setStep] = useState<"config" | "context">("config");
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const startupFileInputRef = useRef<HTMLInputElement>(null);
   const [createName, setCreateName] = useState("");
   const [createType, setCreateType] = useState<AgentType>(() => {
     const preferred = initialAgentType ?? readLastUsedAgentType();
@@ -231,6 +249,9 @@ function CreateAgentDialogContent({
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [cwdIsGitRepo, setCwdIsGitRepo] = useState<boolean | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
+  const [startupFiles, setStartupFiles] = useState<File[]>([]);
+  const [startupLinks, setStartupLinks] = useState<string[]>([]);
+  const [linkDraft, setLinkDraft] = useState("");
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
     readCwdHistory()
@@ -279,7 +300,7 @@ function CreateAgentDialogContent({
   }, [createType, enabledAgentTypes]);
 
   useEffect(() => {
-    if (step === "prompt") {
+    if (step === "context") {
       requestAnimationFrame(() => promptTextareaRef.current?.focus());
     }
   }, [step]);
@@ -301,6 +322,66 @@ function CreateAgentDialogContent({
     []
   );
 
+  const appendStartupFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    setStartupFiles((current) => {
+      const next = [...current];
+      const seen = new Set(current.map(startupFileKey));
+      for (const file of files) {
+        const key = startupFileKey(file);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        next.push(file);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleStartupPaste = useCallback(
+    (event: ClipboardEvent<HTMLElement>) => {
+      const pastedFiles = Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      if (pastedFiles.length === 0) return;
+      event.preventDefault();
+      appendStartupFiles(pastedFiles);
+    },
+    [appendStartupFiles]
+  );
+
+  const handleStartupFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const selected = Array.from(event.target.files ?? []);
+      appendStartupFiles(selected);
+      event.target.value = "";
+    },
+    [appendStartupFiles]
+  );
+
+  const handleRemoveStartupFile = useCallback((fileToRemove: File) => {
+    setStartupFiles((current) =>
+      current.filter(
+        (file) => startupFileKey(file) !== startupFileKey(fileToRemove)
+      )
+    );
+  }, []);
+
+  const addStartupLink = useCallback(() => {
+    const trimmed = linkDraft.trim();
+    if (!trimmed) return;
+    setStartupLinks((current) =>
+      current.includes(trimmed) ? current : [...current, trimmed]
+    );
+    setLinkDraft("");
+  }, [linkDraft]);
+
+  const handleRemoveStartupLink = useCallback((linkToRemove: string) => {
+    setStartupLinks((current) =>
+      current.filter((link) => link !== linkToRemove)
+    );
+  }, []);
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -314,27 +395,56 @@ function CreateAgentDialogContent({
         // try to run git in a non-repo directory.
         const submitUseWorktree =
           cwdIsGitRepo === false ? false : createUseWorktree;
-        const payload = await api<{ agent: Agent }>("/api/v1/agents", {
-          method: "POST",
-          body: JSON.stringify({
-            name: createName.trim(),
-            cwd,
-            type: createType,
-            fullAccess: createFullAccess,
-            autoReview: createAutoReview,
-            useWorktree: submitUseWorktree,
-            createNewBranch: submitUseWorktree ? createNewBranch : undefined,
-            worktreeBranch:
-              submitUseWorktree && createNewBranch
-                ? createWorktreeBranch.trim() || undefined
-                : undefined,
-            baseBranch:
-              submitUseWorktree && createBaseBranch !== "main"
-                ? createBaseBranch
-                : undefined,
-            initialPrompt: initialPrompt.trim() || undefined,
-          }),
-        });
+        const payloadBase = {
+          name: createName.trim(),
+          cwd,
+          type: createType,
+          fullAccess: createFullAccess,
+          autoReview: createAutoReview,
+          useWorktree: submitUseWorktree,
+          createNewBranch: submitUseWorktree ? createNewBranch : undefined,
+          worktreeBranch:
+            submitUseWorktree && createNewBranch
+              ? createWorktreeBranch.trim() || undefined
+              : undefined,
+          baseBranch:
+            submitUseWorktree && createBaseBranch !== "main"
+              ? createBaseBranch
+              : undefined,
+          initialPrompt: initialPrompt.trim() || undefined,
+        };
+        const resolvedStartupLinks =
+          step === "context" && linkDraft.trim()
+            ? Array.from(new Set([...startupLinks, linkDraft.trim()]))
+            : startupLinks;
+        const useStartupContext =
+          step === "context" &&
+          (payloadBase.initialPrompt ||
+            startupFiles.length > 0 ||
+            resolvedStartupLinks.length > 0);
+        const payload = useStartupContext
+          ? await (async () => {
+              const formData = new FormData();
+              for (const [key, value] of Object.entries(payloadBase)) {
+                if (value === undefined || value === "") continue;
+                formData.append(key, String(value));
+              }
+              formData.append(
+                "startupLinks",
+                JSON.stringify(resolvedStartupLinks)
+              );
+              for (const file of startupFiles) {
+                formData.append("startupFiles", file);
+              }
+              return api<{ agent: Agent }>("/api/v1/agents", {
+                method: "POST",
+                body: formData,
+              });
+            })()
+          : await api<{ agent: Agent }>("/api/v1/agents", {
+              method: "POST",
+              body: JSON.stringify(payloadBase),
+            });
 
         if (typeof window !== "undefined") {
           window.localStorage.setItem(LAST_USED_CWD_KEY, cwd);
@@ -359,6 +469,10 @@ function CreateAgentDialogContent({
       cwdIsGitRepo,
       initialPrompt,
       onCreated,
+      linkDraft,
+      startupFiles,
+      startupLinks,
+      step,
     ]
   );
 
@@ -373,7 +487,7 @@ function CreateAgentDialogContent({
         if (typeDropdownOpen) {
           e.preventDefault();
         }
-        if (step === "prompt") {
+        if (step === "context") {
           e.preventDefault();
           setStep("config");
         }
@@ -688,10 +802,10 @@ function CreateAgentDialogContent({
                   variant="default"
                   tabIndex={0}
                   disabled={creating || !createCwd.trim()}
-                  data-testid="create-agent-with-prompt"
-                  onClick={() => setStep("prompt")}
+                  data-testid="create-agent-with-context"
+                  onClick={() => setStep("context")}
                 >
-                  Create with prompt
+                  Create with context
                 </Button>
               ) : null}
               <Button
@@ -712,29 +826,152 @@ function CreateAgentDialogContent({
       ) : (
         <>
           <DialogHeader>
-            <DialogTitle>Initial Prompt</DialogTitle>
+            <DialogTitle>Create with context</DialogTitle>
             <DialogDescription>
-              This prompt will be sent as the agent&apos;s first message.
+              Add startup instructions, files, and links for the agent to use
+              when the session starts.
             </DialogDescription>
           </DialogHeader>
 
           <form
-            data-testid="create-agent-prompt-form"
+            data-testid="create-agent-context-form"
             className="space-y-3"
             onSubmit={(event) => void handleSubmit(event)}
+            onPaste={handleStartupPaste}
           >
-            <textarea
-              ref={promptTextareaRef}
-              value={initialPrompt}
-              onChange={(event) => setInitialPrompt(event.target.value)}
-              placeholder="Enter instructions for the agent..."
-              data-testid="create-agent-initial-prompt"
-              className={cn(
-                "flex min-h-[200px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                "ring-offset-background placeholder:text-muted-foreground",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            <div className="space-y-1">
+              <label className="text-sm text-muted-foreground">
+                Instructions
+              </label>
+              <textarea
+                ref={promptTextareaRef}
+                value={initialPrompt}
+                onChange={(event) => setInitialPrompt(event.target.value)}
+                placeholder="Enter instructions for the agent..."
+                data-testid="create-agent-initial-prompt"
+                className={cn(
+                  "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                  "ring-offset-background placeholder:text-muted-foreground",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                )}
+              />
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    Files
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Attach files or paste images/documents from the clipboard.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => startupFileInputRef.current?.click()}
+                  data-testid="create-agent-context-files-button"
+                >
+                  <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                  Add files
+                </Button>
+              </div>
+              <input
+                ref={startupFileInputRef}
+                type="file"
+                multiple
+                accept={STARTUP_FILE_ACCEPT}
+                className="hidden"
+                onChange={handleStartupFileChange}
+                data-testid="create-agent-context-files-input"
+              />
+              {startupFiles.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {startupFiles.map((file) => (
+                    <div
+                      key={startupFileKey(file)}
+                      className="flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1 text-xs text-foreground"
+                    >
+                      <Paperclip className="h-3 w-3 text-muted-foreground" />
+                      <span className="max-w-[260px] truncate">
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => handleRemoveStartupFile(file)}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No files added yet.
+                </p>
               )}
-            />
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">Links</div>
+                <p className="text-xs text-muted-foreground">
+                  Add one or more URLs to pin into the new session.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={linkDraft}
+                  onChange={(event) => setLinkDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addStartupLink();
+                    }
+                  }}
+                  placeholder="https://..."
+                  data-testid="create-agent-context-link-input"
+                />
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={addStartupLink}
+                  data-testid="create-agent-context-link-add"
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Add
+                </Button>
+              </div>
+              {startupLinks.length > 0 ? (
+                <div className="space-y-2">
+                  {startupLinks.map((link) => (
+                    <div
+                      key={link}
+                      className="flex items-center gap-2 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs text-foreground"
+                    >
+                      <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate">{link}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => handleRemoveStartupLink(link)}
+                        aria-label={`Remove ${link}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No links added yet.
+                </p>
+              )}
+            </div>
 
             <div className="flex justify-between pt-1">
               <Button
@@ -742,7 +979,7 @@ function CreateAgentDialogContent({
                 variant="ghost"
                 tabIndex={0}
                 onClick={() => setStep("config")}
-                data-testid="create-agent-prompt-back"
+                data-testid="create-agent-context-back"
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Back
@@ -761,7 +998,7 @@ function CreateAgentDialogContent({
                   variant="primary"
                   tabIndex={0}
                   disabled={creating}
-                  data-testid="create-agent-prompt-submit"
+                  data-testid="create-agent-context-submit"
                 >
                   {creating ? (
                     <ActivityBars size={16} className="mr-1.5" />
