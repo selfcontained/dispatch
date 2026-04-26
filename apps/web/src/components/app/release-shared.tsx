@@ -12,6 +12,12 @@ const PHASE_LABELS: Record<ReleasePhase, string> = {
   restarting: "Restarting",
   done: "Complete",
   failed: "Failed",
+  inspect: "Inspect install",
+  prepare: "Prepare migration",
+  apply: "Apply update",
+  validate: "Validate checks",
+  rollback: "Rolled back",
+  blocked: "Blocked",
 };
 
 type PhaseProgressProps = {

@@ -49,6 +49,9 @@ export default defineConfig({
         workbox: {
           // Do not cache API traffic by default; this app is realtime-oriented.
           navigateFallbackDenylist: [/^\/api\//],
+          // Bundle has grown past the 2 MiB workbox default; bump to 4 MiB
+          // so the PWA precache continues to cover the whole app shell.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         },
       }),
   ].filter(Boolean),
