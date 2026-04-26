@@ -11,10 +11,59 @@ export type ReleasePhase =
   | "deploying"
   | "restarting"
   | "done"
-  | "failed";
-export type ReleaseJobType = "create" | "update";
+  | "failed"
+  | "inspect"
+  | "prepare"
+  | "apply"
+  | "validate"
+  | "rollback"
+  | "blocked";
+export type ReleaseJobType = "create" | "update" | "update-assisted";
 
 export type ReleaseChannel = "stable" | "latest";
+
+export type AssistedUpdateMode = "normal" | "recommended" | "required";
+
+export type AssistedRequiredCheck =
+  | "expected_runtime_artifact"
+  | "service_entrypoint"
+  | "service_restarted"
+  | "health_endpoint"
+  | "version_converged";
+
+export type AssistedUpdateMetadata = {
+  mode: AssistedUpdateMode;
+  title: string;
+  summary: string;
+  instructions?: string;
+  requiredChecks: Array<
+    | AssistedRequiredCheck
+    | { name: AssistedRequiredCheck; description?: string }
+  >;
+  rollbackGuidance?: string;
+  appliesFrom?: string;
+};
+
+export type AssistedCheckResult = {
+  name: AssistedRequiredCheck;
+  ok: boolean;
+  message: string;
+};
+
+export type AssistedUpdateState = {
+  tag: string;
+  fromTag: string | null;
+  metadata: AssistedUpdateMetadata;
+  requiredChecks: AssistedRequiredCheck[];
+  phase: ReleasePhase;
+  agentId: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  error: string | null;
+  checks: AssistedCheckResult[];
+  notes: Partial<Record<ReleasePhase, string>>;
+};
 
 export type ReleaseInfo = {
   currentTag: string | null;
@@ -26,6 +75,8 @@ export type ReleaseInfo = {
   unreleasedCount: number;
   commits: Array<{ sha: string; subject: string }>;
   refMissing?: boolean;
+  assisted?: AssistedUpdateMetadata | null;
+  assistedRequired?: boolean;
 };
 
 export type ReleaseStatus = {
@@ -42,6 +93,7 @@ export type ReleaseJob = {
   runUrl: string | null;
   tag: string | null;
   error: string | null;
+  assisted?: AssistedUpdateState | null;
 };
 
 type ReleaseStreamEvent =
@@ -51,7 +103,8 @@ type ReleaseStreamEvent =
   | { type: "log.rewind"; count: number }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string };
+  | { type: "tag"; tag: string }
+  | { type: "assisted"; state: AssistedUpdateState | null };
 
 export type UseReleaseStreamResult = {
   status: ReleaseStatus | null;
@@ -146,6 +199,8 @@ export function useReleaseStream(): UseReleaseStreamResult {
           };
         if (event.type === "runUrl") return { ...prev, runUrl: event.url };
         if (event.type === "tag") return { ...prev, tag: event.tag };
+        if (event.type === "assisted")
+          return { ...prev, assisted: event.state };
         return prev;
       });
     };

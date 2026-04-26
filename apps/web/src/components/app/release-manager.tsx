@@ -21,6 +21,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import {
+  AssistedUpdateGate,
+  AssistedUpdateProgress,
+} from "@/components/app/assisted-update-card";
+import {
   type ReleaseChannel,
   type ReleaseInfo,
   type ReleaseJob,
@@ -146,6 +150,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     });
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
+      // The backend returns 409 with code "ASSISTED_UPDATE_REQUIRED" when
+      // the target release gates the generic flow. Re-fetch info so the
+      // assisted gate card renders in place of the standard button.
+      if (err.error === "ASSISTED_UPDATE_REQUIRED") {
+        setUpdateError(
+          "This release requires the assisted update flow. Use the assisted-update card below."
+        );
+        await handleCheckForUpdates();
+        return;
+      }
       setUpdateError(cleanError(err.error ?? "Failed to start update"));
       return;
     }
@@ -212,6 +226,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
   // Only show takeover for update jobs
   const updateJob = job?.jobType === "update" ? job : null;
+  const assistedJob = job?.jobType === "update-assisted" ? job : null;
   const isDone =
     updateJob?.phase === "done" ||
     (!postRestartPolling &&
@@ -223,6 +238,22 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     (updateJob !== null && postRestartPolling);
   // Only show takeover for active jobs, not stale done jobs from server memory
   const showTakeover = updateJob !== null && !isDone;
+
+  if (assistedJob) {
+    return (
+      <AssistedUpdateProgress
+        job={assistedJob}
+        onDismiss={() => {
+          void fetch("/api/v1/release/update/assisted/state", {
+            method: "DELETE",
+          }).catch(() => {});
+          setJob(null);
+          setInfo(null);
+          setUpdateError(null);
+        }}
+      />
+    );
+  }
 
   if (showTakeover) {
     return (
@@ -422,31 +453,47 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => void handleUpdate(info.latestTag!)}
-                    className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
-                  >
-                    Update to {info.latestTag}
-                  </button>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    data-testid="assisted-update-button"
-                    disabled={assistedUpdateLaunching}
-                    onClick={() => void handleAssistedUpdate(info.latestTag!)}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {assistedUpdateLaunching
-                      ? "Launching agent..."
-                      : "Assisted update"}
-                  </Button>
-                </div>
-                <p className="max-w-xl text-xs text-muted-foreground">
-                  Assisted update launches a full-access agent on the production
-                  checkout, redirects you into its terminal, and tells it to
-                  recover service first if the restart goes sideways.
-                </p>
+                {info.assisted ? (
+                  <AssistedUpdateGate
+                    tag={info.latestTag}
+                    metadata={info.assisted}
+                    required={info.assistedRequired === true}
+                    onStart={() => handleAssistedUpdate(info.latestTag!)}
+                    starting={assistedUpdateLaunching}
+                    startError={null}
+                  />
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => void handleUpdate(info.latestTag!)}
+                        className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
+                      >
+                        Update to {info.latestTag}
+                      </button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        data-testid="assisted-update-button"
+                        disabled={assistedUpdateLaunching}
+                        onClick={() =>
+                          void handleAssistedUpdate(info.latestTag!)
+                        }
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        {assistedUpdateLaunching
+                          ? "Launching agent..."
+                          : "Assisted update"}
+                      </Button>
+                    </div>
+                    <p className="max-w-xl text-xs text-muted-foreground">
+                      Assisted update launches a full-access agent on the
+                      production checkout, redirects you into its terminal, and
+                      tells it to recover service first if the restart goes
+                      sideways.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
