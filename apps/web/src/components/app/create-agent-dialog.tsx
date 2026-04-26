@@ -136,6 +136,15 @@ function describeClipboardFileType(type: string): {
   };
 }
 
+function isClipboardAttachmentType(type: string): boolean {
+  return (
+    type.startsWith("image/") ||
+    type.startsWith("video/") ||
+    type.startsWith("audio/") ||
+    type === "application/pdf"
+  );
+}
+
 function extensionForMimeType(type: string): string {
   switch (type) {
     case "image/png":
@@ -177,7 +186,7 @@ async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
   if (typeof navigator.clipboard.read === "function") {
     const items = await navigator.clipboard.read();
     for (const item of items) {
-      const fileType = item.types.find((type) => type !== "text/plain");
+      const fileType = item.types.find(isClipboardAttachmentType);
       if (!fileType) continue;
       const blob = await item.getType(fileType);
       const file = createClipboardFile(blob);
@@ -553,7 +562,7 @@ function CreateAgentDialogContent({
 
   const addStartupLink = useCallback(() => {
     const trimmed = linkDraft.trim();
-    if (!trimmed) return;
+    if (!trimmed || !isLikelyUrl(trimmed)) return;
     setStartupLinks((current) =>
       current.includes(trimmed) ? current : [...current, trimmed]
     );
@@ -565,6 +574,10 @@ function CreateAgentDialogContent({
       current.filter((link) => link !== linkToRemove)
     );
   }, []);
+
+  const trimmedLinkDraft = linkDraft.trim();
+  const linkDraftIsValid =
+    trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
 
   const handleUseClipboardSuggestion = useCallback(() => {
     if (!clipboardSuggestion) return;
@@ -600,6 +613,7 @@ function CreateAgentDialogContent({
       event.preventDefault();
       const cwd = createCwd.trim();
       if (!cwd) return;
+      if (step === "context" && !linkDraftIsValid) return;
 
       setCreating(true);
       try {
@@ -627,8 +641,8 @@ function CreateAgentDialogContent({
           initialPrompt: initialPrompt.trim() || undefined,
         };
         const resolvedStartupLinks =
-          step === "context" && linkDraft.trim()
-            ? Array.from(new Set([...startupLinks, linkDraft.trim()]))
+          step === "context" && trimmedLinkDraft
+            ? Array.from(new Set([...startupLinks, trimmedLinkDraft]))
             : startupLinks;
         const useStartupContext =
           step === "context" &&
@@ -681,11 +695,12 @@ function CreateAgentDialogContent({
       createWorktreeBranch,
       cwdIsGitRepo,
       initialPrompt,
+      linkDraftIsValid,
       onCreated,
-      linkDraft,
       startupFiles,
       startupLinks,
       step,
+      trimmedLinkDraft,
     ]
   );
 
@@ -1179,17 +1194,27 @@ function CreateAgentDialogContent({
                   }}
                   placeholder="https://..."
                   data-testid="create-agent-context-link-input"
+                  aria-invalid={!linkDraftIsValid}
                 />
                 <Button
                   type="button"
                   variant="default"
                   onClick={addStartupLink}
                   data-testid="create-agent-context-link-add"
+                  disabled={!trimmedLinkDraft || !linkDraftIsValid}
                 >
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Add
                 </Button>
               </div>
+              {!linkDraftIsValid ? (
+                <p
+                  className="text-xs text-status-blocked"
+                  data-testid="create-agent-context-link-error"
+                >
+                  Enter a valid `http:` or `https:` URL.
+                </p>
+              ) : null}
               {startupLinks.length > 0 ? (
                 <div className="space-y-2">
                   {startupLinks.map((link) => (
@@ -1241,7 +1266,7 @@ function CreateAgentDialogContent({
                   type="submit"
                   variant="primary"
                   tabIndex={0}
-                  disabled={creating}
+                  disabled={creating || !linkDraftIsValid}
                   data-testid="create-agent-context-submit"
                 >
                   {creating ? (

@@ -22,6 +22,7 @@ async function stubClipboard(
   page: Parameters<typeof loadApp>[0],
   config:
     | { kind: "text"; text: string }
+    | { kind: "rich-text-link"; text: string; html: string }
     | { kind: "image"; mimeType?: string; bytes?: number[] }
 ): Promise<void> {
   await page.addInitScript((value) => {
@@ -39,10 +40,23 @@ async function stubClipboard(
             ],
             readText: async () => "",
           }
-        : {
-            read: async () => [],
-            readText: async () => value.text,
-          };
+        : value.kind === "rich-text-link"
+          ? {
+              read: async () => [
+                {
+                  types: ["text/html", "text/plain"],
+                  getType: async (type: string) =>
+                    new Blob([type === "text/html" ? value.html : value.text], {
+                      type,
+                    }),
+                },
+              ],
+              readText: async () => value.text,
+            }
+          : {
+              read: async () => [],
+              readText: async () => value.text,
+            };
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -222,6 +236,24 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toBeVisible();
   });
 
+  test("create with context treats rich-text links as links, not files", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "rich-text-link",
+      text: "https://example.com/rich-link",
+      html: '<a href="https://example.com/rich-link">Example</a>',
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).toContainText("Copied link ready");
+    await expect(cta).not.toContainText("Clipboard file ready");
+  });
+
   test("create with context suggests a clipboard image without auto-attaching it", async ({
     page,
   }) => {
@@ -245,5 +277,25 @@ test.describe("Terminal agent type", () => {
 
     await expect(page.getByText("clipboard-image.png")).toBeVisible();
     await expect(cta).not.toBeVisible();
+  });
+
+  test("create with context validates manual links before adding them", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-context-link-input").fill("not-a-url");
+    await expect(
+      page.getByTestId("create-agent-context-link-error")
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-link-add")
+    ).toBeDisabled();
+    await expect(
+      page.getByTestId("create-agent-context-submit")
+    ).toBeDisabled();
   });
 });
