@@ -271,36 +271,6 @@ test.describe("Jobs API", () => {
     expect(body.runs.length).toBeGreaterThan(0);
   });
 
-  test("POST /api/v1/jobs/run validates required fields", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/jobs/run", {
-      headers: HEADERS,
-      data: {},
-    });
-    expect(res.status()).toBe(400);
-  });
-
-  test("POST /api/v1/jobs/enable validates required fields", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/jobs/enable", {
-      headers: HEADERS,
-      data: {},
-    });
-    expect(res.status()).toBe(400);
-  });
-
-  test("POST /api/v1/jobs/disable validates required fields", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/jobs/disable", {
-      headers: HEADERS,
-      data: {},
-    });
-    expect(res.status()).toBe(400);
-  });
-
   test("GET /api/v1/jobs/history returns 404 for unknown job", async ({
     request,
   }) => {

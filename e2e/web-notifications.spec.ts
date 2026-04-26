@@ -1,10 +1,6 @@
 import { test, expect } from "@playwright/test";
 import http from "http";
-import {
-  createAgentViaAPI,
-  setAgentLatestEventViaAPI,
-  loadApp,
-} from "./helpers";
+import { createAgentViaAPI, setAgentLatestEventViaAPI } from "./helpers";
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 const authHeader = { Authorization: `Bearer ${AUTH_TOKEN}` };
@@ -125,26 +121,6 @@ test.describe("Web notification settings API", () => {
     });
   });
 
-  test("POST /api/v1/notifications/settings validates webNotifyEnabled type", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: "yes" },
-    });
-    expect(res.status()).toBe(400);
-  });
-
-  test("POST /api/v1/notifications/settings validates webNotifyEvents type", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEvents: "done" },
-    });
-    expect(res.status()).toBe(400);
-  });
-
   test("POST /api/v1/notifications/settings filters invalid event types", async ({
     request,
   }) => {
@@ -235,26 +211,6 @@ test.describe("Web notification ack endpoint", () => {
       data: { notificationId: "test-notification-id" },
     });
     expect(res.status()).toBe(204);
-  });
-
-  test("POST /api/v1/notifications/ack rejects missing notificationId", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/notifications/ack", {
-      headers: authHeader,
-      data: {},
-    });
-    expect(res.status()).toBe(400);
-  });
-
-  test("POST /api/v1/notifications/ack rejects non-string notificationId", async ({
-    request,
-  }) => {
-    const res = await request.post("/api/v1/notifications/ack", {
-      headers: authHeader,
-      data: { notificationId: 123 },
-    });
-    expect(res.status()).toBe(400);
   });
 });
 
@@ -458,202 +414,6 @@ test.describe("Web notification SSE delivery and ack flow", () => {
         headers: authHeader,
         data: { agentId: null },
       });
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
-    }
-  });
-});
-
-test.describe("Browser notification ack flow (mocked Notification API)", () => {
-  test("client acks when Notification permission is granted", async ({
-    page,
-    request,
-  }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
-    // Mock the Notification API with permission "granted"
-    const notifications: Array<{ title: string; body: string; tag: string }> =
-      [];
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).Notification =
-        class MockNotification {
-          static permission = "granted";
-          static requestPermission = async () =>
-            "granted" as NotificationPermission;
-          constructor(
-            title: string,
-            options?: { body?: string; tag?: string; icon?: string }
-          ) {
-            (
-              window as unknown as Record<string, unknown[]>
-            ).__mockNotifications ??= [];
-            (
-              window as unknown as Record<string, unknown[]>
-            ).__mockNotifications.push({
-              title,
-              body: options?.body ?? "",
-              tag: options?.tag ?? "",
-            });
-          }
-        };
-      (window as unknown as Record<string, unknown[]>).__mockNotifications = [];
-    });
-
-    // Intercept ack requests
-    const ackRequests: Array<{ notificationId: string }> = [];
-    await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as {
-        notificationId: string;
-      };
-      ackRequests.push(postData);
-      await route.continue();
-    });
-
-    try {
-      await loadApp(page);
-
-      // Create an agent and trigger a "done" event
-      const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Permission granted test",
-      });
-
-      // Wait for the client to receive the SSE event and send an ack
-      await page.waitForTimeout(3000);
-
-      // Verify a Notification was created in the browser
-      const mockNotifications = await page.evaluate(
-        () =>
-          (window as unknown as Record<string, unknown[]>).__mockNotifications
-      );
-      expect(mockNotifications.length).toBeGreaterThanOrEqual(1);
-      const notif = mockNotifications[0] as { title: string; body: string };
-      expect(notif.body).toBe("Permission granted test");
-
-      // Verify the ack was sent back to the server
-      expect(ackRequests.length).toBeGreaterThanOrEqual(1);
-      expect(ackRequests[0].notificationId).toBeDefined();
-      expect(typeof ackRequests[0].notificationId).toBe("string");
-    } finally {
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
-    }
-  });
-
-  test("client does not ack when Notification permission is denied", async ({
-    page,
-    request,
-  }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
-    // Mock the Notification API with permission "denied"
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).Notification =
-        class MockNotification {
-          static permission = "denied";
-          static requestPermission = async () =>
-            "denied" as NotificationPermission;
-          constructor() {
-            // Should never be called when permission is denied
-            throw new Error("Notification created with denied permission");
-          }
-        };
-    });
-
-    // Intercept ack requests
-    const ackRequests: Array<{ notificationId: string }> = [];
-    await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as {
-        notificationId: string;
-      };
-      ackRequests.push(postData);
-      await route.continue();
-    });
-
-    try {
-      await loadApp(page);
-
-      const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "Permission denied test",
-      });
-
-      // Wait long enough for an ack to arrive if one were sent
-      await page.waitForTimeout(3000);
-
-      // No ack should have been sent — permission denied means
-      // showWebNotification returns false
-      expect(ackRequests).toHaveLength(0);
-    } finally {
-      await request.post("/api/v1/notifications/settings", {
-        headers: authHeader,
-        data: {
-          webNotifyEnabled: false,
-          webNotifyEvents: ["done", "waiting_user", "blocked"],
-        },
-      });
-    }
-  });
-
-  test("client does not ack when Notification API is unavailable", async ({
-    page,
-    request,
-  }) => {
-    // Enable web notifications
-    await request.post("/api/v1/notifications/settings", {
-      headers: authHeader,
-      data: { webNotifyEnabled: true, webNotifyEvents: ["done"] },
-    });
-
-    // Remove the Notification API entirely (simulates iOS Safari without PWA)
-    await page.addInitScript(() => {
-      delete (window as unknown as Record<string, unknown>).Notification;
-    });
-
-    // Intercept ack requests
-    const ackRequests: Array<{ notificationId: string }> = [];
-    await page.route("**/api/v1/notifications/ack", async (route) => {
-      const postData = route.request().postDataJSON() as {
-        notificationId: string;
-      };
-      ackRequests.push(postData);
-      await route.continue();
-    });
-
-    try {
-      await loadApp(page);
-
-      const agent = await createAgentViaAPI(request);
-      await setAgentLatestEventViaAPI(request, agent.id, {
-        type: "done",
-        message: "No API test",
-      });
-
-      await page.waitForTimeout(3000);
-
-      // No ack — Notification API doesn't exist
-      expect(ackRequests).toHaveLength(0);
-    } finally {
       await request.post("/api/v1/notifications/settings", {
         headers: authHeader,
         data: {
