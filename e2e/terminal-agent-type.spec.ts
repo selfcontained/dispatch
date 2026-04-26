@@ -511,4 +511,24 @@ test.describe("Terminal agent type", () => {
       page.getByTestId("create-agent-context-submit")
     ).toBeDisabled();
   });
+
+  test("create with context clears an unconfirmed link draft when the popover closes", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+
+    const linkInput = page.getByTestId("create-agent-context-link-input");
+    await linkInput.fill("https://example.com/unconfirmed");
+    await page.keyboard.press("Escape");
+
+    await page.getByTestId("create-agent-context-files-button").click();
+    await page.getByRole("button", { name: "Add link" }).click();
+    await expect(linkInput).toHaveValue("");
+  });
 });

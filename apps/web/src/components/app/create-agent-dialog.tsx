@@ -702,7 +702,10 @@ function CreateAgentDialogContent({
 
   const handleAddOpenChange = useCallback((next: boolean) => {
     setAddOpen(next);
-    if (!next) setAddMode("menu");
+    if (!next) {
+      setAddMode("menu");
+      setLinkDraft("");
+    }
   }, []);
 
   const handleAddFileFromMenu = useCallback(() => {
@@ -714,6 +717,11 @@ function CreateAgentDialogContent({
 
   const handleAddLinkFromMenu = useCallback(() => {
     setAddMode("link");
+  }, []);
+
+  const handleAddLinkBack = useCallback(() => {
+    setLinkDraft("");
+    setAddMode("menu");
   }, []);
 
   const handleAddLinkSubmit = useCallback(() => {
@@ -766,10 +774,7 @@ function CreateAgentDialogContent({
               : undefined,
           initialPrompt: initialPrompt.trim() || undefined,
         };
-        const resolvedStartupLinks =
-          step === "context" && trimmedLinkDraft
-            ? Array.from(new Set([...startupLinks, trimmedLinkDraft]))
-            : startupLinks;
+        const resolvedStartupLinks = startupLinks;
         const useStartupContext =
           step === "context" &&
           (payloadBase.initialPrompt ||
@@ -826,7 +831,6 @@ function CreateAgentDialogContent({
       startupFiles,
       startupLinks,
       step,
-      trimmedLinkDraft,
     ]
   );
 
@@ -1386,7 +1390,7 @@ function CreateAgentDialogContent({
                             value={linkDraft}
                             onChange={setLinkDraft}
                             onSubmit={handleAddLinkSubmit}
-                            onBack={() => setAddMode("menu")}
+                            onBack={handleAddLinkBack}
                             isValid={linkDraftIsValid}
                           />
                         )}
@@ -1507,7 +1511,7 @@ function CreateAgentDialogContent({
                               value={linkDraft}
                               onChange={setLinkDraft}
                               onSubmit={handleAddLinkSubmit}
-                              onBack={() => setAddMode("menu")}
+                              onBack={handleAddLinkBack}
                               isValid={linkDraftIsValid}
                             />
                           )}
