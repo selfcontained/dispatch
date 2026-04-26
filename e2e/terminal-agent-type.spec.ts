@@ -18,6 +18,39 @@ type AgentRecord = {
   latestEvent: { type: string; message: string } | null;
 };
 
+async function stubClipboard(
+  page: Parameters<typeof loadApp>[0],
+  config:
+    | { kind: "text"; text: string }
+    | { kind: "image"; mimeType?: string; bytes?: number[] }
+): Promise<void> {
+  await page.addInitScript((value) => {
+    const clipboard =
+      value.kind === "image"
+        ? {
+            read: async () => [
+              {
+                types: [value.mimeType ?? "image/png"],
+                getType: async (type: string) =>
+                  new Blob([new Uint8Array(value.bytes ?? [137, 80, 78, 71])], {
+                    type,
+                  }),
+              },
+            ],
+            readText: async () => "",
+          }
+        : {
+            read: async () => [],
+            readText: async () => value.text,
+          };
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: clipboard,
+    });
+  }, config);
+}
+
 test.describe("Terminal agent type", () => {
   // Earlier specs in the run may disable agent types via settings; re-enable
   // so these tests are order-independent.
@@ -161,5 +194,56 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.getByTestId("create-agent-context-link-input")
     ).toBeVisible();
+  });
+
+  test("create with context suggests a copied link without auto-attaching it", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "text",
+      text: "https://example.com/docs/launch-context",
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).toContainText("Copied link ready");
+    await expect(
+      page.getByText("No links added yet.", { exact: true })
+    ).toBeVisible();
+
+    await page.getByTestId("create-agent-context-clipboard-action").click();
+
+    await expect(
+      page.getByText("https://example.com/docs/launch-context")
+    ).toBeVisible();
+    await expect(cta).not.toBeVisible();
+  });
+
+  test("create with context suggests a clipboard image without auto-attaching it", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "image",
+      mimeType: "image/png",
+      bytes: [137, 80, 78, 71, 13, 10, 26, 10],
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const cta = page.getByTestId("create-agent-context-clipboard-cta");
+    await expect(cta).toContainText("Clipboard image ready");
+    await expect(
+      page.getByText("No files added yet.", { exact: true })
+    ).toBeVisible();
+
+    await page.getByTestId("create-agent-context-clipboard-action").click();
+
+    await expect(page.getByText("clipboard-image.png")).toBeVisible();
+    await expect(cta).not.toBeVisible();
   });
 });

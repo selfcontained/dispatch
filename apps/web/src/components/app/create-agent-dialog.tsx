@@ -60,6 +60,164 @@ const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
 const STARTUP_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+const URL_PROTOCOLS = new Set(["http:", "https:"]);
+
+type ClipboardSuggestion =
+  | {
+      kind: "image" | "file";
+      title: string;
+      description: string;
+      actionLabel: string;
+      file: File;
+    }
+  | {
+      kind: "url";
+      title: string;
+      description: string;
+      actionLabel: string;
+      url: string;
+    }
+  | {
+      kind: "text";
+      title: string;
+      description: string;
+      actionLabel: string;
+      text: string;
+    };
+
+function isLikelyUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return URL_PROTOCOLS.has(parsed.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function describeClipboardFileType(type: string): {
+  noun: string;
+  actionLabel: string;
+} {
+  if (type.startsWith("image/")) {
+    return {
+      noun: "image",
+      actionLabel: "Add clipboard image",
+    };
+  }
+  if (type === "application/pdf") {
+    return {
+      noun: "PDF",
+      actionLabel: "Add clipboard PDF",
+    };
+  }
+  if (type.startsWith("video/")) {
+    return {
+      noun: "video",
+      actionLabel: "Add clipboard video",
+    };
+  }
+  if (type.startsWith("audio/")) {
+    return {
+      noun: "audio file",
+      actionLabel: "Add clipboard audio",
+    };
+  }
+  if (type.startsWith("text/")) {
+    return {
+      noun: "text file",
+      actionLabel: "Add clipboard file",
+    };
+  }
+  return {
+    noun: "file",
+    actionLabel: "Add clipboard file",
+  };
+}
+
+function extensionForMimeType(type: string): string {
+  switch (type) {
+    case "image/png":
+      return "png";
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
+    case "image/webp":
+      return "webp";
+    case "application/pdf":
+      return "pdf";
+    case "text/plain":
+      return "txt";
+    case "text/markdown":
+      return "md";
+    case "application/json":
+      return "json";
+    default: {
+      const subtype = type.split("/")[1]?.split(";")[0]?.trim();
+      return subtype || "bin";
+    }
+  }
+}
+
+function createClipboardFile(blob: Blob): File {
+  const type = blob.type || "application/octet-stream";
+  const { noun } = describeClipboardFileType(type);
+  const baseName = noun === "image" ? "clipboard-image" : "clipboard-file";
+  return new File([blob], `${baseName}.${extensionForMimeType(type)}`, {
+    type,
+    lastModified: Date.now(),
+  });
+}
+
+async function getClipboardSuggestion(): Promise<ClipboardSuggestion | null> {
+  if (typeof navigator === "undefined" || !navigator.clipboard) return null;
+
+  if (typeof navigator.clipboard.read === "function") {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const fileType = item.types.find((type) => type !== "text/plain");
+      if (!fileType) continue;
+      const blob = await item.getType(fileType);
+      const file = createClipboardFile(blob);
+      const typeInfo = describeClipboardFileType(file.type);
+      return {
+        kind: file.type.startsWith("image/") ? "image" : "file",
+        title: file.type.startsWith("image/")
+          ? "Clipboard image ready"
+          : "Clipboard file ready",
+        description: `Your clipboard contains a ${typeInfo.noun} you can attach to the agent context.`,
+        actionLabel: typeInfo.actionLabel,
+        file,
+      };
+    }
+  }
+
+  if (typeof navigator.clipboard.readText !== "function") return null;
+  const text = navigator.clipboard.readText
+    ? (await navigator.clipboard.readText()).trim()
+    : "";
+  if (!text) return null;
+  if (isLikelyUrl(text)) {
+    return {
+      kind: "url",
+      title: "Copied link ready",
+      description:
+        "Your clipboard contains a URL you can pin into the new session.",
+      actionLabel: "Add copied link",
+      url: text,
+    };
+  }
+  return {
+    kind: "text",
+    title: "Copied prompt ready",
+    description:
+      "Your clipboard contains text you can use as startup instructions.",
+    actionLabel: "Use copied prompt",
+    text,
+  };
+}
 
 function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
@@ -252,6 +410,8 @@ function CreateAgentDialogContent({
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [linkDraft, setLinkDraft] = useState("");
+  const [clipboardSuggestion, setClipboardSuggestion] =
+    useState<ClipboardSuggestion | null>(null);
   const [creating, setCreating] = useState(false);
   const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
     readCwdHistory()
@@ -303,6 +463,30 @@ function CreateAgentDialogContent({
     if (step === "context") {
       requestAnimationFrame(() => promptTextareaRef.current?.focus());
     }
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== "context") {
+      setClipboardSuggestion(null);
+      return;
+    }
+
+    let cancelled = false;
+    setClipboardSuggestion(null);
+
+    void getClipboardSuggestion()
+      .then((suggestion) => {
+        if (cancelled) return;
+        setClipboardSuggestion(suggestion);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setClipboardSuggestion(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [step]);
 
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
@@ -381,6 +565,35 @@ function CreateAgentDialogContent({
       current.filter((link) => link !== linkToRemove)
     );
   }, []);
+
+  const handleUseClipboardSuggestion = useCallback(() => {
+    if (!clipboardSuggestion) return;
+
+    switch (clipboardSuggestion.kind) {
+      case "image":
+      case "file":
+        appendStartupFiles([clipboardSuggestion.file]);
+        break;
+      case "url":
+        setStartupLinks((current) =>
+          current.includes(clipboardSuggestion.url)
+            ? current
+            : [...current, clipboardSuggestion.url]
+        );
+        break;
+      case "text": {
+        const suggestionText = clipboardSuggestion.text;
+        setInitialPrompt((current) => {
+          if (!current.trim()) return suggestionText;
+          return `${current.trimEnd()}\n\n${suggestionText}`;
+        });
+        requestAnimationFrame(() => promptTextareaRef.current?.focus());
+        break;
+      }
+    }
+
+    setClipboardSuggestion(null);
+  }, [appendStartupFiles, clipboardSuggestion]);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -839,6 +1052,37 @@ function CreateAgentDialogContent({
             onSubmit={(event) => void handleSubmit(event)}
             onPaste={handleStartupPaste}
           >
+            {clipboardSuggestion ? (
+              <div
+                className="flex items-start justify-between gap-3 rounded-md border border-white/[0.12] bg-white/[0.05] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                data-testid="create-agent-context-clipboard-cta"
+              >
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">
+                    {clipboardSuggestion.title}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {clipboardSuggestion.description}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={handleUseClipboardSuggestion}
+                  data-testid="create-agent-context-clipboard-action"
+                >
+                  {clipboardSuggestion.kind === "url" ? (
+                    <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                  ) : (
+                    <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {clipboardSuggestion.actionLabel}
+                </Button>
+              </div>
+            ) : null}
+
             <div className="space-y-1">
               <label className="text-sm text-muted-foreground">
                 Instructions
