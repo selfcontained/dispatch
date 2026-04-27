@@ -5,16 +5,14 @@ on:
     branches: [main]
 
 jobs:
-  ci:
-    runs-on: self-hosted
+  ci-linux:
+    runs-on:
+      - self-hosted
+      - Linux
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # ci.yml doesn't call gh/git push/private-registry work (that's release.yml).
-          # Skipping credential persist means checkout's post-run also skips the
-          # `git submodule foreach --recursive` cleanup loop, which is unnecessary
-          # with no submodules and slow on self-hosted macOS.
           persist-credentials: false
 
       - uses: pnpm/action-setup@v4
@@ -32,9 +30,8 @@ jobs:
       - name: Start Postgres
         id: postgres
         run: |
-          CONTAINER="dispatch-ci-pg-$GITHUB_RUN_ID"
+          CONTAINER="dispatch-ci-linux-pg-$GITHUB_RUN_ID"
           echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
-          # Pick a random port in 10000-20000 range
           PORT=$((RANDOM % 10000 + 10000))
           echo "port=$PORT" >> "$GITHUB_OUTPUT"
           docker run --rm -d \
@@ -44,7 +41,6 @@ jobs:
             -e POSTGRES_DB=postgres \
             -p "$PORT":5432 \
             postgres:17-alpine
-          # Wait for Postgres to be ready
           for i in $(seq 1 15); do
             docker exec "$CONTAINER" pg_isready -U dispatch && break
             sleep 1
@@ -71,10 +67,12 @@ jobs:
       - name: Build Bun binaries
         run: pnpm run build:bun
 
-      - name: Smoke test compiled binary
-        run: bun scripts/smoke-bun-binary.mjs "$(ls dist/bun/dispatch-*-bun-linux-x64 | head -n 1)"
-        env:
-          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
+      - name: Upload Bun binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: bun-binaries
+          path: dist/bun/
+          retention-days: 7
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -84,12 +82,153 @@ jobs:
           path: test-results/
           retention-days: 7
 
-      - name: Upload Bun binaries
-        uses: actions/upload-artifact@v4
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
+
+  smoke-linux:
+    needs: ci-linux
+    runs-on:
+      - self-hosted
+      - Linux
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Bun binaries
+        uses: actions/download-artifact@v4
         with:
           name: bun-binaries
-          path: dist/bun/
-          retention-days: 7
+          path: dist/bun
+
+      - name: Restore binary execute bits
+        run: chmod +x dist/bun/dispatch-*
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          CONTAINER="dispatch-smoke-linux-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
+
+      - name: Smoke test Linux binary
+        run: |
+          case "$(uname -m)" in
+            aarch64|arm64) ARCH="arm64" ;;
+            x86_64) ARCH="x64" ;;
+            *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-linux-${ARCH}" | head -n 1)
+          if [[ -z "$BINARY" ]]; then
+            echo "error: no Linux Bun binary found for architecture ${ARCH}" >&2
+            exit 1
+          fi
+          bun scripts/smoke-bun-binary.mjs "$BINARY"
+        env:
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
+
+      - name: Stop Postgres
+        if: always()
+        run: docker stop ${{ steps.postgres.outputs.container }} 2>/dev/null || true
+
+  smoke-macos:
+    needs: ci-linux
+    runs-on:
+      - self-hosted
+      - macOS
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Bun binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: bun-binaries
+          path: dist/bun
+
+      - name: Restore binary execute bits
+        run: chmod +x dist/bun/dispatch-*
+
+      - name: Start Postgres
+        id: postgres
+        run: |
+          CONTAINER="dispatch-smoke-macos-pg-$GITHUB_RUN_ID"
+          echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
+          PORT=$((RANDOM % 10000 + 10000))
+          echo "port=$PORT" >> "$GITHUB_OUTPUT"
+          docker run --rm -d \
+            --name "$CONTAINER" \
+            -e POSTGRES_USER=dispatch \
+            -e POSTGRES_PASSWORD=dispatch \
+            -e POSTGRES_DB=postgres \
+            -p "$PORT":5432 \
+            postgres:17-alpine
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER" pg_isready -U dispatch && break
+            sleep 1
+          done
+
+      - name: Smoke test macOS binary
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH="arm64" ;;
+            x86_64) ARCH="x64" ;;
+            *) echo "unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-darwin-${ARCH}" | head -n 1)
+          if [[ -z "$BINARY" ]]; then
+            echo "error: no macOS Bun binary found for architecture ${ARCH}" >&2
+            exit 1
+          fi
+          bun scripts/smoke-bun-binary.mjs "$BINARY"
+        env:
+          TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Stop Postgres
         if: always()
