@@ -9,7 +9,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **Bun 1.3+**, **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch. For source builds and local development, also install **pnpm**.
+> 2. Install system dependencies: **Bun 1.3+**, **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch.
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
 > 4. If installing from source instead of a GitHub release artifact: `pnpm install && pnpm run build:bun`
 > 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
@@ -43,19 +43,17 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
   - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
   - real-time agent status events via SSE
   - agent pins for surfacing key info (URLs, ports, PRs, files) in the sidebar
-  - iOS Simulator screenshot capture via `dispatch_share` (`source: "simulator"`, `xcrun simctl`)
   - in-app browser notifications (with Slack fallback if no browser client acks)
   - in-app docs pane covering features and MCP tools
 
 ## Prerequisites
 
-| Dependency                 | Purpose                                                 | macOS                               | Linux                    |
-| -------------------------- | ------------------------------------------------------- | ----------------------------------- | ------------------------ | ----------------------------------- | ----- |
-| **Bun 1.3+**               | Dispatch runtime and binary build tool                  | `curl -fsSL https://bun.com/install | bash`                    | `curl -fsSL https://bun.com/install | bash` |
-| **pnpm**                   | Package manager for source builds and local development | `npm i -g pnpm`                     | `npm i -g pnpm`          |
-| **PostgreSQL 14+**         | Database                                                | `brew install postgresql@17`        | `apt install postgresql` |
-| **tmux**                   | Agent session management                                | `brew install tmux`                 | `apt install tmux`       |
-| **At least one agent CLI** | The agents Dispatch runs                                | See below                           | See below                |
+| Dependency                 | Purpose                                | macOS                                        | Linux                                        |
+| -------------------------- | -------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| **Bun 1.3+**               | Dispatch runtime and binary build tool | `curl -fsSL https://bun.com/install \| bash` | `curl -fsSL https://bun.com/install \| bash` |
+| **PostgreSQL 14+**         | Database                               | `brew install postgresql@17`                 | `apt install postgresql`                     |
+| **tmux**                   | Agent session management               | `brew install tmux`                          | `apt install tmux`                           |
+| **At least one agent CLI** | The agents Dispatch runs               | See below                                    | See below                                    |
 
 Dispatch currently uses a split toolchain:
 
@@ -66,11 +64,10 @@ We may move more of the repo over to Bun later, but that is not part of the curr
 
 ### Optional
 
-| Dependency       | Purpose                                    | Install                                                                                                 |
-| ---------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| **Docker**       | Isolated dev databases via `dispatch-dev`  | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
-| **Xcode** (full) | iOS Simulator, `xcrun simctl` (macOS only) | App Store                                                                                               |
-| **xclip + Xvfb** | Clipboard image paste (Linux only)         | `apt install xclip xvfb`                                                                                |
+| Dependency       | Purpose                                   | Install                                                                                                 |
+| ---------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Docker**       | Isolated dev databases via `dispatch-dev` | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
+| **xclip + Xvfb** | Clipboard image paste (Linux only)        | `apt install xclip xvfb`                                                                                |
 
 ### Agent CLIs
 
@@ -158,32 +155,34 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Interactive agents
 
-| Tool                        | Description                                                            |
-| --------------------------- | ---------------------------------------------------------------------- |
-| `dispatch_event`            | Report agent status (working, blocked, waiting_user, done, idle)       |
-| `dispatch_rename_session`   | Update the current session's display name                              |
-| `dispatch_pin`              | Surface key info in the sidebar (URLs, ports, PRs, files)              |
-| `dispatch_share`            | Upload screenshots and media to the agent's media pane                 |
-| `dispatch_feedback`         | Submit structured review findings (severity, file refs, suggestions)   |
-| `dispatch_get_feedback`     | Retrieve feedback findings for review                                  |
-| `dispatch_resolve_feedback` | Mark a feedback item as fixed or ignored                               |
-| `dispatch_launch_persona`   | Launch a persona child agent for automated review                      |
-| `dispatch_list_media`       | List media files shared with or by this agent                          |
-| `dispatch_notify`           | Send a Slack notification from the agent (requires webhook configured) |
-| `list_personas`             | List available persona reviewers for this project                      |
-| `create_pr`                 | Create a GitHub pull request                                           |
-| `get_pr_status`             | Check PR CI status and reviews                                         |
-| `get_activity_summary`      | Summarize agent activity over a time range                             |
-| `get_agent_history`         | Get detailed agent session history                                     |
-| `get_feedback_summary`      | Aggregate persona review feedback for pattern detection                |
+| Tool                         | Description                                                                |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `create_pr`                  | Create a GitHub pull request                                               |
+| `get_pr_status`              | Check PR CI status and reviews                                             |
+| `dispatch_event`             | Report agent status (`working`, `blocked`, `waiting_user`, `done`, `idle`) |
+| `dispatch_rename_session`    | Update the current session's display name                                  |
+| `dispatch_notify`            | Send a Slack notification from the agent                                   |
+| `dispatch_pin`               | Surface key info in the sidebar (URLs, ports, PRs, files)                  |
+| `dispatch_share`             | Upload screenshots and media to the agent's media pane                     |
+| `dispatch_list_media`        | List media files shared with or by this agent                              |
+| `dispatch_feedback`          | Submit structured review findings                                          |
+| `list_personas`              | List available persona reviewers for this project                          |
+| `dispatch_launch_persona`    | Launch a persona child agent for automated review                          |
+| `dispatch_get_feedback`      | Retrieve feedback submitted by child persona agents                        |
+| `dispatch_resolve_feedback`  | Mark a feedback item as fixed or ignored                                   |
+| `dispatch_submit_resolution` | Submit the parent agent's response package for a reviewer recheck          |
+| `dispatch_cancel_recheck`    | Cancel a pending reviewer recheck loop                                     |
+| `get_activity_summary`       | Summarize agent activity over a time range                                 |
+| `get_agent_history`          | Get detailed agent session history                                         |
+| `get_feedback_summary`       | Aggregate persona review feedback for pattern detection                    |
 
 ### Persona agents
 
-Persona agents get a narrower set focused on reviewing their parent's work: `review_status`, `get_parent_context`, `dispatch_pin`, `dispatch_share`, `dispatch_feedback`.
+Persona agents get a narrower set focused on reviewing their parent's work: `review_status`, `dispatch_complete_review`, `dispatch_get_recheck_context`, `dispatch_event`, `dispatch_pin`, `dispatch_share`, `dispatch_feedback`, and `get_parent_context`.
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `list_agents`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, and `get_feedback_summary`.
 
 ### Repo-specific tools
 
