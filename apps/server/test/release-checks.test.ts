@@ -1,8 +1,20 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import https from "node:https";
+import type { Server as HttpsServer } from "node:https";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { AssistedUpdateState } from "../src/assisted-update-store.js";
 import { runRequiredChecks } from "../src/release-checks.js";
 
@@ -206,6 +218,118 @@ describe("health_endpoint", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/ECONNREFUSED/);
+  });
+});
+
+// Regression: when config.tls is on, the server's self-check hits its own
+// self-signed cert. Bare fetch refuses self-signed certs (no per-request
+// override), so for loopback HTTPS we drop to node:https with
+// rejectUnauthorized off. Verify that path against a real self-signed
+// server, and confirm bare fetch against the same URL still rejects.
+describe("health_endpoint with self-signed loopback HTTPS", () => {
+  let openSslAvailable = false;
+  let server: HttpsServer | null = null;
+  let port = 0;
+  let healthUrl = "";
+  let certDir = "";
+  let healthBody = JSON.stringify({ status: "ok" });
+  let healthStatus = 200;
+
+  beforeAll(async () => {
+    openSslAvailable =
+      spawnSync("openssl", ["version"], { stdio: "ignore" }).status === 0;
+    if (!openSslAvailable) return;
+
+    certDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-tls-"));
+    const keyPath = path.join(certDir, "key.pem");
+    const certPath = path.join(certDir, "cert.pem");
+    const gen = spawnSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+      ],
+      { stdio: "ignore" }
+    );
+    if (gen.status !== 0) {
+      openSslAvailable = false;
+      return;
+    }
+
+    server = https.createServer(
+      {
+        key: await readFile(keyPath),
+        cert: await readFile(certPath),
+      },
+      (_req, res) => {
+        res.statusCode = healthStatus;
+        res.setHeader("Content-Type", "application/json");
+        res.end(healthBody);
+      }
+    );
+    await new Promise<void>((resolve) =>
+      server!.listen(0, "127.0.0.1", () => resolve())
+    );
+    const addr = server!.address();
+    port = typeof addr === "object" && addr ? addr.port : 0;
+    healthUrl = `https://127.0.0.1:${port}/api/v1/health`;
+  });
+
+  afterAll(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+    }
+    if (certDir) {
+      await rm(certDir, { recursive: true, force: true });
+    }
+  });
+
+  beforeEach(() => {
+    healthStatus = 200;
+    healthBody = JSON.stringify({ status: "ok" });
+  });
+
+  it("passes against a self-signed loopback HTTPS endpoint", async () => {
+    if (!openSslAvailable) return;
+    const [result] = await runRequiredChecks(["health_endpoint"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/health endpoint ok/);
+  });
+
+  it("regression: bare fetch on the same self-signed URL still fails", async () => {
+    if (!openSslAvailable) return;
+    // Confirms the bypass is meaningful — without it, the bug returns.
+    await expect(
+      fetch(healthUrl, { signal: AbortSignal.timeout(5_000) })
+    ).rejects.toThrow();
+  });
+
+  it("reports non-2xx status against the self-signed loopback server", async () => {
+    if (!openSslAvailable) return;
+    healthStatus = 503;
+    healthBody = "service unavailable";
+    const [result] = await runRequiredChecks(["health_endpoint"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/503/);
   });
 });
 
