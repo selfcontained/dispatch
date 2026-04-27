@@ -67,6 +67,7 @@ import { createPool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
+import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { resolveHeadSha } from "./shared/git/worktree.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
@@ -2969,6 +2970,16 @@ async function registerRoutes() {
         exists: false,
         isDirectory: false,
         isGitRepo: false,
+        privacyRestricted: false,
+        resolvedPath: resolved,
+      };
+    }
+    if (await shouldSkipAutomaticMacPathProbe(resolved, os.homedir())) {
+      return {
+        exists: false,
+        isDirectory: false,
+        isGitRepo: false,
+        privacyRestricted: true,
         resolvedPath: resolved,
       };
     }
@@ -2988,12 +2999,19 @@ async function registerRoutes() {
         );
         isGitRepo = result.exitCode === 0 && result.stdout.trim() === "true";
       }
-      return { exists, isDirectory, isGitRepo, resolvedPath: resolved };
+      return {
+        exists,
+        isDirectory,
+        isGitRepo,
+        privacyRestricted: false,
+        resolvedPath: resolved,
+      };
     } catch {
       return {
         exists: false,
         isDirectory: false,
         isGitRepo: false,
+        privacyRestricted: false,
         resolvedPath: resolved,
       };
     }
@@ -3020,6 +3038,10 @@ async function registerRoutes() {
       const searchDir = isExactDir ? resolved : parentDir;
       const searchPartial = isExactDir ? "" : partial;
 
+      if (await shouldSkipAutomaticMacPathProbe(searchDir, os.homedir())) {
+        return { completions: [], privacyRestricted: true };
+      }
+
       const entries = await readdir(searchDir, { withFileTypes: true });
       const dirs = entries
         .filter((entry) => {
@@ -3041,9 +3063,9 @@ async function registerRoutes() {
           : dir
       );
 
-      return { completions };
+      return { completions, privacyRestricted: false };
     } catch {
-      return { completions: [] };
+      return { completions: [], privacyRestricted: false };
     }
   });
 
