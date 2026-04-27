@@ -26,9 +26,15 @@ import { runCommand } from "./shared/lib/run-command.js";
 
 export const RELEASE_ARTIFACT_NAME = "dispatch-release.tar.gz";
 
-const CACHE_DIR =
-  process.env.DISPATCH_RELEASE_CACHE_DIR ??
-  path.join(os.homedir(), ".dispatch", "cache");
+// Resolved per call so tests can rebind the env var between runs without
+// reloading the module. Production hosts only set the env var at boot, so
+// the lookup cost is negligible.
+function cacheDir(): string {
+  return (
+    process.env.DISPATCH_RELEASE_CACHE_DIR ??
+    path.join(os.homedir(), ".dispatch", "cache")
+  );
+}
 
 export type DownloadProgress = (info: {
   message: string;
@@ -47,7 +53,7 @@ export type CachedReleaseTarball = {
  * deploy step can probe the cache before falling back to a download.
  */
 export function cachedTarballPath(tag: string): string {
-  return path.join(CACHE_DIR, `release-${sanitizeTag(tag)}.tar.gz`);
+  return path.join(cacheDir(), `release-${sanitizeTag(tag)}.tar.gz`);
 }
 
 /**
@@ -84,7 +90,7 @@ export async function ensureCachedTarball(input: {
     return existing;
   }
 
-  await mkdir(CACHE_DIR, { recursive: true });
+  await mkdir(cacheDir(), { recursive: true });
   const finalPath = cachedTarballPath(tag);
   const partialPath = `${finalPath}.partial`;
   // If a previous attempt left a partial behind, remove it so we don't
@@ -246,7 +252,7 @@ export async function pruneCacheExcept(
 ): Promise<void> {
   let entries: string[];
   try {
-    entries = await readdir(CACHE_DIR);
+    entries = await readdir(cacheDir());
   } catch {
     return;
   }
@@ -256,7 +262,7 @@ export async function pruneCacheExcept(
   for (const entry of entries) {
     if (!entry.startsWith("release-") || !entry.endsWith(".tar.gz")) continue;
     if (keep.has(entry)) continue;
-    await unlink(path.join(CACHE_DIR, entry)).catch(() => {});
+    await unlink(path.join(cacheDir(), entry)).catch(() => {});
   }
 }
 
@@ -323,7 +329,11 @@ const ALLOWED_REDIRECT_HOSTS: ReadonlyArray<string | RegExp> = [
 
 const DOWNLOAD_REQUEST_TIMEOUT_MS = 60_000;
 
-function isAllowedRedirectHost(host: string): boolean {
+/**
+ * Exported for testability. Production callers go through `openHttpsStream`,
+ * which calls this on every redirect hop.
+ */
+export function isAllowedRedirectHost(host: string): boolean {
   return ALLOWED_REDIRECT_HOSTS.some((pat) =>
     typeof pat === "string" ? host === pat : pat.test(host)
   );
@@ -421,7 +431,6 @@ function sanitizeTag(tag: string): string {
   // Tags from the release flow look like `v0.18.13`, but be defensive: a
   // future release tag could include characters that would escape the cache
   // dir (e.g. "../../etc/passwd"). Replace anything outside [A-Za-z0-9._-]
-  // with "_" so the cache filename is always a child of CACHE_DIR.
   return tag.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 

@@ -410,29 +410,41 @@ describe("release metadata route handling", () => {
     const authToken = await auth.getOrCreateAuthToken(pool);
     const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
 
-    // Token is valid for an active assisted job, but the body asks for a
-    // different tag — the takeover carve-out only fires when the tags
-    // match, otherwise we still have a conflict.
-    const updateResp = await app.inject({
-      method: "POST",
-      url: "/api/v1/release/update",
-      headers: {
-        authorization: `Bearer ${bearer}`,
-        "content-type": "application/json",
-      },
-      payload: { tag: "v0.20.0" },
-    });
+    // The bearer token resolves to an active assisted-update agent, but
+    // the request asks to deploy a different tag than the one the agent
+    // was launched for. The token is bound to the assisted run's tag
+    // (CRU-146 review feedback #1235) — mismatched tags fail with 403
+    // before reaching the takeover guard. This keeps a stale token from
+    // bypassing the migration gate for an arbitrary tag once the
+    // assisted job has terminated.
+    let updateResp;
+    try {
+      updateResp = await app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          "content-type": "application/json",
+        },
+        payload: { tag: "v0.20.0" },
+      });
 
-    expect(updateResp.statusCode).toBe(409);
-    expect(updateResp.json()).toMatchObject({
-      error: "A release or update is already in progress.",
-    });
-
-    await app.inject({
-      method: "DELETE",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
-    });
+      expect(updateResp.statusCode).toBe(403);
+      expect(updateResp.json()).toMatchObject({
+        error: expect.stringContaining(
+          "Assisted update token is bound to a different tag"
+        ),
+      });
+    } finally {
+      // Always tear down the assisted job so a failed assertion doesn't
+      // leak `activeReleaseJob` into the next test (which then 409s on
+      // an unrelated active-job conflict).
+      await app.inject({
+        method: "DELETE",
+        url: "/api/v1/release/assisted/state",
+        headers: { cookie: sessionCookie },
+      });
+    }
   });
 
   it("allows /release/update when the installed version is below appliesFrom", async () => {
