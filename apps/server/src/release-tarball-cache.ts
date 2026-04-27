@@ -118,6 +118,11 @@ export async function ensureCachedTarball(input: {
 
   const downloadPromise = (async () => {
     await mkdir(cacheDir(), { recursive: true });
+    // Best-effort sweep: if a previous server process exited between
+    // createWriteStream and rename, an orphan `.partial.<pid>.<rand>`
+    // is sitting in the cache dir. The new pid won't reuse the name,
+    // but the file would still leak forever otherwise.
+    await sweepOrphanPartials();
     const finalPath = cachedTarballPath(tag);
     // Per-caller partial filename so two writers can never trip over the
     // same path. The atomic-rename below adopts the first one to finish;
@@ -280,10 +285,20 @@ export async function readMigrationsFromTarball(
 }
 
 /**
+ * Pattern for orphan partial-download files. ensureCachedTarball mints
+ * one per call as `<final>.partial.<pid>.<rand>` and unlinks it on the
+ * local error path, but a hard process exit between createWriteStream and
+ * rename leaves the file behind. Sweep them on prune so the cache
+ * directory doesn't grow unbounded across crashed deploys.
+ */
+const PARTIAL_FILE_RE = /^release-.+\.tar\.gz\.partial\..+$/;
+
+/**
  * Drop cached tarballs for tags the install no longer needs. Keeps the
  * cache for `tagsToKeep` (typically the current tag and any "ahead"
- * targets). Best-effort — disk errors are swallowed so a deploy never fails
- * because cleanup did.
+ * targets). Also sweeps any orphan `.partial.*` files left behind by
+ * crashed downloads. Best-effort — disk errors are swallowed so a deploy
+ * never fails because cleanup did.
  */
 export async function pruneCacheExcept(
   tagsToKeep: ReadonlyArray<string>
@@ -298,8 +313,30 @@ export async function pruneCacheExcept(
     tagsToKeep.map((tag) => `release-${sanitizeTag(tag)}.tar.gz`)
   );
   for (const entry of entries) {
-    if (!entry.startsWith("release-") || !entry.endsWith(".tar.gz")) continue;
-    if (keep.has(entry)) continue;
+    const isCanonical =
+      entry.startsWith("release-") && entry.endsWith(".tar.gz");
+    const isOrphanPartial = PARTIAL_FILE_RE.test(entry);
+    if (!isCanonical && !isOrphanPartial) continue;
+    if (isCanonical && keep.has(entry)) continue;
+    await unlink(path.join(cacheDir(), entry)).catch(() => {});
+  }
+}
+
+/**
+ * Sweep orphan `.partial.*` files that don't belong to an in-flight
+ * download in this process. Runs at the start of `ensureCachedTarball`
+ * so a long-running server gradually reclaims disk after crashed
+ * downloads even if `pruneCacheExcept` isn't called.
+ */
+async function sweepOrphanPartials(): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(cacheDir());
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!PARTIAL_FILE_RE.test(entry)) continue;
     await unlink(path.join(cacheDir(), entry)).catch(() => {});
   }
 }

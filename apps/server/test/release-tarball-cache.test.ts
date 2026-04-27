@@ -244,6 +244,29 @@ describe("release-tarball-cache helpers", () => {
     expect(existsSync(c)).toBe(false);
   });
 
+  it("pruneCacheExcept also sweeps orphan .partial.* files (CRU-146 #1244)", async () => {
+    const { cachedTarballPath, pruneCacheExcept } = await importCache();
+    await mkdir(cacheDir, { recursive: true });
+    const final = cachedTarballPath("v0.18.13");
+    await writeFile(final, "x", "utf-8");
+    // Simulate a hard-exit between createWriteStream and rename — an
+    // orphan partial file from a prior pid stays behind.
+    const orphan1 = `${final}.partial.99999.aaaaaaaa`;
+    const orphan2 = `${final}.partial.88888.bbbbbbbb`;
+    await writeFile(orphan1, "x", "utf-8");
+    await writeFile(orphan2, "x", "utf-8");
+    // Drop something unrelated that pruneCacheExcept must NOT touch.
+    const unrelated = path.join(cacheDir, "unrelated.txt");
+    await writeFile(unrelated, "x", "utf-8");
+
+    await pruneCacheExcept(["v0.18.13"]);
+
+    expect(existsSync(final)).toBe(true);
+    expect(existsSync(orphan1)).toBe(false);
+    expect(existsSync(orphan2)).toBe(false);
+    expect(existsSync(unrelated)).toBe(true);
+  });
+
   it("releaseDownloadUrl points at the GitHub asset URL", async () => {
     const { releaseDownloadUrl } = await importCache();
     expect(releaseDownloadUrl("owner/repo", "v0.18.13")).toBe(

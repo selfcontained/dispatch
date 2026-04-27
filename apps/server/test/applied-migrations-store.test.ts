@@ -97,4 +97,47 @@ describe("applied-migrations-store", () => {
     const state = await readAppliedMigrationsState();
     expect(state).toEqual({ appliedMigrations: {} });
   });
+
+  it("serializes overlapping markMigrationsApplied calls so neither drops ids", async () => {
+    // Round-1 infra-review #1243: without the per-process serialization
+    // chain, two read-modify-write cycles racing on the same store can
+    // each read the pre-write state, both build their own next state,
+    // and the loser's rename clobbers the winner's ids. Fire two
+    // concurrent calls with disjoint ids and verify both make it.
+    const { markMigrationsApplied, readAppliedMigrationsState } =
+      await importStore();
+    const [s1, s2] = await Promise.all([
+      markMigrationsApplied(["a", "b"], "v1.0.0"),
+      markMigrationsApplied(["c", "d"], "v1.0.0"),
+    ]);
+    // Both calls should observe the union of ids — whichever ran first
+    // populated a-b, and the second cycle read that and added c-d on top.
+    const merged = (s2.appliedMigrations.a ? s2 : s1).appliedMigrations;
+    expect(Object.keys(merged).sort()).toEqual(["a", "b", "c", "d"]);
+
+    const final = await readAppliedMigrationsState();
+    expect(Object.keys(final.appliedMigrations).sort()).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("uses a unique tmp filename so concurrent writers don't race on the same .tmp", async () => {
+    // Round-1 infra-review #1243: two writers both staging to a fixed
+    // `<final>.tmp` would race — one rename moves the shared tmp out
+    // from under the other and surfaces as ENOENT. The fix uses a
+    // per-call `<final>.tmp.<pid>.<rand>` so each writer owns its own
+    // staging file. Verified structurally: no shared `.tmp` constant
+    // ever appears in the cache dir during a write storm.
+    const { markMigrationsApplied } = await importStore();
+    const fs = await import("node:fs/promises");
+    const ids = Array.from({ length: 8 }, (_, i) => `mig-${i}`);
+    await Promise.all(ids.map((id) => markMigrationsApplied([id], "v1.0.0")));
+    const dir = path.dirname(storePath);
+    const entries = await fs.readdir(dir).catch(() => [] as string[]);
+    // No leftover .tmp files (they're renamed atomically into place).
+    expect(entries.filter((e) => e.includes(".tmp"))).toEqual([]);
+  });
 });

@@ -68,3 +68,57 @@ describe("assisted-update-store transitions", () => {
     expect(isTerminalPhase("validate")).toBe(false);
   });
 });
+
+describe("writeAssistedUpdateState concurrent writes (CRU-146 #1242)", () => {
+  it("uses a unique tmp filename per write so concurrent writers don't race", async () => {
+    // Without the per-call `<final>.tmp.<pid>.<rand>`, two writers
+    // would both stage to the same shared tmp, and one rename could
+    // move it out from under the other (ENOENT or last-writer-wins
+    // state loss). Burst N concurrent writes; afterwards the only file
+    // in the dir should be the canonical store, with no .tmp orphans.
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "dispatch-assisted-store-")
+    );
+    const target = path.join(dir, "assisted-update.json");
+    process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH = target;
+    try {
+      const { writeAssistedUpdateState } =
+        await import("../src/assisted-update-store.js");
+
+      // Build N distinct states and write them all in flight at once.
+      // Whichever loses the rename race writes a different content,
+      // but no caller should hit ENOENT on its own .tmp file because
+      // every caller owns its own unique path.
+      const writes = Array.from({ length: 32 }, (_, i) =>
+        writeAssistedUpdateState({
+          tag: `v0.${i}.0`,
+          fromTag: null,
+          metadata: null,
+          migrations: null,
+          requiredChecks: [],
+          phase: "inspect",
+          token: `token-${i}`,
+          agentId: null,
+          startedAt: "2026-04-27T00:00:00Z",
+          updatedAt: "2026-04-27T00:00:00Z",
+          completedAt: null,
+          error: null,
+          checks: [],
+          notes: {},
+        })
+      );
+      await Promise.all(writes);
+
+      const entries = await fs.readdir(dir);
+      // Only the canonical file should remain — no .tmp orphans.
+      expect(entries.filter((e) => e.includes(".tmp"))).toEqual([]);
+      expect(entries).toContain("assisted-update.json");
+    } finally {
+      delete process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+});

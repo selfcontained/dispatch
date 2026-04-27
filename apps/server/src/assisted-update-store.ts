@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -67,15 +68,23 @@ export type AssistedUpdateState = {
   notes: Partial<Record<AssistedPhase, string>>;
 };
 
-export const ASSISTED_UPDATE_STORE_PATH = path.join(
-  os.homedir(),
-  ".dispatch",
-  "assisted-update.json"
-);
+// Resolved per call so tests can rebind the env var between runs without
+// reloading the module. Production hosts only set the env var at boot, so
+// the lookup cost is negligible.
+function assistedStorePath(): string {
+  return (
+    process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH ??
+    path.join(os.homedir(), ".dispatch", "assisted-update.json")
+  );
+}
+
+// Backwards-compatible alias for callers that imported the constant. The
+// runtime value is now resolved per call via `assistedStorePath()`.
+export const ASSISTED_UPDATE_STORE_PATH = assistedStorePath();
 
 export async function readAssistedUpdateState(): Promise<AssistedUpdateState | null> {
   try {
-    const raw = await readFile(ASSISTED_UPDATE_STORE_PATH, "utf-8");
+    const raw = await readFile(assistedStorePath(), "utf-8");
     const parsed = JSON.parse(raw) as AssistedUpdateState;
     // Light sanity check; missing fields means the file is from an older
     // version and should be ignored rather than crashing the boot.
@@ -95,16 +104,22 @@ export async function readAssistedUpdateState(): Promise<AssistedUpdateState | n
 export async function writeAssistedUpdateState(
   state: AssistedUpdateState
 ): Promise<void> {
-  await mkdir(path.dirname(ASSISTED_UPDATE_STORE_PATH), { recursive: true });
-  const tmp = `${ASSISTED_UPDATE_STORE_PATH}.tmp`;
+  const filePath = assistedStorePath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  // Per-call unique temp filename. A fixed `.tmp` would race with itself
+  // when overlapping phase POSTs both write at the same time: one
+  // `rename()` could move the shared tmp out from under the other,
+  // surfacing as ENOENT or last-writer-wins state loss. The unique
+  // suffix makes each writer own its own tmp, and rename is atomic.
+  const tmp = `${filePath}.tmp.${process.pid}.${randomBytes(4).toString("hex")}`;
   await writeFile(tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
-  await rename(tmp, ASSISTED_UPDATE_STORE_PATH);
+  await rename(tmp, filePath);
 }
 
 export async function clearAssistedUpdateState(): Promise<void> {
   try {
     const { unlink } = await import("node:fs/promises");
-    await unlink(ASSISTED_UPDATE_STORE_PATH);
+    await unlink(assistedStorePath());
   } catch {
     // best effort
   }
