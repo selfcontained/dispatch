@@ -27,6 +27,7 @@ const marker = `BUN_SMOKE_${runId}`;
 writeFileSync(
   shellWrapperPath,
   `#!/usr/bin/env bash
+export TERM=xterm-256color
 exec /bin/bash --noprofile --norc -i
 `,
   "utf8"
@@ -44,6 +45,7 @@ const child = spawn(binaryPath, {
     MEDIA_ROOT: path.join(tempRoot, "media"),
     DISPATCH_RELEASE_STORE_PATH: path.join(tempRoot, "release.json"),
     SHELL: shellWrapperPath,
+    TERM: "xterm-256color",
     TLS_CERT: "",
     TLS_KEY: "",
   },
