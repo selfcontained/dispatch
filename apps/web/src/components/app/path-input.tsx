@@ -18,7 +18,12 @@ import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type PathInfo = { exists: boolean; isDirectory: boolean; isGitRepo: boolean };
+type PathInfo = {
+  exists: boolean;
+  isDirectory: boolean;
+  isGitRepo: boolean;
+  privacyRestricted?: boolean;
+};
 
 type PathInputProps = {
   value: string;
@@ -98,6 +103,11 @@ export function PathInput({
         `/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`
       )
         .then((result) => {
+          if (result.privacyRestricted) {
+            setPathValidation(null);
+            onPathInfoChange?.(null);
+            return;
+          }
           const info: PathInfo = {
             exists: result.exists,
             isDirectory: result.isDirectory,
@@ -126,10 +136,14 @@ export function PathInput({
       return;
     }
     const timer = setTimeout(() => {
-      api<{ completions: string[] }>(
+      api<{ completions: string[]; privacyRestricted?: boolean }>(
         `/api/v1/system/path-completions?prefix=${encodeURIComponent(trimmed)}`
       )
         .then((result) => {
+          if (result.privacyRestricted) {
+            setGhostSuffix("");
+            return;
+          }
           if (result.completions.length > 0) {
             const best = result.completions[0];
             if (best.startsWith(trimmed.replace(/\/$/, ""))) {
