@@ -86,6 +86,12 @@ export class TmuxTerminal {
     const prePasteSnapshot = shouldRetryLargePaste
       ? await this.captureRecentLines(40).catch(() => "")
       : "";
+    // If the pane is in tmux copy mode, paste-buffer + Enter does not reach
+    // the program until copy mode is cancelled. Exit it first so injections
+    // land on the live prompt.
+    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
+      allowedExitCodes: [0, 1],
+    }).catch(() => undefined);
     await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
     try {
       await runCommand("tmux", [

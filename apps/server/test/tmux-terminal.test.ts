@@ -54,6 +54,17 @@ describe("TmuxTerminal.sendCommand", () => {
     expect(setBufferCalls()[0]).toBe(text);
   });
 
+  it("cancels tmux copy mode before injecting", async () => {
+    const terminal = new TmuxTerminal("session-x");
+    await terminal.sendCommand("hello");
+
+    expect(runCommandMock).toHaveBeenCalledWith(
+      "tmux",
+      ["copy-mode", "-q", "-t", "session-x"],
+      { allowedExitCodes: [0, 1] }
+    );
+  });
+
   it("always attempts buffer cleanup, even when paste-buffer succeeds", async () => {
     const terminal = new TmuxTerminal("session-x");
     await terminal.sendCommand("hello");
