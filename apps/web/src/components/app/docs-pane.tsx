@@ -665,6 +665,11 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             <Code>dispatch_complete_review</Code>.
           </P>
           <P>
+            Reviewers always run as a CLI-type agent (claude / codex /
+            opencode); the launcher only offers types that have a CLI assistant,
+            so terminal-type agents are not selectable as reviewers.
+          </P>
+          <P>
             Persona agents also have <Code>dispatch_pin</Code> and{" "}
             <Code>dispatch_share</Code> for surfacing files or screenshots, and{" "}
             <Code>get_parent_context</Code> to retrieve the parent agent's pins
@@ -769,12 +774,17 @@ issues caused or worsened by this diff.`}</CodeBlock>
           </ul>
           <P>
             For round 2, the server pushes a prompt into the reviewer's terminal
-            containing the parent's resolution summary, per-item resolutions,
-            and the diff since round 1. The reviewer performs a second pass and
-            calls <Code>dispatch_complete_review</Code> a second time with a
-            final verdict — at which point the server pushes a final prompt into
-            the parent's terminal. Round number, the parent's resolution, and
-            the round-2 verdict are stacked on the reviewer's card in the UI.
+            telling it to call <Code>dispatch_get_recheck_context</Code> — that
+            tool returns the parent's resolution summary, per-item resolutions,
+            and the exact commit range to inspect with <Code>git diff</Code>{" "}
+            locally. The reviewer re-checks each original finding (linking any
+            new feedback back to the original via{" "}
+            <Code>respondsToFeedbackId</Code>) and calls{" "}
+            <Code>dispatch_complete_review</Code> a second time with a final
+            verdict — at which point the server pushes a final prompt into the
+            parent's terminal. Round number, the parent's resolution, and the
+            round-2 verdict are stacked on the reviewer's card in the UI; the
+            row also highlights while a review is in progress.
           </P>
         </Section>
       </>
