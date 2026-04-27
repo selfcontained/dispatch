@@ -98,19 +98,44 @@ async function api(pathname, init = {}, token) {
   return response;
 }
 
-async function waitForAgentRunning(agentId, token) {
+async function waitForTerminalReady(agentId, token) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    const response = await api(`/api/v1/agents/${agentId}`, {}, token);
-    const body = await response.json();
-    if (body.agent?.status === "running") {
-      return;
+    const agentResponse = await api(`/api/v1/agents/${agentId}`, {}, token);
+    const agentBody = await agentResponse.json();
+    const status = agentBody.agent?.status;
+    if (status === "error" || status === "stopped") {
+      const detail = agentBody.agent?.lastError
+        ? `: ${agentBody.agent.lastError}`
+        : "";
+      throw new Error(
+        `Agent ${agentId} entered ${status} before terminal became ready${detail}`
+      );
+    }
+
+    try {
+      const terminalResponse = await api(
+        `/api/v1/agents/${agentId}/terminal/token`,
+        { method: "POST", body: "{}" },
+        token
+      );
+      const terminalBody = await terminalResponse.json();
+      if (terminalBody.mode === "tmux" && terminalBody.wsUrl) {
+        return terminalBody;
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("409") || error.message.includes("404"))
+      ) {
+        await Bun.sleep(250);
+        continue;
+      }
+      throw error;
     }
     await Bun.sleep(250);
   }
-  throw new Error(
-    `Timed out waiting for agent ${agentId} to reach running state`
-  );
+  throw new Error(`Timed out waiting for terminal access for agent ${agentId}`);
 }
 
 async function main() {
@@ -133,14 +158,7 @@ async function main() {
     );
     const createBody = await createResponse.json();
     const agentId = createBody.agent.id;
-    await waitForAgentRunning(agentId, token);
-
-    const terminalResponse = await api(
-      `/api/v1/agents/${agentId}/terminal/token`,
-      { method: "POST", body: "{}" },
-      token
-    );
-    const terminalBody = await terminalResponse.json();
+    const terminalBody = await waitForTerminalReady(agentId, token);
 
     const ws = new WebSocket(
       `ws://127.0.0.1:${port}${terminalBody.wsUrl}&cols=120&rows=30`
