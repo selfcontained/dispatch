@@ -21,13 +21,31 @@ import {
   teardownTestDb,
 } from "./db/setup.js";
 
-const { runCommandMock } = vi.hoisted(() => ({
+const { runCommandMock, evaluateMock } = vi.hoisted(() => ({
   runCommandMock: vi.fn(),
+  evaluateMock: vi.fn(),
 }));
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: runCommandMock,
 }));
+
+// `evaluatePendingMigrations` makes a real HTTPS call to GitHub via the
+// tarball cache, which can't run in unit tests. Mock the evaluator
+// directly so each test controls the pending-migrations result for the
+// gate decision. Tests that don't override default to "no migrations,
+// no errors" — i.e. fall through to the legacy `dispatch-update`-based
+// gating that the suite was originally written against.
+vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/update-migrations-evaluator.js")
+    >();
+  return {
+    ...actual,
+    evaluatePendingMigrations: evaluateMock,
+  };
+});
 
 let pool: Pool;
 let app: FastifyInstance;
@@ -97,6 +115,16 @@ afterAll(async () => {
 
 beforeEach(async () => {
   runCommandMock.mockReset();
+  evaluateMock.mockReset();
+  // Default: no pending migrations, no errors. Individual tests can
+  // override to simulate a release that ships migrations or an
+  // evaluator failure.
+  evaluateMock.mockResolvedValue({
+    pending: [],
+    all: [],
+    appliedIds: new Set(),
+    errors: [],
+  });
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agents");
   await pool.query("DELETE FROM sessions");
@@ -445,6 +473,81 @@ describe("release metadata route handling", () => {
         headers: { cookie: sessionCookie },
       });
     }
+  });
+
+  it("fails closed with 503 when the migration evaluator throws", async () => {
+    // Round-1 review #1239: the migration gate must NOT silently fall
+    // through to the legacy path on evaluator failure — that inverts
+    // the security posture once the legacy fence is removed. The
+    // operator should see a clear "couldn't evaluate" error and retry.
+    evaluateMock.mockRejectedValueOnce(
+      new Error("simulated network failure fetching tarball")
+    );
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "normal",
+              title: "x",
+              summary: "x",
+              requiredChecks: [],
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      error: "MIGRATION_EVALUATION_UNAVAILABLE",
+    });
+  });
+
+  it("rejects /release/update with ASSISTED_UPDATE_REQUIRED when migrations are pending", async () => {
+    evaluateMock.mockResolvedValueOnce({
+      pending: [
+        {
+          filename: "0001-bun-cutover.yaml",
+          order: 1,
+          manifest: {
+            id: "bun-cutover",
+            title: "Bun runtime cutover",
+            summary: "Switch runtime from Node to Bun.",
+            alreadySatisfied: { description: "x" },
+            instructions: ["x"],
+            validation: { requiredChecks: [] },
+            rollback: [],
+          },
+        },
+      ],
+      all: [],
+      appliedIds: new Set(),
+      errors: [],
+    });
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "ASSISTED_UPDATE_REQUIRED",
+      pendingMigrations: [expect.objectContaining({ id: "bun-cutover" })],
+    });
   });
 
   it("allows /release/update when the installed version is below appliesFrom", async () => {

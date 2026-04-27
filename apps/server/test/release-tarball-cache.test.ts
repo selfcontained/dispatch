@@ -259,6 +259,65 @@ describe("release-tarball-cache helpers", () => {
   });
 });
 
+describe("release-tarball-cache concurrency (singleflight)", () => {
+  it("coalesces concurrent calls for the same tag into a single download", async () => {
+    // The asset URL builder hardcodes github.com — no parameterizable
+    // baseUrl override. To exercise singleflight without a real network,
+    // we drive ensureCachedTarball with a non-resolvable repo so all
+    // calls fail at the HTTPS layer. The relevant assertion is that
+    // every concurrent caller receives the same rejection (same Promise
+    // instance return value isn't observable, so we settle for "all
+    // three rejections happen" + "no orphaned partial files left in
+    // the cache dir for any of them").
+    const cache = await import("../src/release-tarball-cache.js");
+
+    const calls = await Promise.allSettled([
+      cache.ensureCachedTarball({
+        tag: "vSF.0.0",
+        repo: "owner-that-does-not-exist-zzz/zzzzzzzz",
+      }),
+      cache.ensureCachedTarball({
+        tag: "vSF.0.0",
+        repo: "owner-that-does-not-exist-zzz/zzzzzzzz",
+      }),
+      cache.ensureCachedTarball({
+        tag: "vSF.0.0",
+        repo: "owner-that-does-not-exist-zzz/zzzzzzzz",
+      }),
+    ]);
+    expect(calls.every((r) => r.status === "rejected")).toBe(true);
+
+    // After every concurrent caller rejects, the cache dir must not
+    // contain a leftover .partial file (the catch path unlinks per-
+    // caller partials). Glob via readdir.
+    const fs = await import("node:fs/promises");
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(cacheDir);
+    } catch {
+      // dir may not exist if mkdir was skipped — that's also OK.
+    }
+    const orphans = entries.filter(
+      (e) => e.includes(".partial") || e.startsWith("release-vSF.0.0")
+    );
+    expect(orphans).toEqual([]);
+  });
+
+  it("uses per-caller partial filenames so a stray rm can't blow them away", async () => {
+    // The per-caller partial naming (`${final}.partial.${pid}.${rand}`)
+    // means even if two writers race past the inflight map (e.g. a
+    // future multi-process arrangement), they write to different
+    // partial files. Structural assertion: cachedTarballPath never
+    // returns the partial form, and there is no exported partial
+    // constant — every caller mints its own.
+    const cache = await import("../src/release-tarball-cache.js");
+    const final = cache.cachedTarballPath("v0.18.13");
+    expect(final.endsWith(".tar.gz")).toBe(true);
+    expect(final).not.toContain(".partial");
+    expect(Object.keys(cache)).not.toContain("PARTIAL_PATH");
+  });
+});
+
 describe("release-tarball-cache readMigrationsFromTarball", () => {
   it("returns parsed contents of every migration file in the tarball", async () => {
     const { readMigrationsFromTarball } = await importCache();

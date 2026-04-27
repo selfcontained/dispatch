@@ -93,7 +93,13 @@ export async function buildAssistedUpdateContext(
     checks: [],
     notes: {},
   };
-  await writeAssistedUpdateState(state);
+
+  // Intentionally NOT persisted here. If `agentManager.createAgent` later
+  // fails in `release/assisted/launch`, a state file with `agentId: null`
+  // would be left behind and `rehydrateActiveAssistedJob` would resurrect
+  // it on next boot/reconnect as a phantom in-flight run with no owner.
+  // The launch endpoint persists state via `attachAssistedAgent` once the
+  // agent is created — that's the first durable write.
 
   const prompt = renderAssistedPrompt(
     state,
@@ -163,12 +169,19 @@ export async function applyAssistedPhase(input: {
   return { ok: true, state };
 }
 
+/**
+ * First durable persistence of the assisted-update state. Called by the
+ * launch endpoint AFTER `agentManager.createAgent` succeeds, so a failed
+ * createAgent can never leave a phantom record on disk that
+ * `rehydrateActiveAssistedJob` would resurrect at boot.
+ *
+ * This is the single point where state.agentId transitions from null to a
+ * real agent id; subsequent updates flow through `applyAssistedPhase`.
+ */
 export async function attachAssistedAgent(
-  token: string,
+  state: AssistedUpdateState,
   agentId: string
-): Promise<AssistedUpdateState | null> {
-  const state = await readAssistedUpdateState();
-  if (!state || !tokensEqual(state.token, token)) return null;
+): Promise<AssistedUpdateState> {
   state.agentId = agentId;
   state.updatedAt = new Date().toISOString();
   await writeAssistedUpdateState(state);

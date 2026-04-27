@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
 import { readdir, unlink } from "node:fs/promises";
@@ -74,9 +75,22 @@ export async function readCachedTarball(
 }
 
 /**
+ * Per-tag in-flight download promises. `release/info` polls, `release/update`
+ * gate evaluation, and `release/assisted/launch` can all call
+ * `ensureCachedTarball` for the same tag concurrently. Without coalescing,
+ * each one races on the same `<final>.partial` path and an `rm` from one
+ * caller can blow away another caller's in-flight download. A singleflight
+ * map keyed by tag collapses concurrent calls into one download; everyone
+ * else awaits the same promise. Per-caller random partial filenames are
+ * defense-in-depth so a stray rm can't corrupt an in-flight write even if
+ * two processes (or a future multi-process arrangement) bypass the map.
+ */
+const inflightDownloads = new Map<string, Promise<CachedReleaseTarball>>();
+
+/**
  * Ensure a release tarball for `tag` is on disk in the cache. Downloads it
- * if missing. Idempotent — returns the cached entry without re-downloading
- * when the file is already present.
+ * if missing. Idempotent and concurrency-safe — concurrent callers for the
+ * same tag share one download.
  */
 export async function ensureCachedTarball(input: {
   tag: string;
@@ -90,43 +104,67 @@ export async function ensureCachedTarball(input: {
     return existing;
   }
 
-  await mkdir(cacheDir(), { recursive: true });
-  const finalPath = cachedTarballPath(tag);
-  const partialPath = `${finalPath}.partial`;
-  // If a previous attempt left a partial behind, remove it so we don't
-  // resume into a half-downloaded file with the wrong size.
-  await rm(partialPath, { force: true }).catch(() => {});
-
-  const url = releaseDownloadUrl(repo, tag);
-  onProgress?.({ message: `==> downloading ${url}` });
-
-  try {
-    await downloadToFile({
-      url,
-      destination: partialPath,
-      onProgress: (bytes, totalBytes) => {
-        onProgress?.({
-          message: `downloaded ${formatBytes(bytes)}`,
-          bytesReceived: bytes,
-          totalBytes,
-        });
-      },
+  // If a download is already in flight for this tag, wait on it. The
+  // first caller's progress hook gets the byte counts; subsequent
+  // callers just see the final result. That's fine: the UI render is
+  // gated on the cache file existing, not on per-caller progress.
+  const inflight = inflightDownloads.get(tag);
+  if (inflight) {
+    onProgress?.({
+      message: `awaiting in-flight download of ${RELEASE_ARTIFACT_NAME} for ${tag}`,
     });
-  } catch (err) {
-    // Make sure we don't leave an orphaned `.partial` for the next call to
-    // resume from — that would conflict with the rm-then-write contract
-    // above, and a future "size > 0" cache check could mistake it for a
-    // canonical cache entry on a filesystem that lost the rename atomicity.
-    await rm(partialPath, { force: true }).catch(() => {});
-    throw err;
+    return inflight;
   }
 
-  // Atomic-publish the cache entry: a partial file must never be observable
-  // as the canonical cache. rename() on the same filesystem is atomic.
-  await rename(partialPath, finalPath);
+  const downloadPromise = (async () => {
+    await mkdir(cacheDir(), { recursive: true });
+    const finalPath = cachedTarballPath(tag);
+    // Per-caller partial filename so two writers can never trip over the
+    // same path. The atomic-rename below adopts the first one to finish;
+    // any later partial files are unlinked on success.
+    const partialPath = `${finalPath}.partial.${process.pid}.${randomBytes(4).toString("hex")}`;
 
-  const info = await stat(finalPath);
-  return { tag, path: finalPath, bytes: info.size };
+    const url = releaseDownloadUrl(repo, tag);
+    onProgress?.({ message: `==> downloading ${url}` });
+
+    try {
+      await downloadToFile({
+        url,
+        destination: partialPath,
+        onProgress: (bytes, totalBytes) => {
+          onProgress?.({
+            message: `downloaded ${formatBytes(bytes)}`,
+            bytesReceived: bytes,
+            totalBytes,
+          });
+        },
+      });
+    } catch (err) {
+      await rm(partialPath, { force: true }).catch(() => {});
+      throw err;
+    }
+
+    // Atomic-publish the cache entry. If another writer beat us to it
+    // (two callers somehow bypassed the inflight map), rename will
+    // overwrite their published file with ours — both came from the
+    // same upstream URL and verified Content-Length, so the overwrite
+    // is content-identical and harmless.
+    await rename(partialPath, finalPath);
+
+    const info = await stat(finalPath);
+    return { tag, path: finalPath, bytes: info.size };
+  })();
+
+  inflightDownloads.set(tag, downloadPromise);
+  try {
+    return await downloadPromise;
+  } finally {
+    // Clear the entry on both success AND failure. On failure the next
+    // caller gets a fresh attempt rather than re-awaiting the rejected
+    // promise; on success the cache file is canonical and future calls
+    // hit the readCachedTarball fast path before reaching this map.
+    inflightDownloads.delete(tag);
+  }
 }
 
 /**

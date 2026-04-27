@@ -2317,6 +2317,12 @@ async function registerRoutes() {
       }
       const assistedRequired =
         pendingMigrations.length > 0 ||
+        // Fail closed when migration evaluation errored: we don't actually
+        // know whether the target ships migrations, so the UI must gate
+        // the one-click button. The /release/update endpoint will return
+        // 503 if invoked anyway. Pair this with `migrationsError` in the
+        // response so the UI can surface the underlying failure.
+        (migrationsError !== null && updateAvailable) ||
         // Transitional fallback: a release authored with the legacy
         // `dispatch-update` block but without migration manifests should
         // still gate. Drop this branch once every gated release ships
@@ -2624,8 +2630,14 @@ async function registerRoutes() {
     if (!releaseUpdateAgentId) {
       const installed = await readReleaseStore().catch(() => null);
 
-      let pendingMigrationsForGate: PendingMigrationSummary[] = [];
-      let migrationGateEvaluatorError: string | null = null;
+      // Fail closed when migrations can't be evaluated. If we can't read
+      // `update-migrations/*` from the target tarball we don't actually
+      // know whether the target ships migrations — falling through to
+      // the legacy gate would let a transient network error bypass a
+      // mandatory assisted update once the legacy fence is removed
+      // (issue step 8). 503 is the right shape: the operator can retry
+      // when the underlying issue (download, extraction, parse) clears.
+      let pendingMigrationsForGate: PendingMigrationSummary[];
       try {
         const repo = await getGitHubRepo();
         const evaluation = await evaluatePendingMigrations(tag, { repo });
@@ -2633,16 +2645,14 @@ async function registerRoutes() {
           toSummary(m.manifest)
         );
       } catch (err) {
-        // If migrations can't be evaluated (network, missing artifact,
-        // etc.) we conservatively fall through to the legacy gate rather
-        // than blocking a normal release on a transient evaluator failure.
-        // Log it so the operator can see when the gate was made on
-        // incomplete data — the silent fall-through used to be invisible.
-        migrationGateEvaluatorError =
-          err instanceof Error ? err.message : String(err);
+        const message = err instanceof Error ? err.message : String(err);
         console.warn(
-          `[release/update] migration gate evaluator failed for ${tag}, falling through to legacy gate: ${migrationGateEvaluatorError}`
+          `[release/update] migration evaluation failed for ${tag}: ${message}`
         );
+        return reply.code(503).send({
+          error: "MIGRATION_EVALUATION_UNAVAILABLE",
+          message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears.`,
+        });
       }
       if (pendingMigrationsForGate.length > 0) {
         return reply.code(409).send({
@@ -2844,7 +2854,12 @@ async function registerRoutes() {
       });
 
       if (assistedState && assistedToken) {
-        await attachAssistedAgent(assistedToken, agent.id);
+        // First durable persistence of the assisted-update state. We
+        // intentionally don't write before createAgent succeeds — a
+        // half-completed launch would otherwise leave a phantom record
+        // on disk that rehydrateActiveAssistedJob() would resurrect on
+        // the next reconnect or process restart.
+        await attachAssistedAgent(assistedState, agent.id);
         const launchLog = [
           `==> assisted update launched for ${body.tag}`,
           `==> agent: ${agent.id}`,
