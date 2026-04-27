@@ -56,7 +56,6 @@ import {
   assemblePersonaPrompt,
 } from "./personas/loader.js";
 import { buildPersonaReviewDiff } from "./personas/review-diff.js";
-import { truncateDiffForPrompt } from "./personas/loader.js";
 import {
   buildParentRound1FeedbackPrompt,
   buildParentReviewCompletePrompt,
@@ -2052,7 +2051,9 @@ async function registerRoutes() {
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
-        review: review ? { allowRecheck: review.allowRecheck } : null,
+        review: review
+          ? { allowRecheck: review.allowRecheck, status: review.status }
+          : null,
       },
       repoRoot,
       worktreeRoot,
@@ -2071,6 +2072,7 @@ async function registerRoutes() {
       upsertPin: mcpUpsertPin,
       deletePin: mcpDeletePin,
       getParentContext: mcpGetParentContext,
+      getRecheckContext: mcpGetRecheckContext,
       updateReviewStatus: mcpUpdateReviewStatus,
       completeReview: mcpCompleteReview,
       getActivitySummary: (params) =>
@@ -6206,21 +6208,10 @@ async function mcpSubmitResolution(
     });
 
   if (result.review.status === "awaiting_recheck" && child) {
-    const [resolutions, rawDiff] = await Promise.all([
-      agentManager.listResolvedFeedbackForRound(
-        input.personaAgentId,
-        result.resolution.roundNumber
-      ),
-      result.review.lastReviewedCommit
-        ? diffSinceCommit(child.cwd, result.review.lastReviewedCommit)
-        : Promise.resolve(""),
-    ]);
-    const reviewerPrompt = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: result.resolution.summary,
-      resolutions,
-      diffSincePreviousRound: truncateDiffForPrompt(rawDiff),
-    });
-    await injectTmuxPrompt(input.personaAgentId, reviewerPrompt);
+    await injectTmuxPrompt(
+      input.personaAgentId,
+      buildReviewerRecheckReadyPrompt()
+    );
   }
 
   return result;
@@ -6379,6 +6370,66 @@ async function mcpGetParentContext(
       source: m.source,
       createdAt: m.createdAt,
     })),
+  };
+}
+
+async function mcpGetRecheckContext(
+  agentId: string
+): Promise<import("./shared/mcp/server.js").RecheckContextResult | null> {
+  const review = await agentManager.getPersonaReview(agentId);
+  if (!review || !review.allowRecheck) {
+    return null;
+  }
+
+  const resolution = (await agentManager.getReviewResolutions(review.id)).at(
+    -1
+  );
+  const lastReviewedCommit = review.lastReviewedCommit;
+  const resolutionCommit = resolution?.resolutionCommit ?? null;
+  const resolutions = resolution
+    ? await agentManager.listResolvedFeedbackForRound(
+        agentId,
+        resolution.roundNumber
+      )
+    : [];
+  const availability =
+    review.status === "cancelled"
+      ? "cancelled"
+      : review.status === "awaiting_recheck"
+        ? "ready"
+        : review.status === "complete" && review.roundNumber >= 2
+          ? "complete"
+          : "waiting_for_resolution";
+  // Defense-in-depth: only emit a compare range if both commits look like git
+  // SHAs. The reviewer is instructed to run `gitDiffCommand` locally, so the
+  // string crosses a trust boundary into a CLI shell. Today these come from
+  // `git rev-parse HEAD` and are 40-char hex, but validating here keeps that
+  // contract auditable in one spot.
+  const looksLikeSha = (value: string): boolean =>
+    /^[0-9a-f]{4,64}$/i.test(value);
+  const compareRange =
+    availability === "ready" &&
+    lastReviewedCommit &&
+    resolutionCommit &&
+    looksLikeSha(lastReviewedCommit) &&
+    looksLikeSha(resolutionCommit)
+      ? `${lastReviewedCommit}...${resolutionCommit}`
+      : null;
+
+  return {
+    availability,
+    reviewStatus: review.status,
+    persona: review.persona,
+    reviewId: review.id,
+    reviewRoundNumber: review.roundNumber,
+    resolutionRoundNumber: resolution?.roundNumber ?? null,
+    resolutionSummary: resolution?.summary ?? null,
+    lastReviewedCommit,
+    resolutionCommit,
+    compareRange,
+    gitDiffCommand: compareRange ? `git diff ${compareRange}` : null,
+    submittedAt: resolution?.submittedAt ?? null,
+    resolutions,
   };
 }
 
@@ -6588,21 +6639,6 @@ async function injectTmuxPrompt(
       "Failed to inject tmux prompt — agent may have exited"
     );
   }
-}
-
-async function diffSinceCommit(
-  cwd: string,
-  baseCommit: string
-): Promise<string> {
-  const result = await runCommand(
-    "git",
-    ["-C", cwd, "diff", `${baseCommit}...HEAD`],
-    { allowedExitCodes: [0, 128] }
-  );
-  if (result.exitCode !== 0) {
-    return "";
-  }
-  return result.stdout;
 }
 
 async function mcpShareMedia(

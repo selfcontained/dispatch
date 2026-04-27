@@ -1,5 +1,3 @@
-import type { PersonaReviewResolutionItem } from "../agents/manager.js";
-
 /**
  * First user message handed to a freshly-launched persona agent. The persona
  * body, feedback guidance, parent context, and diff to review are already
@@ -82,63 +80,12 @@ export function buildParentReviewCompletePrompt(
   ].join("\n");
 }
 
-/**
- * Wraps a diff in a markdown code fence whose backtick run is one longer than
- * the longest run that appears inside the diff. A diff of a markdown file
- * (or anything else containing ```) would otherwise close the outer fence
- * early, leaving the rest of the prompt parsed as prose by the receiving LLM.
- */
-export function wrapInDiffFence(content: string): string {
-  const matches = content.match(/`+/g) ?? [];
-  const longestRun = matches.reduce((max, m) => Math.max(max, m.length), 0);
-  const fence = "`".repeat(Math.max(3, longestRun + 1));
-  return `${fence}diff\n${content}\n${fence}`;
-}
-
-export type ReviewerRecheckReadyInput = {
-  resolutionSummary: string;
-  resolutions: PersonaReviewResolutionItem[];
-  diffSincePreviousRound: string;
-};
-
-export function buildReviewerRecheckReadyPrompt(
-  input: ReviewerRecheckReadyInput
-): string {
-  const { resolutionSummary, resolutions, diffSincePreviousRound } = input;
-
-  const itemLines = resolutions.length
-    ? resolutions
-        .map((item) => {
-          const location =
-            item.filePath && item.lineNumber
-              ? ` (${item.filePath}:${item.lineNumber})`
-              : item.filePath
-                ? ` (${item.filePath})`
-                : "";
-          const reason = item.reason ? `\n  Reason: ${item.reason}` : "";
-          const commit = item.resolutionCommit
-            ? `\n  Commit: ${item.resolutionCommit}`
-            : "";
-          return `- #${item.feedbackId} [${item.originalSeverity}] ${item.status}${location}: ${item.originalDescription}${reason}${commit}`;
-        })
-        .join("\n")
-    : "(no per-item resolutions recorded)";
-
-  const diffBlock = diffSincePreviousRound.trim().length
-    ? wrapInDiffFence(diffSincePreviousRound)
-    : "(no diff since your round-1 commit)";
-
+export function buildReviewerRecheckReadyPrompt(): string {
   return [
     "The parent has submitted their resolution for round 1. Begin round 2 now.",
     "",
-    "Parent's resolution summary:",
-    resolutionSummary,
-    "",
-    "Per-item resolutions:",
-    itemLines,
-    "",
-    "Diff since your round-1 commit:",
-    diffBlock,
+    "First, call dispatch_get_recheck_context to load the parent's resolution summary, the per-item resolutions, and the exact commit range to inspect.",
+    "Then run the returned git diff command locally in your worktree instead of waiting for an injected diff blob.",
     "",
     "Next steps:",
     "1. Re-evaluate each original finding against what the parent actually did. For every original concern that remains unresolved, submit a new dispatch_feedback item with respondsToFeedbackId set to the original feedback item's ID.",

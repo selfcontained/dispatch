@@ -16,6 +16,7 @@ export type McpAgent = {
   baseBranch?: string | null;
   review?: {
     allowRecheck?: boolean;
+    status?: string | null;
   } | null;
 };
 
@@ -190,6 +191,7 @@ const JOB_TOOLS = new Set([
 const PERSONA_TOOLS = new Set([
   "review_status",
   "dispatch_complete_review",
+  "dispatch_get_recheck_context",
   "dispatch_event",
   "dispatch_pin",
   "dispatch_share",
@@ -226,6 +228,34 @@ export type ParentContextResult = {
     description: string | null;
     source: string;
     createdAt: string;
+  }>;
+};
+
+export type RecheckContextResult = {
+  availability: "waiting_for_resolution" | "ready" | "complete" | "cancelled";
+  reviewStatus: string;
+  persona: string;
+  reviewId: number;
+  reviewRoundNumber: number | null;
+  resolutionRoundNumber: number | null;
+  resolutionSummary: string | null;
+  lastReviewedCommit: string | null;
+  resolutionCommit: string | null;
+  compareRange: string | null;
+  gitDiffCommand: string | null;
+  submittedAt: string | null;
+  resolutions: Array<{
+    feedbackId: number;
+    originalDescription: string;
+    originalSeverity: string;
+    status: string;
+    reason: string | null;
+    filePath: string | null;
+    lineNumber: number | null;
+    suggestion: string | null;
+    resolutionCommit: string | null;
+    resolvedAt: string | null;
+    roundNumber: number;
   }>;
 };
 
@@ -323,6 +353,7 @@ export type McpRequestContext = {
   ) => Promise<void>;
   deletePin?: (agentId: string, label: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
+  getRecheckContext?: (agentId: string) => Promise<RecheckContextResult | null>;
   updateReviewStatus?: (
     agentId: string,
     input: { status: string; message?: string }
@@ -367,10 +398,10 @@ export type McpRequestContext = {
 };
 
 /**
- * Builds the text body returned by dispatch_launch_persona. When allowRecheck
- * is true, appends the parent-facing round-trip guidance; otherwise returns
- * the base confirmation only. Kept as a pure function so the branching text
- * is unit-testable without spinning up the MCP server.
+ * Builds the text body returned by dispatch_launch_persona. The parent-facing
+ * guidance is push-based in both modes: for single-pass reviews the parent
+ * waits for one completion prompt; for recheck reviews the parent waits for a
+ * round-1 prompt and, after submitting a resolution, a round-2 prompt.
  *
  * The recheck round-trip is driven by server-side prompt injection: the
  * parent receives a fresh prompt in this terminal when the reviewer reports
@@ -382,7 +413,15 @@ export function buildLaunchPersonaResponseText(
   allowRecheck: boolean
 ): string {
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
-  if (!allowRecheck) return base;
+  if (!allowRecheck) {
+    return `${base}
+
+This review is push-based. Do not emit a terminal dispatch_event yet. Keep this turn alive and wait for the server to inject a completion prompt into this terminal when the reviewer finishes.
+
+There is no tool to poll while waiting. When the completion prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") only if that prompt says feedback items were recorded, then wrap up.
+
+If no prompt has arrived after a clearly unreasonable delay (the reviewer crashed, was archived, or got stuck), bail out on your own with a non-done dispatch_event explaining what happened — there is no parent-side cancel tool for single-pass reviews today.`;
+  }
   return `${base}
 
 Review was launched with recheck enabled. This is a multi-step round-trip — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution, and the server will push a new prompt into this terminal when each round transitions.
@@ -557,6 +596,50 @@ async function createDispatchMcpServer(
           }
           return {
             content: [{ type: "text", text: parts.join("\n") }],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_get_recheck_context (persona) ────────────────────────
+  if (
+    allowed.has("dispatch_get_recheck_context") &&
+    context.agent &&
+    context.agent.review?.allowRecheck === true &&
+    context.getRecheckContext
+  ) {
+    const agentId = context.agent.id;
+    const getRecheckContext = context.getRecheckContext;
+
+    server.registerTool(
+      "dispatch_get_recheck_context",
+      {
+        description:
+          "Reviewer-only for recheck-enabled sessions. Returns whether round-2 context is ready yet and, once it is, the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await getRecheckContext(agentId);
+          if (!result) {
+            throw new Error("No recheck context is available for this review.");
+          }
+          const compareText =
+            result.availability === "ready"
+              ? result.compareRange
+                ? `Inspect ${result.compareRange}.`
+                : "Round 2 is ready, but no compare range is available for this recheck."
+              : result.availability === "waiting_for_resolution"
+                ? "Round 2 is not ready yet. Wait for the parent's resolution prompt."
+                : result.availability === "cancelled"
+                  ? "This recheck was cancelled by the parent."
+                  : "This recheck is already complete.";
+          return {
+            content: [{ type: "text", text: compareText }],
             structuredContent: result,
           };
         } catch (error) {

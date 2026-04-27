@@ -6,30 +6,7 @@ import {
   buildPersonaKickoffPrompt,
   buildReviewerRecheckCancelledPrompt,
   buildReviewerRecheckReadyPrompt,
-  wrapInDiffFence,
 } from "../src/reviews/injection-prompts.js";
-
-describe("wrapInDiffFence", () => {
-  it("uses a default 3-backtick fence when content has no backticks", () => {
-    const text = wrapInDiffFence("+ added\n- removed\n");
-    expect(text).toBe("```diff\n+ added\n- removed\n\n```");
-  });
-
-  it("uses a longer fence when the diff contains a triple-backtick run", () => {
-    const diff = "diff --git a/x.md b/x.md\n+```\n+inner\n+```\n";
-    const text = wrapInDiffFence(diff);
-    expect(text.startsWith("````diff\n")).toBe(true);
-    expect(text.endsWith("\n````")).toBe(true);
-    expect(text).toContain("```\n+inner\n+```");
-  });
-
-  it("scales with the longest backtick run in the content", () => {
-    const diff = "intro `````` outro";
-    const text = wrapInDiffFence(diff);
-    expect(text.startsWith("```````diff\n")).toBe(true);
-    expect(text.endsWith("\n```````")).toBe(true);
-  });
-});
 
 describe("buildPersonaKickoffPrompt", () => {
   it("nudges the agent to begin and references the loaded context", () => {
@@ -143,79 +120,20 @@ describe("buildParentReviewCompletePrompt", () => {
 });
 
 describe("buildReviewerRecheckReadyPrompt", () => {
-  it("includes summary, per-item resolutions, and diff", () => {
-    const text = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: "Patched the SQL injection",
-      resolutions: [
-        {
-          feedbackId: 7,
-          originalDescription: "Unsanitized input in db.query",
-          originalSeverity: "critical",
-          status: "fixed",
-          reason: null,
-          filePath: "apps/server/src/db.ts",
-          lineNumber: 42,
-          suggestion: null,
-          resolutionCommit: "abc123",
-          resolvedAt: "2026-04-01T00:00:00Z",
-          roundNumber: 1,
-        },
-      ],
-      diffSincePreviousRound: "diff --git a/db.ts b/db.ts\n+sanitize()\n",
-    });
-
-    expect(text).toContain("Patched the SQL injection");
-    expect(text).toContain("#7 [critical] fixed");
-    expect(text).toContain("apps/server/src/db.ts:42");
-    expect(text).toContain("Unsanitized input in db.query");
-    expect(text).toContain("Commit: abc123");
-    expect(text).toContain("```diff");
-    expect(text).toContain("sanitize()");
-  });
-
-  it("includes the ignored reason when present", () => {
-    const text = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: "Skipped one finding",
-      resolutions: [
-        {
-          feedbackId: 9,
-          originalDescription: "Style nit",
-          originalSeverity: "low",
-          status: "ignored",
-          reason: "out of scope",
-          filePath: null,
-          lineNumber: null,
-          suggestion: null,
-          resolutionCommit: null,
-          resolvedAt: null,
-          roundNumber: 1,
-        },
-      ],
-      diffSincePreviousRound: "",
-    });
-
-    expect(text).toContain("#9 [low] ignored");
-    expect(text).toContain("Reason: out of scope");
-    expect(text).toContain("(no diff since your round-1 commit)");
+  it("tells the reviewer to fetch context and inspect the diff locally", () => {
+    const text = buildReviewerRecheckReadyPrompt();
+    expect(text).toContain("dispatch_get_recheck_context");
+    expect(text).toMatch(/git diff/i);
   });
 
   it("tells the reviewer to call dispatch_complete_review for round 2", () => {
-    const text = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: "x",
-      resolutions: [],
-      diffSincePreviousRound: "",
-    });
+    const text = buildReviewerRecheckReadyPrompt();
     expect(text).toContain("dispatch_complete_review");
     expect(text).toContain("respondsToFeedbackId");
-    expect(text).toContain("(no per-item resolutions recorded)");
   });
 
   it("does not reference any removed polling tool", () => {
-    const text = buildReviewerRecheckReadyPrompt({
-      resolutionSummary: "x",
-      resolutions: [],
-      diffSincePreviousRound: "",
-    });
+    const text = buildReviewerRecheckReadyPrompt();
     expect(text).not.toContain("dispatch_await_recheck");
     expect(text).not.toContain("dispatch_await_review");
   });
