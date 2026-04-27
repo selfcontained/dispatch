@@ -23,6 +23,7 @@ import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import {
   AssistedUpdateGate,
   AssistedUpdateProgress,
+  PendingMigrationsGate,
 } from "@/components/app/assisted-update-card";
 import {
   type ReleaseChannel,
@@ -454,28 +455,42 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                 )}
 
                 {/*
-                  Gate visibility per metadata mode:
-                  - required:    only the gate. We hide the standard buttons
-                                 when `info.assistedRequired` is true — the
-                                 server's own gate (`isAssistedUpdateRequired`)
-                                 is `mode === "required"` AND the appliesFrom
-                                 rule, so trusting `assistedRequired` keeps the
-                                 UI in lockstep with the 409 the server would
-                                 actually return.
-                  - recommended: gate AND standard buttons (operator may opt
-                                 into the assisted flow but isn't forced).
-                  - normal/none: standard buttons only — metadata is purely
-                                 informational and shouldn't change the UX.
+                  Gate visibility:
+                  - migrations:  the new persistent-migration model (CRU-146).
+                                 When the target release ships unapplied
+                                 migration manifests, the standard buttons
+                                 are hidden and the operator must launch the
+                                 assisted flow from the migrations gate card.
+                  - legacy required: same UX as migrations, but driven by the
+                                 release-scoped `dispatch-update` block. We
+                                 still hide the standard buttons when
+                                 `info.assistedRequired` is true — the server
+                                 will 409 on the one-click path.
+                  - recommended: legacy gate AND standard buttons (operator
+                                 may opt into the assisted flow but isn't
+                                 forced).
+                  - normal/none: standard buttons only.
                 */}
-                {info.assisted && info.assisted.mode !== "normal" && (
-                  <AssistedUpdateGate
+                {info.pendingMigrations && info.pendingMigrations.length > 0 ? (
+                  <PendingMigrationsGate
                     tag={info.latestTag}
-                    metadata={info.assisted}
-                    required={info.assistedRequired === true}
+                    pendingMigrations={info.pendingMigrations}
                     onStart={() => handleAssistedUpdate(info.latestTag!)}
                     starting={assistedUpdateLaunching}
                     startError={null}
                   />
+                ) : (
+                  info.assisted &&
+                  info.assisted.mode !== "normal" && (
+                    <AssistedUpdateGate
+                      tag={info.latestTag}
+                      metadata={info.assisted}
+                      required={info.assistedRequired === true}
+                      onStart={() => handleAssistedUpdate(info.latestTag!)}
+                      starting={assistedUpdateLaunching}
+                      startError={null}
+                    />
+                  )
                 )}
                 {!(info.assistedRequired === true) && (
                   <>

@@ -21,13 +21,31 @@ import {
   teardownTestDb,
 } from "./db/setup.js";
 
-const { runCommandMock } = vi.hoisted(() => ({
+const { runCommandMock, evaluateMock } = vi.hoisted(() => ({
   runCommandMock: vi.fn(),
+  evaluateMock: vi.fn(),
 }));
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: runCommandMock,
 }));
+
+// `evaluatePendingMigrations` makes a real HTTPS call to GitHub via the
+// tarball cache, which can't run in unit tests. Mock the evaluator
+// directly so each test controls the pending-migrations result for the
+// gate decision. Tests that don't override default to "no migrations,
+// no errors" — i.e. fall through to the legacy `dispatch-update`-based
+// gating that the suite was originally written against.
+vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/update-migrations-evaluator.js")
+    >();
+  return {
+    ...actual,
+    evaluatePendingMigrations: evaluateMock,
+  };
+});
 
 let pool: Pool;
 let app: FastifyInstance;
@@ -97,6 +115,16 @@ afterAll(async () => {
 
 beforeEach(async () => {
   runCommandMock.mockReset();
+  evaluateMock.mockReset();
+  // Default: no pending migrations, no errors. Individual tests can
+  // override to simulate a release that ships migrations or an
+  // evaluator failure.
+  evaluateMock.mockResolvedValue({
+    pending: [],
+    all: [],
+    appliedIds: new Set(),
+    errors: [],
+  });
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agents");
   await pool.query("DELETE FROM sessions");
@@ -410,28 +438,115 @@ describe("release metadata route handling", () => {
     const authToken = await auth.getOrCreateAuthToken(pool);
     const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
 
-    // Token is valid for an active assisted job, but the body asks for a
-    // different tag — the takeover carve-out only fires when the tags
-    // match, otherwise we still have a conflict.
-    const updateResp = await app.inject({
+    // The bearer token resolves to an active assisted-update agent, but
+    // the request asks to deploy a different tag than the one the agent
+    // was launched for. The token is bound to the assisted run's tag
+    // (CRU-146 review feedback #1235) — mismatched tags fail with 403
+    // before reaching the takeover guard. This keeps a stale token from
+    // bypassing the migration gate for an arbitrary tag once the
+    // assisted job has terminated.
+    let updateResp;
+    try {
+      updateResp = await app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: {
+          authorization: `Bearer ${bearer}`,
+          "content-type": "application/json",
+        },
+        payload: { tag: "v0.20.0" },
+      });
+
+      expect(updateResp.statusCode).toBe(403);
+      expect(updateResp.json()).toMatchObject({
+        error: expect.stringContaining(
+          "Assisted update token is bound to a different tag"
+        ),
+      });
+    } finally {
+      // Always tear down the assisted job so a failed assertion doesn't
+      // leak `activeReleaseJob` into the next test (which then 409s on
+      // an unrelated active-job conflict).
+      await app.inject({
+        method: "DELETE",
+        url: "/api/v1/release/assisted/state",
+        headers: { cookie: sessionCookie },
+      });
+    }
+  });
+
+  it("fails closed with 503 when the migration evaluator throws", async () => {
+    // Round-1 review #1239: the migration gate must NOT silently fall
+    // through to the legacy path on evaluator failure — that inverts
+    // the security posture once the legacy fence is removed. The
+    // operator should see a clear "couldn't evaluate" error and retry.
+    evaluateMock.mockRejectedValueOnce(
+      new Error("simulated network failure fetching tarball")
+    );
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "normal",
+              title: "x",
+              summary: "x",
+              requiredChecks: [],
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
       method: "POST",
       url: "/api/v1/release/update",
-      headers: {
-        authorization: `Bearer ${bearer}`,
-        "content-type": "application/json",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      error: "MIGRATION_EVALUATION_UNAVAILABLE",
+    });
+  });
+
+  it("rejects /release/update with ASSISTED_UPDATE_REQUIRED when migrations are pending", async () => {
+    evaluateMock.mockResolvedValueOnce({
+      pending: [
+        {
+          filename: "0001-bun-cutover.yaml",
+          order: 1,
+          manifest: {
+            id: "bun-cutover",
+            title: "Bun runtime cutover",
+            summary: "Switch runtime from Node to Bun.",
+            alreadySatisfied: { description: "x" },
+            instructions: ["x"],
+            validation: { requiredChecks: [] },
+            rollback: [],
+          },
+        },
+      ],
+      all: [],
+      appliedIds: new Set(),
+      errors: [],
+    });
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
       },
-      payload: { tag: "v0.20.0" },
     });
 
-    expect(updateResp.statusCode).toBe(409);
-    expect(updateResp.json()).toMatchObject({
-      error: "A release or update is already in progress.",
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
     });
-
-    await app.inject({
-      method: "DELETE",
-      url: "/api/v1/release/assisted/state",
-      headers: { cookie: sessionCookie },
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "ASSISTED_UPDATE_REQUIRED",
+      pendingMigrations: [expect.objectContaining({ id: "bun-cutover" })],
     });
   });
 

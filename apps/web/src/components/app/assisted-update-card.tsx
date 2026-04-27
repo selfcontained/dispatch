@@ -14,8 +14,10 @@ import type {
   AssistedCheckResult,
   AssistedUpdateMetadata,
   AssistedUpdateState,
+  PendingMigration,
   ReleaseJob,
   ReleasePhase,
+  UpdateMigrationManifest,
 } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +45,91 @@ type AssistedUpdateGateProps = {
   starting: boolean;
   startError: string | null;
 };
+
+type PendingMigrationsGateProps = {
+  tag: string;
+  pendingMigrations: PendingMigration[];
+  onStart: () => Promise<void>;
+  starting: boolean;
+  startError: string | null;
+};
+
+/**
+ * Pre-launch card shown when the target release has unapplied install-update
+ * migration manifests (CRU-146). Replaces the legacy single-block gate when
+ * any migrations are pending; the one-click update is hidden so the only
+ * forward path is the assisted flow.
+ */
+export function PendingMigrationsGate({
+  tag,
+  pendingMigrations,
+  onStart,
+  starting,
+  startError,
+}: PendingMigrationsGateProps): JSX.Element {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-4 rounded-lg border p-4",
+        "border-amber-500/40 bg-amber-500/[0.06]"
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+        <div className="flex flex-col gap-1">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            Assisted update required
+          </div>
+          <div className="text-sm font-semibold text-foreground">
+            {pendingMigrations.length} pending migration
+            {pendingMigrations.length === 1 ? "" : "s"}
+          </div>
+          <div className="font-mono text-xs text-muted-foreground">{tag}</div>
+        </div>
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        This release ships install-update migrations that haven&rsquo;t been
+        applied on this Dispatch yet. The assisted-update agent walks them in
+        order and validates each before marking it applied.
+      </p>
+
+      <ul className="flex flex-col gap-2 text-sm">
+        {pendingMigrations.map((m) => (
+          <li
+            key={m.id}
+            className="rounded border border-white/[0.12] bg-white/[0.04] p-3"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                {m.id}
+              </span>
+              <span className="font-semibold text-foreground">{m.title}</span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{m.summary}</p>
+          </li>
+        ))}
+      </ul>
+
+      {startError && (
+        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {startError}
+        </div>
+      )}
+
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={starting}
+        onClick={() => void onStart()}
+        className="self-start"
+        data-testid="pending-migrations-start"
+      >
+        {starting ? "Launching agent..." : `Start assisted update to ${tag}`}
+      </Button>
+    </div>
+  );
+}
 
 /**
  * The pre-launch card shown in place of the one-click update button when a
@@ -203,6 +290,21 @@ export function AssistedUpdateProgress({
     }
   }, [job.log]);
 
+  const headline =
+    assisted.migrations && assisted.migrations.length > 0
+      ? {
+          title: `${assisted.migrations.length} migration${
+            assisted.migrations.length === 1 ? "" : "s"
+          } pending`,
+          summary: assisted.migrations.map((m) => m.title).join(" → "),
+        }
+      : assisted.metadata
+        ? {
+            title: assisted.metadata.title,
+            summary: assisted.metadata.summary ?? "",
+          }
+        : { title: "Assisted update", summary: "" };
+
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <div className="flex md:w-[380px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6">
@@ -211,11 +313,11 @@ export function AssistedUpdateProgress({
             Assisted update
           </div>
           <div className="text-sm font-semibold text-foreground">
-            {assisted.metadata.title}
+            {headline.title}
           </div>
-          {assisted.metadata.summary && (
+          {headline.summary && (
             <div className="mt-1 text-xs text-muted-foreground">
-              {assisted.metadata.summary}
+              {headline.summary}
             </div>
           )}
         </div>
@@ -226,6 +328,10 @@ export function AssistedUpdateProgress({
           isFailed={isFailed}
           isRestarting={job.phase === "restarting"}
         />
+
+        {assisted.migrations && assisted.migrations.length > 0 && (
+          <MigrationsList migrations={assisted.migrations} />
+        )}
 
         {Object.keys(assisted.notes).length > 0 && (
           <PhaseNotesList notes={assisted.notes} />
@@ -330,6 +436,38 @@ function PhaseNotesList({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function MigrationsList({
+  migrations,
+}: {
+  migrations: UpdateMigrationManifest[];
+}): JSX.Element {
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Migrations
+      </div>
+      <ol className="flex flex-col gap-1.5 text-xs">
+        {migrations.map((m, idx) => (
+          <li
+            key={m.id}
+            className="rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1.5"
+          >
+            <div className="flex items-center gap-2">
+              <span className="font-mono uppercase tracking-wide text-[9px] text-muted-foreground">
+                {idx + 1}/{migrations.length}
+              </span>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {m.id}
+              </span>
+            </div>
+            <div className="mt-0.5 text-foreground/90">{m.title}</div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

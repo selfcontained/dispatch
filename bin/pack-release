@@ -76,6 +76,13 @@ if [[ -f "release-notes/current.md" ]]; then
   echo "release-notes/current.md" >> "$MANIFEST"
 fi
 
+# Conditionally include update migrations if any exist. The runtime opens
+# the tarball at "Check for Updates" time and extracts only update-migrations/
+# to determine whether assisted update is required for the target tag.
+if [[ -d "update-migrations" ]]; then
+  echo "update-migrations" >> "$MANIFEST"
+fi
+
 tar czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
 
 # Print summary

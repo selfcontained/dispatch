@@ -1,4 +1,88 @@
-# Assisted Update Metadata Authoring
+# Assisted Update Authoring
+
+> **Preferred path (CRU-146):** add an append-only manifest under
+> `update-migrations/` instead of editing `release-notes/next-assisted-update.json`.
+> See [Migration manifests](#migration-manifests-preferred) below. The legacy
+> single-block JSON flow described after that is kept only for transitional
+> compatibility while in-flight gates roll forward.
+
+## Migration manifests (preferred)
+
+Persistent install-update migrations live as YAML files under
+`update-migrations/` at the repo root. They are append-only across release
+history, ship inside the release tarball, and are evaluated per-install: the
+runtime downloads the target tarball on "Check for Updates", extracts the
+migration manifests, and gates assisted update based on which IDs the local
+install hasn't applied yet.
+
+### File layout
+
+```
+update-migrations/
+  0001-bun-cutover.yaml
+  0002-...yaml
+```
+
+- Filenames must match `<NNNN>-<id>.yaml` where `<NNNN>` is a zero-padded
+  numeric ordering prefix and `<id>` is lowercase letters, digits, and hyphens.
+- The `id` field inside the file must match the `<id>` in the filename and is
+  the stable handle the runtime persists in `~/.dispatch/applied-migrations.json`.
+- Once a manifest has shipped in a tagged release **never** rename, delete, or
+  re-number it — that breaks "already applied" bookkeeping on installs that
+  ran it.
+
+### Schema (V1)
+
+```yaml
+id: bun-cutover
+title: Bun runtime cutover
+summary: >
+  One paragraph explaining what the migration does and why.
+
+alreadySatisfied:
+  description: >
+    A human-readable description of the install state that means the
+    migration is already a no-op. The agent reads this first; if true it
+    skips the change steps, runs validation, and marks the migration applied.
+
+instructions:
+  - Ordered step the agent should take.
+  - Use as many entries as you need.
+  - Skip the change steps if alreadySatisfied is true.
+
+validation:
+  requiredChecks:
+    - expected_runtime_artifact
+    - service_entrypoint
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - Ordered step the agent should take to roll the migration back.
+```
+
+V1 fields only: `id`, `title`, `summary`, `alreadySatisfied.description`,
+`instructions[]`, `validation.requiredChecks[]`, `rollback[]`. Anything else
+will fail validation.
+
+Out of scope for V1 (do **not** add): `appliesFrom`/version ranges, install-fact
+predicates, supersession or dependency edges, machine-executable step DSLs.
+
+### Run semantics
+
+- The runtime evaluates pending migrations against the **target** release.
+  Skipped releases work naturally because newer targets include older
+  manifests in their tarball.
+- A run sees one ordered plan covering every pending migration. The framework
+  runs the union of every `validation.requiredChecks` after the agent reports
+  `validate`. **All-or-nothing**: if every check passes, every pending ID is
+  marked applied; if any check fails, none are.
+- `requiredChecks` entries must come from the canonical set in
+  `apps/server/src/release-metadata.ts` (`REQUIRED_CHECK_NAMES`). Adding new
+  check names is a separate code change in `apps/server/src/release-checks.ts`.
+
+## Legacy single-block metadata (transitional)
 
 When a PR introduces an assisted-update requirement for the next release, author
 or update `release-notes/next-assisted-update.json`.

@@ -16,11 +16,20 @@ import {
   type AssistedUpdateState,
 } from "./assisted-update-store.js";
 import { runRequiredChecks, type CheckContext } from "./release-checks.js";
+import type { RequiredCheckName } from "./release-metadata.js";
+import type { UpdateMigrationManifest } from "./update-migrations.js";
+import { markMigrationsApplied } from "./applied-migrations-store.js";
+import { clearEvaluatorCache } from "./update-migrations-evaluator.js";
 
 export type StartAssistedUpdateInput = {
   tag: string;
   fromTag: string | null;
-  metadata: AssistedUpdateMetadata;
+  /**
+   * Either `metadata` (legacy single-block release-scoped run) or
+   * `migrations` (preferred manifest-driven run, CRU-146) is required.
+   */
+  metadata?: AssistedUpdateMetadata;
+  migrations?: UpdateMigrationManifest[];
   /**
    * The directory the launched agent will run in. Owned by the caller
    * (server.ts) so this module stays a pure orchestrator with no
@@ -57,11 +66,23 @@ export async function buildAssistedUpdateContext(
   input: StartAssistedUpdateInput,
   baseUrl: string
 ): Promise<AssistedAgentContext> {
+  const migrations = input.migrations ?? null;
+  const metadata = input.metadata ?? null;
+  if (!migrations && !metadata) {
+    throw new Error(
+      "buildAssistedUpdateContext requires either migrations or metadata"
+    );
+  }
+  const requiredChecks: RequiredCheckName[] = migrations
+    ? unionMigrationChecks(migrations)
+    : normalizeRequiredChecks(metadata!);
+
   const state: AssistedUpdateState = {
     tag: input.tag,
     fromTag: input.fromTag,
-    metadata: input.metadata,
-    requiredChecks: normalizeRequiredChecks(input.metadata),
+    metadata,
+    migrations,
+    requiredChecks,
     phase: "inspect",
     token: randomBytes(24).toString("base64url"),
     agentId: null,
@@ -72,7 +93,13 @@ export async function buildAssistedUpdateContext(
     checks: [],
     notes: {},
   };
-  await writeAssistedUpdateState(state);
+
+  // Intentionally NOT persisted here. If `agentManager.createAgent` later
+  // fails in `release/assisted/launch`, a state file with `agentId: null`
+  // would be left behind and `rehydrateActiveAssistedJob` would resurrect
+  // it on next boot/reconnect as a phantom in-flight run with no owner.
+  // The launch endpoint persists state via `attachAssistedAgent` once the
+  // agent is created — that's the first durable write.
 
   const prompt = renderAssistedPrompt(
     state,
@@ -81,6 +108,21 @@ export async function buildAssistedUpdateContext(
     input.recovery
   );
   return { state, prompt };
+}
+
+function unionMigrationChecks(
+  migrations: UpdateMigrationManifest[]
+): RequiredCheckName[] {
+  const seen = new Set<RequiredCheckName>();
+  const ordered: RequiredCheckName[] = [];
+  for (const m of migrations) {
+    for (const c of m.validation.requiredChecks) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      ordered.push(c);
+    }
+  }
+  return ordered;
 }
 
 /**
@@ -127,12 +169,19 @@ export async function applyAssistedPhase(input: {
   return { ok: true, state };
 }
 
+/**
+ * First durable persistence of the assisted-update state. Called by the
+ * launch endpoint AFTER `agentManager.createAgent` succeeds, so a failed
+ * createAgent can never leave a phantom record on disk that
+ * `rehydrateActiveAssistedJob` would resurrect at boot.
+ *
+ * This is the single point where state.agentId transitions from null to a
+ * real agent id; subsequent updates flow through `applyAssistedPhase`.
+ */
 export async function attachAssistedAgent(
-  token: string,
+  state: AssistedUpdateState,
   agentId: string
-): Promise<AssistedUpdateState | null> {
-  const state = await readAssistedUpdateState();
-  if (!state || !tokensEqual(state.token, token)) return null;
+): Promise<AssistedUpdateState> {
   state.agentId = agentId;
   state.updatedAt = new Date().toISOString();
   await writeAssistedUpdateState(state);
@@ -140,9 +189,12 @@ export async function attachAssistedAgent(
 }
 
 /**
- * Run the metadata's `requiredChecks` set and return their results. The
- * orchestrator persists results onto state so operators can see exactly what
- * passed before the framework marked the job successful.
+ * Run the run's `requiredChecks` set and return their results. The
+ * orchestrator persists results onto state so operators can see exactly
+ * what passed before the framework marked the job successful. When the run
+ * is migrations-driven (CRU-146) and every check passes, mark each pending
+ * migration ID applied locally so the next `release/info` poll picks the
+ * change up.
  */
 export async function runAndRecordChecks(
   state: AssistedUpdateState,
@@ -153,18 +205,40 @@ export async function runAndRecordChecks(
   state.updatedAt = new Date().toISOString();
   await writeAssistedUpdateState(state);
   const allPassed = results.every((r) => r.ok);
-  if (allPassed) return state;
+  if (!allPassed) {
+    // Route the failed-checks → blocked transition through the canonical
+    // helper so it goes through `isLegalTransition` (no-op when state is
+    // already terminal at rollback/blocked/failed) and the same
+    // persist + completedAt stamping every other phase change uses.
+    const transition = await applyAssistedPhase({
+      token: state.token,
+      phase: "blocked",
+      error: "one or more required checks failed",
+    });
+    return transition.ok ? transition.state : state;
+  }
 
-  // Route the failed-checks → blocked transition through the canonical
-  // helper so it goes through `isLegalTransition` (no-op when state is
-  // already terminal at rollback/blocked/failed) and the same
-  // persist + completedAt stamping every other phase change uses.
-  const transition = await applyAssistedPhase({
-    token: state.token,
-    phase: "blocked",
-    error: "one or more required checks failed",
-  });
-  return transition.ok ? transition.state : state;
+  // Migrations-driven success path: record every pending migration ID as
+  // applied, atomically, before reporting success upstream. The whole
+  // pending set is marked together — v1 is all-or-nothing per the issue.
+  if (state.migrations && state.migrations.length > 0) {
+    const ids = state.migrations.map((m) => m.id);
+    try {
+      await markMigrationsApplied(ids, state.tag);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const transition = await applyAssistedPhase({
+        token: state.token,
+        phase: "blocked",
+        error: `failed to record migration apply state: ${message}`,
+      });
+      return transition.ok ? transition.state : state;
+    }
+    // Force the next `release/info` poll to re-evaluate so applied IDs
+    // disappear from `pendingMigrations`.
+    clearEvaluatorCache();
+  }
+  return state;
 }
 
 export { isAssistedUpdateRequired };
@@ -175,13 +249,21 @@ function renderAssistedPrompt(
   serverDir: string,
   recovery: AssistedRecoveryContext
 ): string {
-  const { metadata, tag, fromTag, requiredChecks, token } = state;
+  const { tag, fromTag, requiredChecks, token, migrations, metadata } = state;
   const checksList =
     requiredChecks.length > 0
       ? requiredChecks.map((c) => `  - ${c}`).join("\n")
       : "  (none)";
   const platform = `${process.platform}/${process.arch}`;
   const phaseUrl = `${baseUrl.replace(/\/$/, "")}/api/v1/release/assisted/phase`;
+  const modeLabel = migrations
+    ? `migration-driven (${migrations.length} pending)`
+    : (metadata?.mode ?? "unknown");
+
+  const migrationSections =
+    migrations && migrations.length > 0
+      ? renderMigrationSections(migrations)
+      : renderLegacyMetadataSections(metadata);
 
   return [
     `# Assisted release update`,
@@ -201,7 +283,7 @@ function renderAssistedPrompt(
     `- installed: ${fromTag ?? "(unknown)"}`,
     `- platform: ${platform}`,
     `- service dir: ${serverDir}`,
-    `- mode: ${metadata.mode}`,
+    `- mode: ${modeLabel}`,
     `- health endpoint: ${recovery.healthEndpoint}`,
     `- service restart command: ${recovery.serviceCommand}`,
     `- main service log: ${recovery.serviceLogPath}`,
@@ -217,24 +299,11 @@ function renderAssistedPrompt(
     `- Do not assume release.json points to a healthy rollback target after a failed deploy; confirm the last healthy tag from git/service history before rolling back.`,
     `- Restore service availability before deeper diagnosis.`,
     ``,
-    `## Title`,
-    ``,
-    metadata.title,
-    ``,
-    `## Summary`,
-    ``,
-    metadata.summary,
-    ``,
-    metadata.instructions
-      ? `## Instructions\n\n${metadata.instructions}\n`
-      : "",
+    migrationSections,
     `## Required checks (must all pass before reporting "validate" → "done")`,
     ``,
     checksList,
     ``,
-    metadata.rollbackGuidance
-      ? `## Rollback guidance\n\n${metadata.rollbackGuidance}\n`
-      : "",
     `## Phase reporting`,
     ``,
     `Move through these phases in order, reporting each one BEFORE you start it:`,
@@ -269,4 +338,82 @@ function renderAssistedPrompt(
   ]
     .filter((line) => line !== undefined)
     .join("\n");
+}
+
+function renderMigrationSections(
+  migrations: UpdateMigrationManifest[]
+): string {
+  const sections: string[] = [
+    `## Pending migrations`,
+    ``,
+    `This run includes ${migrations.length} pending migration${
+      migrations.length === 1 ? "" : "s"
+    }. Treat them as one ordered plan: walk each in order, evaluate the`,
+    `\`alreadySatisfied\` condition first, perform the migration only if it`,
+    `is not already satisfied, then continue to the next. The framework`,
+    `runs the union of every \`validation.requiredChecks\` after you report`,
+    `\`validate\`, and only marks all migrations applied when every check`,
+    `passes. If validation fails, none of this run's migrations are marked`,
+    `applied — the operator can re-run the assisted flow.`,
+    ``,
+  ];
+
+  migrations.forEach((m, idx) => {
+    const heading = `### Migration ${idx + 1}/${migrations.length}: ${m.title} (id: \`${m.id}\`)`;
+    sections.push(heading, ``);
+    sections.push(`**Summary**`, ``, m.summary.trim(), ``);
+    sections.push(
+      `**Already satisfied?**`,
+      ``,
+      m.alreadySatisfied.description.trim(),
+      ``
+    );
+    sections.push(
+      `**Instructions**`,
+      ``,
+      ...m.instructions.map((step) => `- ${step}`),
+      ``
+    );
+    if (m.validation.requiredChecks.length > 0) {
+      sections.push(
+        `**Validation checks for this migration**`,
+        ``,
+        ...m.validation.requiredChecks.map((c) => `- ${c}`),
+        ``
+      );
+    }
+    if (m.rollback.length > 0) {
+      sections.push(
+        `**Rollback**`,
+        ``,
+        ...m.rollback.map((step) => `- ${step}`),
+        ``
+      );
+    }
+  });
+
+  return sections.join("\n");
+}
+
+function renderLegacyMetadataSections(
+  metadata: AssistedUpdateMetadata | null
+): string {
+  if (!metadata) return "";
+  const sections: string[] = [
+    `## Title`,
+    ``,
+    metadata.title,
+    ``,
+    `## Summary`,
+    ``,
+    metadata.summary,
+    ``,
+  ];
+  if (metadata.instructions) {
+    sections.push(`## Instructions`, ``, metadata.instructions, ``);
+  }
+  if (metadata.rollbackGuidance) {
+    sections.push(`## Rollback guidance`, ``, metadata.rollbackGuidance, ``);
+  }
+  return sections.join("\n");
 }

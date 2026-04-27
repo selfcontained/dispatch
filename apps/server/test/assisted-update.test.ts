@@ -134,8 +134,12 @@ describe("buildAssistedUpdateContext", () => {
     expect(ctx.state.checks).toEqual([]);
     expect(ctx.state.notes).toEqual({});
     expect(ctx.state.token.length).toBeGreaterThanOrEqual(32); // base64url of 24 bytes
-    // The mock store should have captured the same record we got back.
+    // Build is in-memory only — the first durable write happens via
+    // attachAssistedAgent once the launched agent exists (CRU-146 #1241).
+    expect(lastPersistedState).toBeNull();
+    await attachAssistedAgent(ctx.state, "agt_first_attach");
     expect(lastPersistedState?.token).toBe(ctx.state.token);
+    expect(lastPersistedState?.agentId).toBe("agt_first_attach");
   });
 
   it("normalizes the requiredChecks down to a flat string list", async () => {
@@ -258,8 +262,11 @@ describe("buildAssistedUpdateContext", () => {
 });
 
 describe("applyAssistedPhase", () => {
+  // Helper: build + attach. The split-phase persistence (CRU-146 #1241)
+  // means downstream tests have to attach to get a durable record on
+  // disk before applyAssistedPhase / runAndRecordChecks can read it.
   async function seed() {
-    return buildAssistedUpdateContext(
+    const ctx = await buildAssistedUpdateContext(
       {
         tag: "v0.19.0",
         fromTag: "v0.18.1",
@@ -269,6 +276,8 @@ describe("applyAssistedPhase", () => {
       },
       "http://127.0.0.1:6767"
     );
+    await attachAssistedAgent(ctx.state, "agt_test");
+    return ctx;
   }
 
   it("returns ok=false when no state exists", async () => {
@@ -336,7 +345,10 @@ describe("applyAssistedPhase", () => {
 });
 
 describe("attachAssistedAgent", () => {
-  it("writes the agent id back to state on a valid token", async () => {
+  it("persists state with the agent id (first durable write)", async () => {
+    // Build returns state in memory only (no file written yet) — so
+    // before attach, lastPersistedState is null. That's the whole point
+    // of CRU-146 review #1241: a failed createAgent can't leak state.
     const ctx = await buildAssistedUpdateContext(
       {
         tag: "v0.19.0",
@@ -347,35 +359,21 @@ describe("attachAssistedAgent", () => {
       },
       "http://127.0.0.1:6767"
     );
-    const updated = await attachAssistedAgent(ctx.state.token, "agt_abc");
-    expect(updated?.agentId).toBe("agt_abc");
+    expect(lastPersistedState).toBeNull();
+
+    const updated = await attachAssistedAgent(ctx.state, "agt_abc");
+    expect(updated.agentId).toBe("agt_abc");
     expect(lastPersistedState?.agentId).toBe("agt_abc");
-  });
-
-  it("returns null on a token mismatch (constant-time compare)", async () => {
-    await buildAssistedUpdateContext(
-      {
-        tag: "v0.19.0",
-        fromTag: null,
-        metadata: minimalMetadata(),
-        serverDir: TEST_SERVER_DIR,
-        recovery: TEST_RECOVERY,
-      },
-      "http://127.0.0.1:6767"
-    );
-    const updated = await attachAssistedAgent("not-my-token", "agt_abc");
-    expect(updated).toBeNull();
-  });
-
-  it("returns null when no assisted update is in flight", async () => {
-    lastPersistedState = null;
-    const updated = await attachAssistedAgent("anything", "agt_abc");
-    expect(updated).toBeNull();
+    expect(lastPersistedState?.token).toBe(ctx.state.token);
   });
 });
 
 describe("runAndRecordChecks", () => {
-  it("records every check result in order", async () => {
+  // Build + persist via attach so applyAssistedPhase / runAndRecordChecks
+  // see a real on-disk record. Without this every test in this block
+  // would 404 (no active assisted update) under the split-phase
+  // persistence introduced in CRU-146 #1241.
+  async function seedAndAttach() {
     const ctx = await buildAssistedUpdateContext(
       {
         tag: "v0.19.0",
@@ -386,6 +384,12 @@ describe("runAndRecordChecks", () => {
       },
       "http://127.0.0.1:6767"
     );
+    await attachAssistedAgent(ctx.state, "agt_test");
+    return ctx;
+  }
+
+  it("records every check result in order", async () => {
+    const ctx = await seedAndAttach();
     stagedCheckResults = [
       { name: "service_restarted", ok: true, message: "ok" },
       { name: "version_converged", ok: true, message: "converged" },
@@ -402,16 +406,7 @@ describe("runAndRecordChecks", () => {
   });
 
   it("does NOT downgrade phase when every check passes", async () => {
-    const ctx = await buildAssistedUpdateContext(
-      {
-        tag: "v0.19.0",
-        fromTag: null,
-        metadata: minimalMetadata(),
-        serverDir: TEST_SERVER_DIR,
-        recovery: TEST_RECOVERY,
-      },
-      "http://127.0.0.1:6767"
-    );
+    const ctx = await seedAndAttach();
     // Move to validate first so the orchestrator sees a non-inspect
     // baseline phase.
     await applyAssistedPhase({ token: ctx.state.token, phase: "validate" });
@@ -428,16 +423,7 @@ describe("runAndRecordChecks", () => {
   });
 
   it("routes to blocked + sets error when any check fails", async () => {
-    const ctx = await buildAssistedUpdateContext(
-      {
-        tag: "v0.19.0",
-        fromTag: null,
-        metadata: minimalMetadata(),
-        serverDir: TEST_SERVER_DIR,
-        recovery: TEST_RECOVERY,
-      },
-      "http://127.0.0.1:6767"
-    );
+    const ctx = await seedAndAttach();
     await applyAssistedPhase({ token: ctx.state.token, phase: "validate" });
     const state = lastPersistedState!;
     stagedCheckResults = [
@@ -460,16 +446,7 @@ describe("runAndRecordChecks", () => {
   it("leaves a rollback / blocked terminal phase alone on failure", async () => {
     // If the agent already routed itself to rollback, a downstream
     // failure shouldn't overwrite that with `blocked`.
-    const ctx = await buildAssistedUpdateContext(
-      {
-        tag: "v0.19.0",
-        fromTag: null,
-        metadata: minimalMetadata(),
-        serverDir: TEST_SERVER_DIR,
-        recovery: TEST_RECOVERY,
-      },
-      "http://127.0.0.1:6767"
-    );
+    const ctx = await seedAndAttach();
     await applyAssistedPhase({
       token: ctx.state.token,
       phase: "rollback",
