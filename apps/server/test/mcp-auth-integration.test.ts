@@ -259,6 +259,79 @@ describe("MCP auth integration", () => {
     expect(round2Response.body).not.toContain("dispatch_await_review");
   });
 
+  it("only returns authoritative recheck diff metadata while round 2 is ready", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
+       VALUES
+       ('agt_parent_ctx', 'parent', 'codex', 'running', '/tmp', null, null, false),
+       ('agt_persona_waiting', 'waiting-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false),
+       ('agt_persona_ready', 'ready-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false),
+       ('agt_persona_complete', 'complete-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false)`
+    );
+    await pool.query(
+      `INSERT INTO persona_reviews (
+          id, agent_id, parent_agent_id, persona, status, round_number, allow_recheck, last_reviewed_commit
+        )
+        VALUES
+        (9001, 'agt_persona_waiting', 'agt_parent_ctx', 'architecture-review', 'reviewing', 1, true, 'basewait'),
+        (9002, 'agt_persona_ready', 'agt_parent_ctx', 'architecture-review', 'awaiting_recheck', 1, true, 'baseready'),
+        (9003, 'agt_persona_complete', 'agt_parent_ctx', 'architecture-review', 'complete', 2, true, 'basecomplete')`
+    );
+    await pool.query(
+      `INSERT INTO persona_review_resolutions (
+          review_id, summary, resolution_commit, round_number, submitted_at
+        )
+        VALUES
+        (9001, 'Waiting summary', 'headwait', 1, NOW()),
+        (9002, 'Ready summary', 'headready', 1, NOW()),
+        (9003, 'Complete summary', 'headcomplete', 1, NOW())`
+    );
+
+    const authTokenResult = await pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const authToken = authTokenResult.rows[0]!.value;
+
+    for (const [agentId, expectedAvailability, compareRange] of [
+      ["agt_persona_waiting", "waiting_for_resolution", null],
+      ["agt_persona_ready", "ready", "baseready...headready"],
+      ["agt_persona_complete", "complete", null],
+    ] as const) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/mcp/${agentId}`,
+        headers: {
+          authorization: `Bearer ${createAgentMcpToken(authToken, agentId)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        payload: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "dispatch_get_recheck_context",
+            arguments: {},
+          },
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain(
+        `"availability":"${expectedAvailability}"`
+      );
+      if (compareRange) {
+        expect(response.body).toContain(`"compareRange":"${compareRange}"`);
+        expect(response.body).toContain(
+          `"gitDiffCommand":"git diff ${compareRange}"`
+        );
+      } else {
+        expect(response.body).toContain('"compareRange":null');
+        expect(response.body).toContain('"gitDiffCommand":null');
+      }
+    }
+  });
+
   it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)

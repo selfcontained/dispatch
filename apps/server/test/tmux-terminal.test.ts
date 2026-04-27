@@ -98,7 +98,13 @@ describe("TmuxTerminal.sendCommand", () => {
       if (args[0] === "capture-pane") {
         return {
           exitCode: 0,
-          stdout: "[Pasted text #1 +20 lines]",
+          stdout:
+            runCommandMock.mock.calls.filter(
+              ([, innerArgs]) =>
+                Array.isArray(innerArgs) && innerArgs[0] === "capture-pane"
+            ).length === 1
+              ? "prompt"
+              : "prompt\n[Pasted text #1 +20 lines]",
           stderr: "",
         };
       }
@@ -113,6 +119,28 @@ describe("TmuxTerminal.sendCommand", () => {
         Array.isArray(args) && args[0] === "send-keys" && args[3] === "Enter"
     );
     expect(enterCalls).toHaveLength(2);
+  });
+
+  it("does not retry when only a stale pasted-text marker is present", async () => {
+    runCommandMock.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args[0] === "capture-pane") {
+        return {
+          exitCode: 0,
+          stdout: "older output\n[Pasted text #1 +20 lines]\nprompt",
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const terminal = new TmuxTerminal("session-x");
+    await terminal.sendCommand("x".repeat(5000));
+
+    const enterCalls = runCommandMock.mock.calls.filter(
+      ([, args]) =>
+        Array.isArray(args) && args[0] === "send-keys" && args[3] === "Enter"
+    );
+    expect(enterCalls).toHaveLength(1);
   });
 
   it("does not retry submit for small pastes", async () => {

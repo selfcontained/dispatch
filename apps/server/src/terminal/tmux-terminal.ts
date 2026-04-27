@@ -6,6 +6,8 @@ import { runCommand } from "../shared/lib/run-command.js";
 export class TmuxTerminal {
   private static readonly SUBMIT_SETTLE_MS = 150;
   private static readonly RETRY_SUBMIT_BYTES = 4 * 1024;
+  private static readonly PASTED_TEXT_LINE =
+    /^\[Pasted text #[0-9]+(?: \+[0-9]+ lines)?\]$/i;
   private readonly sessionName: string;
 
   constructor(sessionName: string) {
@@ -39,6 +41,33 @@ export class TmuxTerminal {
     return result.stdout;
   }
 
+  private findLastPasteMarker(paneText: string): string | null {
+    const lines = paneText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => TmuxTerminal.PASTED_TEXT_LINE.test(line));
+    return lines.at(-1) ?? null;
+  }
+
+  private hasNewTrailingPasteMarker(before: string, after: string): boolean {
+    const newestAfter = this.findLastPasteMarker(after);
+    if (!newestAfter) {
+      return false;
+    }
+
+    const trailingLines = after
+      .trimEnd()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .slice(-3);
+    if (!trailingLines.includes(newestAfter)) {
+      return false;
+    }
+
+    return newestAfter !== this.findLastPasteMarker(before);
+  }
+
   // Inject `commandLine` into the target tmux pane as a single bracketed paste,
   // then submit with Enter. Bracketed paste lets the receiving TUI (Claude,
   // Codex, etc.) treat the burst as one paste event instead of as live typing —
@@ -52,6 +81,11 @@ export class TmuxTerminal {
     // the receiving TUI, a cross-agent disruption channel.
     const sanitized = commandLine.replace(/\x1b\[20[01]~/g, "");
     const bufferName = `dispatch_${randomUUID()}`;
+    const shouldRetryLargePaste =
+      Buffer.byteLength(sanitized, "utf-8") >= TmuxTerminal.RETRY_SUBMIT_BYTES;
+    const prePasteSnapshot = shouldRetryLargePaste
+      ? await this.captureRecentLines(40).catch(() => "")
+      : "";
     await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
     try {
       await runCommand("tmux", [
@@ -73,12 +107,10 @@ export class TmuxTerminal {
     }
     await delay(TmuxTerminal.SUBMIT_SETTLE_MS);
     await runCommand("tmux", ["send-keys", "-t", this.sessionName, "Enter"]);
-    if (
-      Buffer.byteLength(sanitized, "utf-8") >= TmuxTerminal.RETRY_SUBMIT_BYTES
-    ) {
+    if (shouldRetryLargePaste) {
       await delay(TmuxTerminal.SUBMIT_SETTLE_MS);
       const recent = await this.captureRecentLines(40).catch(() => "");
-      if (/\[Pasted text #[0-9]+/i.test(recent)) {
+      if (this.hasNewTrailingPasteMarker(prePasteSnapshot, recent)) {
         await runCommand("tmux", [
           "send-keys",
           "-t",

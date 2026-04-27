@@ -6363,10 +6363,6 @@ async function mcpGetRecheckContext(
   );
   const lastReviewedCommit = review.lastReviewedCommit;
   const resolutionCommit = resolution?.resolutionCommit ?? null;
-  const compareRange =
-    lastReviewedCommit && resolutionCommit
-      ? `${lastReviewedCommit}...${resolutionCommit}`
-      : null;
   const resolutions = resolution
     ? await agentManager.listResolvedFeedbackForRound(
         agentId,
@@ -6381,6 +6377,10 @@ async function mcpGetRecheckContext(
         : review.status === "complete" && review.roundNumber >= 2
           ? "complete"
           : "waiting_for_resolution";
+  const compareRange =
+    availability === "ready" && lastReviewedCommit && resolutionCommit
+      ? `${lastReviewedCommit}...${resolutionCommit}`
+      : null;
 
   return {
     availability,
