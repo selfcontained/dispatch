@@ -86,7 +86,7 @@ if [[ -f "release-notes/current.md" ]]; then
   echo "release-notes/current.md" >> "$MANIFEST"
 fi
 
-tar czf "$OUTPUT" -T "$MANIFEST"
+tar czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
 
 # Print summary
 SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')

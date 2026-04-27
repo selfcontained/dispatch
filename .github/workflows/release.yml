@@ -106,14 +106,29 @@ jobs:
           git commit -m "Release ${NEW_VERSION}"
           # Pull in any commits that landed on main during the CI run
           git pull --rebase origin main
-          git tag -a "${NEW_VERSION}" -m "Release ${NEW_VERSION}"
-          # Push branch first, then tag separately — if the branch push
-          # fails we don't leave an orphan tag on the remote.
-          git push origin main
-          git push origin "${NEW_VERSION}"
           echo "tag=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Embed assisted-update metadata if present
+        run: |
+          META="release-notes/next-assisted-update.json"
+          if [ -f "$META" ]; then
+            pnpm tsx bin/embed-assisted-update.ts \
+              --metadata "$META" \
+              --notes release-notes/current.md
+            git rm "$META"
+            git add release-notes/current.md
+            git commit --amend --no-edit
+          fi
+
+      - name: Push release commit and tag
+        run: |
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          # Push branch first, then tag separately — if the branch push
+          # fails we don't leave an orphan tag on the remote.
+          git push origin main
+          git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz

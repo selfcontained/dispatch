@@ -91,7 +91,7 @@ import { resolveHeadSha } from "./shared/git/worktree.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import {
-  parseAssistedUpdateMetadata,
+  inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
   type AssistedUpdateMetadata,
 } from "./release-metadata.js";
@@ -2196,6 +2196,7 @@ async function registerRoutes() {
         url: string;
       } | null = null;
       let assistedMetadata: AssistedUpdateMetadata | null = null;
+      let assistedMetadataError: string | null = null;
       if (latestTag && updateAvailable) {
         const fullRelease = await fetchLatestReleaseMetadata(latestTag);
         latestRelease = fullRelease
@@ -2205,9 +2206,19 @@ async function registerRoutes() {
               url: fullRelease.url,
             }
           : null;
-        assistedMetadata = parseAssistedUpdateMetadata(
+        const inspected = inspectAssistedUpdateMetadata(
           fullRelease?.body ?? null
         );
+        if (inspected.state === "invalid") {
+          assistedMetadataError = inspected.error;
+        } else if (inspected.state === "valid") {
+          assistedMetadata = inspected.metadata;
+        }
+      }
+      if (assistedMetadataError) {
+        return reply.code(500).send({
+          error: `Latest release has malformed assisted-update metadata: ${assistedMetadataError}`,
+        });
       }
       const assistedRequired = isAssistedUpdateRequired(
         assistedMetadata,
@@ -2485,9 +2496,15 @@ async function registerRoutes() {
     if (!releaseUpdateAgentId) {
       const installed = await readReleaseStore().catch(() => null);
       const targetMeta = await fetchReleaseMetadata(tag);
-      const targetAssisted = parseAssistedUpdateMetadata(
-        targetMeta?.body ?? null
-      );
+      const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
+      if (inspected.state === "invalid") {
+        return reply.code(409).send({
+          error: "ASSISTED_UPDATE_METADATA_INVALID",
+          message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
+        });
+      }
+      const targetAssisted =
+        inspected.state === "valid" ? inspected.metadata : null;
       if (isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null)) {
         return reply.code(409).send({
           error: "ASSISTED_UPDATE_REQUIRED",
@@ -2573,9 +2590,15 @@ async function registerRoutes() {
       // checks and structured-phase reporting, but is optional — the
       // assisted flow still works for releases that don't declare it.
       const targetMeta = await fetchReleaseMetadata(body.tag);
-      const assistedMeta = parseAssistedUpdateMetadata(
-        targetMeta?.body ?? null
-      );
+      const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
+      if (inspected.state === "invalid") {
+        return reply.code(409).send({
+          error: "ASSISTED_UPDATE_METADATA_INVALID",
+          message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
+        });
+      }
+      const assistedMeta =
+        inspected.state === "valid" ? inspected.metadata : null;
       let assistedState: AssistedUpdateState | null = null;
       let assistedToken: string | null = null;
       let initialPrompt: string;

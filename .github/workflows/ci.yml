@@ -52,6 +52,13 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
+      - name: Validate assisted-update metadata
+        run: |
+          META="release-notes/next-assisted-update.json"
+          if [ -f "$META" ]; then
+            pnpm tsx bin/embed-assisted-update.ts --check-only --metadata "$META"
+          fi
+
       - name: CI checks
         run: pnpm run ci
         env:

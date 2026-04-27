@@ -19,7 +19,7 @@
     "start": "pnpm --filter @dispatch/server start",
     "release": "bin/dispatch-server update",
     "db:migrate": "pnpm --filter @dispatch/server db:migrate",
-    "check": "pnpm --filter @dispatch/server check && pnpm run check:web",
+    "check": "pnpm --filter @dispatch/server check && pnpm run check:web && tsc -p tsconfig.scripts.json --noEmit",
     "ci": "pnpm run format && pnpm run check && pnpm run lint:web && pnpm run build && pnpm run test && pnpm run test:e2e",
     "test": "pnpm --filter @dispatch/server test && pnpm --filter @dispatch/web test",
     "test:watch": "pnpm --filter @dispatch/server test:watch",
