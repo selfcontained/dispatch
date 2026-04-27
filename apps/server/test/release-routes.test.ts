@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
   afterAll,
@@ -51,6 +51,9 @@ beforeAll(async () => {
 
   tempRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-release-routes-"));
   releaseStorePath = path.join(tempRoot, "release.json");
+  await mkdir(path.join(os.homedir(), ".dispatch", "server"), {
+    recursive: true,
+  });
 
   pool = await setupTestDb();
   await runTestMigrations();
@@ -228,6 +231,67 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("creates structured assisted-update state for valid metadata on /release/assisted/launch", async () => {
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: ["service_restarted"],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/assisted/launch",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      agent: {
+        role: "assisted_update",
+      },
+      assisted: {
+        tag: "v0.19.0",
+        metadata: {
+          title: "Bun runtime migration",
+          mode: "required",
+        },
+        phase: "inspect",
+      },
+    });
+
+    const stateResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/assisted/state",
+      headers: { cookie: sessionCookie },
+    });
+    expect(stateResponse.statusCode).toBe(200);
+    expect(stateResponse.json()).toMatchObject({
+      state: {
+        tag: "v0.19.0",
+        metadata: {
+          title: "Bun runtime migration",
+        },
+      },
+    });
+
+    await app.inject({
+      method: "DELETE",
+      url: "/api/v1/release/assisted/state",
+      headers: { cookie: sessionCookie },
+    });
+  });
+
   it("rejects /release/assisted/launch when the target release metadata is malformed", async () => {
     mockReleaseCommands({
       releaseViews: {
@@ -248,6 +312,38 @@ describe("release metadata route handling", () => {
     expect(response.json()).toMatchObject({
       error: "ASSISTED_UPDATE_METADATA_INVALID",
     });
+  });
+
+  it("allows /release/update when the installed version is below appliesFrom", async () => {
+    await writeReleaseStore({
+      tag: "v0.17.5",
+      deployedAt: "2026-04-01T00:00:00Z",
+    });
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: [],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ ok: true });
   });
 });
 
