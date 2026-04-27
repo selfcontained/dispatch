@@ -196,7 +196,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Docs
 
-User-facing documentation (agents, repo tools, worktrees, reviewers, status events, media, notifications) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+User-facing documentation (agents, repo tools, jobs, worktrees, reviewers, status events, media, notifications, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract

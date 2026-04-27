@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
+  ArrowDownToLine,
   Bell,
   Briefcase,
   GitBranch,
@@ -22,7 +23,8 @@ export type DocsSection =
   | "personas"
   | "events"
   | "media"
-  | "notifications";
+  | "notifications"
+  | "updates";
 
 type DocsPaneProps = {
   open: boolean;
@@ -1060,6 +1062,135 @@ issues caused or worsened by this diff.`}</CodeBlock>
             Rate limited to 5 notifications per minute per agent. Requires a
             Slack webhook. Available to regular and job agents; persona agents
             don't have this tool.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "updates",
+    label: "Updates",
+    icon: ArrowDownToLine,
+    title: "Updates",
+    content: (
+      <>
+        <P>
+          Open <strong>Settings → Updates</strong> to see the deployed release
+          tag, switch release channels, pull a new release, or reload the web
+          app. Most upgrades are one click; releases that touch infrastructure
+          (runtime swaps, schema migrations) gate that one-click path behind an
+          assisted-update agent that drives the upgrade and recovers service if
+          anything goes sideways.
+        </P>
+
+        <Section>
+          <H3>Current version</H3>
+          <P>
+            The top of the pane shows the deployed release tag and when it was
+            deployed, plus an expandable card with the package version, git SHA,
+            and release notes. If the release page is on GitHub, a link opens it
+            in a new tab.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Release channel</H3>
+          <P>
+            Pick <strong>stable</strong> to follow tagged releases or{" "}
+            <strong>latest</strong> to follow the most recent published release
+            (including pre-releases). Switching channels resets the update-check
+            state so the next check uses the new feed.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Checking for updates</H3>
+          <P>
+            Click <strong>Check for updates</strong>. If a newer tag is
+            available, Dispatch shows the version, publish date, a link to the
+            GitHub release, and the next-step buttons described below. If you're
+            up to date, you'll see a green check.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>One-click update</H3>
+          <P>
+            <strong>Update to vX.Y.Z</strong> kicks off a server-side flow
+            (fetch → deploy → restart) that takes over the Updates pane with
+            phase progress and a streaming log. After the restart the page polls
+            until the new tag responds; once it's live, click{" "}
+            <strong>Done</strong> to dismiss.
+          </P>
+          <P>
+            This path is unavailable for releases marked <Code>required</Code> —
+            the server returns a 409 with <Code>ASSISTED_UPDATE_REQUIRED</Code>{" "}
+            and the UI swaps in the assisted-update gate card.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Assisted update</H3>
+          <P>
+            <strong>Assisted update</strong> launches a full-access CLI agent on
+            the production checkout and redirects you into its terminal. The
+            agent runs as the special <Code>assisted_update</Code> role (its
+            sidebar card carries a blue <strong>Update</strong> badge), holds a
+            one-time token that lets it call the update endpoint
+            non-interactively, and is instructed to restore service first if the
+            restart goes wrong. Only one assisted-update agent can be active at
+            a time.
+          </P>
+          <P>
+            Releases can attach structured metadata that drives a richer
+            experience. The release-notes body includes a{" "}
+            <Code>dispatch-update</Code> JSON block declaring a{" "}
+            <Code>mode</Code> (<Code>normal</Code>, <Code>recommended</Code>, or{" "}
+            <Code>required</Code>), a title and summary, optional instructions
+            and rollback guidance, and a list of <Code>requiredChecks</Code>.
+            The mode controls how Updates renders the next-step buttons:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>normal / no metadata</strong> — both{" "}
+              <strong>Update to vX.Y.Z</strong> and the secondary{" "}
+              <strong>Assisted update</strong> button are available. Releases
+              without a metadata block fall back to a legacy recovery skeleton
+              prompt.
+            </li>
+            <li>
+              <strong>recommended</strong> — the gate card is shown alongside
+              the standard buttons, so an operator can read the release's
+              instructions and required checks before choosing the assisted
+              flow.
+            </li>
+            <li>
+              <strong>required</strong> — only the gate card is shown. The
+              one-click button is hidden because the server would reject it. An
+              optional <Code>appliesFrom</Code> semver narrows the requirement
+              to installs at or above that version.
+            </li>
+          </ul>
+          <P>
+            When metadata is present, the takeover view tracks phases the agent
+            reports back: <Code>inspect</Code> → <Code>prepare</Code> →{" "}
+            <Code>apply</Code> → <Code>restarting</Code> → <Code>validate</Code>{" "}
+            → <Code>done</Code>. Per-phase notes from the agent and the
+            structured results of each required check (re-run server-side after{" "}
+            <Code>validate</Code>) appear in the left column.{" "}
+            <Code>blocked</Code> means a required check failed;{" "}
+            <Code>rollback</Code> means the agent reverted to a healthy tag.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Reload</H3>
+          <P>
+            <strong>Reload</strong> picks up the latest web bundle by forcing
+            the service worker to take control on the next load. The dropdown
+            offers <strong>Clear cache &amp; reload</strong>, which unregisters
+            all service workers and clears the Cache Storage API entries first —
+            useful if the app feels stuck on a stale build.
           </P>
         </Section>
       </>

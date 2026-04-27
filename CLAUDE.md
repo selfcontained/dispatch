@@ -140,6 +140,15 @@ Before marking any task as done, run the following checks and fix any failures:
 
 - Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
 
+## Assisted Update Release Notes
+
+- When the user indicates that a release should require or recommend assisted update handling, create or update `release-notes/next-assisted-update.json`.
+- Follow `release-notes/AUTHORING.md` for the schema, merge rules, and authoring guidance. Do not invent a parallel format.
+- If `release-notes/next-assisted-update.json` already exists, merge your change into that file instead of creating a second metadata file.
+- Validate the file before finishing with:
+
+  `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
+
 ## Personas
 
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
