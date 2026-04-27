@@ -1,0 +1,14 @@
+{
+  "mode": "required",
+  "title": "Verify assisted-update gating flow",
+  "summary": "This release intentionally opts into the assisted-update flow to verify end-to-end gating: metadata embedding, runtime parsing, and the agent-assisted update path. There are no runtime changes that require manual intervention beyond running the standard assisted update steps.",
+  "instructions": "1. Stop the dispatch service.\n2. Pull the new release artifact.\n3. Restart the service and confirm /api/v1/health returns ok.\n4. Confirm the running version reports the new tag.",
+  "requiredChecks": [
+    "expected_runtime_artifact",
+    "service_entrypoint",
+    "service_restarted",
+    "health_endpoint",
+    "version_converged"
+  ],
+  "rollbackGuidance": "If the assisted update flow fails to converge, restore the prior release artifact and restart the service. No data or schema changes ship with this release."
+}
