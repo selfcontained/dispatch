@@ -171,7 +171,11 @@ async function checkHealthEndpoint(ctx: CheckContext): Promise<CheckResult> {
   }
 }
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+// IPv6 loopback isn't included: `dispatchBaseUrl()` always hardcodes
+// 127.0.0.1, so the runtime health URL never uses `[::1]`. If that ever
+// changes, note that `new URL("https://[::1]/").hostname` returns
+// `"[::1]"` (bracketed), so the entry has to be `"[::1]"` to match.
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
 
 function isLoopbackHttps(url: string): boolean {
   try {
