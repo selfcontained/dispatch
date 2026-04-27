@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -16,12 +16,23 @@ if (!binaryPath) {
 
 const runId = randomBytes(6).toString("hex");
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-bun-smoke-"));
+const shellWrapperPath = path.join(tempRoot, "smoke-shell");
 const port = Number(process.env.DISPATCH_SMOKE_PORT ?? 6878);
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   process.env.DATABASE_URL ??
   "postgres://dispatch:dispatch@127.0.0.1:5432/postgres";
 const marker = `BUN_SMOKE_${runId}`;
+
+writeFileSync(
+  shellWrapperPath,
+  `#!/usr/bin/env bash
+exec /bin/bash --noprofile --norc -i
+`,
+  "utf8"
+);
+chmodSync(shellWrapperPath, 0o755);
+
 const child = spawn(binaryPath, {
   cwd: process.cwd(),
   env: {
@@ -32,6 +43,7 @@ const child = spawn(binaryPath, {
     DISPATCH_AGENT_RUNTIME: "tmux",
     MEDIA_ROOT: path.join(tempRoot, "media"),
     DISPATCH_RELEASE_STORE_PATH: path.join(tempRoot, "release.json"),
+    SHELL: shellWrapperPath,
     TLS_CERT: "",
     TLS_KEY: "",
   },
