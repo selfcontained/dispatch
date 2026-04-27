@@ -1,0 +1,36 @@
+id: verify-migration-flow
+title: Verify install-update migration flow
+summary: >
+  No-op migration that exercises the persistent-migration assisted-update
+  flow end to end. Lets us confirm gating, agent-driven validation, and
+  applied-state recording without making any actual install changes — the
+  migration framework's first real shakedown after CRU-146.
+
+alreadySatisfied:
+  description: >
+    Any healthy install at the target tag satisfies this trivially: the
+    local health endpoint returns status=ok and release.json reports
+    the target tag. Because the migration makes no install-state
+    changes, the alreadySatisfied path is the canonical one — the
+    agent should always reach validate without performing any change
+    steps.
+
+instructions:
+  - Confirm the local health endpoint at $DISPATCH_API_URL/api/v1/health
+    returns status=ok.
+  - Confirm release.json under the install directory reports the target
+    tag.
+  - Since alreadySatisfied is true on every healthy install at the target
+    tag, do not perform any change steps — proceed straight to the
+    validate phase. The framework re-runs the checks below server-side
+    and marks the migration applied.
+
+validation:
+  requiredChecks:
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - No rollback steps — this migration makes no install-state changes.
+    If validation fails for this migration, the failure is in the
+    framework or the install itself, not in anything this manifest did.
