@@ -64,9 +64,6 @@ importers:
       node-pg-migrate:
         specifier: ^8.0.4
         version: 8.0.4(@types/pg@8.20.0)(pg@8.20.0)
-      node-pty:
-        specifier: 1.0.0
-        version: 1.0.0
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -86,9 +83,6 @@ importers:
       "@types/ws":
         specifier: ^8.18.1
         version: 8.18.1
-      tsx:
-        specifier: ^4.20.6
-        version: 4.21.0
       vite:
         specifier: ^6.0.0
         version: 6.4.1(@types/node@24.12.0)(jiti@1.21.7)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
@@ -6468,12 +6462,6 @@ packages:
         integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==,
       }
 
-  nan@2.26.2:
-    resolution:
-      {
-        integrity: sha512-0tTvBTYkt3tdGw22nrAy50x7gpbGCCFH3AFcyS5WiUu7Eu4vWlri1woE6qHBSfy11vksDqkiwjOnlR7WV8G1Hw==,
-      }
-
   nanoid@3.3.11:
     resolution:
       {
@@ -6515,12 +6503,6 @@ packages:
     peerDependenciesMeta:
       "@types/pg":
         optional: true
-
-  node-pty@1.0.0:
-    resolution:
-      {
-        integrity: sha512-wtBMWWS7dFZm/VgqElrTvtfMq4GzJ6+edFI0Y0zyzygUSZMgZdraDUMUhCIvkjhJjme15qWmbyJbtAx4ot4uZA==,
-      }
 
   node-releases@2.0.36:
     resolution:
@@ -11760,6 +11742,7 @@ snapshots:
       "@esbuild/win32-arm64": 0.27.4
       "@esbuild/win32-ia32": 0.27.4
       "@esbuild/win32-x64": 0.27.4
+    optional: true
 
   escalade@3.2.0: {}
 
@@ -12120,6 +12103,7 @@ snapshots:
   get-tsconfig@4.13.7:
     dependencies:
       resolve-pkg-maps: 1.0.0
+    optional: true
 
   glob-parent@5.1.2:
     dependencies:
@@ -12997,8 +12981,6 @@ snapshots:
       object-assign: 4.1.1
       thenify-all: 1.6.0
 
-  nan@2.26.2: {}
-
   nanoid@3.3.11: {}
 
   natural-compare@1.4.0: {}
@@ -13019,10 +13001,6 @@ snapshots:
       yargs: 17.7.2
     optionalDependencies:
       "@types/pg": 8.20.0
-
-  node-pty@1.0.0:
-    dependencies:
-      nan: 2.26.2
 
   node-releases@2.0.36: {}
 
@@ -13541,7 +13519,8 @@ snapshots:
 
   resolve-from@4.0.0: {}
 
-  resolve-pkg-maps@1.0.0: {}
+  resolve-pkg-maps@1.0.0:
+    optional: true
 
   resolve@1.22.11:
     dependencies:
@@ -14082,6 +14061,7 @@ snapshots:
       get-tsconfig: 4.13.7
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   type-check@0.4.0:
     dependencies:

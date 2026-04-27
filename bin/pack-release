@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Packs a release tarball containing all pre-built artifacts needed to deploy
-# Dispatch without rebuilding from source. The tarball preserves the monorepo
-# directory structure so path resolution in the server continues to work.
+# Packs a release tarball containing the compiled Bun binaries and the helper
+# scripts used to install and manage them on a host machine.
 #
 # Usage: bin/pack-release [--output <path>]
 #
 # The tarball includes:
-#   - Pre-built dist/ directories (server, web)
-#   - package.json files + lockfile (for native module install on host)
+#   - Pre-built Bun binaries + checksums
 #   - bin/ scripts (deploy, server management, launchd wrapper)
-#   - Database migrations (SQL, read from source at runtime)
-#   - .nvmrc, pnpm-workspace.yaml (needed by pnpm install)
-#   - release-notes/current.md (served by the API)
+#   - docs/config scaffolding needed by install-launchd
 #
 # NOT included (must be handled on host):
-#   - node_modules/ (pnpm install --frozen-lockfile on host)
+#   - node_modules/
 #   - .env (host-specific configuration)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,8 +22,8 @@ usage() {
   cat <<USAGE
 Usage: bin/pack-release [--output <path>]
 
-Packs a release tarball from the already-built monorepo.
-Requires that 'pnpm run build' has already been run.
+Packs a release tarball from the already-built Bun binaries.
+Requires that 'pnpm run build:bun' has already been run.
 
 Options:
   --output <path>  Output tarball path (default: dispatch-release.tar.gz in repo root)
@@ -46,11 +42,10 @@ OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-release.tar.gz}"
 
 # Validate that builds exist
 missing=()
-[[ -d "$ROOT_DIR/apps/server/dist" ]]   || missing+=("apps/server/dist")
-[[ -d "$ROOT_DIR/apps/web/dist" ]]      || missing+=("apps/web/dist")
+[[ -d "$ROOT_DIR/dist/bun" ]] || missing+=("dist/bun")
 
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "error: missing build outputs — run 'pnpm run build' first:" >&2
+  echo "error: missing build outputs — run 'pnpm run build:bun' first:" >&2
   printf '  %s\n' "${missing[@]}" >&2
   exit 1
 fi
@@ -65,14 +60,9 @@ trap 'rm -f "$MANIFEST"' EXIT
 # If you add a new runtime dependency (file, directory, config), add it to
 # this manifest AND to the pack-release.test.ts assertions.
 cat > "$MANIFEST" <<'LIST'
-apps/server/dist
-apps/web/dist
-package.json
-apps/server/package.json
-apps/web/package.json
-pnpm-lock.yaml
-pnpm-workspace.yaml
-.nvmrc
+dist/bun
+README.md
+.env.example
 bin
 LIST
 

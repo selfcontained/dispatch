@@ -10,26 +10,38 @@
 [[ -f ~/.zshrc ]] && source ~/.zshrc
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
 
-# Self-heal native-module ABI mismatch (e.g. after a Node upgrade). The check
-# takes a few ms on the happy path; a rebuild only runs when something's wrong.
-ABI_CHECK=$(cd "$ROOT_DIR/apps/server" && node -e "require('node-pty')" 2>&1) || true
-if echo "$ABI_CHECK" | grep -q "NODE_MODULE_VERSION"; then
-  echo "==> native module ABI mismatch detected, rebuilding..." >&2
-  if ! (cd "$ROOT_DIR" && pnpm -r rebuild); then
-    echo "error: pnpm rebuild failed — dispatch cannot start" >&2
-    echo "$ABI_CHECK" >&2
+case "$OS_NAME" in
+  Darwin) PLATFORM="darwin" ;;
+  Linux) PLATFORM="linux" ;;
+  *)
+    echo "error: unsupported OS $OS_NAME" >&2
     exit 1
-  fi
-  # Re-probe so we don't let launchd's KeepAlive spin on a stuck rebuild loop
-  # if pnpm exited 0 but the mismatch somehow persists.
-  ABI_RECHECK=$(cd "$ROOT_DIR/apps/server" && node -e "require('node-pty')" 2>&1) || true
-  if echo "$ABI_RECHECK" | grep -q "NODE_MODULE_VERSION"; then
-    echo "error: ABI mismatch persists after pnpm rebuild — dispatch cannot start" >&2
-    echo "$ABI_RECHECK" >&2
+    ;;
+esac
+
+case "$ARCH_NAME" in
+  arm64|aarch64) ARCH="arm64" ;;
+  x86_64) ARCH="x64" ;;
+  *)
+    echo "error: unsupported architecture $ARCH_NAME" >&2
     exit 1
-  fi
+    ;;
+esac
+
+matches=("$ROOT_DIR"/dist/bun/dispatch-*-bun-${PLATFORM}-${ARCH})
+if [[ ! -e "${matches[1]}" ]]; then
+  echo "error: no Dispatch binary found for ${PLATFORM}/${ARCH} in $ROOT_DIR/dist/bun" >&2
+  exit 1
+fi
+
+BINARY=$(ls -t "$ROOT_DIR"/dist/bun/dispatch-*-bun-${PLATFORM}-${ARCH} 2>/dev/null | head -n 1)
+if [[ -z "$BINARY" ]]; then
+  echo "error: failed to select Dispatch binary for ${PLATFORM}/${ARCH}" >&2
+  exit 1
 fi
 
 cd "$ROOT_DIR"
-exec node "$ROOT_DIR/apps/server/dist/main.js"
+exec "$BINARY"

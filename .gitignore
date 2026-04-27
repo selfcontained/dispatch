@@ -22,3 +22,5 @@ playwright-report/
 .dispatch/config.json
 .dispatch/worktrees/
 opencode.json
+apps/server/src/generated/runtime-assets/
+apps/server/src/generated/runtime-assets.js

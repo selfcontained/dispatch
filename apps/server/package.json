@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
-    "check": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "prepare:runtime-assets": "bun ../../scripts/generate-server-runtime-assets.mjs",
+    "dev": "bun run prepare:runtime-assets && bun --watch src/main.ts",
+    "build": "bun run prepare:runtime-assets && tsc -p tsconfig.json",
+    "start": "bun run prepare:runtime-assets && bun src/main.ts",
+    "check": "bun run prepare:runtime-assets && tsc --noEmit",
+    "test": "bun run prepare:runtime-assets && bun x vitest run",
+    "test:watch": "bun run prepare:runtime-assets && bun x vitest",
+    "db:migrate": "bun run prepare:runtime-assets && bun src/db/migrate.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -24,7 +25,6 @@
     "dotenv": "^17.3.1",
     "fastify": "^5.8.5",
     "node-pg-migrate": "^8.0.4",
-    "node-pty": "1.0.0",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
@@ -33,7 +33,6 @@
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.20.6",
     "vite": "^6.0.0",
     "vitest": "^4.0.18"
   }
