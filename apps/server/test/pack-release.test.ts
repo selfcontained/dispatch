@@ -73,6 +73,15 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(tsFiles).toEqual([]);
   });
 
+  it("includes update-migrations directory when present in repo", () => {
+    const files = tarList();
+    const migrationDirExists = existsSync(
+      path.join(REPO_ROOT, "update-migrations")
+    );
+    if (!migrationDirExists) return;
+    expect(files.some((f) => f.startsWith("update-migrations/"))).toBe(true);
+  });
+
   it("fails when build outputs are missing", () => {
     // Create a temporary directory without build outputs
     const tmpDir = `/tmp/dispatch-pack-release-empty-${process.pid}`;

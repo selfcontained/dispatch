@@ -3,10 +3,8 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import {
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
-  rm,
   stat,
   unlink,
   writeFile,
@@ -88,6 +86,26 @@ import {
   type AssistedPhase,
   type AssistedUpdateState,
 } from "./assisted-update-store.js";
+import {
+  ensureCachedTarball,
+  pruneCacheExcept,
+  readCachedTarball,
+  readMigrationsFromTarball,
+} from "./release-tarball-cache.js";
+import {
+  loadUpdateMigrations,
+  type UpdateMigrationManifest,
+} from "./update-migrations.js";
+import {
+  appliedIdSet,
+  readAppliedMigrationsState,
+} from "./applied-migrations-store.js";
+import {
+  clearEvaluatorCache,
+  evaluatePendingMigrations,
+  toSummary,
+  type PendingMigrationSummary,
+} from "./update-migrations-evaluator.js";
 import { StreamManager } from "./stream-manager.js";
 import {
   SlackNotifier,
@@ -1198,19 +1216,16 @@ async function fetchLatestReleaseMetadata(
  * Try to deploy from a pre-built release tarball attached to the GitHub release.
  * Returns true on success, false if the artifact isn't available (caller falls
  * back to building from source).
+ *
+ * The tarball is fetched directly over HTTPS (no `gh release download`) and
+ * cached at `~/.dispatch/cache/release-<tag>.tar.gz`. The same cached file
+ * is reused by the assisted-update inspection path so we never download the
+ * same artifact twice.
  */
 async function deployFromArtifact(
   job: ReleaseJob,
   tag: string
 ): Promise<boolean> {
-  // Need gh CLI to download release assets
-  try {
-    await runCommand("gh", ["--version"]);
-  } catch {
-    appendReleaseLog(job, "gh CLI not available, skipping artifact download");
-    return false;
-  }
-
   let repo: string;
   try {
     repo = await getGitHubRepo();
@@ -1222,63 +1237,54 @@ async function deployFromArtifact(
     return false;
   }
 
-  // Use a random temp directory to avoid TOCTOU attacks on a predictable path
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-release-"));
-  const tarball = path.join(tmpDir, "release.tar.gz");
-
+  let cached: { path: string };
   try {
-    appendReleaseLog(job, `==> downloading release artifact for ${tag}`);
-    try {
-      await runCommand("gh", [
-        "release",
-        "download",
-        tag,
-        "--pattern",
-        "dispatch-release.tar.gz",
-        "--output",
-        tarball,
-        "--repo",
-        repo,
-      ]);
-    } catch {
-      appendReleaseLog(job, "no release artifact found for this tag");
-      return false;
-    }
-
-    appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
-    await runCommand("git", ["-C", serverDir, "checkout", tag]);
-
-    // Validate tarball contents before extraction — reject entries with path
-    // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
-    // default, so this is a real risk if a compromised release artifact is uploaded.
-    appendReleaseLog(job, "==> validating artifact contents");
-    const listing = await runCommand("tar", ["tzf", tarball]);
-    const unsafeEntries = listing.stdout
-      .split("\n")
-      .filter((entry) => entry.startsWith("/") || entry.includes("../"));
-    if (unsafeEntries.length > 0) {
-      throw new Error(
-        `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
-      );
-    }
-
-    appendReleaseLog(job, "==> extracting pre-built artifact");
-    await runCommand("tar", [
-      "xzf",
-      tarball,
-      "--no-same-owner",
-      "-C",
-      serverDir,
-    ]);
-
-    appendReleaseLog(
-      job,
-      "==> deployed from pre-built artifact (no build needed)"
-    );
-    return true;
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    cached = await ensureCachedTarball({
+      tag,
+      repo,
+      onProgress: ({ message }) => appendReleaseLog(job, message),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    appendReleaseLog(job, `release artifact download failed: ${message}`);
+    return false;
   }
+
+  appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
+  await runCommand("git", ["-C", serverDir, "checkout", tag]);
+
+  // Validate tarball contents before extraction — reject entries with path
+  // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
+  // default, so this is a real risk if a compromised release artifact is uploaded.
+  appendReleaseLog(job, "==> validating artifact contents");
+  const listing = await runCommand("tar", ["tzf", cached.path]);
+  const unsafeEntries = listing.stdout
+    .split("\n")
+    .filter((entry) => entry.startsWith("/") || entry.includes("../"));
+  if (unsafeEntries.length > 0) {
+    throw new Error(
+      `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
+    );
+  }
+
+  appendReleaseLog(job, "==> extracting pre-built artifact");
+  await runCommand("tar", [
+    "xzf",
+    cached.path,
+    "--no-same-owner",
+    "-C",
+    serverDir,
+  ]);
+
+  appendReleaseLog(
+    job,
+    "==> deployed from pre-built artifact (no build needed)"
+  );
+  // Drop cache entries for older tags now that we've successfully landed on
+  // this one — the only tarball we still need is the one we just deployed
+  // (kept in case the operator immediately re-runs the deploy).
+  await pruneCacheExcept([tag]);
+  return true;
 }
 
 function currentReleaseBinaryGlob(): string {
@@ -2260,10 +2266,40 @@ async function registerRoutes() {
           error: `Latest release has malformed assisted-update metadata: ${assistedMetadataError}`,
         });
       }
-      const assistedRequired = isAssistedUpdateRequired(
-        assistedMetadata,
-        currentTag
-      );
+
+      // Pending migrations come from the target release tarball. Migration
+      // gating supersedes the legacy release-scoped `assisted` metadata
+      // (CRU-146) — `assistedRequired` is now derived from the count of
+      // unapplied migrations in the target tag. The legacy `assisted`
+      // field stays in the response only for transitional compatibility.
+      let pendingMigrations: PendingMigrationSummary[] = [];
+      let migrationsError: string | null = null;
+      if (latestTag && updateAvailable) {
+        try {
+          const repo = await getGitHubRepo();
+          const evaluation = await evaluatePendingMigrations(latestTag, {
+            repo,
+          });
+          pendingMigrations = evaluation.pending.map((m) =>
+            toSummary(m.manifest)
+          );
+          if (evaluation.errors.length > 0) {
+            migrationsError = evaluation.errors
+              .map((e) => `${e.filename}: ${e.error}`)
+              .join("; ");
+          }
+        } catch (err) {
+          migrationsError =
+            err instanceof Error ? err.message : "migration evaluation failed";
+        }
+      }
+      const assistedRequired =
+        pendingMigrations.length > 0 ||
+        // Transitional fallback: a release authored with the legacy
+        // `dispatch-update` block but without migration manifests should
+        // still gate. Drop this branch once every gated release ships
+        // migrations instead of release-scoped metadata (issue step 8).
+        isAssistedUpdateRequired(assistedMetadata, currentTag);
 
       // Admin-only: unreleased commits on main.
       // Compare the absolute latest tag (across all channels) to main so
@@ -2327,6 +2363,8 @@ async function registerRoutes() {
         refMissing,
         assisted: assistedMetadata,
         assistedRequired,
+        pendingMigrations,
+        migrationsError,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -2541,14 +2579,37 @@ async function registerRoutes() {
       }
     }
 
-    // Gate: if the target release declares `mode: required`, the generic
-    // one-click path is not allowed for installs at or above `appliesFrom`.
-    // The UI must route the operator through the assisted-update agent
-    // launch instead. The launched agent itself bypasses this gate using
-    // its bearer token (releaseUpdateAgentId), so the recovery path still
-    // works once the assisted flow is in progress.
+    // Gate: if the target release ships unapplied migration manifests, or
+    // (transitionally) declares `mode: required` via legacy metadata, the
+    // generic one-click path is not allowed. The UI must route the
+    // operator through the assisted-update agent launch instead. The
+    // launched agent itself bypasses this gate using its bearer token
+    // (releaseUpdateAgentId), so the recovery path still works once the
+    // assisted flow is in progress.
     if (!releaseUpdateAgentId) {
       const installed = await readReleaseStore().catch(() => null);
+
+      let pendingMigrationsForGate: PendingMigrationSummary[] = [];
+      try {
+        const repo = await getGitHubRepo();
+        const evaluation = await evaluatePendingMigrations(tag, { repo });
+        pendingMigrationsForGate = evaluation.pending.map((m) =>
+          toSummary(m.manifest)
+        );
+      } catch {
+        // If migrations can't be evaluated (network, missing artifact,
+        // etc.) we conservatively fall through to the legacy gate rather
+        // than blocking a normal release on a transient evaluator failure.
+      }
+      if (pendingMigrationsForGate.length > 0) {
+        return reply.code(409).send({
+          error: "ASSISTED_UPDATE_REQUIRED",
+          message:
+            "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead.",
+          pendingMigrations: pendingMigrationsForGate,
+        });
+      }
+
       const targetMeta = await fetchReleaseMetadata(tag);
       const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
       if (inspected.state === "invalid") {
@@ -2639,13 +2700,42 @@ async function registerRoutes() {
           ? (worktreeLocationRaw as WorktreeLocation)
           : "sibling";
 
-      // Pull structured assisted-update metadata off the target release if
-      // the publisher attached one. This drives the framework's gated
-      // checks and structured-phase reporting, but is optional — the
-      // assisted flow still works for releases that don't declare it.
+      // Prefer the migration-driven path (CRU-146): load every pending
+      // migration manifest from the target tarball and pass them to the
+      // launched agent as one ordered plan. Fall back to the legacy
+      // release-scoped `dispatch-update` block if no migrations are
+      // pending — both paths land in the same `assisted-update.json`
+      // state and the same phase machinery.
+      let pendingMigrationManifests: UpdateMigrationManifest[] = [];
+      try {
+        const repo = await getGitHubRepo();
+        const evaluation = await evaluatePendingMigrations(body.tag, { repo });
+        if (evaluation.errors.length > 0) {
+          return reply.code(409).send({
+            error: "ASSISTED_UPDATE_MIGRATIONS_INVALID",
+            message: `Target release has malformed migration manifests: ${evaluation.errors
+              .map((e) => `${e.filename}: ${e.error}`)
+              .join("; ")}`,
+          });
+        }
+        pendingMigrationManifests = evaluation.pending.map((m) => m.manifest);
+      } catch (err) {
+        // Evaluator failures (download error, missing artifact for an
+        // older release, etc.) shouldn't kill the launch — fall through
+        // to the legacy `dispatch-update` body fence so older gated
+        // releases keep working.
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[release/assisted/launch] migration evaluation failed for ${body.tag}, falling back to legacy metadata: ${message}`
+        );
+      }
+
       const targetMeta = await fetchReleaseMetadata(body.tag);
       const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
-      if (inspected.state === "invalid") {
+      if (
+        pendingMigrationManifests.length === 0 &&
+        inspected.state === "invalid"
+      ) {
         return reply.code(409).send({
           error: "ASSISTED_UPDATE_METADATA_INVALID",
           message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
@@ -2656,19 +2746,26 @@ async function registerRoutes() {
       let assistedState: AssistedUpdateState | null = null;
       let assistedToken: string | null = null;
       let initialPrompt: string;
-      if (assistedMeta) {
+      if (pendingMigrationManifests.length > 0 || assistedMeta) {
         // The launched agent runs on the same host as the server, so we
         // build the phase-callback URL from server config rather than the
         // inbound request's Host header (which is attacker-controllable
         // for non-browser clients). The framework prompt subsumes the
         // recovery skeleton — it's the canonical instruction set when a
-        // release declares assisted-update metadata.
+        // release declares migrations or legacy metadata.
         const baseUrl = dispatchBaseUrl();
         const ctx = await buildAssistedUpdateContext(
           {
             tag: body.tag,
             fromTag: record?.tag ?? null,
-            metadata: assistedMeta,
+            migrations:
+              pendingMigrationManifests.length > 0
+                ? pendingMigrationManifests
+                : undefined,
+            metadata:
+              pendingMigrationManifests.length === 0 && assistedMeta
+                ? assistedMeta
+                : undefined,
             serverDir,
             recovery: {
               serviceCommand: defaultServiceRestartCommand(),
@@ -2683,9 +2780,9 @@ async function registerRoutes() {
         assistedToken = ctx.state.token;
         initialPrompt = ctx.prompt;
       } else {
-        // No metadata — fall back to the legacy recovery skeleton. This
-        // keeps the existing manual-rescue flow for releases that don't
-        // opt into the framework.
+        // No migrations and no legacy metadata — fall back to the legacy
+        // recovery skeleton. This keeps the existing manual-rescue flow
+        // for releases that don't opt into the framework.
         initialPrompt = buildAssistedUpdatePrompt({
           tag: body.tag,
           currentTag: record?.tag ?? null,
@@ -2705,16 +2802,25 @@ async function registerRoutes() {
 
       if (assistedState && assistedToken) {
         await attachAssistedAgent(assistedToken, agent.id);
+        const launchLog = [
+          `==> assisted update launched for ${body.tag}`,
+          `==> agent: ${agent.id}`,
+        ];
+        if (pendingMigrationManifests.length > 0) {
+          launchLog.push(
+            `==> migrations: ${pendingMigrationManifests
+              .map((m) => m.id)
+              .join(", ")}`
+          );
+        } else if (assistedMeta) {
+          launchLog.push(`==> mode: ${assistedMeta.mode}`);
+        }
         const job: ReleaseJob = {
           jobType: "update-assisted",
           versionType: null,
           phase: "inspect",
           startedAt: new Date().toISOString(),
-          log: [
-            `==> assisted update launched for ${body.tag}`,
-            `==> agent: ${agent.id}`,
-            `==> mode: ${assistedMeta!.mode}`,
-          ],
+          log: launchLog,
           runUrl: null,
           tag: body.tag,
           error: null,

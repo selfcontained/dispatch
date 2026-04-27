@@ -58,6 +58,27 @@ export type AssistedUpdateMetadata = {
   appliesFrom?: string;
 };
 
+/**
+ * Persistent install-update migration manifest snapshotted into an
+ * in-flight assisted run. Mirrors UpdateMigrationManifest on the server.
+ */
+export type UpdateMigrationManifest = {
+  id: string;
+  title: string;
+  summary: string;
+  alreadySatisfied: { description: string };
+  instructions: string[];
+  validation: { requiredChecks: AssistedRequiredCheck[] };
+  rollback: string[];
+};
+
+/** Compact summary returned by /api/v1/release/info for pending migrations. */
+export type PendingMigration = {
+  id: string;
+  title: string;
+  summary: string;
+};
+
 export type AssistedCheckResult = {
   name: AssistedRequiredCheck;
   ok: boolean;
@@ -67,7 +88,18 @@ export type AssistedCheckResult = {
 export type AssistedUpdateState = {
   tag: string;
   fromTag: string | null;
-  metadata: AssistedUpdateMetadata;
+  /**
+   * Legacy release-scoped metadata, present on runs gated by the
+   * `dispatch-update` block in the release body. Mutually exclusive with
+   * `migrations` — exactly one drives the run on the server.
+   */
+  metadata: AssistedUpdateMetadata | null;
+  /**
+   * Ordered pending migrations snapshotted into the run at launch time.
+   * Preferred path (CRU-146); when populated the UI renders per-migration
+   * sections instead of the single legacy block.
+   */
+  migrations: UpdateMigrationManifest[] | null;
   requiredChecks: AssistedRequiredCheck[];
   phase: ReleasePhase;
   agentId: string | null;
@@ -91,6 +123,14 @@ export type ReleaseInfo = {
   refMissing?: boolean;
   assisted?: AssistedUpdateMetadata | null;
   assistedRequired?: boolean;
+  /**
+   * Ordered, install-specific list of migrations the target tag declares
+   * that the local install hasn't applied yet. When non-empty, one-click
+   * update is gated and the operator must use the assisted-update flow.
+   */
+  pendingMigrations?: PendingMigration[];
+  /** Joined per-file load errors when the migration evaluator hit issues. */
+  migrationsError?: string | null;
 };
 
 export type ReleaseStatus = {

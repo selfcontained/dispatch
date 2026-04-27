@@ -6,6 +6,7 @@ import type {
   RequiredCheckName,
 } from "./release-metadata.js";
 import type { CheckResult } from "./release-checks.js";
+import type { UpdateMigrationManifest } from "./update-migrations.js";
 
 export const ASSISTED_PHASES = [
   "inspect",
@@ -39,7 +40,19 @@ const TERMINAL: AssistedPhase[] = ["done", "rollback", "blocked", "failed"];
 export type AssistedUpdateState = {
   tag: string;
   fromTag: string | null;
-  metadata: AssistedUpdateMetadata;
+  /**
+   * Legacy release-scoped assisted-update metadata. Set on runs gated by
+   * the `dispatch-update` block in the release body. Mutually exclusive
+   * with `migrations` — exactly one of the two drives a given run.
+   */
+  metadata: AssistedUpdateMetadata | null;
+  /**
+   * Ordered pending migration manifests snapshotted at launch time. New
+   * preferred path (CRU-146). When set, drives prompt rendering and the
+   * apply-on-success bookkeeping. When null, the run falls back to
+   * `metadata` for the legacy single-block flow.
+   */
+  migrations: UpdateMigrationManifest[] | null;
   requiredChecks: RequiredCheckName[];
   phase: AssistedPhase;
   /** Random nonce; the launched agent uses this to authenticate phase POSTs. */
