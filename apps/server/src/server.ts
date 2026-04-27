@@ -91,6 +91,7 @@ import {
   pruneCacheExcept,
   readCachedTarball,
   readMigrationsFromTarball,
+  unlinkCachedTarball,
 } from "./release-tarball-cache.js";
 import {
   loadUpdateMigrations,
@@ -1256,8 +1257,20 @@ async function deployFromArtifact(
   // Validate tarball contents before extraction — reject entries with path
   // traversal (../) or absolute paths. macOS bsdtar does NOT block these by
   // default, so this is a real risk if a compromised release artifact is uploaded.
+  // If the tarball itself is unreadable (truncated/corrupt), drop the cache
+  // entry so the next deploy re-downloads instead of looping on a bad file.
   appendReleaseLog(job, "==> validating artifact contents");
-  const listing = await runCommand("tar", ["tzf", cached.path]);
+  let listing: Awaited<ReturnType<typeof runCommand>>;
+  try {
+    listing = await runCommand("tar", ["tzf", cached.path]);
+  } catch (err) {
+    await unlinkCachedTarball(tag);
+    appendReleaseLog(
+      job,
+      `==> cache entry for ${tag} was corrupt — removed; next attempt will re-download`
+    );
+    throw err;
+  }
   const unsafeEntries = listing.stdout
     .split("\n")
     .filter((entry) => entry.startsWith("/") || entry.includes("../"));
@@ -1268,13 +1281,22 @@ async function deployFromArtifact(
   }
 
   appendReleaseLog(job, "==> extracting pre-built artifact");
-  await runCommand("tar", [
-    "xzf",
-    cached.path,
-    "--no-same-owner",
-    "-C",
-    serverDir,
-  ]);
+  try {
+    await runCommand("tar", [
+      "xzf",
+      cached.path,
+      "--no-same-owner",
+      "-C",
+      serverDir,
+    ]);
+  } catch (err) {
+    await unlinkCachedTarball(tag);
+    appendReleaseLog(
+      job,
+      `==> extraction failed for ${tag} — removed cache entry; next attempt will re-download`
+    );
+    throw err;
+  }
 
   appendReleaseLog(
     job,
@@ -2556,6 +2578,19 @@ async function registerRoutes() {
           .code(403)
           .send({ error: "Invalid assisted update token." });
       }
+      // Bind the bypass token to the tag the agent was launched for. Without
+      // this, a holder of the bearer token could deploy any tag (skipping
+      // the migration gate at line 2611) once the assisted job reaches a
+      // terminal phase, because the takeover check below only fires for
+      // active non-terminal jobs. Matching against `assisted-update.json`
+      // keeps the bypass scope honest: one agent, one tag.
+      const assistedState = await readAssistedUpdateState().catch(() => null);
+      if (assistedState && assistedState.tag !== tag) {
+        return reply.code(403).send({
+          error:
+            "Assisted update token is bound to a different tag. Launch a fresh assisted update for this tag.",
+        });
+      }
     }
 
     // Only one release/update at a time, with one carve-out: the assisted
@@ -2590,16 +2625,24 @@ async function registerRoutes() {
       const installed = await readReleaseStore().catch(() => null);
 
       let pendingMigrationsForGate: PendingMigrationSummary[] = [];
+      let migrationGateEvaluatorError: string | null = null;
       try {
         const repo = await getGitHubRepo();
         const evaluation = await evaluatePendingMigrations(tag, { repo });
         pendingMigrationsForGate = evaluation.pending.map((m) =>
           toSummary(m.manifest)
         );
-      } catch {
+      } catch (err) {
         // If migrations can't be evaluated (network, missing artifact,
         // etc.) we conservatively fall through to the legacy gate rather
         // than blocking a normal release on a transient evaluator failure.
+        // Log it so the operator can see when the gate was made on
+        // incomplete data — the silent fall-through used to be invisible.
+        migrationGateEvaluatorError =
+          err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[release/update] migration gate evaluator failed for ${tag}, falling through to legacy gate: ${migrationGateEvaluatorError}`
+        );
       }
       if (pendingMigrationsForGate.length > 0) {
         return reply.code(409).send({

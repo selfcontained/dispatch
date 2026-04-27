@@ -94,17 +94,26 @@ export async function ensureCachedTarball(input: {
   const url = releaseDownloadUrl(repo, tag);
   onProgress?.({ message: `==> downloading ${url}` });
 
-  const { totalBytes } = await downloadToFile({
-    url,
-    destination: partialPath,
-    onProgress: (bytes) => {
-      onProgress?.({
-        message: `downloaded ${formatBytes(bytes)}`,
-        bytesReceived: bytes,
-        totalBytes,
-      });
-    },
-  });
+  try {
+    await downloadToFile({
+      url,
+      destination: partialPath,
+      onProgress: (bytes, totalBytes) => {
+        onProgress?.({
+          message: `downloaded ${formatBytes(bytes)}`,
+          bytesReceived: bytes,
+          totalBytes,
+        });
+      },
+    });
+  } catch (err) {
+    // Make sure we don't leave an orphaned `.partial` for the next call to
+    // resume from — that would conflict with the rm-then-write contract
+    // above, and a future "size > 0" cache check could mistake it for a
+    // canonical cache entry on a filesystem that lost the rename atomicity.
+    await rm(partialPath, { force: true }).catch(() => {});
+    throw err;
+  }
 
   // Atomic-publish the cache entry: a partial file must never be observable
   // as the canonical cache. rename() on the same filesystem is atomic.
@@ -115,10 +124,25 @@ export async function ensureCachedTarball(input: {
 }
 
 /**
+ * Drop the cached tarball for a given tag. Used when a cached file fails
+ * subsequent integrity checks (e.g. `tar tzf` rejects it as corrupt) so
+ * the next call re-downloads instead of looping on the bad artifact.
+ */
+export async function unlinkCachedTarball(tag: string): Promise<void> {
+  await unlink(cachedTarballPath(tag)).catch(() => {});
+}
+
+/**
  * Extract `update-migrations/` from a cached tarball into a fresh temp
  * directory. The bulk of the tarball (Bun binaries, web dist) stays inside
  * the cache file — only the migration manifests hit the temp dir. Caller is
  * responsible for cleanup.
+ *
+ * If `tar tzf` rejects the file as corrupt the cache entry is unlinked
+ * before re-throwing — otherwise the next call would re-use the bad
+ * tarball, fail the same way, and the only path forward would be a manual
+ * `rm ~/.dispatch/cache/release-*.tar.gz`. Re-downloading on the next
+ * attempt is the right recovery for a corrupt artifact.
  */
 export async function extractUpdateMigrationsTo(
   tarballPath: string
@@ -127,7 +151,18 @@ export async function extractUpdateMigrationsTo(
   // Best-effort path-traversal guard mirroring deployFromArtifact: list
   // first, refuse anything with `..` or absolute paths under the
   // update-migrations/ prefix.
-  const listing = await runCommand("tar", ["tzf", tarballPath]);
+  let listing: Awaited<ReturnType<typeof runCommand>>;
+  try {
+    listing = await runCommand("tar", ["tzf", tarballPath]);
+  } catch (err) {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await unlink(tarballPath).catch(() => {});
+    throw err instanceof Error
+      ? new Error(
+          `Failed to read tarball at ${tarballPath} (cache entry removed): ${err.message}`
+        )
+      : err;
+  }
   const unsafeEntries = listing.stdout
     .split("\n")
     .map((entry) => entry.trim())
@@ -151,14 +186,20 @@ export async function extractUpdateMigrationsTo(
     };
   }
 
-  await runCommand("tar", [
-    "xzf",
-    tarballPath,
-    "--no-same-owner",
-    "-C",
-    tmpDir,
-    "update-migrations",
-  ]);
+  try {
+    await runCommand("tar", [
+      "xzf",
+      tarballPath,
+      "--no-same-owner",
+      "-C",
+      tmpDir,
+      "update-migrations",
+    ]);
+  } catch (err) {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await unlink(tarballPath).catch(() => {});
+    throw err;
+  }
 
   return {
     dir: path.join(tmpDir, "update-migrations"),
@@ -235,7 +276,7 @@ export function releaseDownloadUrl(repo: string, tag: string): string {
 async function downloadToFile(input: {
   url: string;
   destination: string;
-  onProgress?: (bytesReceived: number) => void;
+  onProgress?: (bytesReceived: number, totalBytes: number | null) => void;
 }): Promise<{ totalBytes: number | null }> {
   const { url, destination, onProgress } = input;
   const { stream, totalBytes } = await openHttpsStream(url);
@@ -246,12 +287,46 @@ async function downloadToFile(input: {
     const now = Date.now();
     if (now - lastReportedAt > 250) {
       lastReportedAt = now;
-      onProgress?.(received);
+      onProgress?.(received, totalBytes);
     }
   });
   await pipeline(stream, createWriteStream(destination));
-  onProgress?.(received);
+  onProgress?.(received, totalBytes);
+
+  // pipeline() resolves on a clean upstream FIN — but a hung-up-mid-body
+  // response is also "clean" from Node's stream perspective when the body
+  // is chunked or when the connection drops without the writable seeing
+  // an error. If the server told us how many bytes to expect, refuse to
+  // accept anything else: a truncated cache file would be reused forever
+  // (cache reuse is "size > 0", and we don't checksum the artifact).
+  if (totalBytes !== null && received !== totalBytes) {
+    throw new Error(
+      `Truncated download from ${url}: received ${received} bytes, expected ${totalBytes}`
+    );
+  }
   return { totalBytes };
+}
+
+/**
+ * Hosts we'll follow a redirect to. The release-asset URL starts at
+ * `github.com` and 302s to `objects.githubusercontent.com` (signed S3
+ * frontend). Anything outside this allowlist is treated as a hostile
+ * redirect and rejected — without a checksum on the tarball, an attacker
+ * who could redirect us to an arbitrary HTTPS host could feed us their
+ * artifact. Defense-in-depth.
+ */
+const ALLOWED_REDIRECT_HOSTS: ReadonlyArray<string | RegExp> = [
+  "github.com",
+  /\.githubusercontent\.com$/,
+  /\.github\.com$/,
+];
+
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 60_000;
+
+function isAllowedRedirectHost(host: string): boolean {
+  return ALLOWED_REDIRECT_HOSTS.some((pat) =>
+    typeof pat === "string" ? host === pat : pat.test(host)
+  );
 }
 
 async function openHttpsStream(
@@ -267,6 +342,7 @@ async function openHttpsStream(
           "User-Agent": "dispatch-update-client",
           Accept: "application/octet-stream",
         },
+        timeout: DOWNLOAD_REQUEST_TIMEOUT_MS,
       },
       (res) => {
         const status = res.statusCode ?? 0;
@@ -279,8 +355,38 @@ async function openHttpsStream(
             reject(new Error(`Too many redirects fetching ${url}`));
             return;
           }
+          let nextUrl: URL;
+          try {
+            nextUrl = new URL(res.headers.location, url);
+          } catch {
+            res.resume();
+            reject(
+              new Error(
+                `Invalid redirect target from ${url}: ${String(res.headers.location)}`
+              )
+            );
+            return;
+          }
+          if (nextUrl.protocol !== "https:") {
+            res.resume();
+            reject(
+              new Error(
+                `Refusing non-https redirect from ${url} to ${nextUrl.toString()}`
+              )
+            );
+            return;
+          }
+          if (!isAllowedRedirectHost(nextUrl.hostname)) {
+            res.resume();
+            reject(
+              new Error(
+                `Refusing redirect from ${url} to disallowed host ${nextUrl.hostname}`
+              )
+            );
+            return;
+          }
           res.resume();
-          openHttpsStream(res.headers.location, redirectsRemaining - 1).then(
+          openHttpsStream(nextUrl.toString(), redirectsRemaining - 1).then(
             resolve,
             reject
           );
@@ -299,6 +405,13 @@ async function openHttpsStream(
         resolve({ stream: res, totalBytes });
       }
     );
+    req.on("timeout", () => {
+      req.destroy(
+        new Error(
+          `Request timed out after ${DOWNLOAD_REQUEST_TIMEOUT_MS}ms fetching ${url}`
+        )
+      );
+    });
     req.on("error", reject);
     req.end();
   });
