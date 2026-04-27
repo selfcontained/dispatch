@@ -6,21 +6,7 @@ on:
 
 jobs:
   ci:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner_os: Linux
-            runner_arch: X64
-            platform: linux
-          - runner_os: macOS
-            runner_arch: ARM64
-            platform: darwin
-
-    runs-on:
-      - self-hosted
-      - ${{ matrix.runner_os }}
-      - ${{ matrix.runner_arch }}
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +32,7 @@ jobs:
       - name: Start Postgres
         id: postgres
         run: |
-          CONTAINER="dispatch-ci-${{ matrix.platform }}-$GITHUB_RUN_ID"
+          CONTAINER="dispatch-ci-$GITHUB_RUN_ID"
           echo "container=$CONTAINER" >> "$GITHUB_OUTPUT"
           PORT=$((RANDOM % 10000 + 10000))
           echo "port=$PORT" >> "$GITHUB_OUTPUT"
@@ -85,14 +71,19 @@ jobs:
 
       - name: Smoke test compiled binary for host platform
         run: |
+          case "$(uname -s)" in
+            Darwin) PLATFORM="darwin" ;;
+            Linux) PLATFORM="linux" ;;
+            *) echo "unsupported platform: $(uname -s)" >&2; exit 1 ;;
+          esac
           case "$(uname -m)" in
             aarch64|arm64) ARCH="arm64" ;;
             x86_64) ARCH="x64" ;;
             *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
           esac
-          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-${{ matrix.platform }}-${ARCH}" | head -n 1)
+          BINARY=$(find dist/bun -maxdepth 1 -type f -name "dispatch-*-bun-${PLATFORM}-${ARCH}" | head -n 1)
           if [[ -z "$BINARY" ]]; then
-            echo "error: no Bun binary found for platform ${{ matrix.platform }}/${ARCH}" >&2
+            echo "error: no Bun binary found for platform ${PLATFORM}/${ARCH}" >&2
             exit 1
           fi
           bun scripts/smoke-bun-binary.mjs "$BINARY"
@@ -103,14 +94,14 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report-${{ matrix.platform }}
+          name: playwright-report
           path: test-results/
           retention-days: 7
 
       - name: Upload Bun binaries
         uses: actions/upload-artifact@v4
         with:
-          name: bun-binaries-${{ matrix.platform }}
+          name: bun-binaries
           path: dist/bun/
           retention-days: 7
 
