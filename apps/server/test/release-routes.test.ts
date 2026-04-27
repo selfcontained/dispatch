@@ -314,6 +314,127 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("allows /release/update when called with the assisted agent's bearer (takeover)", async () => {
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: [],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    // 1. Launch sets activeReleaseJob to update-assisted for v0.19.0
+    //    and creates the agent that will own the bearer token.
+    const launchResp = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/assisted/launch",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+    expect(launchResp.statusCode).toBe(201);
+    const { agent } = launchResp.json() as { agent: { id: string } };
+
+    // 2. Without the takeover carve-out, the agent's own /release/update
+    //    call would 409 against its own active job. With the fix, it
+    //    proceeds as a normal update kick-off (202).
+    const auth = await import("../src/auth.js");
+    const authToken = await auth.getOrCreateAuthToken(pool);
+    const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
+
+    const updateResp = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        "content-type": "application/json",
+      },
+      payload: { tag: "v0.19.0" },
+    });
+
+    expect(updateResp.statusCode).toBe(202);
+    expect(updateResp.json()).toMatchObject({ ok: true });
+
+    // 3. Assisted state on disk survives the takeover so the agent's
+    //    later phase reports continue to update the canonical record.
+    const stateResp = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/assisted/state",
+      headers: { cookie: sessionCookie },
+    });
+    expect(stateResp.json()).toMatchObject({
+      state: { tag: "v0.19.0", metadata: { mode: "required" } },
+    });
+
+    await app.inject({
+      method: "DELETE",
+      url: "/api/v1/release/assisted/state",
+      headers: { cookie: sessionCookie },
+    });
+  });
+
+  it("rejects /release/update when bearer's tag does not match the active assisted job", async () => {
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: [],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    const launchResp = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/assisted/launch",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0" },
+    });
+    expect(launchResp.statusCode).toBe(201);
+    const { agent } = launchResp.json() as { agent: { id: string } };
+
+    const auth = await import("../src/auth.js");
+    const authToken = await auth.getOrCreateAuthToken(pool);
+    const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
+
+    // Token is valid for an active assisted job, but the body asks for a
+    // different tag — the takeover carve-out only fires when the tags
+    // match, otherwise we still have a conflict.
+    const updateResp = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        "content-type": "application/json",
+      },
+      payload: { tag: "v0.20.0" },
+    });
+
+    expect(updateResp.statusCode).toBe(409);
+    expect(updateResp.json()).toMatchObject({
+      error: "A release or update is already in progress.",
+    });
+
+    await app.inject({
+      method: "DELETE",
+      url: "/api/v1/release/assisted/state",
+      headers: { cookie: sessionCookie },
+    });
+  });
+
   it("allows /release/update when the installed version is below appliesFrom", async () => {
     await writeReleaseStore({
       tag: "v0.17.5",

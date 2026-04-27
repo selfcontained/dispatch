@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import https from "node:https";
 import path from "node:path";
 import type { RequiredCheckName } from "./release-metadata.js";
 import { readReleaseStore } from "./release-store.js";
@@ -129,17 +130,26 @@ async function checkServiceRestarted(_ctx: CheckContext): Promise<CheckResult> {
 async function checkHealthEndpoint(ctx: CheckContext): Promise<CheckResult> {
   const url = ctx.healthUrl ?? "http://127.0.0.1:6767/api/v1/health";
   try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) {
+    const { status, body } = isLoopbackHttps(url)
+      ? await fetchLoopbackHttps(url)
+      : await fetchViaGlobal(url);
+    if (status < 200 || status >= 300) {
       return {
         name: "health_endpoint",
         ok: false,
-        message: `${url} returned ${res.status}`,
+        message: `${url} returned ${status}`,
       };
     }
-    const data = (await res.json()) as { status?: string };
+    let data: { status?: string };
+    try {
+      data = JSON.parse(body) as { status?: string };
+    } catch {
+      return {
+        name: "health_endpoint",
+        ok: false,
+        message: `${url} returned invalid JSON`,
+      };
+    }
     if (data?.status !== "ok") {
       return {
         name: "health_endpoint",
@@ -159,6 +169,68 @@ async function checkHealthEndpoint(ctx: CheckContext): Promise<CheckResult> {
       message: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+// IPv6 loopback isn't included: `dispatchBaseUrl()` always hardcodes
+// 127.0.0.1, so the runtime health URL never uses `[::1]`. If that ever
+// changes, note that `new URL("https://[::1]/").hostname` returns
+// `"[::1]"` (bracketed), so the entry has to be `"[::1]"` to match.
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
+
+function isLoopbackHttps(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && LOOPBACK_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchViaGlobal(
+  url: string
+): Promise<{ status: number; body: string }> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+  return { status: res.status, body: await res.text() };
+}
+
+// The same-process self-check legitimately hits the local server's
+// self-signed TLS cert when config.tls is enabled. Bare fetch refuses
+// self-signed certs and there is no per-request override — so for
+// loopback HTTPS only, drop down to node:https with rejectUnauthorized
+// off. Limiting the bypass to loopback keeps the check honest if a
+// future config points it at a remote host.
+function fetchLoopbackHttps(
+  url: string
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      {
+        method: "GET",
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : 443,
+        path: `${parsed.pathname}${parsed.search}`,
+        timeout: 5_000,
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+        res.on("error", reject);
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy(new Error("health check timed out after 5s"));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 async function checkVersionConverged(ctx: CheckContext): Promise<CheckResult> {

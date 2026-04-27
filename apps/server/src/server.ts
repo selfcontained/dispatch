@@ -2482,11 +2482,25 @@ async function registerRoutes() {
       }
     }
 
-    // Only one release/update at a time
+    // Only one release/update at a time, with one carve-out: the assisted
+    // agent's `apply` step posts to this endpoint, and at that point the
+    // active job is the agent's own update-assisted job. Without this
+    // exception, the agent is rejected by its own job and the documented
+    // path in the assisted prompt is unreachable. The on-disk assisted
+    // state remains the canonical phase tracker — replacing
+    // activeReleaseJob with the new update job is just for log/SSE
+    // routing during the deploy.
     if (activeReleaseJob && !isTerminalPhase(activeReleaseJob.phase)) {
-      return reply
-        .code(409)
-        .send({ error: "A release or update is already in progress." });
+      const isAssistedTakeover =
+        releaseUpdateAgentId !== null &&
+        activeReleaseJob.jobType === "update-assisted" &&
+        activeReleaseJob.assisted.agentId === releaseUpdateAgentId &&
+        activeReleaseJob.tag === tag;
+      if (!isAssistedTakeover) {
+        return reply
+          .code(409)
+          .send({ error: "A release or update is already in progress." });
+      }
     }
 
     // Gate: if the target release declares `mode: required`, the generic
