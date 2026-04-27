@@ -56,7 +56,7 @@ Call out the conflict in the PR so one change can be deferred.
 Run the release validator before committing:
 
 ```bash
-pnpm tsx bin/embed-assisted-update.ts --check-only \
+bun bin/embed-assisted-update.ts --check-only \
   --metadata release-notes/next-assisted-update.json
 ```
 

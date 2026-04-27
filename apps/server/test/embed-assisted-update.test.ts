@@ -32,15 +32,11 @@ describe("bin/embed-assisted-update.ts", () => {
     );
 
     expect(() =>
-      execFileSync(
-        "pnpm",
-        ["tsx", BIN, "--check-only", "--metadata", metadataPath],
-        {
-          cwd: REPO_ROOT,
-          encoding: "utf8",
-          stdio: ["pipe", "pipe", "pipe"],
-        }
-      )
+      execFileSync("bun", [BIN, "--check-only", "--metadata", metadataPath], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })
     ).not.toThrow();
   });
 
@@ -62,8 +58,8 @@ describe("bin/embed-assisted-update.ts", () => {
     await writeFile(notesPath, "Generated release notes", "utf8");
 
     execFileSync(
-      "pnpm",
-      ["tsx", BIN, "--metadata", metadataPath, "--notes", notesPath],
+      "bun",
+      [BIN, "--metadata", metadataPath, "--notes", notesPath],
       {
         cwd: REPO_ROOT,
         encoding: "utf8",
@@ -89,15 +85,11 @@ describe("bin/embed-assisted-update.ts", () => {
     );
 
     expect(() =>
-      execFileSync(
-        "pnpm",
-        ["tsx", BIN, "--check-only", "--metadata", metadataPath],
-        {
-          cwd: REPO_ROOT,
-          encoding: "utf8",
-          stdio: ["pipe", "pipe", "pipe"],
-        }
-      )
+      execFileSync("bun", [BIN, "--check-only", "--metadata", metadataPath], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      })
     ).toThrowError(/line .* column|column .* line|metadata JSON parse error/);
   });
 });
