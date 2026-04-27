@@ -21,6 +21,8 @@ type BunTerminalRuntime = {
         resize(cols: number, rows: number): void;
         close(): void;
       };
+      env?: Record<string, string | undefined>;
+      cwd?: string;
     }
   ): {
     exited: Promise<number>;
@@ -40,6 +42,8 @@ interface SpawnOptions {
   name?: string;
   cols?: number;
   rows?: number;
+  env?: Record<string, string | undefined>;
+  cwd?: string;
 }
 
 export function spawn(
@@ -100,7 +104,15 @@ export function spawn(
     },
   });
 
-  const proc = bunRuntime.spawn([cmd, ...args], { terminal });
+  const proc = bunRuntime.spawn([cmd, ...args], {
+    terminal,
+    env: {
+      ...process.env,
+      ...(opts.env ?? {}),
+      TERM: opts.env?.TERM ?? opts.name ?? "xterm-256color",
+    },
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
+  });
   void proc.exited.then((code) => {
     lastExitCode = code;
     setTimeout(() => fireExit(), 10);

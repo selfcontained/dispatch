@@ -9,6 +9,8 @@
 [[ -f ~/.zprofile ]] && source ~/.zprofile
 [[ -f ~/.zshrc ]] && source ~/.zshrc
 
+export TERM="${TERM:-xterm-256color}"
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"
