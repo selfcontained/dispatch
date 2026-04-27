@@ -46,12 +46,15 @@ function setReleaseRecord(record: StoreRecord) {
 }
 
 describe("expected_runtime_artifact", () => {
-  it("passes when both server and web build outputs exist", async () => {
-    const serverDist = path.join(tmpServerDir, "apps/server/dist");
+  it("passes when the web build and host Bun binary exist", async () => {
+    const bunDist = path.join(tmpServerDir, "dist/bun");
     const webDist = path.join(tmpServerDir, "apps/web/dist");
-    await mkdir(serverDist, { recursive: true });
+    await mkdir(bunDist, { recursive: true });
     await mkdir(webDist, { recursive: true });
-    await writeFile(path.join(serverDist, "main.js"), "console.log('ok')");
+    await writeFile(
+      path.join(bunDist, `dispatch-0.19.0-bun-${hostPlatform()}-${hostArch()}`),
+      "binary"
+    );
     await writeFile(
       path.join(webDist, "index.html"),
       "<!doctype html><html></html>"
@@ -63,13 +66,16 @@ describe("expected_runtime_artifact", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/All expected runtime artifacts/);
+    expect(result.message).toMatch(/Runtime assets present/);
   });
 
   it("fails when an artifact is missing", async () => {
-    const serverDist = path.join(tmpServerDir, "apps/server/dist");
-    await mkdir(serverDist, { recursive: true });
-    await writeFile(path.join(serverDist, "main.js"), "");
+    const bunDist = path.join(tmpServerDir, "dist/bun");
+    await mkdir(bunDist, { recursive: true });
+    await writeFile(
+      path.join(bunDist, `dispatch-0.19.0-bun-${hostPlatform()}-${hostArch()}`),
+      "binary"
+    );
 
     const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
       serverDir: tmpServerDir,
@@ -87,7 +93,7 @@ describe("service_entrypoint", () => {
     await mkdir(pkgDir, { recursive: true });
     await writeFile(
       path.join(pkgDir, "package.json"),
-      JSON.stringify({ scripts: { start: "node dist/main.js" } })
+      JSON.stringify({ scripts: { start: "bun src/main.ts" } })
     );
 
     const [result] = await runRequiredChecks(["service_entrypoint"], {
@@ -96,7 +102,7 @@ describe("service_entrypoint", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/start script: node dist\/main\.js/);
+    expect(result.message).toMatch(/start script: bun src\/main\.ts/);
   });
 
   it("fails when package.json is missing", async () => {
@@ -385,7 +391,7 @@ describe("runRequiredChecks", () => {
     await mkdir(pkgDir, { recursive: true });
     await writeFile(
       path.join(pkgDir, "package.json"),
-      JSON.stringify({ scripts: { start: "node dist/main.js" } })
+      JSON.stringify({ scripts: { start: "bun src/main.ts" } })
     );
 
     const results = await runRequiredChecks(
@@ -401,6 +407,14 @@ describe("runRequiredChecks", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 });
+
+function hostPlatform(): "darwin" | "linux" {
+  return os.platform() === "darwin" ? "darwin" : "linux";
+}
+
+function hostArch(): "x64" | "arm64" {
+  return os.arch() === "arm64" ? "arm64" : "x64";
+}
 
 // Sanity: the AssistedUpdateState type ought to expose the same check
 // shape so the result of runRequiredChecks fits straight onto state.checks.

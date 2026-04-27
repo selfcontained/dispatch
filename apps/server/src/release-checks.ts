@@ -1,6 +1,7 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import https from "node:https";
+import os from "node:os";
 import path from "node:path";
 import type { RequiredCheckName } from "./release-metadata.js";
 import { readReleaseStore } from "./release-store.js";
@@ -56,17 +57,18 @@ async function runCheck(
 }
 
 async function checkRuntimeArtifact(ctx: CheckContext): Promise<CheckResult> {
-  const candidates = [
-    path.join(ctx.serverDir, "apps/server/dist/main.js"),
-    path.join(ctx.serverDir, "apps/web/dist/index.html"),
+  const webDist = path.join(ctx.serverDir, "apps/web/dist/index.html");
+  const platformBinary = selectPlatformBinary(ctx.serverDir);
+  const missing = [
+    ...(existsSync(webDist) ? [] : [webDist]),
+    ...(platformBinary.ok ? [] : [platformBinary.message]),
   ];
-  const missing = candidates.filter((p) => !existsSync(p));
   return {
     name: "expected_runtime_artifact",
     ok: missing.length === 0,
     message:
       missing.length === 0
-        ? "All expected runtime artifacts present"
+        ? `Runtime assets present: ${webDist}, ${platformBinary.message}`
         : `Missing: ${missing.join(", ")}`,
   };
 }
@@ -231,6 +233,69 @@ function fetchLoopbackHttps(
     req.on("error", reject);
     req.end();
   });
+}
+
+function selectPlatformBinary(
+  serverDir: string
+): { ok: true; message: string } | { ok: false; message: string } {
+  const platform = platformLabel();
+  const arch = archLabel();
+  if (!platform || !arch) {
+    return {
+      ok: false,
+      message: `unsupported host platform ${os.platform()}/${os.arch()}`,
+    };
+  }
+  const bunDir = path.join(serverDir, "dist/bun");
+  if (!existsSync(bunDir)) {
+    return {
+      ok: false,
+      message: `${bunDir} not found`,
+    };
+  }
+
+  const entries = listBunBinaries(bunDir, platform, arch);
+  if (entries.length === 0) {
+    return {
+      ok: false,
+      message: `no Bun binary found for ${platform}/${arch} in ${bunDir}`,
+    };
+  }
+  return { ok: true, message: entries[0]! };
+}
+
+function platformLabel(): "darwin" | "linux" | null {
+  switch (os.platform()) {
+    case "darwin":
+      return "darwin";
+    case "linux":
+      return "linux";
+    default:
+      return null;
+  }
+}
+
+function archLabel(): "x64" | "arm64" | null {
+  switch (os.arch()) {
+    case "x64":
+      return "x64";
+    case "arm64":
+      return "arm64";
+    default:
+      return null;
+  }
+}
+
+function listBunBinaries(
+  bunDir: string,
+  platform: "darwin" | "linux",
+  arch: "x64" | "arm64"
+): string[] {
+  return readdirSync(bunDir)
+    .filter((entry) =>
+      new RegExp(`^dispatch-.*-bun-${platform}-${arch}$`).test(entry)
+    )
+    .map((entry) => path.join(bunDir, entry));
 }
 
 async function checkVersionConverged(ctx: CheckContext): Promise<CheckResult> {
