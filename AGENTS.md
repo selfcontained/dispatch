@@ -100,3 +100,12 @@ Before marking any task as done, run the following checks and fix any failures:
 - Production uses the `dispatch` database. Never connect to it from dev servers.
 - `repo_dev_up` creates an isolated Postgres container with its own port — no manual `DATABASE_URL` setup needed.
 - Migrations run automatically on API server start.
+
+## Assisted Update Release Notes
+
+- When the user indicates that a release should require or recommend assisted update handling, create or update `release-notes/next-assisted-update.json`.
+- Follow `release-notes/AUTHORING.md` for the schema, merge rules, and authoring guidance. Do not invent a parallel format.
+- If `release-notes/next-assisted-update.json` already exists, merge your change into that file instead of creating a second metadata file.
+- Validate the file before finishing with:
+
+  `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
