@@ -40,6 +40,10 @@ jobs:
         with:
           version: 9
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -88,7 +92,7 @@ jobs:
 
           META="release-notes/next-assisted-update.json"
           if [ -f "$META" ]; then
-            pnpm tsx bin/embed-assisted-update.ts \
+            bun bin/embed-assisted-update.ts \
               --metadata "$META" \
               --notes release-notes/current.md
             git rm "$META"
