@@ -418,7 +418,9 @@ export function buildLaunchPersonaResponseText(
 
 This review is push-based. Do not emit a terminal dispatch_event yet. Keep this turn alive and wait for the server to inject a completion prompt into this terminal when the reviewer finishes.
 
-There is no tool to poll while waiting. When the completion prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") only if that prompt says feedback items were recorded, then wrap up.`;
+There is no tool to poll while waiting. When the completion prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") only if that prompt says feedback items were recorded, then wrap up.
+
+If no prompt has arrived after a clearly unreasonable delay (the reviewer crashed, was archived, or got stuck), bail out on your own with a non-done dispatch_event explaining what happened — there is no parent-side cancel tool for single-pass reviews today.`;
   }
   return `${base}
 

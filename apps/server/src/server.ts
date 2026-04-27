@@ -6377,8 +6377,19 @@ async function mcpGetRecheckContext(
         : review.status === "complete" && review.roundNumber >= 2
           ? "complete"
           : "waiting_for_resolution";
+  // Defense-in-depth: only emit a compare range if both commits look like git
+  // SHAs. The reviewer is instructed to run `gitDiffCommand` locally, so the
+  // string crosses a trust boundary into a CLI shell. Today these come from
+  // `git rev-parse HEAD` and are 40-char hex, but validating here keeps that
+  // contract auditable in one spot.
+  const looksLikeSha = (value: string): boolean =>
+    /^[0-9a-f]{4,64}$/i.test(value);
   const compareRange =
-    availability === "ready" && lastReviewedCommit && resolutionCommit
+    availability === "ready" &&
+    lastReviewedCommit &&
+    resolutionCommit &&
+    looksLikeSha(lastReviewedCommit) &&
+    looksLikeSha(resolutionCommit)
       ? `${lastReviewedCommit}...${resolutionCommit}`
       : null;
 

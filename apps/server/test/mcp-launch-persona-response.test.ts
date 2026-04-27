@@ -58,6 +58,12 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).not.toMatch(/pollAgainInSeconds/i);
   });
 
+  it("acknowledges that single-pass parents must bail out manually if no prompt arrives", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId, false);
+    expect(text).toMatch(/bail out/i);
+    expect(text).toMatch(/no parent-side cancel tool/i);
+  });
+
   it("explains that the next-round signal arrives via terminal injection", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId, true);
     expect(text).toMatch(/inject .* prompt/i);
