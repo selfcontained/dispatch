@@ -54,7 +54,10 @@ function listFiles(dir) {
 }
 
 function mimeTypeFor(filePath) {
-  return MIME_TYPES.get(path.extname(filePath).toLowerCase()) ?? "application/octet-stream";
+  return (
+    MIME_TYPES.get(path.extname(filePath).toLowerCase()) ??
+    "application/octet-stream"
+  );
 }
 
 const staticFiles = listFiles(sourceStaticDir)
@@ -70,7 +73,9 @@ const staticFiles = listFiles(sourceStaticDir)
 
 const migrationFiles = listFiles(migrationsSourceDir)
   .map((absolutePath) => {
-    const relativePath = toPosix(path.relative(migrationsSourceDir, absolutePath));
+    const relativePath = toPosix(
+      path.relative(migrationsSourceDir, absolutePath)
+    );
     return {
       name: path.basename(relativePath),
       sql: readFileSync(absolutePath, "utf8"),

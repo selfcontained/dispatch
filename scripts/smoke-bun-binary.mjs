@@ -77,7 +77,9 @@ async function api(pathname, init = {}, token) {
     },
   });
   if (!response.ok) {
-    throw new Error(`${pathname} failed: ${response.status} ${await response.text()}`);
+    throw new Error(
+      `${pathname} failed: ${response.status} ${await response.text()}`
+    );
   }
   return response;
 }
@@ -92,7 +94,9 @@ async function waitForAgentRunning(agentId, token) {
     }
     await Bun.sleep(250);
   }
-  throw new Error(`Timed out waiting for agent ${agentId} to reach running state`);
+  throw new Error(
+    `Timed out waiting for agent ${agentId} to reach running state`
+  );
 }
 
 async function main() {
@@ -151,7 +155,10 @@ async function main() {
         if (recentMessages.length > 10) {
           recentMessages.shift();
         }
-        if (payload.type === "output" && String(payload.data).includes(marker)) {
+        if (
+          payload.type === "output" &&
+          String(payload.data).includes(marker)
+        ) {
           clearTimeout(timer);
           resolve(true);
         }
@@ -167,7 +174,11 @@ async function main() {
     }
 
     ws.close();
-    await api(`/api/v1/agents/${agentId}/stop`, { method: "POST", body: "{}" }, token);
+    await api(
+      `/api/v1/agents/${agentId}/stop`,
+      { method: "POST", body: "{}" },
+      token
+    );
     console.log(`Smoke test passed for ${binaryPath}`);
   } finally {
     child.kill("SIGTERM");
