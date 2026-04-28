@@ -1,6 +1,8 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
+import { type IdeType } from "./ide-types";
+
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
     (() => {
@@ -45,6 +47,11 @@ export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
 export const soundCuesEnabledAtom = atomWithLocalStorage(
   "dispatch:soundCuesEnabled",
   true
+);
+
+export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
+  "dispatch:preferredIde",
+  "vscode"
 );
 
 // Per-cwd preferences for the Create Agent dialog. Each cwd gets its own

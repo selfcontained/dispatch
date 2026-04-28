@@ -13,6 +13,7 @@ import {
   getEnabledAgentTypes,
   setEnabledAgentTypes,
 } from "../agent-type-settings.js";
+import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
 import {
   SlackNotifier,
   isValidSlackWebhookUrl,
@@ -490,6 +491,33 @@ export async function registerSystemRoutes(
     return {
       enabledAgentTypes: await setEnabledAgentTypes(deps.pool, uniqueTypes),
     };
+  });
+
+  app.get("/api/v1/app/settings/ides", async () => {
+    return { enabledIdes: await getEnabledIdes(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/ides", async (request, reply) => {
+    const body = request.body as { enabledIdes?: unknown } | null;
+    if (!Array.isArray(body?.enabledIdes)) {
+      return reply.code(400).send({ error: "enabledIdes must be an array." });
+    }
+
+    const uniqueIdes = body.enabledIdes
+      .filter(
+        (value): value is (typeof IDE_TYPES)[number] =>
+          typeof value === "string" &&
+          IDE_TYPES.includes(value as (typeof IDE_TYPES)[number])
+      )
+      .filter((value, index, values) => values.indexOf(value) === index);
+
+    if (uniqueIdes.length !== body.enabledIdes.length) {
+      return reply.code(400).send({
+        error: `enabledIdes must only include ${IDE_TYPES.join(", ")}.`,
+      });
+    }
+
+    return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
   });
 
   app.post("/api/v1/energy-report", async (request, reply) => {
