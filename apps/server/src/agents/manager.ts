@@ -3701,8 +3701,10 @@ export class AgentManager {
   async listMedia(agentId: string): Promise<
     Array<{
       fileName: string;
+      filePath: string;
       description: string | null;
       source: string;
+      sizeBytes: number;
       createdAt: string;
     }>
   > {
@@ -3710,13 +3712,30 @@ export class AgentManager {
       fileName: string;
       description: string | null;
       source: string;
-      createdAt: string;
+      sizeBytes: number;
+      createdAt: Date;
+      mediaDir: string | null;
     }>(
-      `SELECT file_name AS "fileName", description, source, created_at AS "createdAt"
-       FROM media WHERE agent_id = $1 ORDER BY created_at`,
+      `SELECT m.file_name AS "fileName", m.description, m.source,
+              m.size_bytes AS "sizeBytes", m.created_at AS "createdAt",
+              a.media_dir AS "mediaDir"
+       FROM media m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE m.agent_id = $1
+       ORDER BY m.created_at`,
       [agentId]
     );
-    return result.rows;
+    return result.rows.map((row) => ({
+      fileName: row.fileName,
+      filePath: path.join(
+        row.mediaDir ?? this.defaultMediaDir(agentId),
+        row.fileName
+      ),
+      description: row.description,
+      source: row.source,
+      sizeBytes: row.sizeBytes,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
   // --- Feedback ---

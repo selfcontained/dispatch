@@ -2952,4 +2952,59 @@ describe("AgentManager", () => {
       await rm(reviewerDir, { recursive: true, force: true });
     });
   });
+
+  describe("listMedia", () => {
+    it("should include filePath and sizeBytes for each media item", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await pool.query(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+         VALUES ($1, 'doc.pdf', 'upload', 4096, 'Product brief')`,
+        [agent.id]
+      );
+
+      const media = await manager.listMedia(agent.id);
+      expect(media).toHaveLength(1);
+      const item = media[0]!;
+      expect(item.fileName).toBe("doc.pdf");
+      expect(item.description).toBe("Product brief");
+      expect(item.source).toBe("upload");
+      expect(item.sizeBytes).toBe(4096);
+      expect(typeof item.createdAt).toBe("string");
+      expect(item.filePath.endsWith(`${agent.id}/doc.pdf`)).toBe(true);
+      expect(path.isAbsolute(item.filePath)).toBe(true);
+    });
+
+    it("should resolve filePath using the agent's media_dir override", async () => {
+      const customDir = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-media-")
+      );
+      try {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
+          agent.id,
+          customDir,
+        ]);
+
+        await pool.query(
+          `INSERT INTO media (agent_id, file_name, source, size_bytes)
+           VALUES ($1, 'screen.png', 'screenshot', 256)`,
+          [agent.id]
+        );
+
+        const media = await manager.listMedia(agent.id);
+        expect(media).toHaveLength(1);
+        expect(media[0]!.filePath).toBe(path.join(customDir, "screen.png"));
+        expect(media[0]!.sizeBytes).toBe(256);
+      } finally {
+        await rm(customDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

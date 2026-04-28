@@ -674,6 +674,9 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             <Code>dispatch_share</Code> for surfacing files or screenshots, and{" "}
             <Code>get_parent_context</Code> to retrieve the parent agent's pins
             and shared media (for example, a dev server URL to test against).
+            Each media item also includes an absolute <Code>filePath</Code> and{" "}
+            <Code>sizeBytes</Code> so reviewers can open or inspect the artifact
+            directly — useful for doc-centric review flows.
           </P>
         </Section>
 
