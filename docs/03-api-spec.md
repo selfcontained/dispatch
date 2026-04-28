@@ -15,6 +15,7 @@
   "name": "fix-auth-bug",
   "status": "running",
   "type": "claude",
+  "role": "standard",
   "cwd": "/home/user/projects/myproject",
   "effectiveCwd": "/home/user/projects/myproject/.dispatch/worktrees/fix-auth-bug",
   "tmuxSession": "dispatch_agt_01abc2def345",
@@ -62,6 +63,7 @@
   "fullAccess": true,
   "agentArgs": ["--model", "opus"],
   "useWorktree": true,
+  "createNewBranch": true,
   "worktreeBranch": "fix-auth-bug",
   "baseBranch": "main",
   "autoReview": false,
@@ -69,7 +71,11 @@
 }
 ```
 
-`type` defaults to `codex` if omitted. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
+`type` is one of `claude`, `codex`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
+
+`useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch forks from `baseBranch` or the existing `worktreeBranch` is checked out directly. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
+
+This endpoint also accepts `multipart/form-data` to attach up to 10 startup files (20 MB each); array/boolean fields like `agentArgs` and `fullAccess` are accepted as JSON-encoded strings in that form.
 
 For persona agents (launched via `dispatch_launch_persona`):
 
@@ -101,6 +107,7 @@ Used during agent initialization to track setup progress.
 | ------ | ---------------------------- | ------------------------------------------------------------ |
 | POST   | `/agents/:id/setup/phase`    | Report setup phase (`worktree` → `env` → `deps` → `session`) |
 | POST   | `/agents/:id/setup/complete` | Mark setup complete with resolved paths                      |
+| POST   | `/agents/:id/setup/error`    | Report setup failure (worktree create, env copy, deps, etc.) |
 
 ### `POST /agents/:id/setup/complete`
 
@@ -111,6 +118,14 @@ Used during agent initialization to track setup progress.
   "worktreeBranch": "branch-name"
 }
 ```
+
+### `POST /agents/:id/setup/error`
+
+```json
+{ "message": "Could not create worktree: branch is checked out elsewhere." }
+```
+
+Marks the agent as `stopped` with `last_error` set to `message` (defaults to `"Setup failed."` if omitted) and surfaces a blocked latest-event in the UI.
 
 ## Agent Events & State
 
@@ -168,11 +183,40 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path        | Description                                                                     |
-| ------ | ----------- | ------------------------------------------------------------------------------- |
-| GET    | `/personas` | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`) |
+| Method | Path                          | Description                                                                               |
+| ------ | ----------------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/personas`                   | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`)           |
+| POST   | `/agents/:id/launch-review`   | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
+| POST   | `/agents/:id/persona-reviews` | Directly spawn a persona review agent as a child of `:id` (server-side equivalent)        |
 
-Query params: `cwd=/path/to/repo`
+### `GET /personas`
+
+Query params: `cwd=/path/to/repo`. The server tries the worktree root first, then the repo root.
+
+### `POST /agents/:id/launch-review`
+
+```json
+{
+  "persona": "backend-security-review",
+  "agentType": "claude",
+  "allowRecheck": true
+}
+```
+
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`codex`, `claude`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`.
+
+### `POST /agents/:id/persona-reviews`
+
+```json
+{
+  "persona": "backend-security-review",
+  "agentType": "claude",
+  "allowRecheck": true,
+  "context": "Review the auth middleware refactor in apps/server/src/auth/."
+}
+```
+
+Spawns the persona review agent directly (without going through the parent agent's tmux). `agentType` and `allowRecheck` are optional; `context` defaults to a short generic briefing if omitted. Returns the new persona agent.
 
 ## Feedback
 
@@ -188,10 +232,10 @@ Query params: `scope=children` to include feedback from child persona agents.
 ### `PATCH /agents/:id/feedback/:feedbackId`
 
 ```json
-{ "status": "fixed" }
+{ "status": "fixed", "reason": "Resolved by tightening the JWT TTL check." }
 ```
 
-Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`
+Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`. `reason` is optional in general but **required** when `status` is `ignored` (max 10,000 characters). When `status` is `fixed` or `ignored`, the server captures the current HEAD SHA of the agent's working tree as `resolutionCommit` for round-trip review provenance.
 
 ## Activity & Analytics
 
@@ -262,12 +306,12 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                        | Description                                             |
-| ------ | --------------------------- | ------------------------------------------------------- |
-| GET    | `/agents/settings`          | Get agent settings (worktree location)                  |
-| POST   | `/agents/settings`          | Update agent settings                                   |
-| GET    | `/app/settings/agent-types` | Get enabled agent types                                 |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`) |
+| Method | Path                        | Description                                                         |
+| ------ | --------------------------- | ------------------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location)                              |
+| POST   | `/agents/settings`          | Update agent settings                                               |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                             |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`, `terminal`) |
 
 ## System
 
@@ -286,18 +330,69 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Release Management
 
-| Method | Path                   | Description                                            |
-| ------ | ---------------------- | ------------------------------------------------------ |
-| GET    | `/release/status`      | Current deployed release tag and timestamp             |
-| GET    | `/release/info`        | Latest available version and unreleased commits        |
-| GET    | `/release/channel`     | Get current release channel (stable or latest)         |
-| POST   | `/release/channel`     | Set release channel                                    |
-| GET    | `/release/admin-check` | Check if current instance is a release admin           |
-| POST   | `/release/promote`     | Promote a pre-release to stable (admin only)           |
-| GET    | `/releases`            | List recent GitHub releases                            |
-| POST   | `/release`             | Trigger new release (`versionType`: major/minor/patch) |
-| POST   | `/release/update`      | Update to a specific release tag                       |
-| GET    | `/release/stream`      | SSE stream for release operation progress              |
+| Method | Path                       | Description                                                                          |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------ |
+| GET    | `/release/status`          | Current deployed release tag and timestamp                                           |
+| GET    | `/release/info`            | Latest available version and unreleased commits                                      |
+| GET    | `/release/channel`         | Get current release channel (`stable` or `latest`)                                   |
+| POST   | `/release/channel`         | Set release channel                                                                  |
+| GET    | `/release/admin-check`     | Check if current instance is a release admin                                         |
+| POST   | `/release/promote`         | Promote a pre-release to stable (admin only)                                         |
+| GET    | `/releases`                | List recent GitHub releases                                                          |
+| POST   | `/release`                 | Trigger new release (`versionType`: major/minor/patch)                               |
+| POST   | `/release/update`          | One-click update to a specific tag (gated — see below)                               |
+| POST   | `/release/assisted/launch` | Launch a full-access agent on the production checkout to perform an assisted update  |
+| POST   | `/release/assisted/phase`  | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
+| GET    | `/release/assisted/state`  | Read the current assisted-update state (tag, phase, notes, checks)                   |
+| DELETE | `/release/assisted/state`  | Clear the persisted assisted-update state                                            |
+| GET    | `/release/stream`          | SSE stream for release operation progress                                            |
+
+### `POST /release/update`
+
+```json
+{ "tag": "v0.18.16" }
+```
+
+Returns `202 Accepted` and runs the update asynchronously. Returns `409 Conflict` with a structured error code when the path is gated:
+
+| Error code                         | Reason                                                                                                     |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `ASSISTED_UPDATE_REQUIRED`         | Target release ships unapplied migrations or declares `mode: required` — caller must use `assisted/launch` |
+| `ASSISTED_UPDATE_METADATA_INVALID` | Target release's `dispatch-update` metadata block is malformed                                             |
+
+Also returns `503` with `MIGRATION_EVALUATION_UNAVAILABLE` when the target tarball can't be downloaded or parsed (transient — retry later).
+
+The assisted-update agent itself bypasses the gate by sending a bearer token (`Authorization: Bearer <token>`) bound to a specific tag.
+
+### `POST /release/assisted/launch`
+
+```json
+{ "tag": "v0.18.16" }
+```
+
+Creates a full-access agent on the server's own checkout, attaches an assisted-update state record, and returns `201` with `{ agent, assisted }`. Subject to several conflict checks:
+
+- `409` if a release/update job is already in progress, if another assisted launch is racing, or if an assisted-update agent is already active on the production checkout.
+- `409 ASSISTED_UPDATE_MIGRATIONS_INVALID` if the target tarball's `update-migrations/*.yaml` manifests fail to parse.
+- `409 ASSISTED_UPDATE_METADATA_INVALID` if there are no migrations and the `dispatch-update` metadata block is malformed.
+- `422` if no CLI agent type is enabled in settings.
+
+### `POST /release/assisted/phase`
+
+```json
+{
+  "token": "<assisted-state token>",
+  "phase": "apply",
+  "note": "Running migration 0001-bun-cutover.",
+  "error": null
+}
+```
+
+Token-authenticated callback used only by the launched assisted-update agent to advance its phase machine. Phases: `inspect → prepare → apply → restarting → validate → done`, plus `blocked` and `rollback` for failure paths. When the agent reports `validate`, the server runs the metadata-declared `requiredChecks` and gates the success transition.
+
+### `GET /release/assisted/state`
+
+Returns `{ "state": <AssistedUpdateState> | null }`.
 
 ## Jobs
 
@@ -313,6 +408,14 @@ Returns `204` regardless of whether the notification was still pending.
 | GET    | `/jobs/stats`   | Get job run statistics                                                   |
 | GET    | `/jobs/history` | Get job run history (filterable by `jobId`, `status`, `limit`, `offset`) |
 
+### `POST /jobs/run`
+
+```json
+{ "name": "docs-audit", "directory": "/path/to/repo", "wait": false }
+```
+
+`name` + `directory` together identify the job. `wait: true` blocks the response until the run reaches a terminal state; otherwise the response returns as soon as the run is queued. Manual runs are tagged with `triggerSource: "manual"` internally.
+
 ## MCP (Model Context Protocol)
 
 These endpoints use the `/api/mcp` base path (not `/api/v1`).
@@ -327,11 +430,13 @@ Agent-scoped MCP loads repo tools from `.dispatch/tools.json` in the agent's wor
 
 ## Error Codes
 
-| Code | Meaning                                                      |
-| ---- | ------------------------------------------------------------ |
-| 400  | Invalid request body or parameters                           |
-| 401  | Not authenticated                                            |
-| 403  | Unauthorized                                                 |
-| 404  | Agent or resource not found                                  |
-| 409  | Lifecycle conflict (e.g., starting an already-running agent) |
-| 500  | Internal server error                                        |
+| Code | Meaning                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------- |
+| 400  | Invalid request body or parameters                                                       |
+| 401  | Not authenticated                                                                        |
+| 403  | Unauthorized                                                                             |
+| 404  | Agent or resource not found                                                              |
+| 409  | Lifecycle conflict (e.g., starting an already-running agent, gated release/update flows) |
+| 422  | Request was well-formed but rejected by configuration (e.g., no CLI agent type enabled)  |
+| 500  | Internal server error                                                                    |
+| 503  | Transient dependency failure (e.g., release tarball download/parse during gate eval)     |
