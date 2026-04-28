@@ -395,8 +395,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         pins,
         media: media.map((m) => ({
           fileName: m.fileName,
+          filePath: m.filePath,
           description: m.description,
           source: m.source,
+          sizeBytes: m.sizeBytes,
           createdAt: m.createdAt,
         })),
       };

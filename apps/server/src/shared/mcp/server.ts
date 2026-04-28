@@ -225,8 +225,10 @@ export type ParentContextResult = {
   pins: Array<{ label: string; value: string; type: string }>;
   media: Array<{
     fileName: string;
+    filePath: string;
     description: string | null;
     source: string;
+    sizeBytes: number;
     createdAt: string;
   }>;
 };
@@ -571,7 +573,8 @@ async function createDispatchMcpServer(
       {
         description:
           "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, " +
-          "key files, screenshots, and other context the parent agent has surfaced.",
+          "key files, screenshots, and other context the parent agent has surfaced. Each shared media " +
+          "item includes an absolute filePath and sizeBytes so you can open or inspect the artifact directly.",
         inputSchema: {},
       },
       async () => {
@@ -590,7 +593,7 @@ async function createDispatchMcpServer(
             parts.push("\nShared media:");
             for (const m of result.media) {
               parts.push(
-                `  ${m.fileName}: ${m.description ?? "(no description)"}`
+                `  ${m.fileName} (${m.sizeBytes} bytes) at ${m.filePath}: ${m.description ?? "(no description)"}`
               );
             }
           }
