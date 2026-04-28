@@ -1,11 +1,16 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
-import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
+import {
+  CLI_AGENT_TYPES,
+  getEnabledAgentTypes,
+} from "../agent-type-settings.js";
 import { loadPersonas } from "../personas/loader.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
+import type { Pool } from "pg";
 
 type PersonaReviewRouteDeps = {
+  pool: Pool;
   agentManager: AgentManager;
   resolveWorktreeRoot: (cwd: string) => Promise<string>;
   resolveRepoRoot: (cwd: string) => Promise<string>;
@@ -29,6 +34,8 @@ type PersonaReviewRouteDeps = {
   ) => T & { hasStream: boolean };
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
+
+const PERSONA_SLUG_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 export async function registerPersonaReviewRoutes(
   app: FastifyInstance,
@@ -68,7 +75,7 @@ export async function registerPersonaReviewRoutes(
         .code(400)
         .send({ error: "persona is required and must be a non-empty string." });
     }
-    if (!/^[a-zA-Z0-9_-]+$/.test(body.persona)) {
+    if (!PERSONA_SLUG_PATTERN.test(body.persona)) {
       return reply.code(400).send({
         error:
           "persona must be a slug containing only letters, digits, underscore, or hyphen.",
@@ -128,6 +135,12 @@ export async function registerPersonaReviewRoutes(
         .code(400)
         .send({ error: "persona is required and must be a non-empty string." });
     }
+    if (!PERSONA_SLUG_PATTERN.test(body.persona.trim())) {
+      return reply.code(400).send({
+        error:
+          "persona must be a slug containing only letters, digits, underscore, or hyphen.",
+      });
+    }
     if (
       body.agentType !== undefined &&
       (typeof body.agentType !== "string" ||
@@ -156,6 +169,17 @@ export async function registerPersonaReviewRoutes(
     try {
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
+      const requestedAgentType = body.agentType as
+        | (typeof CLI_AGENT_TYPES)[number]
+        | undefined;
+      if (requestedAgentType) {
+        const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+        if (!enabledAgentTypes.includes(requestedAgentType)) {
+          return reply.code(400).send({
+            error: `${requestedAgentType} agents are disabled in settings.`,
+          });
+        }
+      }
 
       const context =
         body.context?.trim() ||
@@ -168,9 +192,7 @@ export async function registerPersonaReviewRoutes(
       const result = await deps.mcpLaunchPersona(agentId, {
         persona: body.persona.trim(),
         context,
-        agentType: body.agentType as
-          | (typeof CLI_AGENT_TYPES)[number]
-          | undefined,
+        agentType: requestedAgentType,
         allowRecheck: body.allowRecheck === true,
       });
       const agent = await deps.agentManager.getAgent(result.agentId);
