@@ -47,6 +47,12 @@ export const soundCuesEnabledAtom = atomWithLocalStorage(
   true
 );
 
+export type PreferredIde = "vscode" | "cursor";
+export const preferredIdeAtom = atomWithLocalStorage<PreferredIde>(
+  "dispatch:preferredIde",
+  "vscode"
+);
+
 // Per-cwd preferences for the Create Agent dialog. Each cwd gets its own
 // atom backed by localStorage; the family caches them by trimmed cwd.
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
