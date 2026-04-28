@@ -132,7 +132,7 @@ export function IdeLaunchButton({
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Open in IDE only works when accessing Dispatch on this machine
+          Open in IDE does not work when accessing Dispatch remotely
         </TooltipContent>
       </Tooltip>
     );
