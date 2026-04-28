@@ -3138,7 +3138,7 @@ async function registerRoutes() {
         resolvedPath: resolved,
       };
     }
-    if (await shouldSkipAutomaticMacPathProbe(resolved, os.homedir())) {
+    if (shouldSkipAutomaticMacPathProbe(resolved, os.homedir())) {
       return {
         exists: false,
         isDirectory: false,
@@ -3202,7 +3202,7 @@ async function registerRoutes() {
       const searchDir = isExactDir ? resolved : parentDir;
       const searchPartial = isExactDir ? "" : partial;
 
-      if (await shouldSkipAutomaticMacPathProbe(searchDir, os.homedir())) {
+      if (shouldSkipAutomaticMacPathProbe(searchDir, os.homedir())) {
         return { completions: [], privacyRestricted: true };
       }
 
