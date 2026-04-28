@@ -16,10 +16,9 @@ import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
-import type { FastifyReply } from "fastify";
 import * as z from "zod/v4";
 
-import { AgentError, AgentManager } from "./agents/manager.js";
+import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
   isPasswordSet,
@@ -39,12 +38,7 @@ import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
-import {
-  isMediaFile,
-  isTextFile,
-  mimeType,
-  resolveMediaDir,
-} from "./shared/media.js";
+import { mimeType, resolveMediaDir } from "./shared/media.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import {
@@ -94,15 +88,14 @@ import {
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
-import { TmuxTerminal } from "./terminal/tmux-terminal.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
-import { validatePinValue } from "./pins.js";
 import { JobService } from "./jobs/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import { staticFiles as embeddedStaticFiles } from "./generated/runtime-assets.js";
 import { randomUUID } from "node:crypto";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerJobRoutes } from "./routes/jobs.js";
@@ -119,11 +112,13 @@ import {
   parseActivityQuery,
   timeRangeClause,
 } from "./server/activity-query.js";
+import { createPromptInjector } from "./server/agent-prompts.js";
 import {
   createGitContextRuntime,
   percentile,
   toIso,
 } from "./server/git-context-runtime.js";
+import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
   type ReleaseJob,
@@ -133,6 +128,11 @@ import {
   createMcpHandlers,
   mcpMethodNotAllowed,
 } from "./server/mcp-handlers.js";
+import {
+  createStaticThemeRuntime,
+  type IconColor,
+  VALID_ICON_COLORS,
+} from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
 
 const config = loadConfig();
@@ -183,186 +183,6 @@ jobService.onRunStateChange((run) => {
 // within the timeout, fall back to Slack.
 const WEB_NOTIFY_ACK_TIMEOUT_MS = 3_000;
 const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
-
-type CreateAgentBody = {
-  name?: unknown;
-  type?: unknown;
-  cwd?: unknown;
-  agentArgs?: unknown;
-  codexArgs?: unknown;
-  fullAccess?: unknown;
-  useWorktree?: unknown;
-  createNewBranch?: unknown;
-  worktreeBranch?: unknown;
-  baseBranch?: unknown;
-  persona?: unknown;
-  parentAgentId?: unknown;
-  personaContext?: unknown;
-  autoReview?: unknown;
-  initialPrompt?: unknown;
-  startupLinks?: unknown;
-};
-
-type StartupFileUpload = {
-  fileName: string;
-  originalName: string;
-  buffer: Buffer;
-  source: "text" | "user";
-  description: string | null;
-};
-
-const MAX_STARTUP_FILE_COUNT = 10;
-const MAX_STARTUP_FILE_NAME_LENGTH = 128;
-
-function parseOptionalBooleanField(
-  value: unknown,
-  fieldName: string,
-  allowStringCoercion: boolean
-): boolean | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "boolean") return value;
-  if (allowStringCoercion && value === "true") return true;
-  if (allowStringCoercion && value === "false") return false;
-  throw new Error(`${fieldName} must be a boolean when provided.`);
-}
-
-function parseOptionalStringArrayField(
-  value: unknown,
-  fieldName: string,
-  allowStringCoercion: boolean
-): string[] | undefined {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return value;
-  }
-  if (!allowStringCoercion || typeof value !== "string") {
-    throw new Error(`${fieldName} must be an array of strings.`);
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (
-      Array.isArray(parsed) &&
-      parsed.every((item) => typeof item === "string")
-    ) {
-      return parsed;
-    }
-  } catch {}
-  throw new Error(`${fieldName} must be an array of strings.`);
-}
-
-function createStartupPins(urls: string[]): Array<{
-  label: string;
-  value: string;
-  type: "url";
-}> {
-  const counts = new Map<string, number>();
-  return urls.map((rawUrl) => {
-    validatePinValue("url", rawUrl);
-    const hostname = new URL(rawUrl).hostname.replace(/^www\./, "") || "Link";
-    const seen = counts.get(hostname) ?? 0;
-    counts.set(hostname, seen + 1);
-    return {
-      label: seen === 0 ? hostname : `${hostname} ${seen + 1}`,
-      value: rawUrl,
-      type: "url",
-    };
-  });
-}
-
-function sanitizeUploadedFileName(name: string): string {
-  const ext = path.extname(name).toLowerCase();
-  const baseName = path.basename(name, ext).normalize("NFKD");
-  const collapsed = baseName
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9._() -]+/g, "-")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-  return `${collapsed || "file"}${ext}`;
-}
-
-function sanitizeStartupDisplayName(
-  name: string | undefined,
-  fallback: string
-): string {
-  const normalized = path
-    .basename(name || "")
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .trim();
-  if (!normalized) {
-    return fallback;
-  }
-  return normalized.slice(0, MAX_STARTUP_FILE_NAME_LENGTH);
-}
-
-async function parseCreateAgentRequest(request: {
-  body?: unknown;
-  isMultipart: () => boolean;
-  parts: () => AsyncIterable<unknown>;
-}): Promise<{
-  body: CreateAgentBody;
-  startupFiles: StartupFileUpload[];
-  isMultipart: boolean;
-}> {
-  const multipart = request.isMultipart();
-  if (!multipart) {
-    return {
-      body: (request.body as CreateAgentBody | undefined) ?? {},
-      startupFiles: [],
-      isMultipart: false,
-    };
-  }
-
-  const body: CreateAgentBody = {};
-  const startupFiles: StartupFileUpload[] = [];
-
-  for await (const rawPart of request.parts()) {
-    const part = rawPart as {
-      type: "file" | "field";
-      fieldname: string;
-      filename?: string;
-      value?: unknown;
-      toBuffer?: () => Promise<Buffer>;
-    };
-    if (part.type === "file") {
-      if (part.fieldname !== "startupFiles") {
-        throw new Error("Unexpected file field.");
-      }
-      if (startupFiles.length >= MAX_STARTUP_FILE_COUNT) {
-        throw new Error(
-          `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`
-        );
-      }
-      const fileName = sanitizeUploadedFileName(
-        path.basename(part.filename || "")
-      );
-      if (!fileName) {
-        throw new Error("Invalid file name.");
-      }
-      if (!isMediaFile(fileName)) {
-        throw new Error(
-          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
-        );
-      }
-      if (!part.toBuffer) {
-        throw new Error("Invalid file upload.");
-      }
-      startupFiles.push({
-        fileName,
-        originalName: sanitizeStartupDisplayName(part.filename, fileName),
-        buffer: await part.toBuffer(),
-        source: isTextFile(fileName) ? "text" : "user",
-        description: null,
-      });
-      continue;
-    }
-
-    body[part.fieldname as keyof CreateAgentBody] = part.value;
-  }
-
-  return { body, startupFiles, isMultipart: true };
-}
 
 /** Called by the ack endpoint when a client confirms delivery. */
 function ackWebNotification(notificationId: string): boolean {
@@ -495,57 +315,8 @@ let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appRootDir = path.resolve(__dirname, "..");
-const staticAssets = new Map(
-  embeddedStaticFiles.map((asset) => [
-    asset.routePath,
-    {
-      contentType: asset.contentType,
-      body: Buffer.from(asset.base64, "base64"),
-    },
-  ])
-);
-const indexHtmlTemplate =
-  staticAssets.get("/index.html")?.body.toString("utf8") ?? "";
-const manifestTemplate =
-  staticAssets.get("/manifest.webmanifest")?.body.toString("utf8") ?? "";
-
-// ---------------------------------------------------------------------------
-// Icon color templating — rewrite index.html and manifest for active color
-// ---------------------------------------------------------------------------
-const VALID_ICON_COLORS = [
-  "teal",
-  "blue",
-  "purple",
-  "red",
-  "orange",
-  "amber",
-  "pink",
-  "cyan",
-] as const;
-type IconColor = (typeof VALID_ICON_COLORS)[number];
-const DEFAULT_ICON_COLOR: IconColor = "teal";
 const ICON_COLOR_KEY = "icon_color";
-
-let cachedIconColor: IconColor = DEFAULT_ICON_COLOR;
-let cachedIndexHtml: string = indexHtmlTemplate;
-let cachedManifest: string = manifestTemplate;
-
-function rewriteForColor(color: IconColor): void {
-  cachedIconColor = color;
-  if (color === DEFAULT_ICON_COLOR) {
-    cachedIndexHtml = indexHtmlTemplate;
-    cachedManifest = manifestTemplate;
-  } else {
-    cachedIndexHtml = indexHtmlTemplate.replaceAll(
-      "/icons/teal/",
-      `/icons/${color}/`
-    );
-    cachedManifest = manifestTemplate.replaceAll(
-      "/icons/teal/",
-      `/icons/${color}/`
-    );
-  }
-}
+const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
 
 function withStreamFlag<T extends AgentRecord>(
   agent: T
@@ -584,6 +355,7 @@ const gitContextRuntime = createGitContextRuntime({
   minRequeueMs: GIT_CONTEXT_MIN_REQUEUE_MS,
   diagnosticsHistoryLimit: GIT_DIAGNOSTICS_HISTORY_LIMIT,
 });
+const injectAgentPrompt = createPromptInjector(agentManager, app.log);
 const mcpHandlers = createMcpHandlers({
   pool,
   mediaRoot: config.mediaRoot,
@@ -595,7 +367,7 @@ const mcpHandlers = createMcpHandlers({
   queueGitContextRefresh: gitContextRuntime.queue,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
-  sendAgentPrompt: injectTmuxPrompt,
+  sendAgentPrompt: injectAgentPrompt,
 });
 
 // In-memory cache: null = unknown, true/false = password set/not-set.
@@ -638,13 +410,13 @@ async function registerRoutes() {
     storedIconColor &&
     (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)
   ) {
-    rewriteForColor(storedIconColor as IconColor);
+    staticTheme.rewriteForColor(storedIconColor as IconColor);
   }
 
   await registerStaticRoutes(app, {
-    cachedIndexHtml,
-    cachedManifest,
-    staticAssets,
+    getCachedIndexHtml: staticTheme.getCachedIndexHtml,
+    getCachedManifest: staticTheme.getCachedManifest,
+    staticAssets: staticTheme.staticAssets,
   });
 
   // ---------------------------------------------------------------------------
@@ -754,8 +526,8 @@ async function registerRoutes() {
     slackNotifier,
     iconColorKey: ICON_COLOR_KEY,
     validIconColors: VALID_ICON_COLORS,
-    getCachedIconColor: () => cachedIconColor,
-    rewriteForColor: (color) => rewriteForColor(color as IconColor),
+    getCachedIconColor: staticTheme.getCachedIconColor,
+    rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     pendingGitRefreshEnqueuedAt: gitContextRuntime.pendingEnqueuedAt,
     gitRefreshDurationsMs: gitContextRuntime.durationsMs,
     gitRefreshAgentDiagnostics: gitContextRuntime.agentDiagnostics,
@@ -882,7 +654,7 @@ async function registerRoutes() {
     mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpCancelRecheck: mcpHandlers.cancelRecheck,
     sendAgentPrompt: (agentId, prompt) =>
-      injectTmuxPrompt(agentId, prompt, { swallowFailure: false }),
+      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
     handleAgentError,
@@ -966,15 +738,6 @@ export async function start() {
 }
 
 export { app, shutdown };
-
-function handleAgentError(reply: FastifyReply, error: unknown) {
-  if (error instanceof AgentError) {
-    return reply.code(error.statusCode).send({ error: error.message });
-  }
-
-  const message = error instanceof Error ? error.message : "Unknown error.";
-  return reply.code(500).send({ error: message });
-}
 
 function startAgentStatusReconcileLoop(): void {
   if (agentStatusReconcileTimer) {
@@ -1116,41 +879,4 @@ async function cleanupAppResources(): Promise<void> {
 async function shutdown(code: number): Promise<void> {
   await cleanupAppResources();
   process.exit(code);
-}
-
-function getBearerToken(request: {
-  headers: Record<string, unknown>;
-}): string | null {
-  const authHeader = request.headers.authorization;
-  if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-  return authHeader.slice(7);
-}
-
-async function injectTmuxPrompt(
-  agentId: string,
-  prompt: string,
-  opts: { swallowFailure?: boolean } = {}
-): Promise<void> {
-  try {
-    const access = await agentManager.getTerminalAccess(agentId);
-    if (access.mode !== "tmux") {
-      app.log.debug(
-        { agentId, mode: access.mode },
-        "Skipping tmux injection — agent has no tmux session"
-      );
-      return;
-    }
-    const terminal = new TmuxTerminal(access.sessionName);
-    await terminal.sendCommand(prompt);
-  } catch (error) {
-    if (opts.swallowFailure === false) {
-      throw error;
-    }
-    app.log.warn(
-      { err: error, agentId },
-      "Failed to inject tmux prompt — agent may have exited"
-    );
-  }
 }

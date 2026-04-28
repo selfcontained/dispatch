@@ -3,8 +3,8 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 
 type StaticRouteDeps = {
-  cachedIndexHtml: string;
-  cachedManifest: string;
+  getCachedIndexHtml: () => string;
+  getCachedManifest: () => string;
   staticAssets: Map<string, { contentType: string; body: Buffer | string }>;
 };
 
@@ -20,21 +20,21 @@ export async function registerStaticRoutes(
     return reply
       .type("text/html")
       .headers(noCacheHeaders)
-      .send(deps.cachedIndexHtml);
+      .send(deps.getCachedIndexHtml());
   });
 
   app.get("/index.html", async (_, reply) => {
     return reply
       .type("text/html")
       .headers(noCacheHeaders)
-      .send(deps.cachedIndexHtml);
+      .send(deps.getCachedIndexHtml());
   });
 
   app.get("/manifest.webmanifest", async (_, reply) => {
     return reply
       .type("application/manifest+json")
       .headers(noCacheHeaders)
-      .send(deps.cachedManifest);
+      .send(deps.getCachedManifest());
   });
 
   app.setNotFoundHandler(async (request, reply) => {
@@ -52,7 +52,7 @@ export async function registerStaticRoutes(
       return reply
         .type("text/html")
         .headers(noCacheHeaders)
-        .send(deps.cachedIndexHtml);
+        .send(deps.getCachedIndexHtml());
     }
     return reply.code(404).send({ error: "Not found" });
   });
