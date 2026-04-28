@@ -51,13 +51,13 @@ echo "Optional:"
 # GitHub CLI
 if command -v gh &>/dev/null; then
   if gh auth status &>/dev/null 2>&1; then
-    ok "gh $(gh --version | head -1 | awk '{print $3}') (GitHub workflows)"
+    ok "gh $(gh --version | head -1 | awk '{print $3}')"
   else
     ok "gh $(gh --version | head -1 | awk '{print $3}')"
-    warn "gh auth — optional, for GitHub workflows: gh auth login"
+    warn "gh auth — optional: gh auth login"
   fi
 else
-  warn "gh — optional, helps agents work with GitHub and open PRs: brew install gh"
+  warn "gh — optional: brew install gh"
 fi
 
 # Claude CLI
