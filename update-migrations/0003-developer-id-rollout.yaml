@@ -1,0 +1,53 @@
+id: developer-id-rollout
+title: Observe the first Developer ID signed Bun binary rollout
+summary: >
+  The next release changes the macOS Bun runtime artifact from an ad hoc
+  signature to a stable Developer ID Application identity. Route the first
+  update through the assisted-update flow so the operator can confirm the
+  signed binary launches cleanly, the service comes back healthy, and macOS
+  does not surface unexpected trust or permission regressions during the
+  rollout. Linux installs do not gain a new signature, but they should still
+  follow the same health-and-version validation path for this release.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the service entrypoint points at
+    the expected runtime artifact, the health endpoint is healthy, and on macOS
+    the active Dispatch Bun binary reports the Developer ID Application identity
+    with TeamIdentifier ML8BQ6D727 and identifier dev.bradharris.dispatch. On
+    non-macOS installs, a healthy service at the target tag is sufficient and
+    no extra signing check is required.
+
+instructions:
+  - Inspect the install platform and locate the runtime artifact the service
+    launches for this release.
+  - Confirm the service entrypoint still points at the expected Dispatch Bun
+    wrapper or platform-matched dist/bun/dispatch-* binary before restarting.
+  - >
+    On macOS, run codesign -dvv against the active Dispatch Bun binary and
+    confirm it reports Developer ID Application: Brad Harris (ML8BQ6D727),
+    TeamIdentifier ML8BQ6D727, and identifier dev.bradharris.dispatch.
+  - On Linux, no signing change is expected; skip the codesign inspection and
+    continue with the normal validation path.
+  - Restart the service via the host service manager and wait for
+    $DISPATCH_API_URL/api/v1/health to return status=ok.
+  - Confirm release.json reports the target tag before reporting validate.
+  - If the service restarts but macOS surfaces new trust, launch, or protected
+    folder prompts unexpectedly, capture that as rollout evidence before
+    proceeding.
+
+validation:
+  requiredChecks:
+    - expected_runtime_artifact
+    - service_entrypoint
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If the signed binary will not launch cleanly, roll back to the previous
+    healthy release tag using the normal release rollback path for this host.
+  - Restore the prior runtime artifact and service entrypoint if they were
+    changed during recovery.
+  - Restart the service and confirm the health endpoint returns status=ok and
+    release.json reports the prior healthy tag.
