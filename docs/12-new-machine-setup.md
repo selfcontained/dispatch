@@ -19,13 +19,10 @@ The new machine needs:
 
 ### Optional
 
-| Dependency         | Purpose                                   | Install                                    |
-| ------------------ | ----------------------------------------- | ------------------------------------------ |
-| **Bun 1.3+**       | Source-build fallback and local dev       | [bun.com/install](https://bun.com/install) |
-| **Node 22+**       | Source-build/local-dev toolchain          | `brew install node@22` or `nvm install 22` |
-| **pnpm**           | Source-build/local-dev package manager    | `npm install -g pnpm`                      |
-| **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker`               |
-| **Xcode** (full)   | iOS Simulator, `xcrun simctl`             | App Store                                  |
+| Dependency         | Purpose                                   | Install                      |
+| ------------------ | ----------------------------------------- | ---------------------------- |
+| **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker` |
+| **Xcode** (full)   | iOS Simulator, `xcrun simctl`             | App Store                    |
 
 ## Agent Setup Prompt
 
@@ -34,18 +31,16 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, tmux, PostgreSQL 17 (via brew), GitHub CLI, and Playwright browsers. Only install Bun 1.3+, Node 22+, and pnpm if you need the source-build fallback or local development. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
+1. Install system dependencies if missing: Homebrew, tmux, PostgreSQL 17 (via brew), GitHub CLI, and Playwright browsers. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
 6. Copy .env.example to .env. The defaults work for local-only use.
 7. Run gh auth login so GitHub CLI can fetch release artifacts and manage releases.
-8. Install the launchd service: bin/install-launchd --port 6767. This should download the latest compiled release artifact and run the compiled Bun binary. If it falls back to a source build, install Bun 1.3+, Node 22+, and pnpm first, then retry.
+8. Install the launchd service: bin/install-launchd --port 6767. This should download the latest compiled release artifact and run the compiled Bun binary.
 9. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
 10. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
-11. Optional: if you also want a local development checkout on this machine, install Bun 1.3+, Node 22+, and pnpm, then run pnpm install && pnpm run build:bun in ~/dev/apps/dispatch.
-
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
 
@@ -57,7 +52,7 @@ Run this first to see what's missing:
 bin/preflight
 ```
 
-It checks for all required and optional dependencies and tells you exactly what to install.
+It checks the persistent-service prerequisites and tells you exactly what to install.
 
 ## Step-by-step Setup
 
@@ -73,10 +68,6 @@ xcode-select --install
 # Core tools
 brew install tmux gh postgresql@17
 
-# Optional source-build/local-dev toolchain
-brew install node@22
-npm install -g pnpm
-curl -fsSL https://bun.com/install | bash
 ```
 
 ### 2. PostgreSQL
@@ -117,20 +108,7 @@ The defaults work for local-only use. Authentication is handled automatically �
 
 If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` in `.env` (and in `~/.dispatch/server/.env` after installation).
 
-### 5. Optional source-build validation
-
-```bash
-pnpm install
-pnpm run build:bun
-
-# Quick smoke test
-pnpm run start
-# In another terminal:
-curl -s http://127.0.0.1:6767/api/v1/health | jq
-# Ctrl-C to stop
-```
-
-### 6. GitHub CLI auth (for artifact downloads and releases)
+### 5. GitHub CLI auth (for artifact downloads and releases)
 
 ```bash
 gh auth login
@@ -138,7 +116,7 @@ gh auth login
 
 This makes the artifact-first install path more reliable and is also needed for the Dispatch server's release flow to trigger GitHub Actions workflows.
 
-### 7. Install as launchd service (production)
+### 6. Install as launchd service (production)
 
 ```bash
 bin/install-launchd --port 6767
@@ -149,7 +127,6 @@ This:
 - Clones the repo to `~/.dispatch/server/` (separate checkout for production)
 - Copies your `.env` to `~/.dispatch/server/.env`
 - Downloads the latest compiled release artifact when available
-- Falls back to a source build only if no release artifact is available
 - Creates and loads a launchd plist (`~/Library/LaunchAgents/com.dispatch.server.plist`)
 - Server starts automatically on login, restarts on crash
 
@@ -161,7 +138,7 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 tail -20 ~/.dispatch/logs/dispatch.log
 ```
 
-### 8. Agent CLIs
+### 7. Agent CLIs
 
 Dispatch spawns agents via their CLI tools. Install whichever you plan to use:
 
@@ -190,7 +167,7 @@ curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types \
   -d '{"enabledAgentTypes": ["claude", "codex"]}'
 ```
 
-### 9. Playwright browsers
+### 8. Playwright browsers
 
 Agents use Playwright for headless UI validation. Install the browser once — it's shared across all agents:
 
@@ -209,9 +186,6 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 
 # tmux available
 tmux -V
-
-# If you installed the optional source-build toolchain
-node -v  # Should be v22+
 
 # Create a test agent via API
 curl -s -X POST http://127.0.0.1:6767/api/v1/agents \
@@ -289,13 +263,11 @@ brew services start postgresql@17    # Start it
 tail -20 /opt/homebrew/var/log/postgresql@17.log  # Check logs
 ```
 
-### install-launchd fell back to a source build
+### install-launchd could not fetch a release artifact
 
 ```bash
-command -v gh                        # install gh to enable artifact downloads
-command -v bun                       # install Bun 1.3+ for source builds
-command -v node                      # install Node 22+ for pnpm workflows
-command -v pnpm                      # install pnpm
+command -v gh
+gh auth status
 ```
 
 ### Agent can't use dispatch_event/dispatch_share MCP tools

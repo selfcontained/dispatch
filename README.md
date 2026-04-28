@@ -9,15 +9,14 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch. On macOS, install **GitHub CLI** too so `bin/install-launchd` can fetch the latest compiled release artifact, then run `gh auth login` before installing the service. Only if you plan to build from source or do local development, also install **Bun 1.3+**, **Node 22+**, and **pnpm**.
+> 2. Install system dependencies: **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch. On macOS, install **GitHub CLI** too so `bin/install-launchd` can fetch the latest compiled release artifact, then run `gh auth login` before installing the service.
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
-> 4. If installing from source instead of a GitHub release artifact: `pnpm install && pnpm run build:bun`
-> 5. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
-> 6. Register as a system service:
+> 4. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
+> 5. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
 >    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the compiled `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
-> 7. Verify: `curl http://127.0.0.1:6767/api/v1/health`
-> 8. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
+> 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
+> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
@@ -58,16 +57,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 Dispatch currently uses an artifact-first deploy path:
 
 - **Production installs** run the compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
-- **`bin/install-launchd`** prefers downloading the latest compiled release artifact and only falls back to a source build if no artifact is available.
-- **Source builds and local development** use **Bun 1.3+**, **Node 22+**, and **pnpm**.
-
-For source builds and local development, install:
-
-| Dependency   | Purpose                                                 | macOS                                      | Linux                                          |
-| ------------ | ------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------- |
-| **Bun 1.3+** | Server runtime in dev and compiled binary build tool    | [bun.com/install](https://bun.com/install) | [bun.com/install](https://bun.com/install)     |
-| **Node 22+** | Frontend/tooling runtime used by `pnpm` workflows       | `brew install node@22`                     | install Node 22 from your distro or NodeSource |
-| **pnpm**     | Package manager for source builds and workspace scripts | `npm i -g pnpm`                            | `npm i -g pnpm`                                |
+- **`bin/install-launchd`** downloads the latest compiled release artifact for install and updates.
 
 ### Optional
 
