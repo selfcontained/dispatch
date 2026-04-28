@@ -7,7 +7,6 @@ set -euo pipefail
 pass=0
 fail=0
 warn=0
-artifact_ready=0
 
 ok()   { pass=$((pass + 1)); printf "  ✓ %s\n" "$1"; }
 fail() { fail=$((fail + 1)); printf "  ✗ %s\n" "$1"; }
@@ -47,29 +46,19 @@ else
 fi
 
 echo ""
-echo "Install path:"
+echo "Optional:"
 
 # GitHub CLI
 if command -v gh &>/dev/null; then
-  artifact_ready=1
   if gh auth status &>/dev/null 2>&1; then
-    ok "gh $(gh --version | head -1 | awk '{print $3}') (release artifacts + GitHub workflows)"
+    ok "gh $(gh --version | head -1 | awk '{print $3}') (GitHub workflows)"
   else
-    ok "gh $(gh --version | head -1 | awk '{print $3}') (release artifacts)"
-    warn "gh auth — recommended for reliable artifact downloads and GitHub workflows: gh auth login"
+    ok "gh $(gh --version | head -1 | awk '{print $3}')"
+    warn "gh auth — optional, for GitHub workflows: gh auth login"
   fi
 else
-  warn "gh — recommended for release artifacts and GitHub workflows: brew install gh"
+  warn "gh — optional, helps agents work with GitHub and open PRs: brew install gh"
 fi
-
-if (( artifact_ready == 1 )); then
-  ok "install path ready (release artifact)"
-else
-  warn "release artifact path unavailable — install gh if this machine should fetch compiled releases"
-fi
-
-echo ""
-echo "Optional:"
 
 # Claude CLI
 if command -v claude &>/dev/null; then

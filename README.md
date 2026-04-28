@@ -9,7 +9,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
 >
 > 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch. On macOS, install **GitHub CLI** too so `bin/install-launchd` can fetch the latest compiled release artifact, then run `gh auth login` before installing the service.
+> 2. Install system dependencies: **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch.
 > 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
 > 4. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
 > 5. Register as a system service:
@@ -47,22 +47,19 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Prerequisites
 
-| Dependency                 | Purpose                                                | macOS                        | Linux                    |
-| -------------------------- | ------------------------------------------------------ | ---------------------------- | ------------------------ |
-| **PostgreSQL 14+**         | Database                                               | `brew install postgresql@17` | `apt install postgresql` |
-| **tmux**                   | Agent session management                               | `brew install tmux`          | `apt install tmux`       |
-| **GitHub CLI**             | Fetch release artifacts / help agents work with GitHub | `brew install gh`            | `apt install gh`         |
-| **At least one agent CLI** | The agents Dispatch runs                               | See below                    | See below                |
+| Dependency                 | Purpose                  | macOS                        | Linux                    |
+| -------------------------- | ------------------------ | ---------------------------- | ------------------------ |
+| **PostgreSQL 14+**         | Database                 | `brew install postgresql@17` | `apt install postgresql` |
+| **tmux**                   | Agent session management | `brew install tmux`          | `apt install tmux`       |
+| **At least one agent CLI** | The agents Dispatch runs | See below                    | See below                |
 
-Dispatch currently uses an artifact-first deploy path:
-
-- **Production installs** run the compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
-- **`bin/install-launchd`** downloads the latest compiled release artifact for install and updates.
+Dispatch currently uses an artifact-first deploy path, and production installs run the compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
 
 ### Optional
 
 | Dependency       | Purpose                                   | Install                                                                                                 |
 | ---------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **GitHub CLI**   | Help agents work with GitHub and open PRs | `brew install gh` / `apt install gh`                                                                    |
 | **Docker**       | Isolated dev databases via `dispatch-dev` | macOS: `brew install --cask docker` / Linux: [docs.docker.com](https://docs.docker.com/engine/install/) |
 | **xclip + Xvfb** | Clipboard image paste (Linux only)        | `apt install xclip xvfb`                                                                                |
 
