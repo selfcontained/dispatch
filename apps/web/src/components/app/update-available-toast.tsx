@@ -3,8 +3,10 @@ import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { reloadApp } from "@/lib/pwa-update";
 import {
+  dismissVersionMismatch,
   getServerVersion,
   isVersionMismatch,
+  isVersionMismatchDismissed,
   subscribeVersionMismatch,
 } from "@/lib/version";
 import { cn } from "@/lib/utils";
@@ -19,31 +21,31 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
   return selectors.some((selector) => element.matches(selector));
 }
 
+type ToastState = {
+  visible: boolean;
+  serverVersion: string | null;
+};
+
+function readToastState(): ToastState {
+  return {
+    visible: isVersionMismatch() && !isVersionMismatchDismissed(),
+    serverVersion: getServerVersion(),
+  };
+}
+
 export function UpdateAvailableToast(): JSX.Element | null {
-  const [needRefresh, setNeedRefresh] = useState<boolean>(() =>
-    isVersionMismatch()
-  );
-  const [serverVersion, setServerVersion] = useState<string | null>(() =>
-    getServerVersion()
-  );
-  const [dismissed, setDismissed] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const [state, setState] = useState<ToastState>(readToastState);
+  const reloadingRef = useRef(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    const sync = (): void => {
-      setNeedRefresh(isVersionMismatch());
-      setServerVersion(getServerVersion());
-    };
-    const unsubscribe = subscribeVersionMismatch(() => {
-      sync();
-      setDismissed(false);
-    });
+    const sync = (): void => setState(readToastState());
+    const unsubscribe = subscribeVersionMismatch(sync);
     sync();
     return unsubscribe;
   }, []);
 
-  if (!needRefresh || dismissed) return null;
+  if (!state.visible) return null;
 
   const handleReload = (): void => {
     const activeElement = document.activeElement;
@@ -61,18 +63,18 @@ export function UpdateAvailableToast(): JSX.Element | null {
       return;
     }
 
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
+
     if (isEditableElement(activeElement)) {
       activeElement.blur();
     }
 
-    setReloading(true);
-    reloadApp().catch(() => {
-      setReloading(false);
-    });
+    void reloadApp();
   };
 
   const handleDismiss = (): void => {
-    setDismissed(true);
+    dismissVersionMismatch();
   };
 
   return (
@@ -123,8 +125,8 @@ export function UpdateAvailableToast(): JSX.Element | null {
             aria-live="polite"
             className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words"
           >
-            {serverVersion
-              ? `Server updated to ${serverVersion}. Reload to pick it up.`
+            {state.serverVersion
+              ? `Server updated to ${state.serverVersion}. Reload to pick it up.`
               : "Server updated. Reload to pick up the new version."}
           </div>
         </div>
@@ -135,12 +137,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
             );
           }}
           onClick={handleReload}
-          disabled={reloading}
           className="h-11 w-full shrink-0 md:h-8 md:w-auto"
         >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5 mr-1.5", reloading && "animate-spin")}
-          />
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
           Reload
         </Button>
       </div>

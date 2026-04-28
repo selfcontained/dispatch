@@ -81,7 +81,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const reloadingRef = useRef(false);
 
   // Fetch version info + channel on mount
   useEffect(() => {
@@ -204,12 +204,14 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   );
 
   const handleReload = useCallback(() => {
-    setReloading(true);
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
     void reloadApp();
   }, []);
 
   const handleClearCacheAndReload = useCallback(() => {
-    setReloading(true);
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
     void clearCachesAndReload();
   }, []);
 
@@ -538,20 +540,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             size="sm"
             variant="default"
             onClick={handleReload}
-            disabled={reloading}
             className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
           >
-            <RefreshCw
-              className={cn("mr-1 h-3.5 w-3.5", reloading && "animate-spin")}
-            />
-            {reloading ? "Reloading..." : "Reload"}
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            Reload
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 size="sm"
                 variant="default"
-                disabled={reloading}
                 className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
