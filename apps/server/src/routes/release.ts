@@ -34,26 +34,16 @@ import {
   type PendingMigrationSummary,
 } from "../update-migrations-evaluator.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import type {
+  ReleaseJob,
+  ReleaseStreamEvent,
+  ReleaseVersionType,
+} from "../server/release-runtime.js";
+import { RELEASE_VERSION_TYPES } from "../server/release-runtime.js";
 
-const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
-type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
 const RELEASE_CHANNEL_KEY = "release_channel";
 const VALID_CHANNELS = ["stable", "latest"] as const;
 type ReleaseChannel = (typeof VALID_CHANNELS)[number];
-
-export type ReleaseJob = {
-  jobType: "create" | "update" | "update-assisted";
-  versionType: ReleaseVersionType | null;
-  phase: string;
-  startedAt: string;
-  log: string[];
-  runUrl: string | null;
-  tag: string | null;
-  error: string | null;
-  assisted?: AssistedUpdateState;
-};
-
-export type ReleaseStreamEvent = { type: "snapshot"; job: ReleaseJob | null };
 
 type ReleaseRouteDeps = {
   pool: Pool;
@@ -99,7 +89,7 @@ type ReleaseRouteDeps = {
     currentTag: string | null;
   }) => string;
   hasActiveAssistedUpdateAgent: () => Promise<boolean>;
-  broadcastReleaseEvent: (event: unknown) => void;
+  broadcastReleaseEvent: (event: ReleaseStreamEvent) => void;
   appendReleaseLog: (job: ReleaseJob, line: string) => void;
   rehydrateActiveAssistedJob: () => Promise<void>;
   runReleaseJob: (job: ReleaseJob) => Promise<void>;
