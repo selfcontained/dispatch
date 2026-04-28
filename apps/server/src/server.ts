@@ -21,9 +21,7 @@ import * as z from "zod/v4";
 import { AgentManager } from "./agents/manager.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
-  isPasswordSet,
   validateSession,
-  cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
   getReleaseUpdateAgentId,
@@ -92,7 +90,6 @@ import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import { staticFiles as embeddedStaticFiles } from "./generated/runtime-assets.js";
-import { randomUUID } from "node:crypto";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
@@ -112,7 +109,9 @@ import {
   parseActivityQuery,
   timeRangeClause,
 } from "./server/activity-query.js";
+import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
+import { createAuthRuntime } from "./server/auth-runtime.js";
 import {
   createGitContextRuntime,
   percentile,
@@ -128,6 +127,7 @@ import {
   createMcpHandlers,
   mcpMethodNotAllowed,
 } from "./server/mcp-handlers.js";
+import { createNotificationRuntime } from "./server/notification-runtime.js";
 import {
   createStaticThemeRuntime,
   type IconColor,
@@ -148,131 +148,6 @@ slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
-const JOB_TERMINAL_STATUSES = new Set([
-  "completed",
-  "failed",
-  "timed_out",
-  "crashed",
-]);
-jobService.onRunStateChange((run) => {
-  uiEventBroker.publish({ type: "job.changed" });
-  void jobNotifier.onJobRunStateChange(run).catch((err) => {
-    app.log.warn({ err, runId: run.id }, "Job run state notification failed");
-  });
-  // Auto-archive job agents when the run reaches a terminal state.
-  // needs_input is excluded — user may need to interact with the agent.
-  // Jobs with autoArchive=false keep the agent around for post-run follow-up.
-  const shouldAutoArchive = run.config?.autoArchive ?? true;
-  if (
-    JOB_TERMINAL_STATUSES.has(run.status) &&
-    run.agentId &&
-    shouldAutoArchive
-  ) {
-    void autoArchiveJobAgent(run.agentId).catch((err) => {
-      app.log.warn(
-        { err, agentId: run.agentId },
-        "Auto-archive of job agent failed"
-      );
-    });
-  }
-});
-// Suppress agent-level Slack notifications for job agents (job notifier handles those).
-// Job agents are named "job-*" — skip the DB lookup for regular agents.
-// When web notifications are enabled and an SSE client is connected, broadcast
-// a notification via SSE and wait for an ack from any client. If no ack arrives
-// within the timeout, fall back to Slack.
-const WEB_NOTIFY_ACK_TIMEOUT_MS = 3_000;
-const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
-
-/** Called by the ack endpoint when a client confirms delivery. */
-function ackWebNotification(notificationId: string): boolean {
-  const timer = pendingWebNotifications.get(notificationId);
-  if (!timer) return false;
-  clearTimeout(timer);
-  pendingWebNotifications.delete(notificationId);
-  return true;
-}
-
-agentManager.onLatestEvent((agent) => {
-  const sendSlackNotification = async () => {
-    if (!agent.name?.startsWith("job-")) {
-      await slackNotifier.onAgentEvent(agent);
-      return;
-    }
-    const run = await jobService.getLatestRunForAgent(agent.id);
-    if (!run) await slackNotifier.onAgentEvent(agent);
-  };
-
-  void (async () => {
-    try {
-      // Check if we should attempt a web notification.
-      // Conditions: web notifications enabled, event type configured, agent not focused.
-      const webPayload = await slackNotifier.shouldWebNotify(agent);
-      if (webPayload && uiEventBroker.hasConnectedClient()) {
-        // Broadcast notification via SSE with a unique ID.
-        // If any client acks within the timeout, Slack is suppressed.
-        // Otherwise fall back to Slack.
-        const notificationId = randomUUID();
-        uiEventBroker.publish({
-          type: "notification",
-          notificationId,
-          ...webPayload,
-        });
-
-        const fallbackTimer = setTimeout(() => {
-          pendingWebNotifications.delete(notificationId);
-          app.log.debug(
-            { notificationId, agentId: agent.id },
-            "Web notification not acked — falling back to Slack"
-          );
-          void sendSlackNotification();
-        }, WEB_NOTIFY_ACK_TIMEOUT_MS);
-
-        pendingWebNotifications.set(notificationId, fallbackTimer);
-      } else {
-        await sendSlackNotification();
-      }
-    } catch (err) {
-      app.log.warn({ err, agentId: agent.id }, "Agent notification failed");
-    }
-  })();
-});
-const activeArchives = new Set<Promise<void>>();
-const archivingAgentIds = new Set<string>();
-
-async function autoArchiveJobAgent(agentId: string): Promise<void> {
-  if (archivingAgentIds.has(agentId)) return;
-  try {
-    const agent = await agentManager.beginArchive(agentId, "auto");
-    uiEventBroker.publish({
-      type: "agent.upsert",
-      agent: withStreamFlag(agent),
-    });
-    archivingAgentIds.add(agentId);
-    const archivePromise = agentManager.executeArchive(agentId, {
-      onPhaseChange: (updated) => {
-        uiEventBroker.publish({
-          type: "agent.upsert",
-          agent: withStreamFlag(updated),
-        });
-      },
-      onComplete: (deletedIds) => {
-        for (const deletedId of deletedIds) {
-          uiEventBroker.publish({ type: "agent.deleted", agentId: deletedId });
-          archivingAgentIds.delete(deletedId);
-        }
-        activeArchives.delete(archivePromise);
-      },
-      onError: () => {
-        archivingAgentIds.delete(agentId);
-        activeArchives.delete(archivePromise);
-      },
-    });
-    activeArchives.add(archivePromise);
-  } catch (err) {
-    app.log.warn({ err, agentId }, "Auto-archive of job agent failed");
-  }
-}
 
 const uiEventBroker = new UiEventBroker();
 const streamManager = new StreamManager(
@@ -310,7 +185,6 @@ const GIT_CONTEXT_MIN_REQUEUE_MS = 60_000;
 const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
-let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -355,7 +229,30 @@ const gitContextRuntime = createGitContextRuntime({
   minRequeueMs: GIT_CONTEXT_MIN_REQUEUE_MS,
   diagnosticsHistoryLimit: GIT_DIAGNOSTICS_HISTORY_LIMIT,
 });
+const agentLifecycleRuntime = createAgentLifecycleRuntime({
+  agentManager,
+  streamManager,
+  appLog: app.log,
+  reconcileIntervalMs: AGENT_STATUS_RECONCILE_INTERVAL_MS,
+  withStreamFlag,
+  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  clearGitContextAgent: gitContextRuntime.clearAgent,
+});
+const notificationRuntime = createNotificationRuntime({
+  agentManager,
+  jobService,
+  slackNotifier,
+  uiEventBroker,
+  appLog: app.log,
+  webNotifyAckTimeoutMs: 3_000,
+  autoArchiveJobAgent: (agentId) =>
+    agentLifecycleRuntime.autoArchiveJobAgent(agentId),
+});
 const injectAgentPrompt = createPromptInjector(agentManager, app.log);
+const authRuntime = createAuthRuntime({
+  pool,
+  sessionCleanupIntervalMs: 60 * 60 * 1000,
+});
 const mcpHandlers = createMcpHandlers({
   pool,
   mediaRoot: config.mediaRoot,
@@ -369,20 +266,26 @@ const mcpHandlers = createMcpHandlers({
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
 });
-
-// In-memory cache: null = unknown, true/false = password set/not-set.
-let passwordSetCache: boolean | null = null;
-
-async function isPasswordSetCached(): Promise<boolean> {
-  if (passwordSetCache === null) {
-    passwordSetCache = await isPasswordSet(pool);
-  }
-  return passwordSetCache;
-}
-
-function invalidatePasswordSetCache(): void {
-  passwordSetCache = null;
-}
+const jobTerminalStatuses = new Set([
+  "completed",
+  "failed",
+  "timed_out",
+  "crashed",
+]);
+jobService.onRunStateChange((run) => {
+  notificationRuntime.publishJobChanged();
+  void jobNotifier.onJobRunStateChange(run).catch((err) => {
+    app.log.warn({ err, runId: run.id }, "Job run state notification failed");
+  });
+  void notificationRuntime
+    .maybeAutoArchiveJobRun(run, jobTerminalStatuses)
+    .catch((err) => {
+      app.log.warn(
+        { err, agentId: run.agentId },
+        "Auto-archive of job agent failed"
+      );
+    });
+});
 
 const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
@@ -439,7 +342,7 @@ async function registerRoutes() {
     if (url === "/api/v1/release/assisted/phase") return;
 
     // If no password is set, all routes are open (first-run mode).
-    if (!(await isPasswordSetCached())) return;
+    if (!(await authRuntime.isPasswordSetCached())) return;
 
     // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
     const authHeader = request.headers.authorization;
@@ -477,8 +380,8 @@ async function registerRoutes() {
     tls: config.tls,
     sessionCookie: SESSION_COOKIE,
     sessionMaxAgeSeconds: SESSION_MAX_AGE_S,
-    isPasswordSetCached,
-    invalidatePasswordSetCache,
+    isPasswordSetCached: () => authRuntime.isPasswordSetCached(),
+    invalidatePasswordSetCache: () => authRuntime.invalidatePasswordSetCache(),
   });
 
   await registerJobRoutes(app, {
@@ -608,7 +511,8 @@ async function registerRoutes() {
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>
       uiEventBroker.sendSnapshot(stream, agents),
-    ackWebNotification,
+    ackWebNotification: (notificationId) =>
+      notificationRuntime.ackWebNotification(notificationId),
     clearFocusedAgents: () => focusTracker.clearAll(),
     setFocusedAgent: (agentId) => focusTracker.setFocused(agentId),
     withStreamFlag,
@@ -622,27 +526,12 @@ async function registerRoutes() {
     issueTerminalToken: (agentId) => terminalTokenStore.issue(agentId),
     consumeTerminalToken: (agentId, token) =>
       terminalTokenStore.consume(agentId, token),
-    onArchivedAgentsDeleted: (deletedIds) => {
-      for (const deletedId of deletedIds) {
-        streamManager.stopStream(deletedId);
-        gitContextRuntime.clearAgent(deletedId);
-        uiEventBroker.publish({
-          type: "agent.deleted",
-          agentId: deletedId,
-        });
-      }
-    },
-    onArchiveError: (agentId, error) => {
-      app.log.error({ err: error, agentId }, "Background archive failed");
-    },
-    trackArchivePromise: (agentId, archivePromise) => {
-      archivingAgentIds.add(agentId);
-      activeArchives.add(archivePromise);
-      archivePromise.finally(() => {
-        activeArchives.delete(archivePromise);
-        archivingAgentIds.delete(agentId);
-      });
-    },
+    onArchivedAgentsDeleted: (deletedIds) =>
+      agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
+    onArchiveError: (agentId, error) =>
+      agentLifecycleRuntime.onArchiveError(agentId, error),
+    trackArchivePromise: (agentId, archivePromise) =>
+      agentLifecycleRuntime.trackArchivePromise(agentId, archivePromise),
   });
 
   // --- Personas ---
@@ -709,8 +598,8 @@ export async function initializeApp(options?: {
     const agents = await agentManager.listAgents();
     gitContextRuntime.queue(agents.map((agent) => agent.id));
     gitContextRuntime.startLoop();
-    startAgentStatusReconcileLoop();
-    startSessionCleanupTimer();
+    agentLifecycleRuntime.startReconcileLoop();
+    authRuntime.startSessionCleanupTimer();
   }
   if (!routesRegistered) {
     await registerRoutes();
@@ -739,106 +628,6 @@ export async function start() {
 
 export { app, shutdown };
 
-function startAgentStatusReconcileLoop(): void {
-  if (agentStatusReconcileTimer) {
-    return;
-  }
-  agentStatusReconcileTimer = setInterval(() => {
-    void runAgentStatusReconciliation().catch((err) => {
-      app.log.warn({ err }, "Agent status reconciliation failed");
-    });
-  }, AGENT_STATUS_RECONCILE_INTERVAL_MS);
-}
-
-function stopAgentStatusReconcileLoop(): void {
-  if (!agentStatusReconcileTimer) {
-    return;
-  }
-  clearInterval(agentStatusReconcileTimer);
-  agentStatusReconcileTimer = null;
-}
-
-let sessionCleanupTimer: NodeJS.Timeout | null = null;
-
-function startSessionCleanupTimer(): void {
-  if (sessionCleanupTimer) return;
-  sessionCleanupTimer = setInterval(
-    () => {
-      void cleanExpiredSessions(pool).catch(() => null);
-    },
-    60 * 60 * 1000
-  ); // every hour
-}
-
-function stopSessionCleanupTimer(): void {
-  if (!sessionCleanupTimer) return;
-  clearInterval(sessionCleanupTimer);
-  sessionCleanupTimer = null;
-}
-
-async function runAgentStatusReconciliation(): Promise<void> {
-  try {
-    const reconciled = await agentManager.reconcileAgentStatuses();
-    for (const agent of reconciled) {
-      if (agent.status === "archiving") {
-        // Skip if this agent already has an active archive in progress
-        if (archivingAgentIds.has(agent.id)) {
-          continue;
-        }
-        // Resume interrupted archive
-        console.log(
-          `[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`
-        );
-        uiEventBroker.publish({
-          type: "agent.upsert",
-          agent: withStreamFlag(agent),
-        });
-        // Cleanup mode is persisted on the agent record by beginArchive
-        archivingAgentIds.add(agent.id);
-        const archivePromise = agentManager.executeArchive(agent.id, {
-          onPhaseChange: (updated) => {
-            uiEventBroker.publish({
-              type: "agent.upsert",
-              agent: withStreamFlag(updated),
-            });
-          },
-          onComplete: (deletedIds) => {
-            for (const deletedId of deletedIds) {
-              streamManager.stopStream(deletedId);
-              gitContextRuntime.clearAgent(deletedId);
-              uiEventBroker.publish({
-                type: "agent.deleted",
-                agentId: deletedId,
-              });
-            }
-          },
-          onError: (error) => {
-            app.log.error(
-              { err: error, agentId: agent.id },
-              "Resumed archive failed"
-            );
-          },
-        });
-        activeArchives.add(archivePromise);
-        archivePromise.finally(() => {
-          activeArchives.delete(archivePromise);
-          archivingAgentIds.delete(agent.id);
-        });
-      } else {
-        console.log(
-          `[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`
-        );
-        uiEventBroker.publish({
-          type: "agent.upsert",
-          agent: withStreamFlag(agent),
-        });
-      }
-    }
-  } catch (error) {
-    app.log.warn({ err: error }, "Agent status reconciliation failed.");
-  }
-}
-
 let shuttingDown = false;
 async function cleanupAppResources(): Promise<void> {
   if (shuttingDown) {
@@ -849,28 +638,12 @@ async function cleanupAppResources(): Promise<void> {
   jobService.stopAllSchedulers();
   streamManager.stopAll();
   gitContextRuntime.stopLoop();
-  stopAgentStatusReconcileLoop();
-  stopSessionCleanupTimer();
+  agentLifecycleRuntime.stopReconcileLoop();
+  authRuntime.stopSessionCleanupTimer();
 
-  // Cancel pending web notification fallback timers so they don't fire
-  // Slack notifications after the pool is closed.
-  for (const timer of pendingWebNotifications.values()) {
-    clearTimeout(timer);
-  }
-  pendingWebNotifications.clear();
+  notificationRuntime.clearPendingWebNotifications();
 
-  // Wait for in-flight archives to finish so clean shutdowns don't leave agents stuck in "archiving"
-  if (activeArchives.size > 0) {
-    app.log.info(
-      { count: activeArchives.size },
-      "Waiting for in-flight archives to complete…"
-    );
-    const ARCHIVE_DRAIN_TIMEOUT_MS = 10_000;
-    await Promise.race([
-      Promise.allSettled(activeArchives),
-      new Promise((resolve) => setTimeout(resolve, ARCHIVE_DRAIN_TIMEOUT_MS)),
-    ]);
-  }
+  await agentLifecycleRuntime.waitForActiveArchives(10_000);
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);
