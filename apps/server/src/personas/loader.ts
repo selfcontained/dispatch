@@ -131,7 +131,7 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 ## Feedback Guidelines (from Dispatch)
 
 ### How to submit feedback
-- Call \`dispatch_feedback\` for each finding with: severity, file path, line number, description, and a concrete suggestion.
+- Call \`dispatch_feedback\` for each finding with: severity, description, and a concrete suggestion. Include file path and line number when applicable.
 - Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
 
 ### Review lifecycle
