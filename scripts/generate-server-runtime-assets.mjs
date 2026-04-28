@@ -99,7 +99,17 @@ const packageVersion = (() => {
   if (typeof parsed.version !== "string" || !parsed.version.trim()) {
     throw new Error(`Missing "version" in ${rootPackageJson}`);
   }
-  return parsed.version.trim();
+  const value = parsed.version.trim();
+  // The version is stamped onto every /api/* response via the
+  // X-Dispatch-Version header. Embedded CR/LF/NUL would make Node's
+  // http.ServerResponse.setHeader throw ERR_INVALID_CHAR for every
+  // request, so fail loudly at build time instead.
+  if (!/^[0-9A-Za-z.+-]+$/.test(value)) {
+    throw new Error(
+      `Invalid "version" in ${rootPackageJson}: ${JSON.stringify(value)}`
+    );
+  }
+  return value;
 })();
 
 const lines = [];

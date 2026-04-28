@@ -19,6 +19,14 @@ if (
   throw new Error("Root package.json is missing a version field");
 }
 const packageVersion = rootPackageJson.version.trim();
+// Mirror the shape check from the server-side runtime-assets codegen so
+// a malformed release surfaces at build time, not as a runtime
+// X-Dispatch-Version header failure.
+if (!/^[0-9A-Za-z.+-]+$/.test(packageVersion)) {
+  throw new Error(
+    `Invalid "version" in root package.json: ${JSON.stringify(packageVersion)}`
+  );
+}
 
 export default defineConfig({
   define: {
