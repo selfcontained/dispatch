@@ -10,7 +10,10 @@ const SUFFIX = `test-${process.pid}-${Date.now()}`;
 const STATE_FILE = `/tmp/dispatch-dev-${SUFFIX}.env`;
 const LOG_DIR = `/tmp/dispatch-dev-${SUFFIX}`;
 
-function run(args: string, options?: { expectFail?: boolean }): string {
+function run(
+  args: string,
+  options?: { expectFail?: boolean; env?: Record<string, string> }
+): string {
   try {
     return execSync(`${BIN} ${args}${args ? " " : ""}--suffix ${SUFFIX}`, {
       cwd: REPO_ROOT,
@@ -19,6 +22,7 @@ function run(args: string, options?: { expectFail?: boolean }): string {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
+        ...options?.env,
         // Clear agent ID so it doesn't leak into suffix
         DISPATCH_AGENT_ID: "",
       },
@@ -55,7 +59,7 @@ describe("dispatch-dev", () => {
 
   it("starts and stops a full stack", () => {
     // --- up ---
-    const upOutput = run("up");
+    const upOutput = run("up", { env: { DISPATCH_HOST: "127.0.0.1" } });
     expect(upOutput).toContain("Database ready on port");
     expect(upOutput).toContain("API server starting on port");
     expect(upOutput).toContain("Vite dev server starting on port");
@@ -92,6 +96,29 @@ describe("dispatch-dev", () => {
     // State file cleaned
     expect(existsSync(STATE_FILE)).toBe(false);
     expect(existsSync(LOG_DIR)).toBe(false);
+  }, 60_000);
+
+  it("reports a custom DISPATCH_HOST in status and url output", () => {
+    const displayHost = "0.0.0.0";
+
+    try {
+      const upOutput = run("up --no-db", {
+        env: { DISPATCH_HOST: displayHost },
+      });
+      expect(upOutput).toContain(`api: http://${displayHost}:`);
+      expect(upOutput).toContain(`web: http://${displayHost}:`);
+
+      const statusOutput = run("status");
+      expect(statusOutput).toContain(`api:  running — http://${displayHost}:`);
+      expect(statusOutput).toContain(`vite: running — http://${displayHost}:`);
+
+      const urlOutput = run("url");
+      expect(urlOutput).toMatch(
+        new RegExp(`^http://${displayHost.replaceAll(".", "\\.")}:\\d+$`)
+      );
+    } finally {
+      run("down");
+    }
   }, 60_000);
 
   it("refuses to start a second stack with the same suffix", () => {
