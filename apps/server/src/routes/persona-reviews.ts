@@ -4,7 +4,6 @@ import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { loadPersonas } from "../personas/loader.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
-import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 
 type PersonaReviewRouteDeps = {
   agentManager: AgentManager;
@@ -23,6 +22,7 @@ type PersonaReviewRouteDeps = {
     agentId: string,
     input: { personaAgentId: string; reason?: string }
   ) => Promise<void>;
+  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
   publishUiEvent: (event: unknown) => void;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
@@ -106,8 +106,7 @@ export async function registerPersonaReviewRoutes(
         "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
       ].join(" ");
 
-      const terminal = new TmuxTerminal(access.sessionName);
-      await terminal.sendCommand(prompt);
+      await deps.sendAgentPrompt(agentId, prompt);
       return { ok: true };
     } catch (error) {
       return deps.handleAgentError(reply, error);

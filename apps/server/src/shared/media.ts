@@ -1,7 +1,5 @@
 import path from "node:path";
 
-import type { Pool } from "pg";
-
 export function sanitizeUploadedFileName(name: string): string {
   const ext = path.extname(name).toLowerCase();
   const baseName = path.basename(name, ext).normalize("NFKD");
@@ -112,44 +110,6 @@ export function resolveMediaDir(
   return mediaDir ?? path.join(mediaRoot, agentId);
 }
 
-export async function listMediaFiles(
-  pool: Pool,
-  agentId: string
-): Promise<
-  Array<{
-    name: string;
-    source: string;
-    size: number;
-    updatedAt: string;
-    url: string;
-    description: string | null;
-  }>
-> {
-  const result = await pool.query<{
-    file_name: string;
-    source: string;
-    size_bytes: number;
-    effective_updated_at: Date;
-    description: string | null;
-  }>(
-    `SELECT file_name, source, size_bytes,
-            COALESCE(updated_at, created_at) AS effective_updated_at,
-            description
-     FROM media WHERE agent_id = $1
-     ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 50`,
-    [agentId]
-  );
-
-  return result.rows.map((row) => ({
-    name: row.file_name,
-    source: row.source,
-    size: row.size_bytes,
-    updatedAt: row.effective_updated_at.toISOString(),
-    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`,
-    description: row.description ?? null,
-  }));
-}
-
 export function toMediaKey(file: { name: string; updatedAt: string }): string {
   return `${file.name}:${file.updatedAt}`;
 }
@@ -159,46 +119,4 @@ export function isValidMediaKey(key: string): boolean {
     return false;
   }
   return !/[\u0000-\u001F]/.test(key);
-}
-
-export async function loadSeenMediaKeys(
-  pool: Pool,
-  agentId: string,
-  keys: string[]
-): Promise<Set<string>> {
-  if (keys.length === 0) {
-    return new Set();
-  }
-
-  const result = await pool.query<{ mediaKey: string }>(
-    `
-    SELECT media_key AS "mediaKey"
-    FROM media_seen
-    WHERE agent_id = $1 AND media_key = ANY($2::text[])
-    `,
-    [agentId, keys]
-  );
-
-  return new Set(result.rows.map((row) => row.mediaKey));
-}
-
-export async function markSeenMediaKeys(
-  pool: Pool,
-  agentId: string,
-  keys: string[]
-): Promise<void> {
-  if (keys.length === 0) {
-    return;
-  }
-
-  await pool.query(
-    `
-    INSERT INTO media_seen (agent_id, media_key, seen_at)
-    SELECT $1, key, NOW()
-    FROM UNNEST($2::text[]) AS key
-    ON CONFLICT (agent_id, media_key) DO UPDATE
-      SET seen_at = EXCLUDED.seen_at
-    `,
-    [agentId, keys]
-  );
 }

@@ -4709,6 +4709,7 @@ async function registerRoutes() {
     resolveRepoRoot,
     mcpLaunchPersona,
     mcpCancelRecheck,
+    sendAgentPrompt: injectTmuxPrompt,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
     handleAgentError,

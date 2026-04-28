@@ -6,12 +6,14 @@ import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
 import {
-  isMediaFile,
-  isTextFile,
-  isValidMediaKey,
   listMediaFiles,
   loadSeenMediaKeys,
   markSeenMediaKeys,
+} from "../media/store.js";
+import {
+  isMediaFile,
+  isTextFile,
+  isValidMediaKey,
   mimeType,
   resolveMediaDir,
   sanitizeUploadedFileName,
@@ -44,12 +46,21 @@ export async function registerMediaRoutes(
     const seenKeys = await loadSeenMediaKeys(
       deps.pool,
       id,
-      files.map(toMediaKey)
+      files.map((file) =>
+        toMediaKey({ name: file.fileName, updatedAt: file.updatedAt })
+      )
     );
     return {
       files: files.map((file) => ({
-        ...file,
-        seen: seenKeys.has(toMediaKey(file)),
+        name: file.fileName,
+        source: file.source,
+        size: file.sizeBytes,
+        updatedAt: file.updatedAt,
+        url: `/api/v1/agents/${id}/media/${encodeURIComponent(file.fileName)}`,
+        description: file.description,
+        seen: seenKeys.has(
+          toMediaKey({ name: file.fileName, updatedAt: file.updatedAt })
+        ),
       })),
     };
   });

@@ -69,11 +69,13 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId("create-agent-name").fill(agentName);
     await page.getByTestId("create-agent-cwd").fill("/tmp");
 
-    // Wait for path validation to settle before submitting. /tmp is not a git
-    // repo, so the form should detect that and skip worktree creation; if we
-    // submit before validation lands, the request races useWorktree=true
-    // against a non-git cwd and the backend (correctly) rejects it.
+    // Wait for the parent dialog state to observe the validation result before
+    // submitting. /tmp is not a git repo, so worktree creation must be
+    // disabled before the submit handler snapshots form state.
     await expect(form.getByText("Valid directory")).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(page.getByTestId("create-agent-worktree")).toBeDisabled({
       timeout: 5_000,
     });
 
