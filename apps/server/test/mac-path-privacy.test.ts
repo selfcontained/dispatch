@@ -1,8 +1,6 @@
 import path from "node:path";
-import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
-import os from "node:os";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   isMacProtectedPath,
@@ -13,19 +11,19 @@ describe("isMacProtectedPath", () => {
   const homeDir = "/Users/tester";
   const platform = "darwin";
 
-  it("matches protected macOS home folders", async () => {
-    await expect(
-      isMacProtectedPath(path.join(homeDir, "Documents"), homeDir, platform)
-    ).resolves.toBe(true);
+  it("matches protected macOS home folders", () => {
     expect(
-      await isMacProtectedPath(
+      isMacProtectedPath(path.join(homeDir, "Documents"), homeDir, platform)
+    ).toBe(true);
+    expect(
+      isMacProtectedPath(
         path.join(homeDir, "Desktop", "repo"),
         homeDir,
         platform
       )
     ).toBe(true);
     expect(
-      await isMacProtectedPath(
+      isMacProtectedPath(
         path.join(
           homeDir,
           "Library",
@@ -36,70 +34,84 @@ describe("isMacProtectedPath", () => {
         platform
       )
     ).toBe(true);
+    expect(
+      isMacProtectedPath(
+        path.join(homeDir, "Library", "CloudStorage", "Dropbox", "stuff"),
+        homeDir,
+        platform
+      )
+    ).toBe(true);
   });
 
-  it("matches protected paths case-insensitively on darwin", async () => {
-    await expect(
+  it("matches protected paths case-insensitively on darwin", () => {
+    expect(
       isMacProtectedPath(
         path.join(homeDir, "documents", "repo"),
         homeDir,
         platform
       )
-    ).resolves.toBe(true);
+    ).toBe(true);
   });
 
-  it("does not match unprotected paths", async () => {
-    await expect(
+  it("does not match unprotected paths", () => {
+    expect(
       isMacProtectedPath(path.join(homeDir, "code"), homeDir, platform)
-    ).resolves.toBe(false);
-    await expect(
+    ).toBe(false);
+    expect(
       isMacProtectedPath(path.join(homeDir, ".dispatch"), homeDir, platform)
-    ).resolves.toBe(false);
+    ).toBe(false);
+    // Sibling-of-protected doesn't match: ~/Library is not protected even
+    // though ~/Library/Mobile Documents is.
+    expect(
+      isMacProtectedPath(path.join(homeDir, "Library"), homeDir, platform)
+    ).toBe(false);
   });
 });
 
 describe("shouldSkipAutomaticMacPathProbe", () => {
   const homeDir = "/Users/tester";
 
-  it("only skips protected paths on darwin", async () => {
-    await expect(
+  it("only skips protected paths on darwin", () => {
+    expect(
       shouldSkipAutomaticMacPathProbe(
         path.join(homeDir, "Downloads"),
         homeDir,
         "darwin"
       )
-    ).resolves.toBe(true);
-    await expect(
+    ).toBe(true);
+    expect(
       shouldSkipAutomaticMacPathProbe(
         path.join(homeDir, "Downloads"),
         homeDir,
         "linux"
       )
-    ).resolves.toBe(false);
+    ).toBe(false);
   });
-});
 
-describe("symlink handling", () => {
-  const tempDirs: string[] = [];
+  it("does not invoke any filesystem syscall", () => {
+    // Pass a path that does NOT exist on disk anywhere. The function must
+    // return purely based on string comparison — if it ever calls
+    // realpath/stat/etc. this would either throw, return false, or hit
+    // TCC machinery on macOS. The async-free signature is the structural
+    // guarantee, but exercising it here pins the contract: synchronous,
+    // pure, no FS access. This is the property that prevents the daemon
+    // hang documented in the module header.
+    const fakePath = "/Users/this-user-does-not-exist/Documents/whatever";
+    expect(
+      isMacProtectedPath(fakePath, "/Users/this-user-does-not-exist", "darwin")
+    ).toBe(true);
+  });
 
-  afterEach(async () => {
-    await Promise.all(
-      tempDirs.map((dir) => rm(dir, { recursive: true, force: true }))
+  it("does NOT follow symlinks (intentional trade-off)", () => {
+    // We deliberately don't call realpath() — see module header. A path
+    // that symlinks INTO a protected dir is reported as not-protected
+    // here. Downstream stat() will hit TCC against the underlying dir
+    // and return EPERM in bounded time, so the request still completes
+    // safely with `exists=false` rather than wedging.
+    const homeDir = "/Users/tester";
+    const aliased = path.join(homeDir, "work");
+    expect(shouldSkipAutomaticMacPathProbe(aliased, homeDir, "darwin")).toBe(
+      false
     );
-  });
-
-  it("treats symlinks into protected folders as protected", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-mac-privacy-"));
-    tempDirs.push(root);
-    const homeDir = path.join(root, "home");
-    const protectedTarget = path.join(homeDir, "Documents", "project");
-    const symlinkPath = path.join(homeDir, "work");
-
-    await mkdir(protectedTarget, { recursive: true });
-    await symlink(protectedTarget, symlinkPath, "dir");
-
-    await expect(
-      shouldSkipAutomaticMacPathProbe(symlinkPath, homeDir, "darwin")
-    ).resolves.toBe(true);
   });
 });
