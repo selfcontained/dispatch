@@ -121,7 +121,7 @@ export function UpdateAvailableToast(): JSX.Element | null {
           <div
             role="status"
             aria-live="polite"
-            className="min-w-0 flex-1 text-sm font-semibold md:whitespace-nowrap"
+            className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words"
           >
             {serverVersion
               ? `Server updated to ${serverVersion}. Reload to pick it up.`
