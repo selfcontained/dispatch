@@ -38,6 +38,10 @@ export MEDIA_ROOT="/tmp/dispatch-media-${RUN_ID}"
 # Keep the release store out of the host's ~/.dispatch/ — a stale version
 # there surfaces the update-available toast and intercepts clicks.
 export DISPATCH_RELEASE_STORE_PATH="/tmp/dispatch-release-${RUN_ID}.json"
+# Keep assisted-update rehydration state out of the host's ~/.dispatch/ too.
+# A stale in-flight update there forces the Updates pane into takeover mode
+# and hides the controls the release/settings E2E specs expect to exercise.
+export DISPATCH_ASSISTED_UPDATE_STORE_PATH="/tmp/dispatch-assisted-update-${RUN_ID}.json"
 
 # Disable TLS so the e2e server runs plain HTTP
 unset TLS_CERT TLS_KEY
@@ -51,6 +55,7 @@ cleanup() {
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
   rm -rf "$MEDIA_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH"
+  rm -f "$DISPATCH_ASSISTED_UPDATE_STORE_PATH"
 }
 trap cleanup EXIT
 

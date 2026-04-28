@@ -6,24 +6,26 @@ Instructions for setting up Dispatch on a fresh Mac (e.g. Mac Studio, Mac mini) 
 
 The new machine needs:
 
-| Dependency                 | Purpose                                               | Install                                             |
-| -------------------------- | ----------------------------------------------------- | --------------------------------------------------- |
-| **Xcode CLI Tools**        | Build tools for native npm modules (node-pty)         | `xcode-select --install`                            |
-| **Homebrew**               | Package manager                                       | https://brew.sh                                     |
-| **NVM**                    | Node version manager (Dispatch requires Node 22 LTS+) | `brew install nvm` or https://github.com/nvm-sh/nvm |
-| **PostgreSQL 17**          | Database (via Homebrew, native — no Docker needed)    | `brew install postgresql@17`                        |
-| **tmux**                   | Agent session management                              | `brew install tmux`                                 |
-| **Git**                    | Source control                                        | Included with Xcode CLI Tools                       |
-| **GitHub CLI**             | Release automation                                    | `brew install gh`                                   |
-| **At least one agent CLI** | Agent runtime — install any you plan to use           | See [Agent CLIs](#8-agent-clis)                     |
-| **Playwright browsers**    | Headless Chrome for agent UI validation               | `npx playwright install chromium`                   |
+| Dependency                 | Purpose                                            | Install                           |
+| -------------------------- | -------------------------------------------------- | --------------------------------- |
+| **Xcode CLI Tools**        | Git plus compiler/toolchain helpers on macOS       | `xcode-select --install`          |
+| **Homebrew**               | Package manager                                    | https://brew.sh                   |
+| **PostgreSQL 17**          | Database (via Homebrew, native — no Docker needed) | `brew install postgresql@17`      |
+| **tmux**                   | Agent session management                           | `brew install tmux`               |
+| **Git**                    | Source control                                     | Included with Xcode CLI Tools     |
+| **GitHub CLI**             | Release artifact download and release automation   | `brew install gh`                 |
+| **At least one agent CLI** | Agent runtime — install any you plan to use        | See [Agent CLIs](#8-agent-clis)   |
+| **Playwright browsers**    | Headless Chrome for agent UI validation            | `npx playwright install chromium` |
 
 ### Optional
 
-| Dependency         | Purpose                                   | Install                      |
-| ------------------ | ----------------------------------------- | ---------------------------- |
-| **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker` |
-| **Xcode** (full)   | iOS Simulator, `xcrun simctl`             | App Store                    |
+| Dependency         | Purpose                                   | Install                                    |
+| ------------------ | ----------------------------------------- | ------------------------------------------ |
+| **Bun 1.3+**       | Source-build fallback and local dev       | [bun.com/install](https://bun.com/install) |
+| **Node 22+**       | Source-build/local-dev toolchain          | `brew install node@22` or `nvm install 22` |
+| **pnpm**           | Source-build/local-dev package manager    | `npm install -g pnpm`                      |
+| **Docker Desktop** | Isolated dev databases via docker-compose | `brew install --cask docker`               |
+| **Xcode** (full)   | iOS Simulator, `xcrun simctl`             | App Store                                  |
 
 ## Agent Setup Prompt
 
@@ -32,18 +34,17 @@ Copy and paste this prompt to a Claude agent on the new machine to kick off setu
 ```
 Set up Dispatch on this machine. The repo is at https://github.com/selfcontained/dispatch.git
 
-1. Install system dependencies if missing: Homebrew, nvm, Node 22 LTS, tmux, PostgreSQL 17 (via brew), GitHub CLI, Playwright browsers. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
+1. Install system dependencies if missing: Homebrew, tmux, PostgreSQL 17 (via brew), GitHub CLI, and Playwright browsers. Only install Bun 1.3+, Node 22+, and pnpm if you need the source-build fallback or local development. Do NOT install agent CLIs (claude, codex, opencode) — the user will install those themselves.
 2. Clone the repo to ~/dev/apps/dispatch.
 3. Run bin/preflight and fix any failures it reports.
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
 6. Copy .env.example to .env. The defaults work for local-only use.
-7. Run: nvm use && pnpm install && pnpm run build
-8. Verify locally: pnpm run start, then curl http://127.0.0.1:6767/api/v1/health — confirm it returns ok, then stop the server.
-9. Install the launchd service: bin/install-launchd --port 6767
-10. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
-11. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
-12. Run gh auth login to authenticate GitHub CLI for releases.
+7. Run gh auth login so GitHub CLI can fetch release artifacts and manage releases.
+8. Install the launchd service: bin/install-launchd --port 6767. This should download the latest compiled release artifact and run the compiled Bun binary. If it falls back to a source build, install Bun 1.3+, Node 22+, and pnpm first, then retry.
+9. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
+10. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
+11. Optional: if you also want a local development checkout on this machine, install Bun 1.3+, Node 22+, and pnpm, then run pnpm install && pnpm run build:bun in ~/dev/apps/dispatch.
 
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
@@ -70,16 +71,12 @@ xcode-select --install
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Core tools
-brew install tmux gh nvm postgresql@17
+brew install tmux gh postgresql@17
 
-# Add NVM to shell profile (~/.zshrc)
-echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
-echo '[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"' >> ~/.zshrc
-source ~/.zshrc
-
-# Node
-nvm install 22
-nvm alias default 22
+# Optional source-build/local-dev toolchain
+brew install node@22
+npm install -g pnpm
+curl -fsSL https://bun.com/install | bash
 ```
 
 ### 2. PostgreSQL
@@ -120,12 +117,11 @@ The defaults work for local-only use. Authentication is handled automatically �
 
 If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` in `.env` (and in `~/.dispatch/server/.env` after installation).
 
-### 5. Build & verify locally
+### 5. Optional source-build validation
 
 ```bash
-nvm use
 pnpm install
-pnpm run build
+pnpm run build:bun
 
 # Quick smoke test
 pnpm run start
@@ -134,7 +130,15 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 # Ctrl-C to stop
 ```
 
-### 6. Install as launchd service (production)
+### 6. GitHub CLI auth (for artifact downloads and releases)
+
+```bash
+gh auth login
+```
+
+This makes the artifact-first install path more reliable and is also needed for the Dispatch server's release flow to trigger GitHub Actions workflows.
+
+### 7. Install as launchd service (production)
 
 ```bash
 bin/install-launchd --port 6767
@@ -144,7 +148,8 @@ This:
 
 - Clones the repo to `~/.dispatch/server/` (separate checkout for production)
 - Copies your `.env` to `~/.dispatch/server/.env`
-- Builds the project
+- Downloads the latest compiled release artifact when available
+- Falls back to a source build only if no release artifact is available
 - Creates and loads a launchd plist (`~/Library/LaunchAgents/com.dispatch.server.plist`)
 - Server starts automatically on login, restarts on crash
 
@@ -155,14 +160,6 @@ launchctl list com.dispatch.server
 curl -s http://127.0.0.1:6767/api/v1/health | jq
 tail -20 ~/.dispatch/logs/dispatch.log
 ```
-
-### 7. GitHub CLI auth (for server-managed releases)
-
-```bash
-gh auth login
-```
-
-This is needed for the Dispatch server's release flow to trigger GitHub Actions workflows.
 
 ### 8. Agent CLIs
 
@@ -213,7 +210,7 @@ curl -s http://127.0.0.1:6767/api/v1/health | jq
 # tmux available
 tmux -V
 
-# Node version correct
+# If you installed the optional source-build toolchain
 node -v  # Should be v22+
 
 # Create a test agent via API
@@ -292,11 +289,13 @@ brew services start postgresql@17    # Start it
 tail -20 /opt/homebrew/var/log/postgresql@17.log  # Check logs
 ```
 
-### node-pty build failures
+### install-launchd fell back to a source build
 
 ```bash
-xcode-select --install               # Ensure CLI tools
-npm rebuild node-pty                  # Rebuild native module
+command -v gh                        # install gh to enable artifact downloads
+command -v bun                       # install Bun 1.3+ for source builds
+command -v node                      # install Node 22+ for pnpm workflows
+command -v pnpm                      # install pnpm
 ```
 
 ### Agent can't use dispatch_event/dispatch_share MCP tools
