@@ -1,5 +1,5 @@
 ## What's Changed
-* Refactor server route registration for DIS-30 by @selfcontained in https://github.com/selfcontained/dispatch/pull/447
+* Add per-agent "Open in IDE" launcher (VS Code / Cursor) by @selfcontained in https://github.com/selfcontained/dispatch/pull/448
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.17...v0.18.18
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.18...v0.18.19
