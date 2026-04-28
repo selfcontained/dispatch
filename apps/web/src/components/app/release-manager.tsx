@@ -33,7 +33,7 @@ import {
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { agentRoute } from "@/lib/agent-routes";
-import { forcePWAUpdate } from "@/lib/pwa-update";
+import { clearCachesAndReload, reloadApp } from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
 type AppVersionInfo = {
@@ -205,24 +205,12 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
   const handleReload = useCallback(() => {
     setReloading(true);
-    void forcePWAUpdate(true);
+    void reloadApp();
   }, []);
 
-  const handleClearCacheAndReload = useCallback(async () => {
+  const handleClearCacheAndReload = useCallback(() => {
     setReloading(true);
-    try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((r) => r.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-      window.location.reload();
-    } catch {
-      window.location.reload();
-    }
+    void clearCachesAndReload();
   }, []);
 
   // Only show takeover for update jobs

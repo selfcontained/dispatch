@@ -9,7 +9,6 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 
 import fastifyCookie from "@fastify/cookie";
@@ -131,6 +130,7 @@ import { JobService } from "./jobs/service.js";
 import { randomUUID } from "node:crypto";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  packageVersion,
   releaseNotesMarkdown,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
@@ -732,9 +732,6 @@ let gitContextRefreshTimer: NodeJS.Timeout | null = null;
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
 let agentStatusReconcileTimer: NodeJS.Timeout | null = null;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const appRootDir = path.resolve(__dirname, "..");
 const staticAssets = new Map(
   embeddedStaticFiles.map((asset) => [
     asset.routePath,
@@ -809,17 +806,11 @@ async function getAppVersionInfo(): Promise<{
 }> {
   const record = await readReleaseStore().catch(() => null);
 
-  let version: string | null = null;
-  try {
-    const packageJson = JSON.parse(
-      await readFile(path.join(appRootDir, "package.json"), "utf8")
-    ) as {
-      version?: unknown;
-    };
-    if (typeof packageJson.version === "string" && packageJson.version.trim()) {
-      version = packageJson.version.trim();
-    }
-  } catch {}
+  // packageVersion is baked in at build time by
+  // scripts/generate-server-runtime-assets.mjs from the workspace
+  // package.json. It survives the Bun --compile VFS where reading
+  // package.json from disk does not.
+  const version = packageVersion.trim() || null;
 
   let gitSha: string | null = null;
   try {
@@ -1702,6 +1693,16 @@ async function registerRoutes() {
         .send(cachedIndexHtml);
     }
     return reply.code(404).send({ error: "Not found" });
+  });
+
+  // Stamp every API response with the build-time package version so the
+  // client can detect a server upgrade (e.g. after a self-update) and
+  // surface a "reload" banner without polling a version endpoint.
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header("X-Dispatch-Version", packageVersion);
+    }
+    return payload;
   });
 
   // ---------------------------------------------------------------------------

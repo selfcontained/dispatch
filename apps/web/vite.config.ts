@@ -2,10 +2,28 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 
 const isProd = process.env.NODE_ENV === "production";
 
+// Bake the workspace version into the bundle. The web client compares
+// this against the `X-Dispatch-Version` response header to detect a
+// stale bundle after a server self-update.
+const rootPackageJson = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../../package.json"), "utf8")
+) as { version?: unknown };
+if (
+  typeof rootPackageJson.version !== "string" ||
+  !rootPackageJson.version.trim()
+) {
+  throw new Error("Root package.json is missing a version field");
+}
+const packageVersion = rootPackageJson.version.trim();
+
 export default defineConfig({
+  define: {
+    __DISPATCH_VERSION__: JSON.stringify(packageVersion),
+  },
   plugins: [
     react(),
     isProd &&

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
-import { forcePWAUpdate } from "@/lib/pwa-update";
+import { reloadApp } from "@/lib/pwa-update";
+import { noteServerVersion } from "@/lib/version";
 
 export type ReleaseVersionType = "patch" | "minor" | "major";
 
@@ -250,6 +251,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/v1/release/status");
+      noteServerVersion(res.headers.get("X-Dispatch-Version"));
       if (res.ok) setStatus((await res.json()) as ReleaseStatus);
     } catch {
       /* ignore */
@@ -269,6 +271,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
       recordReleaseManagerPollFire();
       try {
         const res = await fetch("/api/v1/release/status");
+        noteServerVersion(res.headers.get("X-Dispatch-Version"));
         if (res.ok) {
           const data = (await res.json()) as ReleaseStatus;
           if (data.tag && data.tag === expectedTag) {
@@ -279,7 +282,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
             setJob((prev) =>
               prev ? { ...prev, phase: "done", tag: data.tag } : prev
             );
-            setTimeout(() => void forcePWAUpdate(true), 1500);
+            setTimeout(() => void reloadApp(), 1500);
           }
         }
       } catch {

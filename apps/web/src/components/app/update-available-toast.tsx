@@ -1,22 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { reloadApp } from "@/lib/pwa-update";
 import {
-  forcePWAUpdate,
-  getNeedRefresh,
-  subscribeNeedRefresh,
-} from "@/lib/pwa-update";
+  getServerVersion,
+  isVersionMismatch,
+  subscribeVersionMismatch,
+} from "@/lib/version";
 import { cn } from "@/lib/utils";
-
-type AppVersionInfo = {
-  releaseTag: string | null;
-  version: string | null;
-  gitSha: string | null;
-  releaseNotes: string | null;
-  releaseUrl: string | null;
-};
 
 function isEditableElement(element: Element | null): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
@@ -30,36 +21,29 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
 
 export function UpdateAvailableToast(): JSX.Element | null {
   const [needRefresh, setNeedRefresh] = useState<boolean>(() =>
-    getNeedRefresh()
+    isVersionMismatch()
+  );
+  const [serverVersion, setServerVersion] = useState<string | null>(() =>
+    getServerVersion()
   );
   const [dismissed, setDismissed] = useState(false);
   const [reloading, setReloading] = useState(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = subscribeNeedRefresh(() => {
-      setNeedRefresh(true);
+    const sync = (): void => {
+      setNeedRefresh(isVersionMismatch());
+      setServerVersion(getServerVersion());
+    };
+    const unsubscribe = subscribeVersionMismatch(() => {
+      sync();
       setDismissed(false);
     });
-    // Re-sync in case the module flag flipped between render and effect
-    // (the dynamic import-resolves-then-onNeedRefresh-fires race).
-    if (getNeedRefresh()) setNeedRefresh(true);
+    sync();
     return unsubscribe;
   }, []);
 
-  const { data: versionInfo, isFetched } = useQuery({
-    queryKey: ["app-version"],
-    queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
-    enabled: needRefresh,
-    staleTime: 0,
-  });
-
   if (!needRefresh || dismissed) return null;
-  // Wait for the version query to settle before mounting so screen readers
-  // get a single aria-live announcement with the final text.
-  if (!isFetched) return null;
-
-  const newVersion = versionInfo?.version ?? null;
 
   const handleReload = (): void => {
     const activeElement = document.activeElement;
@@ -82,7 +66,7 @@ export function UpdateAvailableToast(): JSX.Element | null {
     }
 
     setReloading(true);
-    forcePWAUpdate(true).catch(() => {
+    reloadApp().catch(() => {
       setReloading(false);
     });
   };
@@ -139,9 +123,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
             aria-live="polite"
             className="min-w-0 flex-1 text-sm font-semibold md:whitespace-nowrap"
           >
-            {newVersion
-              ? `New version ${newVersion} available`
-              : "New version available"}
+            {serverVersion
+              ? `Server updated to ${serverVersion}. Reload to pick it up.`
+              : "Server updated. Reload to pick up the new version."}
           </div>
         </div>
         <Button

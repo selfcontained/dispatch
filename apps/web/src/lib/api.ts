@@ -1,4 +1,5 @@
 import { recordHTTPRequest } from "@/lib/energy-metrics";
+import { noteServerVersion } from "@/lib/version";
 
 /**
  * Lightweight event target for auth failures.  Components (or hooks) can
@@ -35,6 +36,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
     ...init,
   });
+
+  noteServerVersion(res.headers.get("X-Dispatch-Version"));
 
   if (res.status === 401) {
     authEvents.dispatchEvent(new Event("unauthenticated"));
