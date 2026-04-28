@@ -578,6 +578,15 @@ export function AgentCard({
                             isStopped ||
                             agent.status === "archiving"
                           }
+                          disabledReason={
+                            isStopped
+                              ? "Agent is stopped — start it before launching a review."
+                              : agent.status === "archiving"
+                                ? "Agent is archiving."
+                                : connectedAgentId !== agent.id
+                                  ? "Tap this agent's row to connect, then launch a review."
+                                  : undefined
+                          }
                         />
                       )}
                       {/* Keep review visible for every parent agent; lifecycle controls stay on the right. */}

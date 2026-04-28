@@ -59,10 +59,12 @@ export function PersonaLauncher({
   agent,
   enabledAgentTypes,
   disabled = false,
+  disabledReason,
 }: {
   agent: Agent;
   enabledAgentTypes: AgentType[];
   disabled?: boolean;
+  disabledReason?: string;
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
@@ -162,26 +164,36 @@ export function PersonaLauncher({
     }
   };
 
+  const reviewButton = (
+    <Button
+      variant="ghost"
+      disabled={disabled || isLaunching}
+      className={cn(
+        "gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md hover:bg-white/[0.1] hover:text-foreground disabled:pointer-events-auto",
+        showReviewAgentTypePicker && "rounded-r-none border-r-0"
+      )}
+      data-testid="launch-reviewer-button"
+      onClick={() => openDialog()}
+    >
+      <AgentTypeIcon
+        type={defaultReviewAgentType(agent)}
+        className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+      />
+      Review
+    </Button>
+  );
+
   return (
     <>
       <div className="flex items-center">
-        <Button
-          variant="ghost"
-          disabled={disabled || isLaunching}
-          className={
-            showReviewAgentTypePicker
-              ? "gap-1.5 rounded-r-none border border-white/[0.12] border-r-0 bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-              : "gap-1.5 border border-white/[0.12] bg-white/[0.06] backdrop-blur-md text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-          }
-          data-testid="launch-reviewer-button"
-          onClick={() => openDialog()}
-        >
-          <AgentTypeIcon
-            type={defaultReviewAgentType(agent)}
-            className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
-          />
-          Review
-        </Button>
+        {disabled && disabledReason ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{reviewButton}</TooltipTrigger>
+            <TooltipContent>{disabledReason}</TooltipContent>
+          </Tooltip>
+        ) : (
+          reviewButton
+        )}
 
         {showReviewAgentTypePicker ? (
           <DropdownMenu>
