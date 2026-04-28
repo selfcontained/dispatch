@@ -6,6 +6,7 @@ import path from "node:path";
 const isProd = process.env.NODE_ENV === "production";
 
 export default defineConfig({
+  cacheDir: process.env.DISPATCH_VITE_CACHE_DIR,
   plugins: [
     react(),
     isProd &&
