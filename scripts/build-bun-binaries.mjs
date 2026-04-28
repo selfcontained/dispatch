@@ -70,9 +70,7 @@ function validateNotaryEnv() {
   const requiredVars = ["APPLE_ID", "APPLE_NOTARY_PASSWORD", "APPLE_TEAM_ID"];
   const missingVars = requiredVars.filter((name) => !process.env[name]);
   if (missingVars.length > 0) {
-    console.error(
-      `Missing notarization env vars: ${missingVars.join(", ")}`
-    );
+    console.error(`Missing notarization env vars: ${missingVars.join(", ")}`);
     process.exit(1);
   }
 }

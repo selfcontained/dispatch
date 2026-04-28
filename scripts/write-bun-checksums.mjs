@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
-const outDir = path.resolve(process.argv[2] ?? path.join(repoRoot, "dist", "bun"));
+const outDir = path.resolve(
+  process.argv[2] ?? path.join(repoRoot, "dist", "bun")
+);
 
 const checksumLines = readdirSync(outDir)
   .filter((entry) => entry.startsWith("dispatch-"))
@@ -21,4 +23,8 @@ const checksumLines = readdirSync(outDir)
     return `${sha256}  ${entry}  ${sizeBytes}`;
   });
 
-writeFileSync(path.join(outDir, "SHA256SUMS.txt"), `${checksumLines.join("\n")}\n`, "utf8");
+writeFileSync(
+  path.join(outDir, "SHA256SUMS.txt"),
+  `${checksumLines.join("\n")}\n`,
+  "utf8"
+);
