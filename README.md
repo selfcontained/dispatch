@@ -47,12 +47,12 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 
 ## Prerequisites
 
-| Dependency                 | Purpose                                   | macOS                        | Linux                    |
-| -------------------------- | ----------------------------------------- | ---------------------------- | ------------------------ |
-| **PostgreSQL 14+**         | Database                                  | `brew install postgresql@17` | `apt install postgresql` |
-| **tmux**                   | Agent session management                  | `brew install tmux`          | `apt install tmux`       |
-| **GitHub CLI**             | Fetch release artifacts / manage releases | `brew install gh`            | `apt install gh`         |
-| **At least one agent CLI** | The agents Dispatch runs                  | See below                    | See below                |
+| Dependency                 | Purpose                                                | macOS                        | Linux                    |
+| -------------------------- | ------------------------------------------------------ | ---------------------------- | ------------------------ |
+| **PostgreSQL 14+**         | Database                                               | `brew install postgresql@17` | `apt install postgresql` |
+| **tmux**                   | Agent session management                               | `brew install tmux`          | `apt install tmux`       |
+| **GitHub CLI**             | Fetch release artifacts / help agents work with GitHub | `brew install gh`            | `apt install gh`         |
+| **At least one agent CLI** | The agents Dispatch runs                               | See below                    | See below                |
 
 Dispatch currently uses an artifact-first deploy path:
 

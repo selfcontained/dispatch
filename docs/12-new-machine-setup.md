@@ -13,7 +13,7 @@ The new machine needs:
 | **PostgreSQL 17**          | Database (via Homebrew, native — no Docker needed) | `brew install postgresql@17`      |
 | **tmux**                   | Agent session management                           | `brew install tmux`               |
 | **Git**                    | Source control                                     | Included with Xcode CLI Tools     |
-| **GitHub CLI**             | Release artifact download and release automation   | `brew install gh`                 |
+| **GitHub CLI**             | Release artifact download and GitHub workflows     | `brew install gh`                 |
 | **At least one agent CLI** | Agent runtime — install any you plan to use        | See [Agent CLIs](#8-agent-clis)   |
 | **Playwright browsers**    | Headless Chrome for agent UI validation            | `npx playwright install chromium` |
 
@@ -37,7 +37,7 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 4. Start Postgres: brew services start postgresql@17
 5. Create the dispatch database: createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"
 6. Copy .env.example to .env. The defaults work for local-only use.
-7. Run gh auth login so GitHub CLI can fetch release artifacts and manage releases.
+7. Run gh auth login so GitHub CLI can fetch release artifacts and make GitHub/PR workflows easier for agents.
 8. Install the launchd service: bin/install-launchd --port 6767. This should download the latest compiled release artifact and run the compiled Bun binary.
 9. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
 10. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
@@ -108,7 +108,7 @@ The defaults work for local-only use. Authentication is handled automatically �
 
 If this machine needs to accept remote connections, set `DISPATCH_HOST=0.0.0.0` in `.env` (and in `~/.dispatch/server/.env` after installation).
 
-### 5. GitHub CLI auth (for artifact downloads and releases)
+### 5. GitHub CLI auth (for artifact downloads and GitHub workflows)
 
 ```bash
 gh auth login

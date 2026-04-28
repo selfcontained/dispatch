@@ -53,13 +53,13 @@ echo "Install path:"
 if command -v gh &>/dev/null; then
   artifact_ready=1
   if gh auth status &>/dev/null 2>&1; then
-    ok "gh $(gh --version | head -1 | awk '{print $3}') (release artifacts + releases)"
+    ok "gh $(gh --version | head -1 | awk '{print $3}') (release artifacts + GitHub workflows)"
   else
     ok "gh $(gh --version | head -1 | awk '{print $3}') (release artifacts)"
-    warn "gh auth — recommended for reliable artifact downloads and releases: gh auth login"
+    warn "gh auth — recommended for reliable artifact downloads and GitHub workflows: gh auth login"
   fi
 else
-  warn "gh — recommended for release artifacts and releases: brew install gh"
+  warn "gh — recommended for release artifacts and GitHub workflows: brew install gh"
 fi
 
 if (( artifact_ready == 1 )); then
