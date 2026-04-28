@@ -44,13 +44,7 @@ import {
 } from "./reviews/injection-prompts.js";
 import {
   isPasswordSet,
-  setPassword,
-  verifyPassword,
-  createSession,
   validateSession,
-  deleteSession,
-  deleteAllSessions,
-  changePassword,
   cleanExpiredSessions,
   getOrCreateAuthToken,
   getOrCreateCookieSecret,
@@ -66,6 +60,12 @@ import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
+import {
+  isMediaFile,
+  isTextFile,
+  mimeType,
+  resolveMediaDir,
+} from "./shared/media.js";
 import { resolveHeadSha } from "./shared/git/worktree.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
@@ -140,6 +140,10 @@ import {
   computeWorkingTimeByProject,
   type ActivityEventRow,
 } from "./activity-metrics.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerFeedbackRoutes } from "./routes/feedback.js";
+import { registerMediaRoutes } from "./routes/media.js";
+import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -554,7 +558,7 @@ const streamManager = new StreamManager(
     const agent = await agentManager.getAgent(agentId);
     if (!agent) return;
 
-    const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+    const mediaDir = resolveMediaDir(agentId, agent.mediaDir, config.mediaRoot);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `stream-capture-${timestamp}.jpg`;
 
@@ -1585,17 +1589,6 @@ function invalidatePasswordSetCache(): void {
 
 const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
-
-const SetupBodySchema = z.object({
-  password: z.string().min(8, "Password must be at least 8 characters."),
-});
-const LoginBodySchema = z.object({
-  password: z.string().min(1, "Password is required."),
-});
-const ChangePasswordBodySchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required."),
-  newPassword: z.string().min(8, "New password must be at least 8 characters."),
-});
 function resolveTilde(raw: string): string {
   if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
   if (raw === "~") return os.homedir();
@@ -1757,118 +1750,14 @@ async function registerRoutes() {
   // ---------------------------------------------------------------------------
   // Auth routes
   // ---------------------------------------------------------------------------
-
-  app.get("/api/v1/auth/status", async (request) => {
-    const hasPassword = await isPasswordSetCached();
-    let authenticated = false;
-    if (hasPassword) {
-      const signed = request.cookies[SESSION_COOKIE];
-      if (signed) {
-        const unsigned = request.unsignCookie(signed);
-        if (unsigned.valid && unsigned.value) {
-          authenticated = await validateSession(pool, unsigned.value);
-        }
-      }
-    } else {
-      // No password set — everyone is considered authenticated.
-      authenticated = true;
-    }
-    return { passwordSet: hasPassword, authenticated };
+  await registerAuthRoutes(app, {
+    pool,
+    tls: config.tls,
+    sessionCookie: SESSION_COOKIE,
+    sessionMaxAgeSeconds: SESSION_MAX_AGE_S,
+    isPasswordSetCached,
+    invalidatePasswordSetCache,
   });
-
-  app.post(
-    "/api/v1/auth/setup",
-    { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      if (await isPasswordSetCached()) {
-        return reply.code(400).send({ error: "Password is already set." });
-      }
-      const parsed = SetupBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
-      const { password } = parsed.data;
-      await setPassword(pool, password);
-      invalidatePasswordSetCache();
-      const token = await createSession(pool);
-      reply.setCookie(SESSION_COOKIE, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: config.tls !== null,
-        maxAge: SESSION_MAX_AGE_S,
-      });
-      return { ok: true };
-    }
-  );
-
-  app.post(
-    "/api/v1/auth/login",
-    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      const parsed = LoginBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
-      const { password } = parsed.data;
-      if (!(await verifyPassword(pool, password))) {
-        return reply.code(401).send({ error: "Invalid password." });
-      }
-      const token = await createSession(pool);
-      reply.setCookie(SESSION_COOKIE, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: config.tls !== null,
-        maxAge: SESSION_MAX_AGE_S,
-      });
-      return { ok: true };
-    }
-  );
-
-  app.post("/api/v1/auth/logout", async (request, reply) => {
-    const signed = request.cookies[SESSION_COOKIE];
-    if (signed) {
-      const unsigned = request.unsignCookie(signed);
-      if (unsigned.valid && unsigned.value) {
-        await deleteSession(pool, unsigned.value);
-      }
-    }
-    reply.clearCookie(SESSION_COOKIE, { path: "/" });
-    return { ok: true };
-  });
-
-  app.post(
-    "/api/v1/auth/change-password",
-    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      const parsed = ChangePasswordBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
-      const { currentPassword, newPassword } = parsed.data;
-      const changed = await changePassword(pool, currentPassword, newPassword);
-      if (!changed) {
-        return reply
-          .code(401)
-          .send({ error: "Current password is incorrect." });
-      }
-      await deleteAllSessions(pool);
-      const token = await createSession(pool);
-      reply.setCookie(SESSION_COOKIE, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: config.tls !== null,
-        maxAge: SESSION_MAX_AGE_S,
-      });
-      invalidatePasswordSetCache();
-      return { ok: true };
-    }
-  );
 
   // ---------------------------------------------------------------------------
   // Jobs routes
@@ -4287,165 +4176,11 @@ async function registerRoutes() {
     return { agent };
   });
 
-  app.get("/api/v1/agents/:id/media", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const id = params.id ?? "";
-    // Include deleted agents so historical media lists still work
-    const agentExists = await pool.query("SELECT 1 FROM agents WHERE id = $1", [
-      id,
-    ]);
-    if (agentExists.rows.length === 0) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-
-    const files = await listMediaFiles(id);
-    const seenKeys = await loadSeenMediaKeys(id, files.map(toMediaKey));
-    return {
-      files: files.map((file) => ({
-        ...file,
-        seen: seenKeys.has(toMediaKey(file)),
-      })),
-    };
-  });
-
-  app.get("/api/v1/agents/:id/media/:file", async (request, reply) => {
-    const params = request.params as { id?: string; file?: string };
-    const id = params.id ?? "";
-
-    // Look up agent including deleted ones so historical media still loads
-    const agentRow = await pool.query<{ id: string; media_dir: string | null }>(
-      "SELECT id, media_dir FROM agents WHERE id = $1",
-      [id]
-    );
-    if (agentRow.rows.length === 0) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-
-    const file = params.file ?? "";
-    if (!/^[A-Za-z0-9._-]+$/.test(file)) {
-      return reply.code(400).send({ error: "Invalid media file name." });
-    }
-
-    const filePath = path.join(
-      resolveMediaDir(agentRow.rows[0].id, agentRow.rows[0].media_dir),
-      file
-    );
-    const fileStat = await stat(filePath).catch(() => null);
-    if (!fileStat || !fileStat.isFile()) {
-      return reply.code(404).send({ error: "Media file not found." });
-    }
-
-    return reply.type(mimeType(file)).send(await readFile(filePath));
-  });
-
-  app.post("/api/v1/agents/:id/media", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const id = params.id ?? "";
-    const agent = await agentManager.getAgent(id);
-    if (!agent) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-
-    const data = await request.file();
-    if (!data) {
-      return reply.code(400).send({ error: "A file field is required." });
-    }
-
-    const fileName = sanitizeUploadedFileName(path.basename(data.filename));
-    if (!fileName) {
-      return reply.code(400).send({ error: "Invalid file name." });
-    }
-    if (!isMediaFile(fileName)) {
-      return reply.code(400).send({
-        error:
-          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc).",
-      });
-    }
-
-    const isText = isTextFile(fileName);
-    const sourceField =
-      (data.fields.source as { value?: string } | undefined)?.value ??
-      (isText ? "text" : "screenshot");
-    const validSources = ["screenshot", "stream", "simulator", "text", "user"];
-    const source = validSources.includes(sourceField)
-      ? sourceField
-      : isText
-        ? "text"
-        : "screenshot";
-    const description =
-      (data.fields.description as { value?: string } | undefined)?.value ??
-      null;
-
-    const mediaDir = resolveMediaDir(agent.id, agent.mediaDir);
-    await mkdir(mediaDir, { recursive: true });
-
-    const buffer = await data.toBuffer();
-
-    // Timestamp filenames to prevent collisions (matches mcpShareMedia pattern)
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "-")
-      .replace("Z", "");
-    const ext = path.extname(fileName);
-    const base = path.basename(fileName, ext);
-    const timestampedFileName = `${base}-${timestamp}${ext}`;
-
-    const filePath = path.join(mediaDir, timestampedFileName);
-    await writeFile(filePath, buffer);
-
-    const result = await pool.query<{ id: number; created_at: Date }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, created_at`,
-      [id, timestampedFileName, source, buffer.length, description]
-    );
-
-    const row = result.rows[0];
-    const mediaRecord = {
-      id: row.id,
-      fileName: timestampedFileName,
-      source,
-      sizeBytes: buffer.length,
-      createdAt: row.created_at.toISOString(),
-      url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`,
-    };
-
-    uiEventBroker.publish({ type: "media.changed", agentId: id });
-    return reply.code(201).send({ ok: true, media: mediaRecord });
-  });
-
-  app.post("/api/v1/agents/:id/media/seen", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const id = params.id ?? "";
-    const agent = await agentManager.getAgent(id);
-    if (!agent) {
-      return reply.code(404).send({ error: "Agent not found." });
-    }
-
-    const body = request.body as { keys?: unknown } | undefined;
-    if (
-      !Array.isArray(body?.keys) ||
-      !body.keys.every((key) => typeof key === "string")
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "keys must be an array of strings." });
-    }
-
-    const keys = Array.from(
-      new Set(
-        body.keys.map((key) => key.trim()).filter((key) => isValidMediaKey(key))
-      )
-    );
-
-    if (keys.length === 0) {
-      return { ok: true, updated: 0 };
-    }
-
-    await markSeenMediaKeys(id, keys);
-    uiEventBroker.publish({ type: "media.seen", agentId: id, keys });
-    return { ok: true, updated: keys.length };
+  await registerMediaRoutes(app, {
+    pool,
+    mediaRoot: config.mediaRoot,
+    agentManager,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
   app.post("/api/v1/agents/:id/stream", async (request, reply) => {
@@ -4968,352 +4703,24 @@ async function registerRoutes() {
   });
 
   // --- Personas ---
-
-  app.get("/api/v1/personas", async (request, reply) => {
-    const query = request.query as { cwd?: unknown };
-    if (typeof query.cwd !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "cwd query parameter is required." });
-    }
-    try {
-      // Try worktree root first (uncommitted persona files live here), then repo root
-      let personas = await loadPersonas(await resolveWorktreeRoot(query.cwd));
-      if (personas.length === 0) {
-        personas = await loadPersonas(await resolveRepoRoot(query.cwd));
-      }
-      return { personas };
-    } catch {
-      return { personas: [] };
-    }
-  });
-
-  app.post("/api/v1/agents/:id/launch-review", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as {
-      persona?: unknown;
-      agentType?: unknown;
-      allowRecheck?: unknown;
-    } | null;
-    const agentId = params.id ?? "";
-
-    if (typeof body?.persona !== "string" || body.persona.trim().length === 0) {
-      return reply
-        .code(400)
-        .send({ error: "persona is required and must be a non-empty string." });
-    }
-    // Persona is interpolated into a server-injected prompt and used as a
-    // filename in loadPersonaBySlug — restrict to a slug character class to
-    // close prompt-injection (newlines/quotes breaking out) and path-traversal
-    // gaps in one shot.
-    if (!/^[a-zA-Z0-9_-]+$/.test(body.persona)) {
-      return reply.code(400).send({
-        error:
-          "persona must be a slug containing only letters, digits, underscore, or hyphen.",
-      });
-    }
-
-    if (
-      typeof body.agentType !== "string" ||
-      !CLI_AGENT_TYPES.includes(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number]
-      )
-    ) {
-      return reply.code(400).send({
-        error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
-      });
-    }
-
-    if (typeof body.allowRecheck !== "boolean") {
-      return reply
-        .code(400)
-        .send({ error: "allowRecheck is required and must be a boolean." });
-    }
-
-    try {
-      const access = await agentManager.getTerminalAccess(agentId);
-      if (access.mode !== "tmux") {
-        return reply
-          .code(409)
-          .send({ error: "Agent does not have an active tmux session." });
-      }
-
-      const prompt = [
-        `Use the dispatch_launch_persona MCP tool to launch the "${body.persona}" persona on your current work.`,
-        `Use agentType: "${body.agentType}" and allowRecheck: ${body.allowRecheck ? "true" : "false"}.`,
-        "Treat this as an author-requested review for the current worktree/branch.",
-        "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
-        "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
-      ].join(" ");
-
-      const terminal = new TmuxTerminal(access.sessionName);
-      await terminal.sendCommand(prompt);
-      return { ok: true };
-    } catch (error) {
-      return handleAgentError(reply, error);
-    }
-  });
-
-  app.post("/api/v1/agents/:id/persona-reviews", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as {
-      persona?: unknown;
-      agentType?: unknown;
-      allowRecheck?: unknown;
-      context?: unknown;
-    } | null;
-    const agentId = params.id ?? "";
-
-    if (typeof body?.persona !== "string" || body.persona.trim().length === 0) {
-      return reply
-        .code(400)
-        .send({ error: "persona is required and must be a non-empty string." });
-    }
-
-    if (
-      body.agentType !== undefined &&
-      (typeof body.agentType !== "string" ||
-        !CLI_AGENT_TYPES.includes(
-          body.agentType as (typeof CLI_AGENT_TYPES)[number]
-        ))
-    ) {
-      return reply.code(400).send({
-        error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
-      });
-    }
-
-    if (
-      body.allowRecheck !== undefined &&
-      typeof body.allowRecheck !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "allowRecheck must be a boolean when provided." });
-    }
-
-    if (body.context !== undefined && typeof body.context !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "context must be a string when provided." });
-    }
-
-    try {
-      const parent = await agentManager.getAgent(agentId);
-      if (!parent) return reply.code(404).send({ error: "Agent not found." });
-
-      const context =
-        body.context?.trim() ||
-        [
-          `Review the current work for agent "${parent.name}".`,
-          "Inspect the current diff, changed files, and surrounding code.",
-          "Focus on actionable bugs, regressions, and missing validation.",
-        ].join(" ");
-
-      const result = await mcpLaunchPersona(agentId, {
-        persona: body.persona.trim(),
-        context,
-        agentType: body.agentType as
-          | (typeof CLI_AGENT_TYPES)[number]
-          | undefined,
-        allowRecheck: body.allowRecheck === true,
-      });
-      const agent = await agentManager.getAgent(result.agentId);
-      return {
-        agent: agent ? withStreamFlag(agent) : null,
-        agentId: result.agentId,
-      };
-    } catch (error) {
-      return handleAgentError(reply, error);
-    }
+  await registerPersonaReviewRoutes(app, {
+    agentManager,
+    resolveWorktreeRoot,
+    resolveRepoRoot,
+    mcpLaunchPersona,
+    mcpCancelRecheck,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    withStreamFlag,
+    handleAgentError,
   });
 
   // --- Feedback ---
 
-  app.get("/api/v1/agents/:id/feedback", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const query = request.query as { scope?: unknown };
-    const id = params.id ?? "";
-    try {
-      if (query.scope === "children") {
-        const feedback = await agentManager.listFeedbackByParent(id);
-        return { feedback };
-      }
-      const agent = await agentManager.getAgent(id);
-      if (!agent) return reply.code(404).send({ error: "Agent not found." });
-      const feedback = await agentManager.listFeedback(id);
-      return { feedback };
-    } catch (error) {
-      return handleAgentError(reply, error);
-    }
+  await registerFeedbackRoutes(app, {
+    agentManager,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    handleAgentError,
   });
-
-  app.patch(
-    "/api/v1/agents/:id/feedback/:feedbackId",
-    async (request, reply) => {
-      const params = request.params as { id?: string; feedbackId?: string };
-      const body = request.body as {
-        status?: unknown;
-        reason?: unknown;
-      } | null;
-      const feedbackId = parseInt(params.feedbackId ?? "", 10);
-
-      if (isNaN(feedbackId)) {
-        return reply.code(400).send({ error: "Invalid feedback id." });
-      }
-
-      const validStatuses = [
-        "open",
-        "dismissed",
-        "forwarded",
-        "fixed",
-        "ignored",
-      ] as const;
-      if (
-        typeof body?.status !== "string" ||
-        !(validStatuses as readonly string[]).includes(body.status)
-      ) {
-        return reply.code(400).send({
-          error:
-            "status must be one of: open, dismissed, forwarded, fixed, ignored",
-        });
-      }
-
-      let reason: string | null = null;
-      if (typeof body.reason === "string") {
-        if (body.reason.length > 10_000) {
-          return reply
-            .code(400)
-            .send({ error: "reason exceeds 10,000 character limit." });
-        }
-        reason = body.reason;
-      } else if (body.reason !== undefined && body.reason !== null) {
-        return reply
-          .code(400)
-          .send({ error: "reason must be a string if provided." });
-      }
-
-      if (body.status === "ignored" && !(reason && reason.trim().length > 0)) {
-        return reply.code(400).send({
-          error: "A reason is required when marking feedback as ignored.",
-        });
-      }
-
-      try {
-        const agentId = params.id ?? "";
-        // Only compute HEAD when the update will actually record a
-        // resolution; updateFeedbackStatus discards it otherwise.
-        const isResolving =
-          body.status === "fixed" || body.status === "ignored";
-        const agent = isResolving ? await agentManager.getAgent(agentId) : null;
-        const resolutionCommit =
-          isResolving && agent ? await resolveHeadSha(agent.cwd) : null;
-        const updated = await agentManager.updateFeedbackStatus(
-          feedbackId,
-          agentId,
-          body.status as
-            | "open"
-            | "dismissed"
-            | "forwarded"
-            | "fixed"
-            | "ignored",
-          { reason, resolutionCommit }
-        );
-        if (!updated)
-          return reply.code(404).send({ error: "Feedback not found." });
-        uiEventBroker.publish({
-          type: "feedback.updated",
-          agentId,
-          feedback: updated,
-        });
-        return { feedback: updated };
-      } catch (error) {
-        return handleAgentError(reply, error);
-      }
-    }
-  );
-
-  app.post(
-    "/api/v1/agents/:id/persona-reviews/:personaAgentId/resolution",
-    async (request, reply) => {
-      const params = request.params as {
-        id?: string;
-        personaAgentId?: string;
-      };
-      const body = request.body as { summary?: unknown } | null;
-      const agentId = params.id ?? "";
-      const personaAgentId = params.personaAgentId ?? "";
-
-      if (
-        typeof body?.summary !== "string" ||
-        body.summary.trim().length === 0
-      ) {
-        return reply.code(400).send({
-          error: "summary is required and must be a non-empty string.",
-        });
-      }
-
-      try {
-        const parent = await agentManager.getAgent(agentId);
-        if (!parent) return reply.code(404).send({ error: "Agent not found." });
-        const resolutionCommit = await resolveHeadSha(parent.cwd);
-        const result = await agentManager.submitReviewResolution({
-          parentAgentId: agentId,
-          personaAgentId,
-          summary: body.summary,
-          resolutionCommit,
-        });
-        const [child, parentAgent] = await Promise.all([
-          agentManager.getAgent(personaAgentId),
-          agentManager.getAgent(agentId),
-        ]);
-        if (child)
-          uiEventBroker.publish({
-            type: "agent.upsert",
-            agent: withStreamFlag(child),
-          });
-        if (parentAgent)
-          uiEventBroker.publish({
-            type: "agent.upsert",
-            agent: withStreamFlag(parentAgent),
-          });
-        return { review: result.review, resolution: result.resolution };
-      } catch (error) {
-        return handleAgentError(reply, error);
-      }
-    }
-  );
-
-  app.post(
-    "/api/v1/agents/:id/persona-reviews/:personaAgentId/cancel-recheck",
-    async (request, reply) => {
-      const params = request.params as {
-        id?: string;
-        personaAgentId?: string;
-      };
-      const body = request.body as { reason?: unknown } | null;
-      const agentId = params.id ?? "";
-      const personaAgentId = params.personaAgentId ?? "";
-
-      if (body?.reason !== undefined && typeof body.reason !== "string") {
-        return reply
-          .code(400)
-          .send({ error: "reason must be a string when provided." });
-      }
-
-      try {
-        await mcpCancelRecheck(agentId, {
-          personaAgentId,
-          reason:
-            typeof body?.reason === "string" && body.reason.trim().length > 0
-              ? body.reason.trim()
-              : undefined,
-        });
-        return reply.code(204).send();
-      } catch (error) {
-        return handleAgentError(reply, error);
-      }
-    }
-  );
 
   app.post("/api/v1/agents/:id/terminal/token", async (request, reply) => {
     const params = request.params as { id?: string };
@@ -6071,228 +5478,6 @@ function decodeClientMessage(
   }
 }
 
-async function listMediaFiles(agentId: string): Promise<
-  Array<{
-    name: string;
-    source: string;
-    size: number;
-    updatedAt: string;
-    url: string;
-    description: string | null;
-  }>
-> {
-  const result = await pool.query<{
-    file_name: string;
-    source: string;
-    size_bytes: number;
-    effective_updated_at: Date;
-    description: string | null;
-  }>(
-    `SELECT file_name, source, size_bytes,
-            COALESCE(updated_at, created_at) AS effective_updated_at,
-            description
-     FROM media WHERE agent_id = $1
-     ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 50`,
-    [agentId]
-  );
-
-  return result.rows.map((row) => ({
-    name: row.file_name,
-    source: row.source,
-    size: row.size_bytes,
-    updatedAt: row.effective_updated_at.toISOString(),
-    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(row.file_name)}`,
-    description: row.description ?? null,
-  }));
-}
-
-function toMediaKey(file: { name: string; updatedAt: string }): string {
-  return `${file.name}:${file.updatedAt}`;
-}
-
-function isValidMediaKey(key: string): boolean {
-  if (key.length === 0 || key.length > 1024) {
-    return false;
-  }
-
-  return !/[\u0000-\u001F]/.test(key);
-}
-
-async function loadSeenMediaKeys(
-  agentId: string,
-  keys: string[]
-): Promise<Set<string>> {
-  if (keys.length === 0) {
-    return new Set();
-  }
-
-  const result = await pool.query<{ mediaKey: string }>(
-    `
-    SELECT media_key AS "mediaKey"
-    FROM media_seen
-    WHERE agent_id = $1 AND media_key = ANY($2::text[])
-    `,
-    [agentId, keys]
-  );
-
-  return new Set(result.rows.map((row) => row.mediaKey));
-}
-
-async function markSeenMediaKeys(
-  agentId: string,
-  keys: string[]
-): Promise<void> {
-  if (keys.length === 0) {
-    return;
-  }
-
-  await pool.query(
-    `
-    INSERT INTO media_seen (agent_id, media_key, seen_at)
-    SELECT $1, key, NOW()
-    FROM UNNEST($2::text[]) AS key
-    ON CONFLICT (agent_id, media_key) DO UPDATE
-      SET seen_at = EXCLUDED.seen_at
-    `,
-    [agentId, keys]
-  );
-}
-
-const TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".toml",
-  ".csv",
-  ".log",
-  ".xml",
-  ".html",
-  ".css",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".py",
-  ".go",
-  ".rs",
-  ".sh",
-  ".sql",
-  ".diff",
-  ".patch",
-  ".env",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".swift",
-  ".kt",
-  ".java",
-  ".c",
-  ".cpp",
-  ".h",
-  ".hpp",
-  ".rb",
-  ".php",
-  ".lua",
-  ".zig",
-  ".nim",
-  ".r",
-  ".m",
-  ".ex",
-  ".exs",
-  ".erl",
-  ".hs",
-]);
-
-function isTextFile(name: string): boolean {
-  const ext = path.extname(name).toLowerCase();
-  return TEXT_EXTENSIONS.has(ext);
-}
-
-const DOCUMENT_EXTENSIONS = new Set([".pdf"]);
-
-function isDocumentFile(name: string): boolean {
-  const ext = path.extname(name).toLowerCase();
-  return DOCUMENT_EXTENSIONS.has(ext);
-}
-
-function isMediaFile(name: string): boolean {
-  return (
-    /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) ||
-    isTextFile(name) ||
-    isDocumentFile(name)
-  );
-}
-
-function mimeType(name: string): string {
-  if (/\.png$/i.test(name)) {
-    return "image/png";
-  }
-
-  if (/\.jpe?g$/i.test(name)) {
-    return "image/jpeg";
-  }
-
-  if (/\.gif$/i.test(name)) {
-    return "image/gif";
-  }
-
-  if (/\.webp$/i.test(name)) {
-    return "image/webp";
-  }
-
-  if (/\.mp4$/i.test(name)) {
-    return "video/mp4";
-  }
-
-  if (/\.json$/i.test(name)) {
-    return "application/json";
-  }
-
-  if (/\.xml$/i.test(name)) {
-    return "application/xml";
-  }
-
-  if (/\.html$/i.test(name)) {
-    return "text/html";
-  }
-
-  if (/\.css$/i.test(name)) {
-    return "text/css";
-  }
-
-  if (/\.(js|jsx|mjs)$/i.test(name)) {
-    return "text/javascript";
-  }
-
-  if (/\.csv$/i.test(name)) {
-    return "text/csv";
-  }
-
-  if (/\.md$/i.test(name)) {
-    return "text/markdown";
-  }
-
-  if (/\.ya?ml$/i.test(name)) {
-    return "text/yaml";
-  }
-
-  if (/\.pdf$/i.test(name)) {
-    return "application/pdf";
-  }
-
-  if (isTextFile(name)) {
-    return "text/plain";
-  }
-
-  return "application/octet-stream";
-}
-
-function resolveMediaDir(agentId: string, mediaDir: string | null): string {
-  return mediaDir ?? path.join(config.mediaRoot, agentId);
-}
-
 let shuttingDown = false;
 async function cleanupAppResources(): Promise<void> {
   if (shuttingDown) {
@@ -6917,7 +6102,7 @@ async function mcpShareMedia(
       : "screenshot";
 
   const buffer = await readFile(opts.filePath);
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, config.mediaRoot);
   await mkdir(mediaDir, { recursive: true });
 
   // Update existing media file
@@ -7010,7 +6195,7 @@ async function mcpListMedia(
   const agent = await agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
 
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir);
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, config.mediaRoot);
 
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`

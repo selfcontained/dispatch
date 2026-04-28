@@ -335,7 +335,7 @@ cmd_up() {
 
   save_state
 
-  local display_host="${DISPATCH_HOST:-127.0.0.1}"
+  local display_host="127.0.0.1"
 
   echo ""
   echo "Dev environment ready (suffix: ${SUFFIX}):"
@@ -380,7 +380,7 @@ cmd_status() {
     return 0
   fi
 
-  local display_host="${DISPATCH_HOST:-127.0.0.1}"
+  local display_host="127.0.0.1"
 
   # DB
   if [ "${DEV_NO_DB:-0}" != "1" ] && [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
@@ -422,7 +422,7 @@ cmd_url() {
     echo "Dev server is not running." >&2
     exit 1
   fi
-  echo "http://${DISPATCH_HOST:-127.0.0.1}:${DEV_API_PORT}"
+  echo "http://127.0.0.1:${DEV_API_PORT}"
 }
 
 cmd_logs() {
