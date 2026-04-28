@@ -4709,7 +4709,8 @@ async function registerRoutes() {
     resolveRepoRoot,
     mcpLaunchPersona,
     mcpCancelRecheck,
-    sendAgentPrompt: injectTmuxPrompt,
+    sendAgentPrompt: (agentId, prompt) =>
+      injectTmuxPrompt(agentId, prompt, { swallowFailure: false }),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
     handleAgentError,
@@ -6048,7 +6049,8 @@ async function mcpLaunchPersona(
 
 async function injectTmuxPrompt(
   agentId: string,
-  prompt: string
+  prompt: string,
+  opts: { swallowFailure?: boolean } = {}
 ): Promise<void> {
   try {
     const access = await agentManager.getTerminalAccess(agentId);
@@ -6062,6 +6064,9 @@ async function injectTmuxPrompt(
     const terminal = new TmuxTerminal(access.sessionName);
     await terminal.sendCommand(prompt);
   } catch (error) {
+    if (opts.swallowFailure === false) {
+      throw error;
+    }
     app.log.warn(
       { err: error, agentId },
       "Failed to inject tmux prompt — agent may have exited"
