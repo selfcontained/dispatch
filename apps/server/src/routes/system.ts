@@ -13,11 +13,7 @@ import {
   getEnabledAgentTypes,
   setEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import {
-  IDE_TYPES,
-  getEnabledIdes,
-  setEnabledIdes,
-} from "../ide-settings.js";
+import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
 import {
   SlackNotifier,
   isValidSlackWebhookUrl,
@@ -504,9 +500,7 @@ export async function registerSystemRoutes(
   app.post("/api/v1/app/settings/ides", async (request, reply) => {
     const body = request.body as { enabledIdes?: unknown } | null;
     if (!Array.isArray(body?.enabledIdes)) {
-      return reply
-        .code(400)
-        .send({ error: "enabledIdes must be an array." });
+      return reply.code(400).send({ error: "enabledIdes must be an array." });
     }
 
     const uniqueIdes = body.enabledIdes

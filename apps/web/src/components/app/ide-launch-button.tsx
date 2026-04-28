@@ -84,6 +84,7 @@ export function IdeLaunchButton({
     : orderedEnabled[0];
   const launchUrl = buildIdeUrl(activeIde, path);
   const choose = (ide: IdeType) => setPreferredIde(ide);
+  const showPicker = orderedEnabled.length > 1;
 
   return (
     <div className="inline-flex items-center">
@@ -95,7 +96,12 @@ export function IdeLaunchButton({
             size="sm"
             aria-label={`Open in ${IDE_LABELS[activeIde]}`}
             data-testid="ide-launch-button"
-            className="group relative h-auto rounded-l-full rounded-r-none border border-r-0 border-border bg-muted/35 px-1.5 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-[-8px] before:right-0 before:content-[''] hover:bg-muted/60 hover:text-foreground"
+            className={cn(
+              "group relative h-auto min-h-6 border border-border bg-muted/35 px-2 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-[-8px] before:content-[''] hover:bg-muted/60 hover:text-foreground",
+              showPicker
+                ? "rounded-l-full rounded-r-none border-r-0 before:right-0"
+                : "rounded-full before:right-[-8px]"
+            )}
           >
             <a href={launchUrl}>
               <IdeIcon ide={activeIde} className="h-3 w-3" />
@@ -104,38 +110,43 @@ export function IdeLaunchButton({
         </TooltipTrigger>
         <TooltipContent>Open in {IDE_LABELS[activeIde]}</TooltipContent>
       </Tooltip>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Choose IDE"
-            data-testid="ide-launch-dropdown"
-            className="relative h-auto rounded-l-none rounded-r-full border border-border bg-muted/35 px-1 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-0 before:right-[-8px] before:content-[''] hover:bg-muted/60 hover:text-foreground"
-          >
-            <ChevronDown className="h-3 w-3" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {orderedEnabled.map((ide) => (
-            <DropdownMenuItem
-              key={ide}
-              asChild
-              className="text-foreground"
-              data-testid={`ide-launch-option-${ide}`}
+      {showPicker ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Choose IDE"
+              data-testid="ide-launch-dropdown"
+              className="relative h-auto min-h-6 rounded-l-none rounded-r-full border border-border bg-muted/35 px-1.5 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-0 before:right-[-8px] before:content-[''] hover:bg-muted/60 hover:text-foreground"
             >
-              <a
-                href={buildIdeUrl(ide, path)}
-                onClick={() => choose(ide)}
-                className="flex items-center gap-2 whitespace-nowrap"
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {orderedEnabled.map((ide) => (
+              <DropdownMenuItem
+                key={ide}
+                asChild
+                className="text-foreground"
+                data-testid={`ide-launch-option-${ide}`}
               >
-                <IdeIcon ide={ide} className="h-3.5 w-3.5 shrink-0" />
-                <span>Open in {IDE_LABELS[ide]}</span>
-              </a>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+                <a
+                  href={buildIdeUrl(ide, path)}
+                  onClick={() => choose(ide)}
+                  className="flex items-center gap-2 whitespace-nowrap"
+                >
+                  <IdeIcon
+                    ide={ide}
+                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <span>Open in {IDE_LABELS[ide]}</span>
+                </a>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
