@@ -40,6 +40,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { useCopyText } from "@/hooks/use-copy";
 import { type AgentType } from "@/lib/agent-types";
+import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 
 export type AgentCardProps = {
@@ -68,6 +69,7 @@ export type AgentCardProps = {
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
   enabledAgentTypes: AgentType[];
+  enabledIdes: IdeType[];
 };
 
 function CompactMetaRow({
@@ -137,6 +139,7 @@ export function AgentCard({
   onRequestClose,
   closeOnSessionAction = false,
   enabledAgentTypes,
+  enabledIdes,
 }: AgentCardProps): JSX.Element {
   const state = getVisualState(agent);
   const hasActiveChild = childAgents.some(
@@ -453,7 +456,10 @@ export function AgentCard({
                     <div className="flex items-center justify-between gap-2 pt-1">
                       <div className="flex items-center gap-2">
                         {agent.cwd ? (
-                          <IdeLaunchButton path={agent.cwd} />
+                          <IdeLaunchButton
+                            path={agent.cwd}
+                            enabledIdes={enabledIdes}
+                          />
                         ) : null}
                         {agent.gitContext?.isWorktree && agent.cwd ? (
                           <Tooltip>

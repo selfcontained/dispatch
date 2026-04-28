@@ -120,6 +120,7 @@ export function AgentsRoute(): JSX.Element {
   return (
     <AgentsView
       enabledAgentTypes={context.enabledAgentTypes}
+      enabledIdes={context.enabledIdes}
       isMobile={context.isMobile}
       leftOpen={context.leftOpen}
       mediaOpen={context.mediaOpen}
@@ -223,6 +224,8 @@ export function SettingsRoute(): JSX.Element {
           clearIconColorError={context.clearIconColorError}
           enabledAgentTypes={context.enabledAgentTypes}
           onEnabledAgentTypesChange={context.setEnabledAgentTypes}
+          enabledIdes={context.enabledIdes}
+          onEnabledIdesChange={context.setEnabledIdes}
           initialSubsection={subsection}
           onSubsectionChange={(nextSubsection) => {
             if (section !== "help") return;

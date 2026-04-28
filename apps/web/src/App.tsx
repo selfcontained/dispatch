@@ -26,6 +26,7 @@ import {
   type AgentType,
   sanitizeEnabledAgentTypes,
 } from "@/lib/agent-types";
+import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
@@ -38,6 +39,8 @@ export type DashboardContextValue = {
   agents: Agent[];
   enabledAgentTypes: AgentType[];
   setEnabledAgentTypes: React.Dispatch<React.SetStateAction<AgentType[]>>;
+  enabledIdes: IdeType[];
+  setEnabledIdes: React.Dispatch<React.SetStateAction<IdeType[]>>;
   handleLogout: () => void;
   isMobile: boolean;
   leftOpen: boolean;
@@ -111,6 +114,7 @@ export function DashboardLayout(): JSX.Element {
   const [enabledAgentTypes, setEnabledAgentTypes] = useState<AgentType[]>([
     ...AGENT_TYPES,
   ]);
+  const [enabledIdes, setEnabledIdes] = useState<IdeType[]>([]);
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: async () => {
@@ -143,6 +147,15 @@ export function DashboardLayout(): JSX.Element {
         setEnabledAgentTypes(
           sanitizeEnabledAgentTypes(payload.enabledAgentTypes)
         );
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+
+    void api<{ enabledIdes: IdeType[] }>("/api/v1/app/settings/ides")
+      .then((payload) => {
+        if (cancelled) return;
+        setEnabledIdes(sanitizeEnabledIdes(payload.enabledIdes));
       })
       .catch(() => {
         if (cancelled) return;
@@ -205,6 +218,8 @@ export function DashboardLayout(): JSX.Element {
     agents,
     enabledAgentTypes,
     setEnabledAgentTypes,
+    enabledIdes,
+    setEnabledIdes,
     handleLogout,
     isMobile,
     leftOpen,

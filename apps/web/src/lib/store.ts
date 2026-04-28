@@ -1,6 +1,8 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
+import { type IdeType } from "./ide-types";
+
 function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
     (() => {
@@ -47,8 +49,7 @@ export const soundCuesEnabledAtom = atomWithLocalStorage(
   true
 );
 
-export type PreferredIde = "vscode" | "cursor";
-export const preferredIdeAtom = atomWithLocalStorage<PreferredIde>(
+export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "dispatch:preferredIde",
   "vscode"
 );
