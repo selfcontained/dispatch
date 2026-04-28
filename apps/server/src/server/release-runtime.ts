@@ -1,6 +1,4 @@
-import path from "node:path";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
 
 import type { Pool } from "pg";
 
@@ -10,7 +8,10 @@ import type {
   AssistedUpdateState,
 } from "../assisted-update-store.js";
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
-import { releaseNotesMarkdown } from "../generated/runtime-assets.js";
+import {
+  packageVersion,
+  releaseNotesMarkdown,
+} from "../generated/runtime-assets.js";
 
 type RunCommand = (
   command: string,
@@ -77,7 +78,6 @@ type CreateReleaseRuntimeDeps = {
   pool: Pool;
   config: AppConfig;
   serverDir: string;
-  appRootDir: string;
   runCommand: RunCommand;
   readReleaseStore: () => Promise<{ tag: string; deployedAt: string } | null>;
   writeReleaseStore: (record: {
@@ -118,18 +118,11 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   }> {
     const record = await deps.readReleaseStore().catch(() => null);
 
-    let version: string | null = null;
-    try {
-      const packageJson = JSON.parse(
-        await readFile(path.join(deps.appRootDir, "package.json"), "utf8")
-      ) as { version?: unknown };
-      if (
-        typeof packageJson.version === "string" &&
-        packageJson.version.trim()
-      ) {
-        version = packageJson.version.trim();
-      }
-    } catch {}
+    // packageVersion is baked in at build time by
+    // scripts/generate-server-runtime-assets.mjs from the workspace
+    // package.json. It survives the Bun --compile VFS where reading
+    // package.json from disk does not.
+    const version = packageVersion.trim() || null;
 
     let gitSha: string | null = null;
     try {

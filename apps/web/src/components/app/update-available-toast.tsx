@@ -1,22 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { reloadApp } from "@/lib/pwa-update";
 import {
-  forcePWAUpdate,
-  getNeedRefresh,
-  subscribeNeedRefresh,
-} from "@/lib/pwa-update";
+  dismissVersionMismatch,
+  getServerVersion,
+  isVersionMismatch,
+  isVersionMismatchDismissed,
+  subscribeVersionMismatch,
+} from "@/lib/version";
 import { cn } from "@/lib/utils";
-
-type AppVersionInfo = {
-  releaseTag: string | null;
-  version: string | null;
-  gitSha: string | null;
-  releaseNotes: string | null;
-  releaseUrl: string | null;
-};
 
 function isEditableElement(element: Element | null): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
@@ -28,38 +21,31 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
   return selectors.some((selector) => element.matches(selector));
 }
 
+type ToastState = {
+  visible: boolean;
+  serverVersion: string | null;
+};
+
+function readToastState(): ToastState {
+  return {
+    visible: isVersionMismatch() && !isVersionMismatchDismissed(),
+    serverVersion: getServerVersion(),
+  };
+}
+
 export function UpdateAvailableToast(): JSX.Element | null {
-  const [needRefresh, setNeedRefresh] = useState<boolean>(() =>
-    getNeedRefresh()
-  );
-  const [dismissed, setDismissed] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const [state, setState] = useState<ToastState>(readToastState);
+  const reloadingRef = useRef(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = subscribeNeedRefresh(() => {
-      setNeedRefresh(true);
-      setDismissed(false);
-    });
-    // Re-sync in case the module flag flipped between render and effect
-    // (the dynamic import-resolves-then-onNeedRefresh-fires race).
-    if (getNeedRefresh()) setNeedRefresh(true);
+    const sync = (): void => setState(readToastState());
+    const unsubscribe = subscribeVersionMismatch(sync);
+    sync();
     return unsubscribe;
   }, []);
 
-  const { data: versionInfo, isFetched } = useQuery({
-    queryKey: ["app-version"],
-    queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
-    enabled: needRefresh,
-    staleTime: 0,
-  });
-
-  if (!needRefresh || dismissed) return null;
-  // Wait for the version query to settle before mounting so screen readers
-  // get a single aria-live announcement with the final text.
-  if (!isFetched) return null;
-
-  const newVersion = versionInfo?.version ?? null;
+  if (!state.visible) return null;
 
   const handleReload = (): void => {
     const activeElement = document.activeElement;
@@ -77,18 +63,18 @@ export function UpdateAvailableToast(): JSX.Element | null {
       return;
     }
 
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
+
     if (isEditableElement(activeElement)) {
       activeElement.blur();
     }
 
-    setReloading(true);
-    forcePWAUpdate(true).catch(() => {
-      setReloading(false);
-    });
+    void reloadApp();
   };
 
   const handleDismiss = (): void => {
-    setDismissed(true);
+    dismissVersionMismatch();
   };
 
   return (
@@ -137,11 +123,11 @@ export function UpdateAvailableToast(): JSX.Element | null {
           <div
             role="status"
             aria-live="polite"
-            className="min-w-0 flex-1 text-sm font-semibold md:whitespace-nowrap"
+            className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words"
           >
-            {newVersion
-              ? `New version ${newVersion} available`
-              : "New version available"}
+            {state.serverVersion
+              ? `Server updated to ${state.serverVersion}. Reload to pick it up.`
+              : "Server updated. Reload to pick up the new version."}
           </div>
         </div>
         <Button
@@ -151,12 +137,9 @@ export function UpdateAvailableToast(): JSX.Element | null {
             );
           }}
           onClick={handleReload}
-          disabled={reloading}
           className="h-11 w-full shrink-0 md:h-8 md:w-auto"
         >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5 mr-1.5", reloading && "animate-spin")}
-          />
+          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
           Reload
         </Button>
       </div>

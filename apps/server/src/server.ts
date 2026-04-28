@@ -8,7 +8,6 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 
 import fastifyCookie from "@fastify/cookie";
@@ -89,7 +88,10 @@ import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
-import { staticFiles as embeddedStaticFiles } from "./generated/runtime-assets.js";
+import {
+  packageVersion,
+  staticFiles as embeddedStaticFiles,
+} from "./generated/runtime-assets.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
@@ -186,9 +188,6 @@ const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
 
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const appRootDir = path.resolve(__dirname, "..");
 const ICON_COLOR_KEY = "icon_color";
 const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
 
@@ -205,7 +204,6 @@ const releaseRuntime = createReleaseRuntime({
   pool,
   config,
   serverDir,
-  appRootDir,
   runCommand,
   readReleaseStore: () => readReleaseStore(),
   writeReleaseStore: (record) => writeReleaseStore(record),
@@ -320,6 +318,16 @@ async function registerRoutes() {
     getCachedIndexHtml: staticTheme.getCachedIndexHtml,
     getCachedManifest: staticTheme.getCachedManifest,
     staticAssets: staticTheme.staticAssets,
+  });
+
+  // Stamp every API response with the build-time package version so the
+  // client can detect a server upgrade (e.g. after a self-update) and
+  // surface a "reload" banner without polling a version endpoint.
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header("X-Dispatch-Version", packageVersion);
+    }
+    return payload;
   });
 
   // ---------------------------------------------------------------------------

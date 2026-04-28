@@ -33,7 +33,7 @@ import {
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { agentRoute } from "@/lib/agent-routes";
-import { forcePWAUpdate } from "@/lib/pwa-update";
+import { clearCachesAndReload, reloadApp } from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
 type AppVersionInfo = {
@@ -81,7 +81,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
-  const [reloading, setReloading] = useState(false);
+  const reloadingRef = useRef(false);
 
   // Fetch version info + channel on mount
   useEffect(() => {
@@ -204,25 +204,15 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   );
 
   const handleReload = useCallback(() => {
-    setReloading(true);
-    void forcePWAUpdate(true);
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
+    void reloadApp();
   }, []);
 
-  const handleClearCacheAndReload = useCallback(async () => {
-    setReloading(true);
-    try {
-      if ("serviceWorker" in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((r) => r.unregister()));
-      }
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-      window.location.reload();
-    } catch {
-      window.location.reload();
-    }
+  const handleClearCacheAndReload = useCallback(() => {
+    if (reloadingRef.current) return;
+    reloadingRef.current = true;
+    void clearCachesAndReload();
   }, []);
 
   // Only show takeover for update jobs
@@ -550,20 +540,16 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             size="sm"
             variant="default"
             onClick={handleReload}
-            disabled={reloading}
             className="rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
           >
-            <RefreshCw
-              className={cn("mr-1 h-3.5 w-3.5", reloading && "animate-spin")}
-            />
-            {reloading ? "Reloading..." : "Reload"}
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            Reload
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 size="sm"
                 variant="default"
-                disabled={reloading}
                 className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
