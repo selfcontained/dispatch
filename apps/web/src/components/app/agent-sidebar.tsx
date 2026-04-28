@@ -14,6 +14,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import React from "react";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import { type IdeType } from "@/lib/ide-types";
 
 export type AgentListContentProps = {
   agents: Agent[];
@@ -22,6 +23,7 @@ export type AgentListContentProps = {
   overflowAgentId: string | null;
   onOpenCreateDialog: (type?: AgentType) => void;
   enabledAgentTypes: AgentType[];
+  enabledIdes: IdeType[];
   lastUsedAgentType: AgentType | null;
   setOverflowAgentId: (
     value: string | null | ((current: string | null) => string | null)
@@ -54,6 +56,7 @@ export function AgentListContent({
   overflowAgentId: _overflowAgentId,
   onOpenCreateDialog,
   enabledAgentTypes,
+  enabledIdes,
   lastUsedAgentType,
   setOverflowAgentId: _setOverflowAgentId,
   setDeleteTarget,
@@ -173,6 +176,7 @@ export function AgentListContent({
                     setStopConfirmOpen={setStopConfirmOpen}
                     sendTerminalInput={sendTerminalInput}
                     enabledAgentTypes={enabledAgentTypes}
+                    enabledIdes={enabledIdes}
                     connectedAgentId={connectedAgentId}
                     onOpenFeedbackDetail={onOpenFeedbackDetail}
                     feedbackDetailState={feedbackDetailState}

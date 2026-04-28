@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
+import { IdeSettings } from "@/components/app/ide-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
@@ -26,6 +27,7 @@ import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
 import { Input } from "@/components/ui/input";
 import { type AgentType } from "@/lib/agent-types";
+import { type IdeType } from "@/lib/ide-types";
 import { api } from "@/lib/api";
 import { extractHostname } from "@/lib/rewrite-pin-url";
 import { cn } from "@/lib/utils";
@@ -464,6 +466,8 @@ export type SettingsPaneProps = {
   clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
+  enabledIdes: IdeType[];
+  onEnabledIdesChange: (ides: IdeType[]) => void;
   apiState: ServiceState;
   dbState: ServiceState;
   serviceDotClass: (state: ServiceState) => string;
@@ -614,6 +618,8 @@ export function SettingsContent({
   clearIconColorError,
   enabledAgentTypes,
   onEnabledAgentTypesChange,
+  enabledIdes,
+  onEnabledIdesChange,
   initialSubsection,
   onSubsectionChange,
   isAdmin,
@@ -629,6 +635,8 @@ export function SettingsContent({
   clearIconColorError: () => void;
   enabledAgentTypes: AgentType[];
   onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
+  enabledIdes: IdeType[];
+  onEnabledIdesChange: (ides: IdeType[]) => void;
   initialSubsection?: string;
   onSubsectionChange?: (subsection: string | null) => void;
   isAdmin: boolean;
@@ -674,6 +682,12 @@ export function SettingsContent({
               enabledAgentTypes={enabledAgentTypes}
               onChange={onEnabledAgentTypesChange}
             />
+            <div className="border-t border-border">
+              <IdeSettings
+                enabledIdes={enabledIdes}
+                onChange={onEnabledIdesChange}
+              />
+            </div>
             <div className="px-6 pb-6">
               <WorktreeLocationSettings />
             </div>

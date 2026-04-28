@@ -93,6 +93,7 @@ DEV_COMPOSE_PROJECT=${DEV_COMPOSE_PROJECT:-}
 DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
 DEV_NO_SEED=${OPT_NO_SEED:-0}
+DEV_DISPLAY_HOST=${DEV_DISPLAY_HOST:-127.0.0.1}
 EOF
 }
 
@@ -221,6 +222,7 @@ cmd_up() {
 
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
+  DEV_DISPLAY_HOST="${DISPATCH_HOST:-127.0.0.1}"
 
   # Build environment
   (
@@ -313,14 +315,19 @@ cmd_up() {
 
   # --- Vite Frontend ---
   DEV_VITE_PORT="${RESTART_VITE_PORT:-$(find_free_port)}"
+  local vite_cache_dir
+  vite_cache_dir="$(log_dir)/vite-cache"
 
-  # Clear stale Vite dep optimizer cache to prevent white-page on fresh worktrees
-  rm -rf "${cwd}/apps/web/node_modules/.vite" 2>/dev/null || true
+  # Keep each dev stack's Vite optimizer cache isolated so concurrent builds,
+  # tests, and other live stacks in the same worktree cannot corrupt it.
+  rm -rf "$vite_cache_dir" 2>/dev/null || true
 
   (
     cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
+    DISPATCH_PORT="$DEV_API_PORT" \
+    DISPATCH_VITE_CACHE_DIR="$vite_cache_dir" \
+      pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
 
@@ -335,15 +342,13 @@ cmd_up() {
 
   save_state
 
-  local display_host="${DISPATCH_HOST:-127.0.0.1}"
-
   echo ""
   echo "Dev environment ready (suffix: ${SUFFIX}):"
   if [ "$OPT_NO_DB" != "1" ]; then
     echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
   fi
-  echo "  api: http://${display_host}:${DEV_API_PORT}"
-  echo "  web: http://${display_host}:${DEV_VITE_PORT}"
+  echo "  api: http://${DEV_DISPLAY_HOST}:${DEV_API_PORT}"
+  echo "  web: http://${DEV_DISPLAY_HOST}:${DEV_VITE_PORT}"
   echo ""
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
 }
@@ -380,8 +385,6 @@ cmd_status() {
     return 0
   fi
 
-  local display_host="${DISPATCH_HOST:-127.0.0.1}"
-
   # DB
   if [ "${DEV_NO_DB:-0}" != "1" ] && [ -n "${DEV_CONTAINER_SUFFIX:-}" ]; then
     local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
@@ -396,14 +399,14 @@ cmd_status() {
 
   # API
   if pid_alive "${DEV_API_PID:-}"; then
-    echo "api:  running — http://${display_host}:${DEV_API_PORT}"
+    echo "api:  running — http://${DEV_DISPLAY_HOST:-127.0.0.1}:${DEV_API_PORT}"
   else
     echo "api:  stopped"
   fi
 
   # Vite
   if pid_alive "${DEV_VITE_PID:-}"; then
-    echo "vite: running — http://${display_host}:${DEV_VITE_PORT}"
+    echo "vite: running — http://${DEV_DISPLAY_HOST:-127.0.0.1}:${DEV_VITE_PORT}"
   else
     if [ -n "${DEV_VITE_PID:-}" ]; then
       echo "vite: stopped"
@@ -422,7 +425,7 @@ cmd_url() {
     echo "Dev server is not running." >&2
     exit 1
   fi
-  echo "http://${DISPATCH_HOST:-127.0.0.1}:${DEV_API_PORT}"
+  echo "http://${DEV_DISPLAY_HOST:-127.0.0.1}:${DEV_API_PORT}"
 }
 
 cmd_logs() {

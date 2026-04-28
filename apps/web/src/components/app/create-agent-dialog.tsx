@@ -417,6 +417,7 @@ function CreateAgentDialogContent({
   const [createUseWorktree, setCreateUseWorktree] = useState(true);
   const [createWorktreeBranch, setCreateWorktreeBranch] = useState("");
   const [cwdIsGitRepo, setCwdIsGitRepo] = useState<boolean | null>(null);
+  const cwdPathInfoRef = useRef<{ isGitRepo: boolean } | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
@@ -505,6 +506,7 @@ function CreateAgentDialogContent({
 
   const handlePathInfoChange = useCallback(
     (info: { isGitRepo: boolean } | null) => {
+      cwdPathInfoRef.current = info;
       setCwdIsGitRepo(info ? info.isGitRepo : null);
     },
     []
@@ -746,8 +748,9 @@ function CreateAgentDialogContent({
         // The managed-worktree section is hidden for non-git cwds; force the
         // payload to skip worktree creation in that case so the server doesn't
         // try to run git in a non-repo directory.
+        const latestPathInfo = cwdPathInfoRef.current;
         const submitUseWorktree =
-          cwdIsGitRepo === false ? false : createUseWorktree;
+          latestPathInfo?.isGitRepo === false ? false : createUseWorktree;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
         const payloadBase = {
@@ -816,7 +819,6 @@ function CreateAgentDialogContent({
       createType,
       createUseWorktree,
       createWorktreeBranch,
-      cwdIsGitRepo,
       initialPrompt,
       linkDraftIsValid,
       onCreated,

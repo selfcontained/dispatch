@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { api } from "@/lib/api";
 import { type AgentType, isAgentType } from "@/lib/agent-types";
+import { type IdeType } from "@/lib/ide-types";
 import {
   agentFeedbackRoute,
   agentReviewRoute,
@@ -74,6 +75,7 @@ function isFullAccessEnabled(
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
+  enabledIdes: IdeType[];
   isMobile: boolean;
   leftOpen: boolean;
   mediaOpen: boolean;
@@ -94,6 +96,7 @@ type AgentsViewProps = {
 
 export function AgentsView({
   enabledAgentTypes,
+  enabledIdes,
   isMobile,
   leftOpen,
   mediaOpen,
@@ -518,6 +521,7 @@ export function AgentsView({
                   : openCreateDialog
               }
               enabledAgentTypes={enabledAgentTypes}
+              enabledIdes={enabledIdes}
               lastUsedAgentType={lastUsedAgentType}
               setOverflowAgentId={setOverflowAgentId}
               setDeleteTarget={setDeleteTarget}

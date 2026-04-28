@@ -29,6 +29,7 @@ if (!/^[0-9A-Za-z.+-]+$/.test(packageVersion)) {
 }
 
 export default defineConfig({
+  cacheDir: process.env.DISPATCH_VITE_CACHE_DIR,
   define: {
     __DISPATCH_VERSION__: JSON.stringify(packageVersion),
   },
