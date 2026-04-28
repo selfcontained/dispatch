@@ -38,7 +38,6 @@ export MEDIA_ROOT="/tmp/dispatch-media-${RUN_ID}"
 # Keep the release store out of the host's ~/.dispatch/ — a stale version
 # there surfaces the update-available toast and intercepts clicks.
 export DISPATCH_RELEASE_STORE_PATH="/tmp/dispatch-release-${RUN_ID}.json"
-
 # Disable TLS so the e2e server runs plain HTTP
 unset TLS_CERT TLS_KEY
 

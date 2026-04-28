@@ -27,28 +27,6 @@ else
   fail "git — install Xcode CLI tools: xcode-select --install"
 fi
 
-# NVM
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-  ok "nvm (at $NVM_DIR)"
-  # shellcheck disable=SC1090
-  . "$NVM_DIR/nvm.sh"
-
-  # Node (via NVM)
-  if command -v node &>/dev/null; then
-    NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-    if (( NODE_MAJOR >= 22 )); then
-      ok "node $(node -v)"
-    else
-      fail "node $(node -v) — need >= 22, run: nvm install 22"
-    fi
-  else
-    fail "node — run: nvm install 22"
-  fi
-else
-  fail "nvm — install: brew install nvm (then add to ~/.zshrc)"
-fi
-
 # PostgreSQL
 if command -v pg_isready &>/dev/null; then
   if pg_isready &>/dev/null; then
@@ -73,12 +51,13 @@ echo "Optional:"
 # GitHub CLI
 if command -v gh &>/dev/null; then
   if gh auth status &>/dev/null 2>&1; then
-    ok "gh $(gh --version | head -1 | awk '{print $3}') (authenticated)"
+    ok "gh $(gh --version | head -1 | awk '{print $3}')"
   else
-    warn "gh $(gh --version | head -1 | awk '{print $3}') (not authenticated — run: gh auth login)"
+    ok "gh $(gh --version | head -1 | awk '{print $3}')"
+    warn "gh auth — optional: gh auth login"
   fi
 else
-  warn "gh — needed for releases, install: brew install gh"
+  warn "gh — optional: brew install gh"
 fi
 
 # Claude CLI
