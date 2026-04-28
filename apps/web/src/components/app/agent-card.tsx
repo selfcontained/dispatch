@@ -573,19 +573,13 @@ export function AgentCard({
                         <PersonaLauncher
                           agent={agent}
                           enabledAgentTypes={enabledAgentTypes}
-                          disabled={
-                            connectedAgentId !== agent.id ||
-                            isStopped ||
-                            agent.status === "archiving"
-                          }
+                          disabled={isStopped || agent.status === "archiving"}
                           disabledReason={
                             isStopped
                               ? "Agent is stopped — start it before launching a review."
                               : agent.status === "archiving"
                                 ? "Agent is archiving."
-                                : connectedAgentId !== agent.id
-                                  ? "Tap this agent's row to connect, then launch a review."
-                                  : undefined
+                                : undefined
                           }
                         />
                       )}
