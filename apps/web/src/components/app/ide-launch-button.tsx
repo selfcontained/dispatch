@@ -1,6 +1,7 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Code2 } from "lucide-react";
 import { siCursor } from "simple-icons";
 import { useAtom } from "jotai";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -66,19 +67,77 @@ function buildIdeUrl(ide: IdeType, path: string): string {
   return `${IDE_META[ide].scheme}://file${encoded}`;
 }
 
+const PILL_BASE =
+  "h-auto min-h-6 border border-border bg-muted/35 px-2 py-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground";
+
 export function IdeLaunchButton({
   path,
-  enabledIdes,
+  enabledIdes = [],
 }: {
   path: string;
-  enabledIdes: IdeType[];
-}): JSX.Element | null {
+  enabledIdes?: IdeType[];
+}): JSX.Element {
   const [preferredIde, setPreferredIde] = useAtom(preferredIdeAtom);
-  if (!isLoopbackHost()) return null;
-  // Render in the canonical IDE_TYPES order so the dropdown is stable
-  // regardless of the order the user toggled them.
+  const onLoopback = isLoopbackHost();
   const orderedEnabled = IDE_TYPES.filter((ide) => enabledIdes.includes(ide));
-  if (orderedEnabled.length === 0) return null;
+
+  // Empty-state CTA: when on loopback with no IDEs enabled, show a discoverable
+  // pill that links into Settings → Agents so users find the toggle.
+  if (onLoopback && orderedEnabled.length === 0) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            aria-label="Configure IDEs in Settings"
+            data-testid="ide-launch-cta"
+            className={cn("group rounded-full", PILL_BASE)}
+          >
+            <Link to="/settings/agents">
+              <Code2 className="h-3 w-3" />
+            </Link>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Open in IDE — enable an IDE in Settings → Agents
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  // Remote (non-loopback): render a disabled button so the feature is
+  // discoverable but the URL handler isn't fired against a path that doesn't
+  // exist on the user's machine.
+  if (!onLoopback) {
+    const fallbackIde =
+      orderedEnabled[0] ??
+      (IDE_TYPES.includes(preferredIde) ? preferredIde : "vscode");
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled
+            aria-label="Open in IDE (unavailable on remote access)"
+            data-testid="ide-launch-disabled"
+            className={cn(
+              "rounded-full disabled:opacity-50 disabled:pointer-events-auto",
+              PILL_BASE
+            )}
+          >
+            <IdeIcon ide={fallbackIde} className="h-3 w-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Open in IDE only works when accessing Dispatch on this machine
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
   const activeIde = orderedEnabled.includes(preferredIde)
     ? preferredIde
     : orderedEnabled[0];
@@ -97,7 +156,9 @@ export function IdeLaunchButton({
             aria-label={`Open in ${IDE_LABELS[activeIde]}`}
             data-testid="ide-launch-button"
             className={cn(
-              "group relative h-auto min-h-6 border border-border bg-muted/35 px-2 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-[-8px] before:content-[''] hover:bg-muted/60 hover:text-foreground",
+              "group relative",
+              PILL_BASE,
+              "before:absolute before:inset-y-[-12px] before:left-[-8px] before:content-['']",
               showPicker
                 ? "rounded-l-full rounded-r-none border-r-0 before:right-0"
                 : "rounded-full before:right-[-8px]"
@@ -118,7 +179,11 @@ export function IdeLaunchButton({
               size="sm"
               aria-label="Choose IDE"
               data-testid="ide-launch-dropdown"
-              className="relative h-auto min-h-6 rounded-l-none rounded-r-full border border-border bg-muted/35 px-1.5 py-0.5 text-muted-foreground before:absolute before:inset-y-[-12px] before:left-0 before:right-[-8px] before:content-[''] hover:bg-muted/60 hover:text-foreground"
+              className={cn(
+                "relative rounded-l-none rounded-r-full px-1.5",
+                PILL_BASE,
+                "before:absolute before:inset-y-[-12px] before:left-0 before:right-[-8px] before:content-['']"
+              )}
             >
               <ChevronDown className="h-3 w-3" />
             </Button>

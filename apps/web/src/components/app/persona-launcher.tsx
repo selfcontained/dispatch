@@ -25,6 +25,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
@@ -58,7 +63,7 @@ export function PersonaLauncher({
   agent: Agent;
   enabledAgentTypes: AgentType[];
   disabled?: boolean;
-}): JSX.Element | null {
+}): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
@@ -88,7 +93,28 @@ export function PersonaLauncher({
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
   if (personas.length === 0) {
-    return null;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            disabled
+            className="gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled:opacity-60"
+            data-testid="launch-reviewer-button-disabled"
+          >
+            <AgentTypeIcon
+              type={defaultReviewAgentType(agent)}
+              className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+            />
+            Review
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          No persona files in this workspace. Add markdown files to
+          .dispatch/personas/ to enable reviews.
+        </TooltipContent>
+      </Tooltip>
+    );
   }
 
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
