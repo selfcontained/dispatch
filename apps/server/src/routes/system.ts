@@ -23,6 +23,7 @@ import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
+const ENHANCED_TERMINAL_KEY = "enhanced_terminal";
 const VALID_WORKTREE_LOCATIONS = ["sibling", "nested"] as const;
 
 function resolveTildePath(raw: string): string {
@@ -316,10 +317,13 @@ export async function registerSystemRoutes(
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
+    const enhancedTerminal =
+      (await getSetting(deps.pool, ENHANCED_TERMINAL_KEY)) === "true";
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
+      enhancedTerminal,
     };
   });
 
@@ -328,6 +332,7 @@ export async function registerSystemRoutes(
       worktreeLocation?: unknown;
       iconColor?: unknown;
       instanceName?: unknown;
+      enhancedTerminal?: unknown;
     };
 
     if (body.worktreeLocation !== undefined) {
@@ -371,16 +376,32 @@ export async function registerSystemRoutes(
       }
     }
 
+    if (body.enhancedTerminal !== undefined) {
+      if (typeof body.enhancedTerminal !== "boolean") {
+        return reply
+          .code(400)
+          .send({ error: "enhancedTerminal must be a boolean." });
+      }
+      await setSetting(
+        deps.pool,
+        ENHANCED_TERMINAL_KEY,
+        body.enhancedTerminal ? "true" : "false"
+      );
+    }
+
     const raw = await getSetting(deps.pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as readonly string[]).includes(raw)
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
+    const enhancedTerminal =
+      (await getSetting(deps.pool, ENHANCED_TERMINAL_KEY)) === "true";
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
+      enhancedTerminal,
     };
   });
 
