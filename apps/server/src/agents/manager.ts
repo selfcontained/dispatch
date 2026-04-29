@@ -34,109 +34,64 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
+import { AgentError } from "./errors.js";
+import type {
+  AgentGitContext,
+  AgentLatestEventInput,
+  AgentLatestEventType,
+  AgentPin,
+  AgentRecord,
+  AgentRole,
+  AgentStatus,
+  AgentType,
+  ArchivePhase,
+  AgentEventListener,
+  AgentTerminalAccess,
+  SetupPhase,
+  WorktreeCleanupMode,
+  WorktreeStatus,
+} from "./types.js";
+import * as telemetry from "./telemetry.js";
+import type {
+  ActivitySummaryResult,
+  AgentHistoryEntry,
+  AgentHistoryResult,
+  FeedbackSummaryResult,
+} from "./telemetry.js";
+import * as personaReviews from "./persona-reviews.js";
+import type {
+  PersonaReviewRecord,
+  PersonaReviewResolutionItem,
+  PersonaReviewResolutionRecord,
+  ReviewerRecheckContext,
+} from "./persona-reviews.js";
+import * as feedbackQueries from "./feedback.js";
+import type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 
-type AgentStatus =
-  | "creating"
-  | "running"
-  | "stopping"
-  | "stopped"
-  | "archiving"
-  | "error"
-  | "unknown";
-type AgentType = "codex" | "claude" | "opencode" | "terminal";
-export type AgentRole = "standard" | "assisted_update";
-type AgentLatestEventType =
-  | "working"
-  | "blocked"
-  | "waiting_user"
-  | "done"
-  | "idle";
-type SetupPhase = "worktree" | "env" | "deps" | "session" | null;
-type ArchivePhase =
-  | "stopping"
-  | "worktree-check"
-  | "worktree-cleanup"
-  | "finalizing"
-  | null;
-type PinType =
-  | "string"
-  | "url"
-  | "port"
-  | "code"
-  | "pr"
-  | "filename"
-  | "markdown";
-
-export type AgentPin = {
-  label: string;
-  value: string;
-  type: PinType;
-};
-
-type AgentLatestEvent = {
-  type: AgentLatestEventType;
-  message: string;
-  updatedAt: string;
-  metadata: Record<string, unknown> | null;
-};
-
-export type AgentGitContext = {
-  repoRoot: string;
-  branch: string;
-  worktreePath: string;
-  worktreeName: string;
-  isWorktree: boolean;
-};
-
-export type AgentRecord = {
-  id: string;
-  name: string;
-  type: AgentType;
-  role: AgentRole;
-  status: AgentStatus;
-  cwd: string;
-  worktreePath: string | null;
-  worktreeBranch: string | null;
-  tmuxSession: string | null;
-  simulatorUdid: string | null;
-  mediaDir: string | null;
-  agentArgs: string[];
-  fullAccess: boolean;
-  setupPhase: SetupPhase;
-  archivePhase: ArchivePhase;
-  archiveCleanupMode: WorktreeCleanupMode | null;
-  lastError: string | null;
-  latestEvent: AgentLatestEvent | null;
-  pins: AgentPin[];
-  gitContext: AgentGitContext | null;
-  gitContextStale: boolean;
-  gitContextUpdatedAt: string | null;
-  persona: string | null;
-  parentAgentId: string | null;
-  personaContext: string | null;
-  reviewAgentType: AgentType | null;
-  review: {
-    status: string;
-    message: string | null;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-    roundNumber: number;
-    allowRecheck: boolean;
-    updatedAt: string;
-    resolution: {
-      summary: string;
-      resolutionCommit: string | null;
-      submittedAt: string;
-      roundNumber: number;
-    } | null;
-  } | null;
-  baseBranch: string | null;
-  autoReview: boolean;
-  cliSessionId: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export { AgentError } from "./errors.js";
+export type {
+  AgentEventListener,
+  AgentGitContext,
+  AgentPin,
+  AgentRecord,
+  AgentRole,
+  AgentTerminalAccess,
+  WorktreeStatus,
+} from "./types.js";
+export type {
+  ActivitySummaryResult,
+  AgentHistoryEntry,
+  AgentHistoryResult,
+  FeedbackSummaryResult,
+} from "./telemetry.js";
+export type {
+  PersonaReviewRecord,
+  PersonaReviewResolutionItem,
+  PersonaReviewResolutionRecord,
+  ReviewerRecheckContext,
+} from "./persona-reviews.js";
+export { resolveProgressPingStatus } from "./persona-reviews.js";
+export type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 
 const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
@@ -189,245 +144,9 @@ type CreateAgentInput = {
   }>;
 };
 
-type WorktreeCleanupMode = "auto" | "keep" | "force";
-
-export type WorktreeStatus = {
-  hasWorktree: boolean;
-  hasUnmergedCommits: boolean;
-  hasUncommittedChanges: boolean;
-  worktreePath: string | null;
-  branchName: string | null;
-  changedFiles: string[];
-  uncommittedFiles: string[];
-};
-
 type StopAgentInput = {
   force?: boolean;
 };
-
-export type FeedbackInput = {
-  severity?: "critical" | "high" | "medium" | "low" | "info";
-  filePath?: string;
-  lineNumber?: number;
-  description: string;
-  suggestion?: string;
-  mediaRef?: string;
-  respondsToFeedbackId?: number;
-};
-
-export type PersonaReviewRecord = {
-  id: number;
-  agentId: string;
-  parentAgentId: string;
-  persona: string;
-  status: string;
-  message: string | null;
-  verdict: string | null;
-  summary: string | null;
-  filesReviewed: string[] | null;
-  lastReviewedCommit: string | null;
-  roundNumber: number;
-  allowRecheck: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type FeedbackRecord = {
-  id: number;
-  agentId: string;
-  severity: string;
-  filePath: string | null;
-  lineNumber: number | null;
-  description: string;
-  suggestion: string | null;
-  mediaRef: string | null;
-  status: string;
-  resolutionReason: string | null;
-  resolutionCommit: string | null;
-  resolvedAt: string | null;
-  roundNumber: number;
-  respondsToFeedbackId: number | null;
-  createdAt: string;
-};
-
-export type PersonaReviewResolutionRecord = {
-  id: number;
-  reviewId: number;
-  roundNumber: number;
-  summary: string;
-  resolutionCommit: string | null;
-  submittedAt: string;
-};
-
-export type PersonaReviewResolutionItem = {
-  feedbackId: number;
-  originalDescription: string;
-  originalSeverity: string;
-  status: string;
-  reason: string | null;
-  filePath: string | null;
-  lineNumber: number | null;
-  suggestion: string | null;
-  resolutionCommit: string | null;
-  resolvedAt: string | null;
-  roundNumber: number;
-};
-
-export type ReviewerRecheckContext = {
-  review: PersonaReviewRecord;
-  resolution: PersonaReviewResolutionRecord;
-  resolutions: PersonaReviewResolutionItem[];
-};
-
-type AgentLatestEventInput = {
-  type: AgentLatestEventType;
-  message: string;
-  metadata?: Record<string, unknown>;
-};
-
-// ── Activity / History / Feedback summary types ──────────────────────
-
-export type ActivitySummaryResult = {
-  period: { start: string; end: string };
-  projects: Array<{
-    directory: string;
-    totalWorkingMs: number;
-    agentCount: number;
-    sessionCount: number;
-    outcomes: {
-      done: number;
-      idle: number;
-      blocked: number;
-      error: number;
-    };
-  }>;
-  totals: {
-    totalWorkingMs: number;
-    agentCount: number;
-    sessionCount: number;
-  };
-  topAgents: Array<{
-    id: string;
-    name: string;
-    project: string;
-    totalWorkingMs: number;
-    latestEventMessage: string;
-    latestEventType: string;
-  }>;
-};
-
-export type AgentHistoryEntry = {
-  id: string;
-  name: string;
-  type: string;
-  project: string;
-  status: string;
-  createdAt: string;
-  latestEventType: string | null;
-  latestEventMessage: string | null;
-  pins: Array<{ label: string; value: string; type: string }>;
-  git: {
-    branch: string | null;
-    worktreeBranch: string | null;
-  } | null;
-  events?: Array<{
-    type: string;
-    message: string;
-    createdAt: string;
-  }>;
-  feedback?: Array<{
-    id: number;
-    persona: string;
-    severity: string;
-    description: string;
-    filePath: string | null;
-    suggestion: string | null;
-    status: string;
-  }>;
-  reviews?: Array<{
-    persona: string;
-    status: string;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-  }>;
-};
-
-export type AgentHistoryResult = {
-  agents: AgentHistoryEntry[];
-  total: number;
-  hasMore: boolean;
-};
-
-export type FeedbackSummaryResult = {
-  period: { start: string; end: string };
-  totalFindings: number;
-  bySeverity: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    info: number;
-  };
-  byStatus: {
-    open: number;
-    fixed: number;
-    ignored: number;
-    dismissed: number;
-  };
-  groups: Array<{
-    key: string;
-    count: number;
-    bySeverity: {
-      critical: number;
-      high: number;
-      medium: number;
-      low: number;
-      info: number;
-    };
-    topFindings: Array<{
-      description: string;
-      count: number;
-      severity: string;
-      exampleFilePath: string | null;
-    }>;
-  }>;
-  reviewVerdicts: {
-    total: number;
-    approved: number;
-    changesRequested: number;
-  };
-};
-
-export type AgentTerminalAccess =
-  | { mode: "tmux"; sessionName: string }
-  | { mode: "inert"; message: string };
-
-export class AgentError extends Error {
-  statusCode: number;
-
-  constructor(message: string, statusCode: number) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
-export type AgentEventListener = (agent: AgentRecord) => void;
-
-/**
- * Input validator for `review_status` pings. Today only `"reviewing"` is
- * valid; extracted as a pure helper so tests can assert the accept/reject
- * behaviour without touching the database.
- */
-export function resolveProgressPingStatus(requested: string): "reviewing" {
-  if (requested !== "reviewing") {
-    throw new AgentError(
-      `Invalid review status "${requested}". Must be one of: reviewing`,
-      400
-    );
-  }
-  return "reviewing";
-}
 
 export class AgentManager {
   private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
@@ -2792,84 +2511,14 @@ export class AgentManager {
     lastReviewedCommit?: string | null;
     allowRecheck?: boolean;
   }): Promise<PersonaReviewRecord> {
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, last_reviewed_commit, allow_recheck)
-       VALUES ($1, $2, $3, $4, COALESCE($5, false))
-       RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                 persona, status, message, verdict, summary,
-                 files_reviewed AS "filesReviewed",
-                 last_reviewed_commit AS "lastReviewedCommit",
-                 round_number AS "roundNumber",
-                 allow_recheck AS "allowRecheck",
-                 created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [
-        input.agentId,
-        input.parentAgentId,
-        input.persona,
-        input.lastReviewedCommit ?? null,
-        input.allowRecheck ?? null,
-      ]
-    );
-    return result.rows[0]!;
+    return personaReviews.createPersonaReview(this.pool, input);
   }
 
   async updatePersonaReviewStatus(
     agentId: string,
     input: { status: string; message?: string }
   ): Promise<PersonaReviewRecord> {
-    // review_status is a progress-ping channel only. It must not transition
-    // the review *out of* a non-working state — in particular, it must not
-    // clobber `awaiting_recheck` (reviewer is doing round 2) back to
-    // `reviewing` (that tricks completePersonaReview into thinking the next
-    // close is round 1 again). Terminal states are also off-limits. Compute
-    // the effective next status in code — easier to unit-test and lets us
-    // surface a specific error for the terminal cases.
-    const nextStatus = resolveProgressPingStatus(input.status);
-
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const currentResult = await client.query<{ status: string }>(
-        `SELECT status FROM persona_reviews WHERE agent_id = $1 FOR UPDATE`,
-        [agentId]
-      );
-      const current = currentResult.rows[0];
-      if (!current) {
-        throw new AgentError("No persona review found for agent.", 404);
-      }
-      if (current.status === "complete" || current.status === "cancelled") {
-        throw new AgentError(
-          `Cannot ping review_status on a ${current.status} review. Progress pings are only accepted while the review is active.`,
-          409
-        );
-      }
-
-      // awaiting_recheck is "active" from the reviewer's perspective — they
-      // are doing round 2 — so accept the ping but preserve the status label.
-      const statusToPersist =
-        current.status === "awaiting_recheck" ? current.status : nextStatus;
-
-      const result = await client.query<PersonaReviewRecord>(
-        `UPDATE persona_reviews
-         SET status = $2, message = $3, updated_at = NOW()
-         WHERE agent_id = $1
-         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                   persona, status, message, verdict, summary,
-                   files_reviewed AS "filesReviewed",
-                   last_reviewed_commit AS "lastReviewedCommit",
-                   round_number AS "roundNumber",
-                   allow_recheck AS "allowRecheck",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [agentId, statusToPersist, input.message ?? null]
-      );
-      await client.query("COMMIT");
-      return result.rows[0]!;
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return personaReviews.updatePersonaReviewStatus(this.pool, agentId, input);
   }
 
   async completePersonaReview(
@@ -2882,206 +2531,29 @@ export class AgentManager {
       lastReviewedCommit?: string | null;
     }
   ): Promise<PersonaReviewRecord> {
-    const VALID_VERDICTS = ["approve", "request_changes"];
-    if (!VALID_VERDICTS.includes(input.verdict)) {
-      throw new AgentError(
-        `verdict must be one of: ${VALID_VERDICTS.join(", ")}`,
-        400
-      );
-    }
-    if (input.summary.length > 10_000) {
-      throw new AgentError("summary exceeds 10,000 character limit.", 400);
-    }
-    if (input.message && input.message.length > 5_000) {
-      throw new AgentError("message exceeds 5,000 character limit.", 400);
-    }
-    if (input.filesReviewed) {
-      if (input.filesReviewed.length > 500) {
-        throw new AgentError("filesReviewed exceeds 500 item limit.", 400);
-      }
-      for (const filePath of input.filesReviewed) {
-        if (filePath.length > 500) {
-          throw new AgentError(
-            "Individual file path in filesReviewed exceeds 500 character limit.",
-            400
-          );
-        }
-      }
-    }
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const currentResult = await client.query<PersonaReviewRecord>(
-        `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                persona, status, message, verdict, summary,
-                files_reviewed AS "filesReviewed",
-                last_reviewed_commit AS "lastReviewedCommit",
-                round_number AS "roundNumber",
-                allow_recheck AS "allowRecheck",
-                created_at AS "createdAt", updated_at AS "updatedAt"
-         FROM persona_reviews
-         WHERE agent_id = $1
-         FOR UPDATE`,
-        [agentId]
-      );
-      const current = currentResult.rows[0];
-      if (!current) {
-        throw new AgentError("No persona review found for agent.", 404);
-      }
-
-      let nextRoundNumber = current.roundNumber;
-      if (current.status === "reviewing") {
-        // Normally 'reviewing' means round 1. But defense-in-depth:
-        // if there's already a submitted resolution for this review,
-        // the next close belongs to the round after the resolution, no
-        // matter how we ended up back in 'reviewing'. This guards
-        // against any future path that could downgrade the status
-        // field while a round-trip is in flight.
-        const priorResolution = await client.query<{ roundNumber: number }>(
-          `SELECT round_number AS "roundNumber"
-           FROM persona_review_resolutions
-           WHERE review_id = $1
-           ORDER BY round_number DESC
-           LIMIT 1`,
-          [current.id]
-        );
-        const resolvedRound = priorResolution.rows[0]?.roundNumber ?? 0;
-        nextRoundNumber = resolvedRound > 0 ? resolvedRound + 1 : 1;
-        if (nextRoundNumber > 2) {
-          throw new AgentError(
-            "Round 2 already complete. This review only supports a single round-trip.",
-            409
-          );
-        }
-      } else if (current.status === "awaiting_recheck") {
-        if (current.roundNumber >= 2) {
-          throw new AgentError(
-            "Round 2 already complete. This review only supports a single round-trip.",
-            409
-          );
-        }
-        nextRoundNumber = current.roundNumber + 1;
-      } else if (current.status === "complete" && current.roundNumber >= 2) {
-        throw new AgentError(
-          "Round 2 already complete. This review only supports a single round-trip.",
-          409
-        );
-      } else {
-        throw new AgentError(
-          `Review can only be completed from 'reviewing' or 'awaiting_recheck' (current: ${current.status}).`,
-          409
-        );
-      }
-
-      const result = await client.query<PersonaReviewRecord>(
-        `UPDATE persona_reviews
-         SET status = 'complete', verdict = $2, summary = $3,
-             files_reviewed = $4::jsonb, message = $5,
-             last_reviewed_commit = COALESCE($6, last_reviewed_commit),
-             round_number = $7,
-             updated_at = NOW()
-         WHERE agent_id = $1
-         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                   persona, status, message, verdict, summary,
-                   files_reviewed AS "filesReviewed",
-                   last_reviewed_commit AS "lastReviewedCommit",
-                   round_number AS "roundNumber",
-                   allow_recheck AS "allowRecheck",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [
-          agentId,
-          input.verdict,
-          input.summary,
-          JSON.stringify(input.filesReviewed ?? []),
-          input.message ?? null,
-          input.lastReviewedCommit ?? null,
-          nextRoundNumber,
-        ]
-      );
-
-      await client.query("COMMIT");
-      return result.rows[0]!;
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return personaReviews.completePersonaReview(this.pool, agentId, input);
   }
 
   async getPersonaReview(agentId: string): Promise<PersonaReviewRecord | null> {
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-              persona, status, message, verdict, summary,
-              files_reviewed AS "filesReviewed",
-              last_reviewed_commit AS "lastReviewedCommit",
-              round_number AS "roundNumber",
-              allow_recheck AS "allowRecheck",
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM persona_reviews WHERE agent_id = $1`,
-      [agentId]
-    );
-    return result.rows[0] ?? null;
+    return personaReviews.getPersonaReview(this.pool, agentId);
   }
 
   async getPersonaReviewsByParent(
     parentAgentId: string
   ): Promise<PersonaReviewRecord[]> {
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-              persona, status, message, verdict, summary,
-              files_reviewed AS "filesReviewed",
-              last_reviewed_commit AS "lastReviewedCommit",
-              round_number AS "roundNumber",
-              allow_recheck AS "allowRecheck",
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM persona_reviews WHERE parent_agent_id = $1
-       ORDER BY created_at`,
-      [parentAgentId]
-    );
-    return result.rows;
+    return personaReviews.getPersonaReviewsByParent(this.pool, parentAgentId);
   }
 
   async listRecentPersonaReviews(
     sinceDays: number
   ): Promise<PersonaReviewRecord[]> {
-    const result = await this.pool.query<PersonaReviewRecord>(
-      `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-              persona, status, message, verdict, summary,
-              files_reviewed AS "filesReviewed",
-              last_reviewed_commit AS "lastReviewedCommit",
-              round_number AS "roundNumber",
-              allow_recheck AS "allowRecheck",
-              created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM persona_reviews
-       WHERE created_at >= NOW() - make_interval(days => $1)
-       ORDER BY created_at`,
-      [sinceDays]
-    );
-    return result.rows;
+    return personaReviews.listRecentPersonaReviews(this.pool, sinceDays);
   }
 
   async listRecentFeedback(
     sinceDays: number
   ): Promise<Array<FeedbackRecord & { persona: string }>> {
-    const result = await this.pool.query<FeedbackRecord & { persona: string }>(
-      `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
-              f.line_number AS "lineNumber", f.description, f.suggestion,
-              f.media_ref AS "mediaRef", f.status,
-              f.resolution_reason AS "resolutionReason",
-              f.resolution_commit AS "resolutionCommit",
-              f.resolved_at AS "resolvedAt",
-              f.round_number AS "roundNumber",
-              f.responds_to_feedback_id AS "respondsToFeedbackId",
-              f.created_at AS "createdAt"
-       FROM agent_feedback f
-       JOIN agents a ON a.id = f.agent_id
-       WHERE f.created_at >= NOW() - make_interval(days => $1)
-       ORDER BY a.persona, f.created_at ASC`,
-      [sinceDays]
-    );
-    return result.rows;
+    return feedbackQueries.listRecentFeedback(this.pool, sinceDays);
   }
 
   // --- Activity / History / Feedback Summaries ---
@@ -3091,211 +2563,7 @@ export class AgentManager {
     end: Date;
     project?: string;
   }): Promise<ActivitySummaryResult> {
-    const rangeStart = params.start;
-    const rangeEnd = params.end;
-
-    // Build optional project filter for working-time CTE
-    const wtProjectFilter = params.project ? "AND project_dir = $3" : "";
-    const wtParams: unknown[] = [rangeStart, rangeEnd];
-    if (params.project) wtParams.push(params.project);
-
-    // Build conditions for agents table queries
-    const agentConditions = [
-      "parent_agent_id IS NULL",
-      "created_at >= $1",
-      "created_at <= $2",
-    ];
-    const agentParams: unknown[] = [rangeStart, rangeEnd];
-    if (params.project) {
-      agentParams.push(params.project);
-      agentConditions.push(
-        `COALESCE(git_context->>'repoRoot', cwd) = $${agentParams.length}`
-      );
-    }
-    const agentWhere = `WHERE ${agentConditions.join(" AND ")}`;
-
-    // Run all three queries in parallel
-    const [workingTimeResult, sessionResult, agentMetaResult] =
-      await Promise.all([
-        // Query 1: Working time per agent per project via SQL window functions
-        this.pool.query<{
-          agentId: string;
-          projectDir: string;
-          totalWorkingMs: string;
-        }>(
-          `WITH boundary AS (
-          SELECT DISTINCT ON (ae.agent_id)
-            ae.agent_id, ae.event_type,
-            $1::timestamptz AS effective_at,
-            COALESCE(ae.project_dir, a.cwd) AS project_dir
-          FROM agent_events ae
-          JOIN agents a ON a.id = ae.agent_id
-            AND a.parent_agent_id IS NULL
-          WHERE ae.created_at < $1
-          ORDER BY ae.agent_id, ae.created_at DESC
-        ),
-        in_range AS (
-          SELECT ae.agent_id, ae.event_type, ae.created_at AS effective_at,
-                 COALESCE(ae.project_dir, a.cwd) AS project_dir
-          FROM agent_events ae
-          JOIN agents a ON a.id = ae.agent_id
-            AND a.parent_agent_id IS NULL
-          WHERE ae.created_at >= $1 AND ae.created_at <= $2
-        ),
-        all_events AS (
-          SELECT * FROM boundary UNION ALL SELECT * FROM in_range
-        ),
-        with_next AS (
-          SELECT agent_id, event_type, effective_at, project_dir,
-                 LEAD(effective_at) OVER (PARTITION BY agent_id ORDER BY effective_at) AS next_at
-          FROM all_events
-        )
-        SELECT
-          agent_id AS "agentId",
-          project_dir AS "projectDir",
-          COALESCE(SUM(
-            CASE WHEN event_type = 'working'
-            THEN EXTRACT(EPOCH FROM (
-              COALESCE(next_at, LEAST($2::timestamptz, NOW())) - effective_at
-            )) * 1000
-            ELSE 0 END
-          ), 0)::bigint AS "totalWorkingMs"
-        FROM with_next
-        WHERE project_dir IS NOT NULL ${wtProjectFilter}
-        GROUP BY agent_id, project_dir`,
-          wtParams
-        ),
-
-        // Query 2: Session counts and outcomes by project
-        this.pool.query<{
-          projectDir: string;
-          sessionCount: string;
-          doneCount: string;
-          idleCount: string;
-          blockedCount: string;
-          errorCount: string;
-        }>(
-          `SELECT
-          COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
-          COUNT(*)::int AS "sessionCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'done')::int AS "doneCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'idle')::int AS "idleCount",
-          COUNT(*) FILTER (WHERE latest_event_type = 'blocked')::int AS "blockedCount",
-          COUNT(*) FILTER (WHERE status = 'error')::int AS "errorCount"
-        FROM agents
-        ${agentWhere}
-        GROUP BY COALESCE(git_context->>'repoRoot', cwd)`,
-          agentParams
-        ),
-
-        // Query 3: Agent metadata for top agents list
-        this.pool.query<{
-          id: string;
-          name: string;
-          projectDir: string;
-          latestEventType: string | null;
-          latestEventMessage: string | null;
-        }>(
-          `SELECT id, name,
-          COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
-          latest_event_type AS "latestEventType",
-          latest_event_message AS "latestEventMessage"
-        FROM agents
-        ${agentWhere}`,
-          agentParams
-        ),
-      ]);
-
-    // Aggregate working time by project and by agent
-    const projectWorkingTime = new Map<
-      string,
-      { totalWorkingMs: number; agents: Set<string> }
-    >();
-    const workingTimeByAgent = new Map<
-      string,
-      { project: string; totalWorkingMs: number }
-    >();
-
-    for (const row of workingTimeResult.rows) {
-      const ms = Number(row.totalWorkingMs);
-
-      // Per-project aggregation
-      const proj = projectWorkingTime.get(row.projectDir) ?? {
-        totalWorkingMs: 0,
-        agents: new Set(),
-      };
-      proj.totalWorkingMs += ms;
-      proj.agents.add(row.agentId);
-      projectWorkingTime.set(row.projectDir, proj);
-
-      // Per-agent aggregation (for top agents)
-      const agent = workingTimeByAgent.get(row.agentId);
-      if (agent) {
-        agent.totalWorkingMs += ms;
-      } else {
-        workingTimeByAgent.set(row.agentId, {
-          project: row.projectDir,
-          totalWorkingMs: ms,
-        });
-      }
-    }
-
-    // Index session data by project
-    const sessionsByProject = new Map(
-      sessionResult.rows.map((r) => [r.projectDir, r])
-    );
-
-    // Merge project-level data
-    const allProjectDirs = new Set([
-      ...projectWorkingTime.keys(),
-      ...sessionsByProject.keys(),
-    ]);
-    const projects = [...allProjectDirs]
-      .map((dir) => {
-        const working = projectWorkingTime.get(dir);
-        const sessions = sessionsByProject.get(dir);
-        return {
-          directory: dir,
-          totalWorkingMs: working?.totalWorkingMs ?? 0,
-          agentCount: working?.agents.size ?? 0,
-          sessionCount: Number(sessions?.sessionCount ?? 0),
-          outcomes: {
-            done: Number(sessions?.doneCount ?? 0),
-            idle: Number(sessions?.idleCount ?? 0),
-            blocked: Number(sessions?.blockedCount ?? 0),
-            error: Number(sessions?.errorCount ?? 0),
-          },
-        };
-      })
-      .sort((a, b) => b.totalWorkingMs - a.totalWorkingMs);
-
-    // Build top agents list
-    const agentMeta = new Map(agentMetaResult.rows.map((r) => [r.id, r]));
-    const topAgents = [...workingTimeByAgent.entries()]
-      .sort((a, b) => b[1].totalWorkingMs - a[1].totalWorkingMs)
-      .slice(0, 10)
-      .map(([id, data]) => {
-        const meta = agentMeta.get(id);
-        return {
-          id,
-          name: meta?.name ?? id,
-          project: data.project,
-          totalWorkingMs: data.totalWorkingMs,
-          latestEventMessage: meta?.latestEventMessage ?? "",
-          latestEventType: meta?.latestEventType ?? "",
-        };
-      });
-
-    return {
-      period: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
-      projects,
-      totals: {
-        totalWorkingMs: projects.reduce((sum, p) => sum + p.totalWorkingMs, 0),
-        agentCount: new Set(workingTimeResult.rows.map((r) => r.agentId)).size,
-        sessionCount: projects.reduce((sum, p) => sum + p.sessionCount, 0),
-      },
-      topAgents,
-    };
+    return telemetry.getActivitySummary(this.pool, params);
   }
 
   async getAgentHistory(params: {
@@ -3309,229 +2577,7 @@ export class AgentManager {
     includeReviews: boolean;
     includeChildren: boolean;
   }): Promise<AgentHistoryResult> {
-    const conditions: string[] = ["created_at >= $1", "created_at <= $2"];
-    const queryParams: unknown[] = [params.start, params.end];
-
-    if (!params.includeChildren) {
-      conditions.push("parent_agent_id IS NULL");
-    }
-    if (params.project) {
-      queryParams.push(params.project);
-      conditions.push(
-        `COALESCE(git_context->>'repoRoot', cwd) = $${queryParams.length}`
-      );
-    }
-
-    const whereClause = `WHERE ${conditions.join(" AND ")}`;
-
-    // Count + paginated list in parallel
-    const [countResult, listResult] = await Promise.all([
-      this.pool.query<{ count: string }>(
-        `SELECT COUNT(*)::int AS count FROM agents ${whereClause}`,
-        queryParams
-      ),
-      this.pool.query<{
-        id: string;
-        name: string;
-        type: string;
-        status: string;
-        projectDir: string;
-        createdAt: string;
-        latestEventType: string | null;
-        latestEventMessage: string | null;
-        pins: AgentPin[];
-        gitContext: AgentGitContext | null;
-        worktreeBranch: string | null;
-        persona: string | null;
-        parentAgentId: string | null;
-      }>(
-        `SELECT id, name, type, status,
-          COALESCE(git_context->>'repoRoot', cwd) AS "projectDir",
-          created_at AS "createdAt",
-          latest_event_type AS "latestEventType",
-          latest_event_message AS "latestEventMessage",
-          pins,
-          git_context AS "gitContext",
-          worktree_branch AS "worktreeBranch",
-          persona,
-          parent_agent_id AS "parentAgentId"
-        FROM agents ${whereClause}
-        ORDER BY created_at DESC
-        LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`,
-        [...queryParams, params.limit, params.offset]
-      ),
-    ]);
-
-    const total = Number(countResult.rows[0]?.count ?? 0);
-    const agentIds = listResult.rows.map((a) => a.id);
-    // Parent agent IDs for feedback/review lookups (when children are shown standalone,
-    // feedback still groups under parent)
-    const parentAgentIds = listResult.rows
-      .filter((a) => !a.parentAgentId)
-      .map((a) => a.id);
-
-    // Fetch related data in parallel
-    const [eventsRows, feedbackRows, reviewsRows] = await Promise.all([
-      params.includeEvents && agentIds.length > 0
-        ? this.pool
-            .query<{
-              agentId: string;
-              type: string;
-              message: string;
-              createdAt: string;
-            }>(
-              `SELECT agent_id AS "agentId", event_type AS type, message,
-                    created_at AS "createdAt"
-             FROM (
-               SELECT *, ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY created_at ASC) AS rn
-               FROM agent_events
-               WHERE agent_id = ANY($1)
-             ) ranked
-             WHERE rn <= 200
-             ORDER BY agent_id, created_at ASC`,
-              [agentIds]
-            )
-            .then((r) => r.rows)
-        : [],
-      params.includeFeedback && parentAgentIds.length > 0
-        ? this.pool
-            .query<{
-              parentAgentId: string;
-              id: number;
-              persona: string;
-              severity: string;
-              description: string;
-              filePath: string | null;
-              suggestion: string | null;
-              status: string;
-            }>(
-              `SELECT a.parent_agent_id AS "parentAgentId",
-                    f.id, a.persona, f.severity, f.description,
-                    f.file_path AS "filePath", f.suggestion, f.status
-             FROM agent_feedback f
-             JOIN agents a ON a.id = f.agent_id
-             WHERE a.parent_agent_id = ANY($1)
-             ORDER BY f.created_at ASC`,
-              [parentAgentIds]
-            )
-            .then((r) => r.rows)
-        : [],
-      params.includeReviews && parentAgentIds.length > 0
-        ? this.pool
-            .query<{
-              parentAgentId: string;
-              persona: string;
-              status: string;
-              verdict: string | null;
-              summary: string | null;
-              filesReviewed: string[] | null;
-            }>(
-              `SELECT parent_agent_id AS "parentAgentId", persona, status,
-                    verdict, summary, files_reviewed AS "filesReviewed"
-             FROM persona_reviews
-             WHERE parent_agent_id = ANY($1)
-             ORDER BY created_at ASC`,
-              [parentAgentIds]
-            )
-            .then((r) => r.rows)
-        : [],
-    ]);
-
-    // Group related data by agent ID
-    const eventsByAgent = new Map<
-      string,
-      Array<{ type: string; message: string; createdAt: string }>
-    >();
-    for (const row of eventsRows) {
-      const list = eventsByAgent.get(row.agentId) ?? [];
-      list.push({
-        type: row.type,
-        message: row.message,
-        createdAt: row.createdAt,
-      });
-      eventsByAgent.set(row.agentId, list);
-    }
-
-    const feedbackByParent = new Map<
-      string,
-      Array<{
-        id: number;
-        persona: string;
-        severity: string;
-        description: string;
-        filePath: string | null;
-        suggestion: string | null;
-        status: string;
-      }>
-    >();
-    for (const row of feedbackRows) {
-      const list = feedbackByParent.get(row.parentAgentId) ?? [];
-      list.push({
-        id: row.id,
-        persona: row.persona,
-        severity: row.severity,
-        description: row.description,
-        filePath: row.filePath,
-        suggestion: row.suggestion,
-        status: row.status,
-      });
-      feedbackByParent.set(row.parentAgentId, list);
-    }
-
-    const reviewsByParent = new Map<
-      string,
-      Array<{
-        persona: string;
-        status: string;
-        verdict: string | null;
-        summary: string | null;
-        filesReviewed: string[] | null;
-      }>
-    >();
-    for (const row of reviewsRows) {
-      const list = reviewsByParent.get(row.parentAgentId) ?? [];
-      list.push({
-        persona: row.persona,
-        status: row.status,
-        verdict: row.verdict,
-        summary: row.summary,
-        filesReviewed: row.filesReviewed,
-      });
-      reviewsByParent.set(row.parentAgentId, list);
-    }
-
-    const agents: AgentHistoryEntry[] = listResult.rows.map((a) => ({
-      id: a.id,
-      name: a.name,
-      type: a.type,
-      project: a.projectDir,
-      status: a.status,
-      createdAt: a.createdAt,
-      latestEventType: a.latestEventType,
-      latestEventMessage: a.latestEventMessage,
-      pins: (a.pins ?? []).map((p) => ({
-        label: p.label,
-        value: p.value,
-        type: p.type,
-      })),
-      git: a.gitContext
-        ? {
-            branch: a.gitContext.branch ?? null,
-            worktreeBranch: a.worktreeBranch,
-          }
-        : null,
-      ...(params.includeEvents
-        ? { events: eventsByAgent.get(a.id) ?? [] }
-        : {}),
-      ...(params.includeFeedback
-        ? { feedback: feedbackByParent.get(a.id) ?? [] }
-        : {}),
-      ...(params.includeReviews
-        ? { reviews: reviewsByParent.get(a.id) ?? [] }
-        : {}),
-    }));
-
-    return { agents, total, hasMore: params.offset + params.limit < total };
+    return telemetry.getAgentHistory(this.pool, params);
   }
 
   async getFeedbackSummary(params: {
@@ -3540,160 +2586,7 @@ export class AgentManager {
     project?: string;
     groupBy: "persona" | "severity" | "directory";
   }): Promise<FeedbackSummaryResult> {
-    const rangeStart = params.start;
-    const rangeEnd = params.end;
-
-    const feedbackConditions = ["f.created_at >= $1", "f.created_at <= $2"];
-    const feedbackParams: unknown[] = [rangeStart, rangeEnd];
-    if (params.project) {
-      feedbackParams.push(params.project);
-      feedbackConditions.push(
-        `COALESCE(pa.git_context->>'repoRoot', pa.cwd, a.cwd) = $${feedbackParams.length}`
-      );
-    }
-
-    const verdictConditions = ["pr.created_at >= $1", "pr.created_at <= $2"];
-    const verdictParams: unknown[] = [rangeStart, rangeEnd];
-    if (params.project) {
-      verdictParams.push(params.project);
-      verdictConditions.push(
-        `COALESCE(pa.git_context->>'repoRoot', pa.cwd) = $${verdictParams.length}`
-      );
-    }
-
-    // Fetch feedback rows and verdict aggregates in parallel
-    const [feedbackResult, verdictResult] = await Promise.all([
-      this.pool.query<{
-        persona: string;
-        severity: string;
-        description: string;
-        filePath: string | null;
-        status: string;
-        projectRoot: string;
-      }>(
-        `SELECT a.persona, f.severity, f.description,
-                f.file_path AS "filePath", f.status,
-                COALESCE(pa.git_context->>'repoRoot', pa.cwd, a.cwd) AS "projectRoot"
-         FROM agent_feedback f
-         JOIN agents a ON a.id = f.agent_id
-         LEFT JOIN agents pa ON pa.id = a.parent_agent_id
-         WHERE ${feedbackConditions.join(" AND ")}
-         ORDER BY f.created_at ASC`,
-        feedbackParams
-      ),
-
-      this.pool.query<{
-        total: string;
-        approved: string;
-        changesRequested: string;
-      }>(
-        `SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE pr.verdict = 'approve')::int AS approved,
-          COUNT(*) FILTER (WHERE pr.verdict = 'request_changes')::int AS "changesRequested"
-         FROM persona_reviews pr
-         JOIN agents pa ON pa.id = pr.parent_agent_id
-         WHERE ${verdictConditions.join(" AND ")}`,
-        verdictParams
-      ),
-    ]);
-
-    const rows = feedbackResult.rows;
-
-    // Aggregate severity and status totals
-    const bySeverity = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-    const byStatus = { open: 0, fixed: 0, ignored: 0, dismissed: 0 };
-    for (const row of rows) {
-      if (row.severity in bySeverity)
-        bySeverity[row.severity as keyof typeof bySeverity]++;
-      if (row.status in byStatus)
-        byStatus[row.status as keyof typeof byStatus]++;
-    }
-
-    // Group by requested dimension
-    const groupMap = new Map<string, typeof rows>();
-    for (const row of rows) {
-      let key: string;
-      switch (params.groupBy) {
-        case "persona":
-          key = row.persona ?? "unknown";
-          break;
-        case "severity":
-          key = row.severity;
-          break;
-        case "directory": {
-          if (!row.filePath) {
-            key = "(no file)";
-            break;
-          }
-          const root = row.projectRoot;
-          const relative =
-            root && row.filePath.startsWith(root)
-              ? row.filePath.slice(root.length + 1)
-              : row.filePath;
-          // Extract directory (drop the filename)
-          const lastSlash = relative.lastIndexOf("/");
-          key = lastSlash > 0 ? relative.slice(0, lastSlash) : ".";
-          break;
-        }
-      }
-      const list = groupMap.get(key) ?? [];
-      list.push(row);
-      groupMap.set(key, list);
-    }
-
-    // Build groups with top findings (exact match deduplication)
-    const groups = [...groupMap.entries()]
-      .map(([key, items]) => {
-        const groupSev = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-        const descCounts = new Map<
-          string,
-          { count: number; severity: string; filePath: string | null }
-        >();
-
-        for (const item of items) {
-          if (item.severity in groupSev)
-            groupSev[item.severity as keyof typeof groupSev]++;
-          const existing = descCounts.get(item.description);
-          if (existing) {
-            existing.count++;
-          } else {
-            descCounts.set(item.description, {
-              count: 1,
-              severity: item.severity,
-              filePath: item.filePath,
-            });
-          }
-        }
-
-        const topFindings = [...descCounts.entries()]
-          .sort((a, b) => b[1].count - a[1].count)
-          .slice(0, 5)
-          .map(([description, data]) => ({
-            description,
-            count: data.count,
-            severity: data.severity,
-            exampleFilePath: data.filePath,
-          }));
-
-        return { key, count: items.length, bySeverity: groupSev, topFindings };
-      })
-      .sort((a, b) => b.count - a.count);
-
-    const verdict = verdictResult.rows[0];
-
-    return {
-      period: { start: rangeStart.toISOString(), end: rangeEnd.toISOString() },
-      totalFindings: rows.length,
-      bySeverity,
-      byStatus,
-      groups,
-      reviewVerdicts: {
-        total: Number(verdict?.total ?? 0),
-        approved: Number(verdict?.approved ?? 0),
-        changesRequested: Number(verdict?.changesRequested ?? 0),
-      },
-    };
+    return telemetry.getFeedbackSummary(this.pool, params);
   }
 
   // --- Media ---
@@ -3708,34 +2601,9 @@ export class AgentManager {
       createdAt: string;
     }>
   > {
-    const result = await this.pool.query<{
-      fileName: string;
-      description: string | null;
-      source: string;
-      sizeBytes: number;
-      createdAt: Date;
-      mediaDir: string | null;
-    }>(
-      `SELECT m.file_name AS "fileName", m.description, m.source,
-              m.size_bytes AS "sizeBytes", m.created_at AS "createdAt",
-              a.media_dir AS "mediaDir"
-       FROM media m
-       JOIN agents a ON a.id = m.agent_id
-       WHERE m.agent_id = $1
-       ORDER BY m.created_at`,
-      [agentId]
+    return telemetry.listMedia(this.pool, agentId, (id) =>
+      this.defaultMediaDir(id)
     );
-    return result.rows.map((row) => ({
-      fileName: row.fileName,
-      filePath: path.join(
-        row.mediaDir ?? this.defaultMediaDir(agentId),
-        row.fileName
-      ),
-      description: row.description,
-      source: row.source,
-      sizeBytes: row.sizeBytes,
-      createdAt: row.createdAt.toISOString(),
-    }));
   }
 
   // --- Feedback ---
@@ -3744,135 +2612,15 @@ export class AgentManager {
     agentId: string,
     feedback: FeedbackInput
   ): Promise<FeedbackRecord> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const reviewResult = await client.query<{
-        status: string;
-        roundNumber: number;
-      }>(
-        `SELECT status, round_number AS "roundNumber"
-         FROM persona_reviews
-         WHERE agent_id = $1
-         FOR UPDATE`,
-        [agentId]
-      );
-      const review = reviewResult.rows[0];
-      const feedbackRoundNumber = review
-        ? review.status === "awaiting_recheck"
-          ? review.roundNumber + 1
-          : review.roundNumber
-        : 1;
-
-      if (feedback.respondsToFeedbackId != null) {
-        const originalResult = await client.query<{
-          agentId: string;
-          roundNumber: number;
-        }>(
-          `SELECT agent_id AS "agentId", round_number AS "roundNumber"
-           FROM agent_feedback
-           WHERE id = $1`,
-          [feedback.respondsToFeedbackId]
-        );
-        const original = originalResult.rows[0];
-        if (!original) {
-          throw new AgentError(
-            `Feedback ${feedback.respondsToFeedbackId} referenced by respondsToFeedbackId was not found.`,
-            400
-          );
-        }
-        if (original.agentId !== agentId) {
-          throw new AgentError(
-            `respondsToFeedbackId ${feedback.respondsToFeedbackId} belongs to a different review.`,
-            400
-          );
-        }
-        if (original.roundNumber !== 1) {
-          throw new AgentError(
-            `respondsToFeedbackId ${feedback.respondsToFeedbackId} must reference a round-1 finding.`,
-            400
-          );
-        }
-      }
-
-      const result = await client.query<FeedbackRecord>(
-        `INSERT INTO agent_feedback (
-           agent_id,
-           severity,
-           file_path,
-           line_number,
-           description,
-           suggestion,
-           media_ref,
-           round_number,
-           responds_to_feedback_id
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-                   description, suggestion, media_ref AS "mediaRef", status,
-                   resolution_reason AS "resolutionReason",
-                   resolution_commit AS "resolutionCommit",
-                   resolved_at AS "resolvedAt",
-                   round_number AS "roundNumber",
-                   responds_to_feedback_id AS "respondsToFeedbackId",
-                   created_at AS "createdAt"`,
-        [
-          agentId,
-          feedback.severity ?? "info",
-          feedback.filePath ?? null,
-          feedback.lineNumber ?? null,
-          feedback.description,
-          feedback.suggestion ?? null,
-          feedback.mediaRef ?? null,
-          feedbackRoundNumber,
-          feedback.respondsToFeedbackId ?? null,
-        ]
-      );
-
-      await client.query("COMMIT");
-      return result.rows[0]!;
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return feedbackQueries.submitFeedback(this.pool, agentId, feedback);
   }
 
   async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
-    const result = await this.pool.query<FeedbackRecord>(
-      `SELECT id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-              description, suggestion, media_ref AS "mediaRef", status,
-              resolution_reason AS "resolutionReason",
-              resolution_commit AS "resolutionCommit",
-              resolved_at AS "resolvedAt",
-              round_number AS "roundNumber",
-              responds_to_feedback_id AS "respondsToFeedbackId",
-              created_at AS "createdAt"
-       FROM agent_feedback WHERE agent_id = $1 ORDER BY created_at ASC`,
-      [agentId]
-    );
-    return result.rows;
+    return feedbackQueries.listFeedback(this.pool, agentId);
   }
 
   async listFeedbackByParent(parentAgentId: string): Promise<FeedbackRecord[]> {
-    const result = await this.pool.query<FeedbackRecord>(
-      `SELECT f.id, f.agent_id AS "agentId", f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
-              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status,
-              f.resolution_reason AS "resolutionReason",
-              f.resolution_commit AS "resolutionCommit",
-              f.resolved_at AS "resolvedAt",
-              f.round_number AS "roundNumber",
-              f.responds_to_feedback_id AS "respondsToFeedbackId",
-              f.created_at AS "createdAt"
-       FROM agent_feedback f
-       JOIN agents a ON a.id = f.agent_id
-       WHERE a.parent_agent_id = $1
-       ORDER BY f.created_at ASC`,
-      [parentAgentId]
-    );
-    return result.rows;
+    return feedbackQueries.listFeedbackByParent(this.pool, parentAgentId);
   }
 
   async listFeedbackByParentGrouped(
@@ -3886,49 +2634,12 @@ export class AgentManager {
       feedback: FeedbackRecord[];
     }>;
   }> {
-    const params: unknown[] = [parentAgentId];
-    let whereClause = "WHERE a.parent_agent_id = $1";
-    if (persona) {
-      params.push(persona);
-      whereClause += ` AND a.persona = $${params.length}`;
-    }
-    params.push(limit);
-
-    const result = await this.pool.query<FeedbackRecord & { persona: string }>(
-      `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath", f.line_number AS "lineNumber",
-              f.description, f.suggestion, f.media_ref AS "mediaRef", f.status,
-              f.resolution_reason AS "resolutionReason",
-              f.resolution_commit AS "resolutionCommit",
-              f.resolved_at AS "resolvedAt",
-              f.round_number AS "roundNumber",
-              f.responds_to_feedback_id AS "respondsToFeedbackId",
-              f.created_at AS "createdAt"
-       FROM agent_feedback f
-       JOIN agents a ON a.id = f.agent_id
-       ${whereClause}
-       ORDER BY a.persona, f.created_at ASC
-       LIMIT $${params.length}`,
-      params
+    return feedbackQueries.listFeedbackByParentGrouped(
+      this.pool,
+      parentAgentId,
+      persona,
+      limit
     );
-
-    const grouped = new Map<
-      string,
-      { persona: string; agentId: string; feedback: FeedbackRecord[] }
-    >();
-    for (const row of result.rows) {
-      const key = row.agentId;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          persona: row.persona,
-          agentId: row.agentId,
-          feedback: [],
-        });
-      }
-      const { persona: _p, ...feedbackRecord } = row;
-      grouped.get(key)!.feedback.push(feedbackRecord);
-    }
-
-    return { personas: Array.from(grouped.values()) };
   }
 
   async updateFeedbackStatus(
@@ -3937,46 +2648,13 @@ export class AgentManager {
     status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
     options: { reason?: string | null; resolutionCommit?: string | null } = {}
   ): Promise<FeedbackRecord | null> {
-    const reason = options.reason ?? null;
-    if (status === "ignored" && !(reason && reason.trim().length > 0)) {
-      throw new AgentError(
-        "A reason is required when marking feedback as ignored.",
-        400
-      );
-    }
-    const result = await this.pool.query<FeedbackRecord>(
-      // resolution_reason / resolution_commit use COALESCE so that a later
-      // fixed/ignored call with a null reason (allowed for 'fixed') does not
-      // erase the audit-trail captured on the first resolving call.
-      // resolved_at is set only on the first transition into fixed/ignored so
-      // benign re-calls don't drift the timestamp forward.
-      `UPDATE agent_feedback
-       SET status = $2,
-           resolution_reason = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($4, resolution_reason)
-             ELSE resolution_reason
-           END,
-           resolution_commit = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($5, resolution_commit)
-             ELSE resolution_commit
-           END,
-           resolved_at = CASE
-             WHEN $2 IN ('fixed', 'ignored') AND resolved_at IS NULL THEN NOW()
-             WHEN $2 NOT IN ('fixed', 'ignored') THEN NULL
-             ELSE resolved_at
-           END
-       WHERE id = $1 AND agent_id = $3
-       RETURNING id, agent_id AS "agentId", severity, file_path AS "filePath", line_number AS "lineNumber",
-                 description, suggestion, media_ref AS "mediaRef", status,
-                 resolution_reason AS "resolutionReason",
-                 resolution_commit AS "resolutionCommit",
-                 resolved_at AS "resolvedAt",
-                 round_number AS "roundNumber",
-                 responds_to_feedback_id AS "respondsToFeedbackId",
-                 created_at AS "createdAt"`,
-      [feedbackId, status, agentId, reason, options.resolutionCommit ?? null]
+    return feedbackQueries.updateFeedbackStatus(
+      this.pool,
+      feedbackId,
+      agentId,
+      status,
+      options
     );
-    return result.rows[0] ?? null;
   }
 
   async updateFeedbackStatusByParent(
@@ -3985,51 +2663,20 @@ export class AgentManager {
     status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
     options: { reason?: string | null; resolutionCommit?: string | null } = {}
   ): Promise<FeedbackRecord | null> {
-    const reason = options.reason ?? null;
-    if (status === "ignored" && !(reason && reason.trim().length > 0)) {
-      throw new AgentError(
-        "A reason is required when marking feedback as ignored.",
-        400
-      );
-    }
-    const result = await this.pool.query<FeedbackRecord>(
-      // See updateFeedbackStatus for the COALESCE / first-transition rationale.
-      `UPDATE agent_feedback af
-       SET status = $2,
-           resolution_reason = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($4, af.resolution_reason)
-             ELSE af.resolution_reason
-           END,
-           resolution_commit = CASE
-             WHEN $2 IN ('fixed', 'ignored') THEN COALESCE($5, af.resolution_commit)
-             ELSE af.resolution_commit
-           END,
-           resolved_at = CASE
-             WHEN $2 IN ('fixed', 'ignored') AND af.resolved_at IS NULL THEN NOW()
-             WHEN $2 NOT IN ('fixed', 'ignored') THEN NULL
-             ELSE af.resolved_at
-           END
-       FROM agents a
-       WHERE af.id = $1 AND af.agent_id = a.id AND a.parent_agent_id = $3
-       RETURNING af.id, af.agent_id AS "agentId", af.severity, af.file_path AS "filePath",
-                 af.line_number AS "lineNumber", af.description, af.suggestion,
-                 af.media_ref AS "mediaRef", af.status,
-                 af.resolution_reason AS "resolutionReason",
-                 af.resolution_commit AS "resolutionCommit",
-                 af.resolved_at AS "resolvedAt",
-                 af.round_number AS "roundNumber",
-                 af.responds_to_feedback_id AS "respondsToFeedbackId",
-                 af.created_at AS "createdAt"`,
-      [
-        feedbackId,
-        status,
-        parentAgentId,
-        reason,
-        options.resolutionCommit ?? null,
-      ]
+    return feedbackQueries.updateFeedbackStatusByParent(
+      this.pool,
+      feedbackId,
+      parentAgentId,
+      status,
+      options
     );
-    return result.rows[0] ?? null;
   }
+
+  async countFeedbackForAgent(agentId: string): Promise<number> {
+    return feedbackQueries.countFeedbackForAgent(this.pool, agentId);
+  }
+
+  // --- Review Resolutions / Recheck ---
 
   async submitReviewResolution(input: {
     parentAgentId: string;
@@ -4040,209 +2687,30 @@ export class AgentManager {
     review: PersonaReviewRecord;
     resolution: PersonaReviewResolutionRecord;
   }> {
-    const summary = input.summary.trim();
-    if (summary.length === 0) {
-      throw new AgentError("summary is required.", 400);
-    }
-    if (summary.length > 10_000) {
-      throw new AgentError("summary exceeds 10,000 character limit.", 400);
-    }
-
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const reviewResult = await client.query<PersonaReviewRecord>(
-        `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                persona, status, message, verdict, summary,
-                files_reviewed AS "filesReviewed",
-                last_reviewed_commit AS "lastReviewedCommit",
-                round_number AS "roundNumber",
-                allow_recheck AS "allowRecheck",
-                created_at AS "createdAt", updated_at AS "updatedAt"
-         FROM persona_reviews
-         WHERE agent_id = $1 AND parent_agent_id = $2
-         FOR UPDATE`,
-        [input.personaAgentId, input.parentAgentId]
-      );
-      const review = reviewResult.rows[0];
-      if (!review) {
-        throw new AgentError(
-          `No persona review found for agent ${input.personaAgentId} under parent ${input.parentAgentId}.`,
-          404
-        );
-      }
-      if (review.status === "awaiting_recheck") {
-        throw new AgentError(
-          "Review is already awaiting recheck; dispatch_submit_resolution cannot be called again in that state.",
-          409
-        );
-      }
-      if (review.status === "complete" && review.roundNumber >= 2) {
-        throw new AgentError(
-          "Round 2 already complete. This review only supports a single round-trip.",
-          409
-        );
-      }
-      if (review.status !== "complete") {
-        throw new AgentError(
-          `Review must be in status 'complete' to submit a resolution (current: ${review.status}).`,
-          409
-        );
-      }
-
-      const openOrUnresolved = await client.query<{
-        id: number;
-        status: string;
-        resolution_reason: string | null;
-      }>(
-        `SELECT id, status, resolution_reason
-         FROM agent_feedback
-         WHERE agent_id = $1
-         ORDER BY id ASC`,
-        [input.personaAgentId]
-      );
-      const openIds: number[] = [];
-      const ignoredMissingReason: number[] = [];
-      for (const row of openOrUnresolved.rows) {
-        if (row.status === "open") {
-          openIds.push(row.id);
-        } else if (
-          row.status === "ignored" &&
-          !(row.resolution_reason && row.resolution_reason.trim().length > 0)
-        ) {
-          ignoredMissingReason.push(row.id);
-        }
-      }
-      if (openIds.length > 0) {
-        throw new AgentError(
-          `Cannot submit resolution — feedback items still open: ${openIds.join(", ")}. Call dispatch_resolve_feedback on each with status 'fixed' or 'ignored' (include a reason for any you ignore), then try again.`,
-          409
-        );
-      }
-      if (ignoredMissingReason.length > 0) {
-        throw new AgentError(
-          `Cannot submit resolution — ignored feedback items missing a reason: ${ignoredMissingReason.join(", ")}. Call dispatch_resolve_feedback again on each with status 'ignored' and a reason explaining why it was not addressed, then try again.`,
-          409
-        );
-      }
-
-      const roundNumber = review.roundNumber;
-      const inserted = await client.query<PersonaReviewResolutionRecord>(
-        `INSERT INTO persona_review_resolutions
-           (review_id, round_number, summary, resolution_commit)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (review_id, round_number) DO UPDATE
-           SET summary = EXCLUDED.summary,
-               resolution_commit = EXCLUDED.resolution_commit,
-               submitted_at = NOW()
-         RETURNING id,
-                   review_id AS "reviewId",
-                   round_number AS "roundNumber",
-                   summary,
-                   resolution_commit AS "resolutionCommit",
-                   submitted_at AS "submittedAt"`,
-        [review.id, roundNumber, summary, input.resolutionCommit ?? null]
-      );
-
-      const nextStatus = review.allowRecheck ? "awaiting_recheck" : "complete";
-      const updatedReviewResult = await client.query<PersonaReviewRecord>(
-        `UPDATE persona_reviews
-         SET status = $2, updated_at = NOW()
-         WHERE id = $1
-         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                   persona, status, message, verdict, summary,
-                   files_reviewed AS "filesReviewed",
-                   last_reviewed_commit AS "lastReviewedCommit",
-                   round_number AS "roundNumber",
-                   allow_recheck AS "allowRecheck",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [review.id, nextStatus]
-      );
-
-      await client.query("COMMIT");
-      return {
-        review: updatedReviewResult.rows[0]!,
-        resolution: inserted.rows[0]!,
-      };
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return personaReviews.submitReviewResolution(this.pool, input);
   }
 
   async getReviewResolutions(
     reviewId: number
   ): Promise<PersonaReviewResolutionRecord[]> {
-    const result = await this.pool.query<PersonaReviewResolutionRecord>(
-      `SELECT id, review_id AS "reviewId", round_number AS "roundNumber",
-              summary, resolution_commit AS "resolutionCommit",
-              submitted_at AS "submittedAt"
-       FROM persona_review_resolutions
-       WHERE review_id = $1
-       ORDER BY round_number ASC, submitted_at ASC`,
-      [reviewId]
-    );
-    return result.rows;
+    return personaReviews.getReviewResolutions(this.pool, reviewId);
   }
 
   async getReviewerRecheckContext(
     agentId: string
   ): Promise<ReviewerRecheckContext | null> {
-    const review = await this.getPersonaReview(agentId);
-    if (!review) {
-      return null;
-    }
-
-    const resolution = (await this.getReviewResolutions(review.id)).at(-1);
-    if (!resolution) {
-      return null;
-    }
-
-    return {
-      review,
-      resolution,
-      resolutions: await this.listResolvedFeedbackForRound(
-        agentId,
-        resolution.roundNumber
-      ),
-    };
-  }
-
-  async countFeedbackForAgent(agentId: string): Promise<number> {
-    const result = await this.pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-       FROM agent_feedback
-       WHERE agent_id = $1`,
-      [agentId]
-    );
-    return Number(result.rows[0]?.count ?? "0");
+    return personaReviews.getReviewerRecheckContext(this.pool, agentId);
   }
 
   async listResolvedFeedbackForRound(
     personaAgentId: string,
     roundNumber: number
   ): Promise<PersonaReviewResolutionItem[]> {
-    const result = await this.pool.query<PersonaReviewResolutionItem>(
-      `SELECT id AS "feedbackId",
-              description AS "originalDescription",
-              severity AS "originalSeverity",
-              status,
-              resolution_reason AS reason,
-              file_path AS "filePath",
-              line_number AS "lineNumber",
-              suggestion,
-              resolution_commit AS "resolutionCommit",
-              resolved_at AS "resolvedAt",
-              round_number AS "roundNumber"
-       FROM agent_feedback
-       WHERE agent_id = $1 AND round_number = $2
-       ORDER BY id ASC`,
-      [personaAgentId, roundNumber]
+    return personaReviews.listResolvedFeedbackForRound(
+      this.pool,
+      personaAgentId,
+      roundNumber
     );
-    return result.rows;
   }
 
   async cancelReviewRecheck(input: {
@@ -4250,74 +2718,7 @@ export class AgentManager {
     personaAgentId: string;
     reason?: string | null;
   }): Promise<{ review: PersonaReviewRecord; transitioned: boolean }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const reviewResult = await client.query<PersonaReviewRecord>(
-        `SELECT id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                persona, status, message, verdict, summary,
-                files_reviewed AS "filesReviewed",
-                last_reviewed_commit AS "lastReviewedCommit",
-                round_number AS "roundNumber",
-                allow_recheck AS "allowRecheck",
-                created_at AS "createdAt", updated_at AS "updatedAt"
-         FROM persona_reviews
-         WHERE agent_id = $1 AND parent_agent_id = $2
-         FOR UPDATE`,
-        [input.personaAgentId, input.parentAgentId]
-      );
-      const review = reviewResult.rows[0];
-      if (!review) {
-        throw new AgentError(
-          `No persona review found for agent ${input.personaAgentId} under parent ${input.parentAgentId}.`,
-          404
-        );
-      }
-      if (review.status === "complete" && review.roundNumber >= 2) {
-        throw new AgentError(
-          "Cannot cancel recheck after round 2 is already complete.",
-          409
-        );
-      }
-      if (review.status === "cancelled") {
-        await client.query("COMMIT");
-        return { review, transitioned: false };
-      }
-      if (
-        review.status !== "awaiting_recheck" &&
-        !(review.status === "complete" && review.allowRecheck)
-      ) {
-        throw new AgentError(
-          `Recheck can only be cancelled while awaiting round 2 or while the reviewer is polling after round 1 (current: ${review.status}).`,
-          409
-        );
-      }
-
-      const updatedResult = await client.query<PersonaReviewRecord>(
-        `UPDATE persona_reviews
-         SET status = 'cancelled',
-             message = COALESCE($2, message),
-             updated_at = NOW()
-         WHERE id = $1
-         RETURNING id, agent_id AS "agentId", parent_agent_id AS "parentAgentId",
-                   persona, status, message, verdict, summary,
-                   files_reviewed AS "filesReviewed",
-                   last_reviewed_commit AS "lastReviewedCommit",
-                   round_number AS "roundNumber",
-                   allow_recheck AS "allowRecheck",
-                   created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [review.id, input.reason ?? null]
-      );
-
-      await client.query("COMMIT");
-      return { review: updatedResult.rows[0]!, transitioned: true };
-    } catch (err) {
-      await client.query("ROLLBACK");
-      throw err;
-    } finally {
-      client.release();
-    }
+    return personaReviews.cancelReviewRecheck(this.pool, input);
   }
 
   private baseAgentSelectSql(): string {
