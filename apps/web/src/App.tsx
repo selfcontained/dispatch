@@ -110,7 +110,7 @@ export function DashboardLayout(): JSX.Element {
     ...AGENT_TYPES,
   ]);
   const [enabledIdes, setEnabledIdes] = useState<IdeType[]>([]);
-  const { data: agents = [] } = useQuery<Agent[]>({
+  const { data: agents = [], isSuccess: agentsLoaded } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
@@ -120,8 +120,9 @@ export function DashboardLayout(): JSX.Element {
   });
 
   useEffect(() => {
+    if (!agentsLoaded) return;
     reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
-  }, [agents]);
+  }, [agents, agentsLoaded]);
 
   useEffect(() => {
     document.title = instanceName ? `${instanceName} — Dispatch` : "Dispatch";

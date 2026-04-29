@@ -215,14 +215,6 @@ export function AgentsView({
     ]
   );
 
-  const openMediaPanel = useCallback(
-    (activeTab: MediaSidebarTab) => {
-      setMediaActiveTab(activeTab);
-      setMediaOpen(true);
-    },
-    [setMediaActiveTab, setMediaOpen]
-  );
-
   const {
     connState,
     connectedAgentId,
@@ -654,7 +646,7 @@ export function AgentsView({
                     size="icon"
                     variant="ghost"
                     className="pointer-events-auto relative"
-                    onClick={() => openMediaPanel("media")}
+                    onClick={() => setMediaOpen(true)}
                     title="Open media sidebar"
                     data-testid="toggle-media-sidebar"
                   >

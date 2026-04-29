@@ -47,6 +47,7 @@ test.describe("Media sidebar", () => {
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("First image")).toBeVisible();
 
     await page.getByTestId(`agent-row-${secondAgent.id}`).click();
@@ -93,6 +94,7 @@ test.describe("Media sidebar", () => {
 
     await openMediaSidebarForAgent(page, firstAgent);
     const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("Remembered image")).toBeVisible();
 
     await page.getByTestId(`agent-row-${secondAgent.id}`).click();
