@@ -438,10 +438,9 @@ export class AgentManager {
           !input.persona && !input.jobRunId && (input.autoReview ?? false),
           startupPrompt
         );
-        const exitFile = `/tmp/dispatch_${tmuxSession}.exit`;
-
         // Generate a setup script that handles worktree creation, env copy,
         // dep install, and then exec's into the agent CLI — all visible in the terminal.
+        // Stderr/exit-capture wrapping is applied by the runtime, not the script.
         const setupScript = generateSetupScript(this.config, {
           agentId: id,
           agentType: type,
@@ -453,7 +452,6 @@ export class AgentManager {
           worktreePathOverride,
           agentName: name,
           agentCommand,
-          exitFile,
           jobRunId: input.jobRunId,
         });
 
@@ -461,11 +459,7 @@ export class AgentManager {
           sessionName: tmuxSession,
           cwd: originalCwd,
           agentId: id,
-          payload: {
-            kind: "setup-script",
-            scriptPath: `/tmp/dispatch_setup_${id}.sh`,
-            scriptContent: setupScript,
-          },
+          payload: { kind: "setup-script", scriptContent: setupScript },
         });
       } catch (error) {
         const message = this.errorMessage(error);
@@ -624,11 +618,7 @@ export class AgentManager {
         sessionName: tmuxSession,
         cwd: agent.cwd,
         agentId: id,
-        payload: {
-          kind: "agent-command",
-          command: agentCommand,
-          exitFile: `/tmp/dispatch_${tmuxSession}.exit`,
-        },
+        payload: { kind: "agent-command", command: agentCommand },
       });
 
       await this.setAgentStatus(id, "running", null, tmuxSession);
@@ -1161,14 +1151,21 @@ export class AgentManager {
         continue;
       }
 
+      // Missing-session reconciliation only makes sense when the
+      // runtime actually tracks session state. Inert mode has no real
+      // sessions to lose, so a missing-session result there is just a
+      // statement of fact, not a reason to flip the agent to stopped.
+      if (!this.runtime.tracksSessions()) {
+        continue;
+      }
+
       const exists = row.tmuxSession
         ? await this.runtime.hasSession(row.tmuxSession)
         : false;
 
       if (!exists) {
-        // In inert mode `hasSession` returns true for any non-empty
-        // session name, so reaching here means we're in tmux mode (or
-        // the agent has no tmuxSession at all — exitInfo stays null).
+        // We've already gated on tracksSessions(), so reaching here
+        // means we're definitively in a session-tracking runtime.
         const exitInfo = row.tmuxSession
           ? await this.runtime.readExitInfo(row.tmuxSession)
           : null;
@@ -1313,11 +1310,14 @@ export class AgentManager {
       return fallback;
     }
 
-    return this.runtime.getCurrentCwd({
+    // Runtime returns null when it can't determine the cwd; manager
+    // applies the fallback policy here rather than letting the runtime
+    // bake it into its return type.
+    const cwd = await this.runtime.getCurrentCwd({
       sessionName: session,
       agentId: agent.id,
-      fallback,
     });
+    return cwd ?? fallback;
   }
 
   private async runLifecycleHook(

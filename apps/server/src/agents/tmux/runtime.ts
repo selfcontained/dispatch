@@ -17,6 +17,19 @@ const PROCESS_INSPECT_TIMEOUT_MS = 800;
 /** Basenames the cwd resolver recognises as "the agent CLI" (worth pid-walking into). */
 const AGENT_CLI_BASENAMES = new Set(["claude", "codex", "opencode"]);
 
+// ── Path conventions (runtime-internal) ─────────────────────────────────
+//
+// The tmux runtime owns these conventions. The manager only ever asks for
+// `readSetupLogTail(idOrSession)` / `readExitInfo(sessionName)` and gets
+// back the contents — it doesn't have to know where the files live.
+
+const setupScriptPath = (agentId: string): string =>
+  `/tmp/dispatch_setup_${agentId}.sh`;
+const setupLogPath = (idOrSession: string): string =>
+  `/tmp/dispatch_setup_${idOrSession}.log`;
+const exitFilePath = (sessionName: string): string =>
+  `/tmp/dispatch_${sessionName}.exit`;
+
 /**
  * Build the tmux-backed AgentRuntime. Holds a per-session cwd cache in
  * its closure (TTL `CWD_CACHE_TTL_MS`) — the cache is what stops the
@@ -27,8 +40,12 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
   const cwdCache = new Map<string, { value: string; expiresAt: number }>();
 
   return {
+    tracksSessions(): boolean {
+      return true;
+    },
+
     async launch(input: LaunchInput): Promise<void> {
-      const wrappedCommand = await preparePayload(input);
+      const wrappedCommand = await prepareLaunch(input);
 
       await runCommand("tmux", [
         "new-session",
@@ -98,14 +115,12 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
     async getCurrentCwd({
       sessionName,
       agentId,
-      fallback,
     }: {
       sessionName: string;
       agentId: string;
-      fallback: string;
-    }): Promise<string> {
+    }): Promise<string | null> {
       const session = sessionName.trim();
-      if (!session) return fallback;
+      if (!session) return null;
 
       const cacheKey = `${agentId}:${session}`;
       const cached = cwdCache.get(cacheKey);
@@ -138,7 +153,7 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
         );
         const cwd = result.stdout.trim();
         if (result.exitCode !== 0 || !cwd) {
-          return fallback;
+          return null;
         }
         cwdCache.set(cacheKey, {
           value: cwd,
@@ -146,7 +161,7 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
         });
         return cwd;
       } catch {
-        return fallback;
+        return null;
       }
     },
 
@@ -189,10 +204,7 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
 
     async readExitInfo(sessionName: string): Promise<number | null> {
       try {
-        const content = await readFile(
-          `/tmp/dispatch_${sessionName}.exit`,
-          "utf-8"
-        );
+        const content = await readFile(exitFilePath(sessionName), "utf-8");
         const match = content.trim().match(/^EXIT:(\d+)$/);
         return match ? Number(match[1]) : null;
       } catch {
@@ -207,26 +219,27 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
 }
 
 /**
- * Translate a `LaunchInput.payload` into the bash invocation that tmux
- * will run inside `new-session`. For setup-script payloads, write the
- * script to disk first; for inline agent-command payloads, wrap with
- * stderr-tee + exit-capture so the reconciler can read the result.
+ * Translate a `LaunchInput` into the bash invocation that tmux runs
+ * inside `new-session`. Both payload kinds get the same outer wrapper
+ * — stderr tee'd to the per-agent setup log, exit code captured to the
+ * per-session exit file — so the reconciler can read both via
+ * `readSetupLogTail` and `readExitInfo` regardless of how the session
+ * was launched.
  */
-async function preparePayload(input: LaunchInput): Promise<string> {
-  const { payload } = input;
-
-  if (payload.kind === "setup-script") {
-    await writeFile(payload.scriptPath, payload.scriptContent, { mode: 0o755 });
-    return `bash ${payload.scriptPath}`;
+async function prepareLaunch(input: LaunchInput): Promise<string> {
+  let inner: string;
+  if (input.payload.kind === "setup-script") {
+    const scriptPath = setupScriptPath(input.agentId);
+    await writeFile(scriptPath, input.payload.scriptContent, { mode: 0o755 });
+    inner = `bash ${scriptPath}`;
+  } else {
+    inner = input.payload.command;
   }
 
-  // agent-command: wrap so stderr is tee'd to the setup log and exit
-  // code is captured for the reconciler.
-  const sessionLogFile = `/tmp/dispatch_setup_${input.agentId}.log`;
-  return `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${payload.command.replaceAll(
-    "'",
-    "'\\''"
-  )}; echo "EXIT:$?" > ${payload.exitFile}'`;
+  const logFile = setupLogPath(input.agentId);
+  const exitFile = exitFilePath(input.sessionName);
+  const escapedInner = inner.replaceAll("'", "'\\''");
+  return `bash -c 'exec 2> >(tee "${logFile}" >&2); ${escapedInner}; echo "EXIT:$?" > ${exitFile}'`;
 }
 
 async function tmuxHasSession(sessionName: string): Promise<boolean> {
@@ -334,7 +347,7 @@ async function resolveAgentProcessCwd(
  * error messages. Returns "" when no log file is on disk.
  */
 async function readSetupLogTailFromDisk(idOrSession: string): Promise<string> {
-  const logPath = `/tmp/dispatch_setup_${idOrSession}.log`;
+  const logPath = setupLogPath(idOrSession);
   try {
     const log = await readFile(logPath, "utf-8");
     const tail = log.trim().split("\n").slice(-20).join("\n");

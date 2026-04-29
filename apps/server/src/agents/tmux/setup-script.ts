@@ -19,15 +19,15 @@ export type SetupScriptParams = {
   worktreePathOverride?: string;
   agentName: string;
   agentCommand: string;
-  exitFile: string;
   jobRunId?: string;
 };
 
 /**
  * Generate the bash setup script that runs in the agent's tmux pane on
  * launch. Pure — takes config + inputs, returns the full script as a
- * single string (the caller writes it to `/tmp/dispatch_setup_<id>.sh`
- * and execs it via tmux).
+ * single string. The runtime (`agents/tmux/runtime.ts`) writes it to
+ * disk, wraps the launch with stderr-tee + exit-capture, and execs it
+ * via tmux.
  *
  * The script:
  *   1. Optionally creates a git worktree from `baseBranch` and copies
@@ -37,6 +37,11 @@ export type SetupScriptParams = {
  *   3. For opencode agents, writes `opencode.json` with the dispatch
  *      MCP entry before launch.
  *   4. `exec`s into `agentCommand` so the tmux pane becomes the agent.
+ *
+ * Stderr capture and exit-code recording are *not* handled inside the
+ * script — those are runtime-owned conventions applied by the launch
+ * wrapper. This keeps the script generator unconcerned with where logs
+ * or exit files live.
  *
  * Security note: ref names flowing into the bash script are re-validated
  * via `assertSafeRefName` even though `createAgent` already normalizes
@@ -57,7 +62,6 @@ export function generateSetupScript(
     worktreePathOverride,
     agentName,
     agentCommand,
-    exitFile,
   } = params;
 
   const serverUrl = `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}`;
@@ -96,10 +100,9 @@ export function generateSetupScript(
     ``,
     `# Dispatch agent setup script for ${agentName}`,
     `# This script runs in tmux so the user can see setup progress in real time.`,
-    ``,
-    `# Tee stderr to a log file so the server can surface errors when the session`,
-    `# exits immediately (e.g. a broken profile script).`,
-    `exec 2> >(tee "/tmp/dispatch_setup_${agentId}.log" >&2)`,
+    `# Stderr is captured at the launch wrapper level (the tmux runtime tees`,
+    `# everything to /tmp/dispatch_setup_<id>.log), so this script doesn't`,
+    `# do its own redirection.`,
     ``,
     `# Source user-defined overrides for agent sessions`,
     `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
@@ -291,8 +294,9 @@ export function generateSetupScript(
   }
 
   lines.push(
-    `# exec replaces this shell with the agent CLI — seamless transition`,
-    `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`
+    `# exec replaces this shell with the agent CLI — seamless transition.`,
+    `# Exit code capture is handled by the launch wrapper, not here.`,
+    `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}'`
   );
 
   return lines.join("\n") + "\n";

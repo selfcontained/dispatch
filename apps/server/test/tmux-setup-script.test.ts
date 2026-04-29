@@ -29,7 +29,6 @@ const baseParams: SetupScriptParams = {
   createNewBranch: true,
   agentName: "my-task",
   agentCommand: "exec /opt/claude",
-  exitFile: "/tmp/dispatch_session.exit",
 };
 
 describe("generateSetupScript — script shape", () => {
@@ -40,18 +39,23 @@ describe("generateSetupScript — script shape", () => {
     expect(firstLines[1]).toBe("set -euo pipefail");
   });
 
-  it("ends with `exec bash -c ...` so tmux-pane PID becomes the agent CLI", () => {
+  it("ends with `exec bash -c '<agentCommand>'` so tmux-pane PID becomes the agent CLI", () => {
     const script = generateSetupScript(baseConfig, baseParams);
     expect(script).toMatch(/exec bash -c '[^']/);
-    expect(script).toContain('echo "EXIT:$?"');
-    expect(script).toContain(baseParams.exitFile);
   });
 
-  it("interpolates the agent's setup-log path so the server can tail stderr", () => {
+  it("does NOT bake in stderr tee or exit-code capture — the runtime wrapper owns those", () => {
+    // Phase 5 round-2 cleanup: the script is no longer responsible for
+    // its own log path or exit-file convention. The runtime applies an
+    // outer wrap (stderr tee + exit capture) around `bash <scriptPath>`,
+    // so these conventions live in exactly one place.
     const script = generateSetupScript(baseConfig, baseParams);
-    expect(script).toContain(
-      `tee "/tmp/dispatch_setup_${baseParams.agentId}.log"`
-    );
+    // The script no longer redirects its own stderr — anchor on the
+    // shell construct, not the word "tee" (which still appears in the
+    // explanatory comment that points readers at the runtime).
+    expect(script).not.toMatch(/exec 2>\s*>\(tee/);
+    expect(script).not.toContain('echo "EXIT:$?"');
+    expect(script).not.toMatch(/\.exit['"]?\s*$/m);
   });
 });
 

@@ -36,6 +36,13 @@ beforeEach(() => {
 const matchArgs = (args: string[], pattern: string[]) =>
   pattern.every((p, i) => args[i] === p);
 
+describe("TmuxRuntime — capabilities", () => {
+  it("tracksSessions() returns true (tmux backs sessions with real OS state)", () => {
+    const runtime = createTmuxRuntime(noopLogger);
+    expect(runtime.tracksSessions()).toBe(true);
+  });
+});
+
 describe("TmuxRuntime — hasSession", () => {
   it("returns true when `tmux has-session` exits 0", async () => {
     vi.mocked(runCommand).mockResolvedValue(ok());
@@ -196,15 +203,14 @@ describe("TmuxRuntime — getCurrentCwd", () => {
   // the only state the runtime closure holds and a regression here
   // shows up as a hot ps/lsof loop on every reconcile tick.
 
-  it("returns fallback when sessionName is empty/whitespace", async () => {
+  it("returns null when sessionName is empty/whitespace (no fallback baked in)", async () => {
     const runtime = createTmuxRuntime(noopLogger);
     expect(
       await runtime.getCurrentCwd({
         sessionName: "  ",
         agentId: "agt_x",
-        fallback: "/projects/foo",
       })
-    ).toBe("/projects/foo");
+    ).toBeNull();
     // No tmux invocation required.
     expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
   });
@@ -223,21 +229,19 @@ describe("TmuxRuntime — getCurrentCwd", () => {
       await runtime.getCurrentCwd({
         sessionName: "dispatch_agt_x",
         agentId: "agt_x",
-        fallback: "/fallback",
       })
     ).toBe("/the/cwd");
   });
 
-  it("returns fallback when both pid-walk and pane_current_path fail", async () => {
+  it("returns null when both pid-walk and pane_current_path fail (manager applies fallback)", async () => {
     vi.mocked(runCommand).mockImplementation(async () => fail());
     const runtime = createTmuxRuntime(noopLogger);
     expect(
       await runtime.getCurrentCwd({
         sessionName: "dispatch_agt_x",
         agentId: "agt_x",
-        fallback: "/fallback",
       })
-    ).toBe("/fallback");
+    ).toBeNull();
   });
 
   it("caches a successful resolution for the configured TTL", async () => {
@@ -259,12 +263,10 @@ describe("TmuxRuntime — getCurrentCwd", () => {
     const a = await runtime.getCurrentCwd({
       sessionName: "dispatch_agt_x",
       agentId: "agt_x",
-      fallback: "/fallback",
     });
     const b = await runtime.getCurrentCwd({
       sessionName: "dispatch_agt_x",
       agentId: "agt_x",
-      fallback: "/fallback",
     });
 
     expect(a).toBe("/cached/cwd");
@@ -292,12 +294,10 @@ describe("TmuxRuntime — getCurrentCwd", () => {
     const a = await runtime.getCurrentCwd({
       sessionName: "session-A",
       agentId: "agt_a",
-      fallback: "/fb",
     });
     const b = await runtime.getCurrentCwd({
       sessionName: "session-B",
       agentId: "agt_b",
-      fallback: "/fb",
     });
     expect(a).toBe("/cwd-A");
     expect(b).toBe("/cwd-B");
@@ -375,47 +375,54 @@ describe("TmuxRuntime — readSetupLogTail", () => {
 });
 
 describe("TmuxRuntime — launch (setup-script payload)", () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(path.join(os.tmpdir(), "runtime-launch-test-"));
-  });
+  // The runtime owns where setup scripts live on disk — the manager
+  // doesn't pass a path. The test cleans up the runtime's chosen path.
 
   afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
+    await unlink("/tmp/dispatch_setup_agt_xyz_runtime_test.sh").catch(() => {});
   });
 
-  it("writes the setup script and runs `bash <path>` in tmux", async () => {
+  it("writes the setup script to a runtime-chosen path and runs `bash <path>` inside the wrapped launch", async () => {
     vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
       if (args[0] === "has-session") return ok(); // post-launch verify
       return ok();
     });
 
     const runtime = createTmuxRuntime(noopLogger);
-    const scriptPath = path.join(tmpDir, "setup.sh");
     await runtime.launch({
-      sessionName: "dispatch_agt_x",
+      sessionName: "dispatch_agt_xyz_runtime_test",
       cwd: "/projects/foo",
-      agentId: "agt_x",
+      agentId: "agt_xyz_runtime_test",
       payload: {
         kind: "setup-script",
-        scriptPath,
         scriptContent: "#!/usr/bin/env bash\necho hello\n",
       },
     });
 
-    // Script is on disk
-    const written = await readFile(scriptPath, "utf-8");
+    // Script is on disk at the runtime's chosen path
+    // (`/tmp/dispatch_setup_<agentId>.sh`).
+    const expectedScriptPath = "/tmp/dispatch_setup_agt_xyz_runtime_test.sh";
+    const written = await readFile(expectedScriptPath, "utf-8");
     expect(written).toBe("#!/usr/bin/env bash\necho hello\n");
 
-    // tmux new-session ran with `bash <path>` as the command
+    // tmux new-session ran with the wrapped `bash <path>` as the command
     const newSessionCall = vi
       .mocked(runCommand)
       .mock.calls.find(([, a]) => a[0] === "new-session");
-    expect(newSessionCall?.[1]).toContain("dispatch_agt_x");
+    expect(newSessionCall?.[1]).toContain("dispatch_agt_xyz_runtime_test");
     expect(newSessionCall?.[1]).toContain("/projects/foo");
-    expect(newSessionCall?.[1]?.[newSessionCall[1].length - 1]).toBe(
-      `bash ${scriptPath}`
+    const wrappedCommand = newSessionCall?.[1]?.[
+      newSessionCall[1].length - 1
+    ] as string;
+    // The same outer wrap that agent-command gets — stderr tee + exit
+    // capture — applies to setup-script too. The script no longer needs
+    // to do its own stderr / exit handling.
+    expect(wrappedCommand).toContain(
+      `tee "/tmp/dispatch_setup_agt_xyz_runtime_test.log"`
+    );
+    expect(wrappedCommand).toContain(`bash ${expectedScriptPath}`);
+    expect(wrappedCommand).toContain(
+      `echo "EXIT:$?" > /tmp/dispatch_dispatch_agt_xyz_runtime_test.exit`
     );
   });
 
@@ -430,10 +437,9 @@ describe("TmuxRuntime — launch (setup-script payload)", () => {
       runtime.launch({
         sessionName: "dispatch_agt_x",
         cwd: "/projects/foo",
-        agentId: "agt_x",
+        agentId: "agt_xyz_runtime_test",
         payload: {
           kind: "setup-script",
-          scriptPath: path.join(tmpDir, "setup.sh"),
           scriptContent: "#!/usr/bin/env bash\nexit 1\n",
         },
       })
@@ -442,7 +448,7 @@ describe("TmuxRuntime — launch (setup-script payload)", () => {
 });
 
 describe("TmuxRuntime — launch (agent-command payload)", () => {
-  it("wraps the inline command with stderr-tee and exit-code capture", async () => {
+  it("wraps the inline command with stderr-tee and exit-code capture (paths runtime-internal)", async () => {
     vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
       if (args[0] === "has-session") return ok();
       return ok();
@@ -453,11 +459,7 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
       sessionName: "dispatch_agt_y",
       cwd: "/projects/bar",
       agentId: "agt_y",
-      payload: {
-        kind: "agent-command",
-        command: "/opt/claude --foo",
-        exitFile: "/tmp/dispatch_dispatch_agt_y.exit",
-      },
+      payload: { kind: "agent-command", command: "/opt/claude --foo" },
     });
 
     const newSessionCall = vi
@@ -467,8 +469,10 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
       newSessionCall[1].length - 1
     ] as string;
 
-    // The wrapper bakes in: stderr tee to the agent's setup log file,
-    // the agent command itself, and EXIT:$? to the configured exit file.
+    // The wrapper bakes in: stderr tee to the agent's setup log file
+    // (path derived from agentId), the agent command itself, and
+    // EXIT:$? to the per-session exit file (path derived from
+    // sessionName). The manager doesn't supply or know either path.
     expect(wrappedCommand).toContain(`tee "/tmp/dispatch_setup_agt_y.log"`);
     expect(wrappedCommand).toContain("/opt/claude --foo");
     expect(wrappedCommand).toContain(
@@ -493,7 +497,6 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
       payload: {
         kind: "agent-command",
         command: `echo 'inner-quote'`,
-        exitFile: "/tmp/exit",
       },
     });
 

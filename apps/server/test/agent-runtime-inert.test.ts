@@ -46,13 +46,14 @@ describe("InertRuntime (createAgentRuntime with agentRuntime=inert)", () => {
         sessionName: "dispatch_agt_x",
         cwd: "/tmp",
         agentId: "agt_x",
-        payload: {
-          kind: "agent-command",
-          command: "echo hi",
-          exitFile: "/tmp/exit",
-        },
+        payload: { kind: "agent-command", command: "echo hi" },
       })
     ).resolves.toBeUndefined();
+  });
+
+  it("tracksSessions() returns false (inert has no real session state)", () => {
+    const runtime = createAgentRuntime(inertConfig, noopLogger);
+    expect(runtime.tracksSessions()).toBe(false);
   });
 
   it("ensureNoExistingSession() and stopSession() are no-ops", async () => {
@@ -68,31 +69,26 @@ describe("InertRuntime (createAgentRuntime with agentRuntime=inert)", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("hasSession() returns true for any non-empty name (legacy contract)", async () => {
-    // The reconciler relies on this: in inert mode every "registered"
-    // agent is treated as live, so the missing-session branch in
-    // reconcileAgentStatuses doesn't fire spuriously.
+  it("hasSession() returns false (no real sessions in inert mode)", async () => {
+    // Honest reporting: there are no sessions to find. Callers that
+    // want "registered agent is live" semantics must consult
+    // tracksSessions() and fall back to the DB row.
     const runtime = createAgentRuntime(inertConfig, noopLogger);
-    expect(await runtime.hasSession("dispatch_agt_x")).toBe(true);
-    expect(await runtime.hasSession("anything-non-empty")).toBe(true);
-  });
-
-  it("hasSession() returns false for empty/whitespace names", async () => {
-    const runtime = createAgentRuntime(inertConfig, noopLogger);
+    expect(await runtime.hasSession("dispatch_agt_x")).toBe(false);
+    expect(await runtime.hasSession("anything")).toBe(false);
     expect(await runtime.hasSession("")).toBe(false);
-    expect(await runtime.hasSession("   ")).toBe(false);
   });
 
-  it("getCurrentCwd() returns the supplied fallback unconditionally", async () => {
-    // No process to introspect — return whatever the caller already had.
+  it("getCurrentCwd() returns null (no process to introspect)", async () => {
+    // The runtime can't determine a cwd — return null and let the
+    // manager apply its own fallback policy.
     const runtime = createAgentRuntime(inertConfig, noopLogger);
     expect(
       await runtime.getCurrentCwd({
         sessionName: "dispatch_agt_x",
         agentId: "agt_x",
-        fallback: "/projects/foo",
       })
-    ).toBe("/projects/foo");
+    ).toBeNull();
   });
 
   it("listSessions() returns an empty array (nothing to list)", async () => {
@@ -122,6 +118,7 @@ describe("InertRuntime (createAgentRuntime with agentRuntime=inert)", () => {
     // object whose method shapes match the AgentRuntime interface.
     const runtime = createAgentRuntime(inertConfig, noopLogger);
     expect(typeof runtime.launch).toBe("function");
+    expect(typeof runtime.tracksSessions).toBe("function");
     expect(typeof runtime.hasSession).toBe("function");
     expect(typeof runtime.stopSession).toBe("function");
     expect(typeof runtime.ensureNoExistingSession).toBe("function");
