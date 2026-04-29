@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { useAtom } from "jotai";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -42,6 +43,11 @@ import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
+import {
+  inactiveMediaSidebarStateAtom,
+  mediaSidebarStateAtomFamily,
+  type MediaSidebarTab,
+} from "@/lib/store";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -79,17 +85,13 @@ type AgentsViewProps = {
   enabledIdes: IdeType[];
   isMobile: boolean;
   leftOpen: boolean;
-  mediaOpen: boolean;
   leftPanelOpen: boolean;
-  mediaPanelOpen: boolean;
   mobileLeftOpen: boolean;
   mobileMediaOpen: boolean;
   setLeftOpen: (open: boolean) => void;
-  setMediaOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
   setMobileMediaOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
-  handleSetMediaPanelOpen: (open: boolean) => void;
   pulsingNavItem: string | null;
   triggerNavAnimation: (navItem: string) => void;
   onNavigateSection: (section: NavSection) => void;
@@ -100,17 +102,13 @@ export function AgentsView({
   enabledIdes,
   isMobile,
   leftOpen,
-  mediaOpen,
   leftPanelOpen,
-  mediaPanelOpen,
   mobileLeftOpen,
   mobileMediaOpen,
   setLeftOpen,
-  setMediaOpen,
   setMobileLeftOpen,
   setMobileMediaOpen,
   handleSetLeftPanelOpen,
-  handleSetMediaPanelOpen,
   pulsingNavItem,
   triggerNavAnimation,
   onNavigateSection,
@@ -173,6 +171,57 @@ export function AgentsView({
   const feedbackDetailRendered =
     feedbackDetail ?? feedbackDetailStaleRef.current;
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
+  const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
+  const desktopMediaSidebarAtom = useMemo(
+    () =>
+      sidebarAgentId
+        ? mediaSidebarStateAtomFamily(sidebarAgentId)
+        : inactiveMediaSidebarStateAtom,
+    [sidebarAgentId]
+  );
+  const [desktopMediaSidebarState, setDesktopMediaSidebarState] = useAtom(
+    desktopMediaSidebarAtom
+  );
+  const mediaOpen = isMobile
+    ? mobileMediaOpen
+    : desktopMediaSidebarState.isOpen;
+  const mediaPanelOpen = mediaOpen;
+  const mediaActiveTab = desktopMediaSidebarState.activeTab;
+
+  const setMediaActiveTab = useCallback(
+    (activeTab: MediaSidebarTab) => {
+      setDesktopMediaSidebarState((prev) => ({ ...prev, activeTab }));
+    },
+    [setDesktopMediaSidebarState]
+  );
+
+  const setMediaOpen = useCallback(
+    (open: boolean) => {
+      if (isMobile) {
+        if (open) setMobileLeftOpen(false);
+        setMobileMediaOpen(open);
+        return;
+      }
+
+      setDesktopMediaSidebarState((prev) =>
+        prev.isOpen === open ? prev : { ...prev, isOpen: open }
+      );
+    },
+    [
+      isMobile,
+      setDesktopMediaSidebarState,
+      setMobileLeftOpen,
+      setMobileMediaOpen,
+    ]
+  );
+
+  const openMediaPanel = useCallback(
+    (activeTab: MediaSidebarTab) => {
+      setMediaActiveTab(activeTab);
+      setMediaOpen(true);
+    },
+    [setMediaActiveTab, setMediaOpen]
+  );
 
   const {
     connState,
@@ -605,7 +654,7 @@ export function AgentsView({
                     size="icon"
                     variant="ghost"
                     className="pointer-events-auto relative"
-                    onClick={() => handleSetMediaPanelOpen(true)}
+                    onClick={() => openMediaPanel("media")}
                     title="Open media sidebar"
                     data-testid="toggle-media-sidebar"
                   >
@@ -710,6 +759,8 @@ export function AgentsView({
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
+            activeTab={mediaActiveTab}
+            setActiveTab={setMediaActiveTab}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
@@ -768,6 +819,8 @@ export function AgentsView({
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
+            activeTab={mediaActiveTab}
+            setActiveTab={setMediaActiveTab}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}

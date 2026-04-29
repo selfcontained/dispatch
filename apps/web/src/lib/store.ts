@@ -36,14 +36,6 @@ export const leftSidebarOpenAtom = atomWithLocalStorage(
   "dispatch:leftSidebarOpen",
   true
 );
-export const mediaSidebarOpenAtom = atomWithLocalStorage(
-  "dispatch:mediaSidebarOpen",
-  false
-);
-export const mediaSidebarTabAtom = atomWithLocalStorage<"pins" | "media">(
-  "dispatch:mediaSidebarTab",
-  "pins"
-);
 export const soundCuesEnabledAtom = atomWithLocalStorage(
   "dispatch:soundCuesEnabled",
   true
@@ -59,3 +51,48 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
 );
+
+export type MediaSidebarTab = "pins" | "media";
+
+export type MediaSidebarState = {
+  isOpen: boolean;
+  activeTab: MediaSidebarTab;
+};
+
+export const defaultMediaSidebarState: MediaSidebarState = {
+  isOpen: false,
+  activeTab: "pins",
+};
+
+export const inactiveMediaSidebarStateAtom = atom<MediaSidebarState>(
+  defaultMediaSidebarState
+);
+
+export const MEDIA_SIDEBAR_STATE_STORAGE_PREFIX = "dispatch:mediaSidebarState:";
+
+export const mediaSidebarStateAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<MediaSidebarState>(
+    `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}${agentId}`,
+    defaultMediaSidebarState
+  )
+);
+
+export function reconcileMediaSidebarStateStorage(
+  agentIds: Iterable<string>
+): void {
+  if (typeof window === "undefined") return;
+
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(MEDIA_SIDEBAR_STATE_STORAGE_PREFIX)) continue;
+
+    const agentId = key.slice(MEDIA_SIDEBAR_STATE_STORAGE_PREFIX.length).trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}

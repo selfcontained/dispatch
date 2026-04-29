@@ -123,17 +123,13 @@ export function AgentsRoute(): JSX.Element {
       enabledIdes={context.enabledIdes}
       isMobile={context.isMobile}
       leftOpen={context.leftOpen}
-      mediaOpen={context.mediaOpen}
       leftPanelOpen={context.leftPanelOpen}
-      mediaPanelOpen={context.mediaPanelOpen}
       mobileLeftOpen={context.mobileLeftOpen}
       mobileMediaOpen={context.mobileMediaOpen}
       setLeftOpen={context.setLeftOpen}
-      setMediaOpen={context.setMediaOpen}
       setMobileLeftOpen={context.setMobileLeftOpen}
       setMobileMediaOpen={context.setMobileMediaOpen}
       handleSetLeftPanelOpen={context.handleSetLeftPanelOpen}
-      handleSetMediaPanelOpen={context.handleSetMediaPanelOpen}
       pulsingNavItem={context.pulsingNavItem}
       triggerNavAnimation={context.triggerNavAnimation}
       onNavigateSection={context.handleSidebarNavigate}

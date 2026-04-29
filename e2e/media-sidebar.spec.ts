@@ -12,13 +12,10 @@ async function openMediaSidebarForAgent(
   page: Page,
   agent: { id: string; name: string }
 ) {
-  await page.getByText(agent.name, { exact: true }).click();
-  await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveClass(
-    /bg-muted\/60/
-  );
+  await page.getByTestId(`agent-row-${agent.id}`).click();
   const toggle = page.getByTestId("toggle-media-sidebar");
   await expect(toggle).toBeVisible();
-  await toggle.evaluate((el) => (el as HTMLButtonElement).click());
+  await toggle.click();
 }
 
 test.describe("Media sidebar", () => {
@@ -50,27 +47,66 @@ test.describe("Media sidebar", () => {
 
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
-
-    // Switch to Media tab (sidebar defaults to Pins tab)
-    await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("First image")).toBeVisible();
 
-    await page.getByText(secondAgent.name, { exact: true }).click();
-    // Agent switch resets to Pins tab — switch back to Media
-    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
     await uploadMediaViaAPI(
       request,
       firstAgent.id,
       "Second image",
       "second-image.png"
     );
-    await page.getByText(firstAgent.name, { exact: true }).click();
-    // Agent switch resets to Pins tab again
-    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await page.getByTestId(`agent-row-${firstAgent.id}`).click();
 
     await expect(mediaSidebar.getByText("Second image")).toBeVisible({
       timeout: 10_000,
     });
+  });
+
+  test("remembers sidebar open state and active tab per agent", async ({
+    page,
+    request,
+  }) => {
+    const firstAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-sidebar-state-a-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    const secondAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-sidebar-state-b-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+
+    await setAgentPinsViaDB(firstAgent.id, [
+      { label: "First pin", type: "string", value: "Pinned for agent A" },
+    ]);
+    await setAgentPinsViaDB(secondAgent.id, [
+      { label: "Second pin", type: "string", value: "Pinned for agent B" },
+    ]);
+    await uploadMediaViaAPI(
+      request,
+      firstAgent.id,
+      "Remembered image",
+      "remembered-image.png"
+    );
+
+    await loadApp(page);
+
+    await openMediaSidebarForAgent(page, firstAgent);
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await expect(mediaSidebar.getByText("Remembered image")).toBeVisible();
+
+    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
+    await page.getByTestId("toggle-media-sidebar").click();
+    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
+    await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
+
+    await page.getByTestId(`agent-row-${firstAgent.id}`).click();
+    await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
+    await expect(mediaSidebar.getByText("Remembered image")).toBeVisible();
+
+    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
+    await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
+    await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
   });
 
   test("navigates between fullscreen media items", async ({

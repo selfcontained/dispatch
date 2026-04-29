@@ -141,6 +141,9 @@ test.describe("Overflow layout", () => {
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");
     const pinsPanelScroll = page.getByTestId("pins-panel-scroll");
     const terminalPane = page.getByTestId("terminal-pane");
+    const mediaSidebar = page.getByTestId("media-sidebar");
+
+    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
 
     await expect(agentSidebarScroll).toBeVisible();
     await expect(pinsPanelScroll).toBeVisible();
@@ -173,7 +176,6 @@ test.describe("Overflow layout", () => {
       )
     ).toBeLessThan(2);
 
-    const mediaSidebar = page.getByTestId("media-sidebar");
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
 
     const mediaPanelScroll = page.getByTestId("media-panel-scroll");

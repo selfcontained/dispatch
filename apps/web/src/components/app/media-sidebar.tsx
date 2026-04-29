@@ -1,10 +1,4 @@
-import {
-  type RefObject,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type RefObject, useCallback, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -18,10 +12,9 @@ import {
   Upload,
   User,
 } from "lucide-react";
-import { useAtom } from "jotai";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
-import { mediaSidebarTabAtom } from "@/lib/store";
+import { type MediaSidebarTab } from "@/lib/store";
 import {
   MediaActions,
   isTextFile,
@@ -59,9 +52,13 @@ type MediaSidebarSharedProps = {
 type MediaSidebarProps = MediaSidebarSharedProps & {
   mediaOpen: boolean;
   setMediaOpen: (open: boolean) => void;
+  activeTab: MediaSidebarTab;
+  setActiveTab: (tab: MediaSidebarTab) => void;
 };
 
 type MediaSidebarContentProps = MediaSidebarSharedProps & {
+  activeTab: MediaSidebarTab;
+  setActiveTab: (tab: MediaSidebarTab) => void;
   onRequestClose?: () => void;
   closeButtonIcon?: "chevron" | "x";
   className?: string;
@@ -383,23 +380,14 @@ export function MediaSidebarContent({
   openLightbox,
   hasStream,
   streamUrl,
+  activeTab,
+  setActiveTab,
   onRequestClose,
   closeButtonIcon = "x",
   className,
   unseenMediaCount,
   onUploadFile,
 }: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
-  const [activeTab, setActiveTab] = useAtom(mediaSidebarTabAtom);
-  const prevAgentIdRef = useRef(selectedAgentId);
-
-  // Reset to pins tab when agent changes
-  if (prevAgentIdRef.current !== selectedAgentId) {
-    prevAgentIdRef.current = selectedAgentId;
-    if (activeTab !== "pins") {
-      setActiveTab("pins");
-    }
-  }
-
   return (
     <aside
       data-testid="media-sidebar"
@@ -506,16 +494,8 @@ export function MediaSidebarContent({
 export function MediaSidebar({
   mediaOpen,
   setMediaOpen,
-  hasStream,
   ...props
 }: MediaSidebarProps): JSX.Element {
-  // Auto-open the sidebar when a stream starts so the user doesn't miss it
-  useEffect(() => {
-    if (hasStream) {
-      setMediaOpen(true);
-    }
-  }, [hasStream, setMediaOpen]);
-
   return (
     <div
       className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
@@ -523,7 +503,6 @@ export function MediaSidebar({
     >
       <MediaSidebarContent
         {...props}
-        hasStream={hasStream}
         onRequestClose={() => setMediaOpen(false)}
         closeButtonIcon="chevron"
         className={cn("w-[360px] rounded-l-lg border-l", glassPanel)}
