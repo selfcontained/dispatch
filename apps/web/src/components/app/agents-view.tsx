@@ -17,6 +17,7 @@ import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
   MediaSidebarContent,
+  MEDIA_SIDEBAR_SETTLE_FALLBACK_MS,
 } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
@@ -46,6 +47,7 @@ import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
+  reconcileMediaSidebarStateStorage,
   type MediaSidebarTab,
 } from "@/lib/store";
 
@@ -53,8 +55,6 @@ const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
 const EXPANDED_AGENT_ID_KEY = "dispatch:expandedAgentId";
-const MEDIA_SIDEBAR_RESIZE_SETTLE_MS = 340;
-
 function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
   return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
 }
@@ -230,6 +230,11 @@ export function AgentsView({
 
   const prevDesktopMediaOpenRef = useRef(mediaOpen);
   useEffect(() => {
+    if (!agentsLoaded) return;
+    reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
+  }, [agents, agentsLoaded]);
+
+  useEffect(() => {
     if (isMobile) {
       prevDesktopMediaOpenRef.current = mediaOpen;
       return;
@@ -242,7 +247,7 @@ export function AgentsView({
     }
     mediaResizeTimerRef.current = window.setTimeout(
       finishMediaResizeSettle,
-      MEDIA_SIDEBAR_RESIZE_SETTLE_MS
+      MEDIA_SIDEBAR_SETTLE_FALLBACK_MS
     );
   }, [finishMediaResizeSettle, isMobile, mediaOpen]);
 
@@ -274,7 +279,6 @@ export function AgentsView({
     theme: "dark" as never,
     isMobile,
     leftOpen,
-    mediaOpen,
     deferMediaResize,
     mediaResizeSettleKey,
     feedbackOpen: !!feedbackDetail,

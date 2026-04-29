@@ -80,7 +80,6 @@ export function useTerminal(args: {
   theme: ThemeId;
   isMobile: boolean;
   leftOpen: boolean;
-  mediaOpen: boolean;
   deferMediaResize: boolean;
   mediaResizeSettleKey: number;
   feedbackOpen: boolean;
@@ -109,7 +108,6 @@ export function useTerminal(args: {
     theme,
     isMobile,
     leftOpen,
-    mediaOpen,
     deferMediaResize,
     mediaResizeSettleKey,
     feedbackOpen,
@@ -949,7 +947,7 @@ export function useTerminal(args: {
     if (deferMediaResize) return;
     fitAddonRef.current?.fit();
     sendResize();
-  }, [deferMediaResize, isMobile, mediaOpen, mediaResizeSettleKey, sendResize]);
+  }, [deferMediaResize, isMobile, mediaResizeSettleKey, sendResize]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);

@@ -30,7 +30,6 @@ import {
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
-import { reconcileMediaSidebarStateStorage } from "@/lib/store";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 
 type RouteHandle = {
@@ -110,7 +109,7 @@ export function DashboardLayout(): JSX.Element {
     ...AGENT_TYPES,
   ]);
   const [enabledIdes, setEnabledIdes] = useState<IdeType[]>([]);
-  const { data: agents = [], isSuccess: agentsLoaded } = useQuery<Agent[]>({
+  const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
@@ -118,11 +117,6 @@ export function DashboardLayout(): JSX.Element {
     },
     select: (data) => sortAgentsByCreatedAtDesc(data),
   });
-
-  useEffect(() => {
-    if (!agentsLoaded) return;
-    reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
-  }, [agents, agentsLoaded]);
 
   useEffect(() => {
     document.title = instanceName ? `${instanceName} — Dispatch` : "Dispatch";

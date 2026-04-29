@@ -28,6 +28,10 @@ import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+export const MEDIA_SIDEBAR_WIDTH_PX = 360;
+export const MEDIA_SIDEBAR_TRANSITION_MS = 300;
+export const MEDIA_SIDEBAR_SETTLE_FALLBACK_MS =
+  MEDIA_SIDEBAR_TRANSITION_MS + 40;
 
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -500,20 +504,25 @@ export function MediaSidebar({
 }: MediaSidebarProps): JSX.Element {
   return (
     <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: mediaOpen ? 360 : 0 }}
+      className="h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
+      style={{
+        width: mediaOpen ? MEDIA_SIDEBAR_WIDTH_PX : 0,
+        transitionDuration: `${MEDIA_SIDEBAR_TRANSITION_MS}ms`,
+      }}
       onTransitionEnd={(event) => {
         if (event.propertyName === "width") {
           onWidthTransitionEnd?.();
         }
       }}
     >
-      <MediaSidebarContent
-        {...props}
-        onRequestClose={() => setMediaOpen(false)}
-        closeButtonIcon="chevron"
-        className={cn("w-[360px] rounded-l-lg border-l", glassPanel)}
-      />
+      <div className="h-full min-h-0" style={{ width: MEDIA_SIDEBAR_WIDTH_PX }}>
+        <MediaSidebarContent
+          {...props}
+          onRequestClose={() => setMediaOpen(false)}
+          closeButtonIcon="chevron"
+          className={cn("rounded-l-lg border-l", glassPanel)}
+        />
+      </div>
     </div>
   );
 }
