@@ -125,6 +125,50 @@ describe("createAgentEventBus", () => {
     expect(warnSpy.mock.calls[0]?.[1]).toBe("Agent event listener threw");
   });
 
+  it("isolates async-listener rejections — a rejecting Promise is caught and logged", async () => {
+    // The AgentEventListener type is `(agent) => void`, but TS structurally
+    // accepts `async (agent) => Promise<void>`. The bus must catch the
+    // rejection of an async listener too — otherwise it surfaces as an
+    // unhandled rejection and the contract advertised by `publish`'s JSDoc
+    // is half-true.
+    const warnSpy = vi.fn();
+    const logger = {
+      info: vi.fn(),
+      warn: warnSpy,
+      error: vi.fn(),
+      debug: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      silent: vi.fn(),
+      level: "silent",
+      child: () => logger,
+    } as unknown as import("fastify").FastifyBaseLogger;
+    const bus = createAgentEventBus(logger);
+
+    const after = vi.fn();
+    // The cast is what a real codebase often does for async listeners:
+    // the `=> void` slot accepts an `async` arrow because Promise<void>
+    // is structurally compatible.
+    bus.subscribe((async () => {
+      throw new Error("async-boom");
+    }) as unknown as Parameters<typeof bus.subscribe>[0]);
+    bus.subscribe(after);
+
+    bus.publish(makeAgent("agt_x"));
+
+    // Synchronous listener after the async-throwing one still ran on the
+    // publishing thread, before the rejection materialised.
+    expect(after).toHaveBeenCalledTimes(1);
+
+    // Wait one microtask cycle for the async rejection to be observed
+    // and forwarded to the logger.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[1]).toBe("Agent event listener threw");
+  });
+
   it("publish() is synchronous (returns void, not Promise)", () => {
     const bus = createAgentEventBus(noopLogger);
     bus.subscribe(vi.fn());
