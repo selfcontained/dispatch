@@ -80,7 +80,8 @@ export function useTerminal(args: {
   theme: ThemeId;
   isMobile: boolean;
   leftOpen: boolean;
-  mediaOpen: boolean;
+  deferMediaResize: boolean;
+  mediaResizeSettleKey: number;
   feedbackOpen: boolean;
   enhancedTerminal: boolean;
 }): {
@@ -107,7 +108,8 @@ export function useTerminal(args: {
     theme,
     isMobile,
     leftOpen,
-    mediaOpen,
+    deferMediaResize,
+    mediaResizeSettleKey,
     feedbackOpen,
     enhancedTerminal,
   } = args;
@@ -162,6 +164,8 @@ export function useTerminal(args: {
   // effect and cause spurious reconnect attempts that abort in-flight connects).
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const deferMediaResizeRef = useRef(deferMediaResize);
+  deferMediaResizeRef.current = deferMediaResize;
 
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
@@ -836,6 +840,7 @@ export function useTerminal(args: {
     });
 
     const onResize = () => {
+      if (deferMediaResizeRef.current) return;
       fit.fit();
       sendResize();
     };
@@ -933,7 +938,16 @@ export function useTerminal(args: {
     fitNow();
     const timer = window.setTimeout(fitNow, 340);
     return () => window.clearTimeout(timer);
-  }, [isMobile, leftOpen, mediaOpen, feedbackOpen, sendResize]);
+  }, [isMobile, leftOpen, feedbackOpen, sendResize]);
+
+  // Media sidebar width animates; wait until it settles before resizing the
+  // terminal so content doesn't reflow continuously during the slide.
+  useEffect(() => {
+    if (isMobile) return;
+    if (deferMediaResize) return;
+    fitAddonRef.current?.fit();
+    sendResize();
+  }, [deferMediaResize, isMobile, mediaResizeSettleKey, sendResize]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);

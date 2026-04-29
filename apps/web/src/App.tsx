@@ -45,17 +45,13 @@ export type DashboardContextValue = {
   handleLogout: () => void;
   isMobile: boolean;
   leftOpen: boolean;
-  mediaOpen: boolean;
   leftPanelOpen: boolean;
-  mediaPanelOpen: boolean;
   mobileLeftOpen: boolean;
   mobileMediaOpen: boolean;
   setLeftOpen: (open: boolean) => void;
-  setMediaOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
   setMobileMediaOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
-  handleSetMediaPanelOpen: (open: boolean) => void;
   apiState: ServiceState;
   dbState: ServiceState;
   pulsingNavItem: string | null;
@@ -99,17 +95,13 @@ export function DashboardLayout(): JSX.Element {
   const {
     isMobile,
     leftOpen,
-    mediaOpen,
     leftPanelOpen,
-    mediaPanelOpen,
     mobileLeftOpen,
     mobileMediaOpen,
     setLeftOpen,
-    setMediaOpen,
     setMobileLeftOpen,
     setMobileMediaOpen,
     handleSetLeftPanelOpen,
-    handleSetMediaPanelOpen,
   } = useLayout();
   const { apiState, dbState } = useHealth(true);
 
@@ -237,17 +229,13 @@ export function DashboardLayout(): JSX.Element {
     handleLogout,
     isMobile,
     leftOpen,
-    mediaOpen,
     leftPanelOpen,
-    mediaPanelOpen,
     mobileLeftOpen,
     mobileMediaOpen,
     setLeftOpen,
-    setMediaOpen,
     setMobileLeftOpen,
     setMobileMediaOpen,
     handleSetLeftPanelOpen,
-    handleSetMediaPanelOpen,
     apiState,
     dbState,
     pulsingNavItem,

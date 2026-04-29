@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtom } from "jotai";
-import { leftSidebarOpenAtom, mediaSidebarOpenAtom } from "@/lib/store";
+import { leftSidebarOpenAtom } from "@/lib/store";
 
 const MOBILE_BREAKPOINT_QUERY = "(max-width: 767px)";
 
 export function useLayout() {
   const [leftOpen, setLeftOpen] = useAtom(leftSidebarOpenAtom);
-  const [mediaOpen, setMediaOpen] = useAtom(mediaSidebarOpenAtom);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined"
       ? window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches
@@ -16,7 +15,6 @@ export function useLayout() {
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
 
   const leftPanelOpen = isMobile ? mobileLeftOpen : leftOpen;
-  const mediaPanelOpen = isMobile ? mobileMediaOpen : mediaOpen;
 
   // Media query listener for mobile breakpoint.
   useEffect(() => {
@@ -47,46 +45,26 @@ export function useLayout() {
     [isMobile, setLeftOpen]
   );
 
-  const handleSetMediaPanelOpen = useCallback(
-    (open: boolean) => {
-      if (isMobile) {
-        if (open) setMobileLeftOpen(false);
-        setMobileMediaOpen(open);
-        return;
-      }
-      setMediaOpen(open);
-    },
-    [isMobile, setMediaOpen]
-  );
-
   return useMemo(
     () => ({
       isMobile,
       leftOpen,
-      mediaOpen,
       leftPanelOpen,
-      mediaPanelOpen,
       mobileLeftOpen,
       mobileMediaOpen,
       setLeftOpen,
-      setMediaOpen,
       setMobileLeftOpen,
       setMobileMediaOpen,
       handleSetLeftPanelOpen,
-      handleSetMediaPanelOpen,
     }),
     [
       isMobile,
       leftOpen,
-      mediaOpen,
       leftPanelOpen,
-      mediaPanelOpen,
       mobileLeftOpen,
       mobileMediaOpen,
       setLeftOpen,
-      setMediaOpen,
       handleSetLeftPanelOpen,
-      handleSetMediaPanelOpen,
     ]
   );
 }

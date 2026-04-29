@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { useAtom } from "jotai";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -16,6 +17,7 @@ import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
   MediaSidebarContent,
+  MEDIA_SIDEBAR_SETTLE_FALLBACK_MS,
 } from "@/components/app/media-sidebar";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
@@ -42,12 +44,17 @@ import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
+import {
+  inactiveMediaSidebarStateAtom,
+  mediaSidebarStateAtomFamily,
+  reconcileMediaSidebarStateStorage,
+  type MediaSidebarTab,
+} from "@/lib/store";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
 const EXPANDED_AGENT_ID_KEY = "dispatch:expandedAgentId";
-
 function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
   return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
 }
@@ -79,17 +86,13 @@ type AgentsViewProps = {
   enabledIdes: IdeType[];
   isMobile: boolean;
   leftOpen: boolean;
-  mediaOpen: boolean;
   leftPanelOpen: boolean;
-  mediaPanelOpen: boolean;
   mobileLeftOpen: boolean;
   mobileMediaOpen: boolean;
   setLeftOpen: (open: boolean) => void;
-  setMediaOpen: (open: boolean) => void;
   setMobileLeftOpen: (open: boolean) => void;
   setMobileMediaOpen: (open: boolean) => void;
   handleSetLeftPanelOpen: (open: boolean) => void;
-  handleSetMediaPanelOpen: (open: boolean) => void;
   pulsingNavItem: string | null;
   triggerNavAnimation: (navItem: string) => void;
   onNavigateSection: (section: NavSection) => void;
@@ -100,17 +103,13 @@ export function AgentsView({
   enabledIdes,
   isMobile,
   leftOpen,
-  mediaOpen,
   leftPanelOpen,
-  mediaPanelOpen,
   mobileLeftOpen,
   mobileMediaOpen,
   setLeftOpen,
-  setMediaOpen,
   setMobileLeftOpen,
   setMobileMediaOpen,
   handleSetLeftPanelOpen,
-  handleSetMediaPanelOpen,
   pulsingNavItem,
   triggerNavAnimation,
   onNavigateSection,
@@ -173,6 +172,93 @@ export function AgentsView({
   const feedbackDetailRendered =
     feedbackDetail ?? feedbackDetailStaleRef.current;
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
+  const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
+  const desktopMediaSidebarAtom = useMemo(
+    () =>
+      sidebarAgentId
+        ? mediaSidebarStateAtomFamily(sidebarAgentId)
+        : inactiveMediaSidebarStateAtom,
+    [sidebarAgentId]
+  );
+  const [desktopMediaSidebarState, setDesktopMediaSidebarState] = useAtom(
+    desktopMediaSidebarAtom
+  );
+  const [deferMediaResize, setDeferMediaResize] = useState(false);
+  const [mediaResizeSettleKey, setMediaResizeSettleKey] = useState(0);
+  const mediaOpen = isMobile
+    ? mobileMediaOpen
+    : desktopMediaSidebarState.isOpen;
+  const mediaPanelOpen = mediaOpen;
+  const mediaActiveTab = desktopMediaSidebarState.activeTab;
+  const mediaResizeTimerRef = useRef<number | null>(null);
+
+  const setMediaActiveTab = useCallback(
+    (activeTab: MediaSidebarTab) => {
+      setDesktopMediaSidebarState((prev) => ({ ...prev, activeTab }));
+    },
+    [setDesktopMediaSidebarState]
+  );
+
+  const setMediaOpen = useCallback(
+    (open: boolean) => {
+      if (isMobile) {
+        if (open) setMobileLeftOpen(false);
+        setMobileMediaOpen(open);
+        return;
+      }
+
+      setDesktopMediaSidebarState((prev) =>
+        prev.isOpen === open ? prev : { ...prev, isOpen: open }
+      );
+    },
+    [
+      isMobile,
+      setDesktopMediaSidebarState,
+      setMobileLeftOpen,
+      setMobileMediaOpen,
+    ]
+  );
+
+  const finishMediaResizeSettle = useCallback(() => {
+    if (mediaResizeTimerRef.current) {
+      window.clearTimeout(mediaResizeTimerRef.current);
+      mediaResizeTimerRef.current = null;
+    }
+    setDeferMediaResize(false);
+    setMediaResizeSettleKey((current) => current + 1);
+  }, []);
+
+  const prevDesktopMediaOpenRef = useRef(mediaOpen);
+  useEffect(() => {
+    if (!agentsLoaded) return;
+    reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
+  }, [agents, agentsLoaded]);
+
+  useEffect(() => {
+    if (isMobile) {
+      prevDesktopMediaOpenRef.current = mediaOpen;
+      return;
+    }
+    if (prevDesktopMediaOpenRef.current === mediaOpen) return;
+    prevDesktopMediaOpenRef.current = mediaOpen;
+    setDeferMediaResize(true);
+    if (mediaResizeTimerRef.current) {
+      window.clearTimeout(mediaResizeTimerRef.current);
+    }
+    mediaResizeTimerRef.current = window.setTimeout(
+      finishMediaResizeSettle,
+      MEDIA_SIDEBAR_SETTLE_FALLBACK_MS
+    );
+  }, [finishMediaResizeSettle, isMobile, mediaOpen]);
+
+  useEffect(
+    () => () => {
+      if (mediaResizeTimerRef.current) {
+        window.clearTimeout(mediaResizeTimerRef.current);
+      }
+    },
+    []
+  );
 
   const {
     connState,
@@ -193,7 +279,8 @@ export function AgentsView({
     theme: "dark" as never,
     isMobile,
     leftOpen,
-    mediaOpen,
+    deferMediaResize,
+    mediaResizeSettleKey,
     feedbackOpen: !!feedbackDetail,
     enhancedTerminal,
   });
@@ -234,6 +321,15 @@ export function AgentsView({
   const focusedAgentStreamUrl = focusedAgentId
     ? `/api/v1/agents/${focusedAgentId}/stream`
     : null;
+  const prevFocusedAgentHasStreamRef = useRef(focusedAgentHasStream);
+
+  useEffect(() => {
+    const streamStarted =
+      !prevFocusedAgentHasStreamRef.current && focusedAgentHasStream;
+    prevFocusedAgentHasStreamRef.current = focusedAgentHasStream;
+    if (!streamStarted) return;
+    setMediaOpen(true);
+  }, [focusedAgentHasStream, setMediaOpen]);
 
   useAgentFocus(focusedAgentId, "authenticated");
 
@@ -605,7 +701,7 @@ export function AgentsView({
                     size="icon"
                     variant="ghost"
                     className="pointer-events-auto relative"
-                    onClick={() => handleSetMediaPanelOpen(true)}
+                    onClick={() => setMediaOpen(true)}
                     title="Open media sidebar"
                     data-testid="toggle-media-sidebar"
                   >
@@ -710,6 +806,9 @@ export function AgentsView({
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
+            activeTab={mediaActiveTab}
+            setActiveTab={setMediaActiveTab}
+            onWidthTransitionEnd={finishMediaResizeSettle}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
@@ -768,6 +867,8 @@ export function AgentsView({
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             mediaViewportRef={mediaViewportRef}
+            activeTab={mediaActiveTab}
+            setActiveTab={setMediaActiveTab}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
