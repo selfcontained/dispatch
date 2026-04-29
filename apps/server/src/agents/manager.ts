@@ -31,6 +31,7 @@ import {
   createAgentEventBus,
   writeLatestEvent,
 } from "./events.js";
+import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
   buildAgentCommand,
   buildStartupPrompt,
@@ -147,12 +148,9 @@ export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
-  private readonly runtimeCwdCache = new Map<
-    string,
-    { value: string; expiresAt: number }
-  >();
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
+  private readonly runtime: AgentRuntime;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -160,6 +158,7 @@ export class AgentManager {
     this.config = config;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
+    this.runtime = createAgentRuntime(config, logger);
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -418,7 +417,7 @@ export class AgentManager {
       );
     } else {
       try {
-        await this.ensureNoExistingSession(tmuxSession);
+        await this.runtime.ensureNoExistingSession(tmuxSession);
 
         // Build the agent command that the setup script will exec into
         const agentCommand = buildAgentCommand(
@@ -458,47 +457,16 @@ export class AgentManager {
           jobRunId: input.jobRunId,
         });
 
-        const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
-        await writeFile(setupScriptPath, setupScript, { mode: 0o755 });
-
-        // Start tmux running the setup script — the frontend can connect immediately
-        await runCommand("tmux", [
-          "new-session",
-          "-d",
-          "-s",
-          tmuxSession,
-          "-c",
-          originalCwd,
-          `bash ${setupScriptPath}`,
-        ]);
-        await runCommand(
-          "tmux",
-          ["set-option", "-t", tmuxSession, "status", "off"],
-          {
-            allowedExitCodes: [0, 1],
-          }
-        );
-        await runCommand(
-          "tmux",
-          ["set-option", "-t", tmuxSession, "allow-passthrough", "on"],
-          {
-            allowedExitCodes: [0, 1],
-          }
-        );
-        await runCommand(
-          "tmux",
-          ["set-option", "-as", "terminal-features", "xterm-256color:sync"],
-          {
-            allowedExitCodes: [0, 1],
-          }
-        );
-
-        if (!(await this.hasAgentSession(tmuxSession))) {
-          const detail = await this.readSetupLogTail(id);
-          throw new Error(
-            `tmux session exited immediately after launch${detail}`
-          );
-        }
+        await this.runtime.launch({
+          sessionName: tmuxSession,
+          cwd: originalCwd,
+          agentId: id,
+          payload: {
+            kind: "setup-script",
+            scriptPath: `/tmp/dispatch_setup_${id}.sh`,
+            scriptContent: setupScript,
+          },
+        });
       } catch (error) {
         const message = this.errorMessage(error);
         await this.setAgentStatus(id, "error", message);
@@ -598,7 +566,7 @@ export class AgentManager {
     const tmuxSession =
       agent.tmuxSession ??
       toSessionName(this.config.sessionPrefix, agent.id, agent.name);
-    const hasSession = await this.hasAgentSession(tmuxSession);
+    const hasSession = await this.runtime.hasSession(tmuxSession);
 
     if (hasSession) {
       await this.setAgentStatus(id, "running", null, tmuxSession);
@@ -630,21 +598,39 @@ export class AgentManager {
     }
 
     try {
-      await this.startAgentSession(
-        id,
-        tmuxSession,
-        agent.cwd,
-        agent.mediaDir ?? this.defaultMediaDir(id),
-        agent.name,
-        agent.persona,
+      const mediaDir = agent.mediaDir ?? this.defaultMediaDir(id);
+      // mediaDir must exist before launch — both runtimes assume the
+      // directory is present. (The original inert path created it
+      // explicitly; the tmux setup-script path created it via the
+      // bash script. We do it once here so both runtimes are happy.)
+      await mkdir(mediaDir, { recursive: true });
+
+      const agentCommand = buildAgentCommand(
+        this.config,
         agent.type,
         agent.role,
         agent.agentArgs ?? [],
+        mediaDir,
+        tmuxSession,
         agent.fullAccess ?? false,
         cliSessionId ?? undefined,
         shouldResume,
-        agent.autoReview ?? false
+        undefined,
+        shouldSuggestSessionRename(agent.name, id, { persona: agent.persona }),
+        !agent.persona && (agent.autoReview ?? false)
       );
+
+      await this.runtime.launch({
+        sessionName: tmuxSession,
+        cwd: agent.cwd,
+        agentId: id,
+        payload: {
+          kind: "agent-command",
+          command: agentCommand,
+          exitFile: `/tmp/dispatch_${tmuxSession}.exit`,
+        },
+      });
+
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(
         id,
@@ -693,7 +679,7 @@ export class AgentManager {
       };
     }
 
-    const hasSession = await this.hasAgentSession(agent.tmuxSession);
+    const hasSession = await this.runtime.hasSession(agent.tmuxSession);
     if (!hasSession) {
       await this.setAgentStatus(
         id,
@@ -733,8 +719,8 @@ export class AgentManager {
     );
 
     try {
-      if (tmuxSession && (await this.hasAgentSession(tmuxSession))) {
-        await this.stopAgentSession(tmuxSession, force);
+      if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
+        await this.runtime.stopSession(tmuxSession, force);
       }
 
       await this.setAgentStatus(id, "stopped", null, tmuxSession ?? undefined);
@@ -821,9 +807,9 @@ export class AgentManager {
         );
         if (
           agent.tmuxSession &&
-          (await this.hasAgentSession(agent.tmuxSession))
+          (await this.runtime.hasSession(agent.tmuxSession))
         ) {
-          await this.stopAgentSession(agent.tmuxSession, true);
+          await this.runtime.stopSession(agent.tmuxSession, true);
         }
         this.harvestAgentTokens(agent).catch((err) =>
           this.logger.warn(
@@ -999,7 +985,7 @@ export class AgentManager {
     const durations: Record<string, number> = {};
     const agent = await this.getRequiredAgent(id);
     const sessionExists = agent.tmuxSession
-      ? await this.hasAgentSession(agent.tmuxSession)
+      ? await this.runtime.hasSession(agent.tmuxSession)
       : false;
 
     if (agent.status === "running" && sessionExists && !force) {
@@ -1138,9 +1124,8 @@ export class AgentManager {
 
   async reconcileAgents(): Promise<void> {
     await this.reconcileAgentStatuses();
-    if (this.config.agentRuntime === "tmux") {
-      await this.cleanupOrphanedSessions();
-    }
+    // listSessions returns [] in inert mode — runtime-agnostic call.
+    await this.cleanupOrphanedSessions();
   }
 
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
@@ -1177,15 +1162,17 @@ export class AgentManager {
       }
 
       const exists = row.tmuxSession
-        ? await this.hasAgentSession(row.tmuxSession)
+        ? await this.runtime.hasSession(row.tmuxSession)
         : false;
 
       if (!exists) {
-        const exitInfo =
-          this.config.agentRuntime === "tmux" && row.tmuxSession
-            ? await this.readExitFile(row.tmuxSession)
-            : null;
-        if (this.config.agentRuntime === "tmux" && row.tmuxSession) {
+        // In inert mode `hasSession` returns true for any non-empty
+        // session name, so reaching here means we're in tmux mode (or
+        // the agent has no tmuxSession at all — exitInfo stays null).
+        const exitInfo = row.tmuxSession
+          ? await this.runtime.readExitInfo(row.tmuxSession)
+          : null;
+        if (row.tmuxSession) {
           await this.diagnostics.captureMissingSessionIncident({
             agentId: row.id,
             tmuxSession: row.tmuxSession,
@@ -1201,7 +1188,7 @@ export class AgentManager {
             exitInfo
           );
         }
-        const setupLogTail = await this.readSetupLogTail(row.id);
+        const setupLogTail = await this.runtime.readSetupLogTail(row.id);
         const errorDetail = setupLogTail || null;
         const launchFailed =
           row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
@@ -1269,43 +1256,11 @@ export class AgentManager {
   }
 
   private async cleanupOrphanedSessions(): Promise<void> {
-    const SESSION_PREFIX = `${this.config.sessionPrefix}_agt_`;
-
-    let stdout: string | undefined;
-    try {
-      const result = await runCommand(
-        "tmux",
-        ["list-sessions", "-F", "#{session_name}:#{session_created}"],
-        {
-          allowedExitCodes: [0, 1],
-        }
-      );
-      stdout = result.stdout;
-    } catch {
-      // tmux not running or no sessions
-      return;
-    }
-
-    if (!stdout?.trim()) return;
-
-    const sessions = stdout
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const colonIdx = line.lastIndexOf(":");
-        const name = line.substring(0, colonIdx);
-        const createdStr = line.substring(colonIdx + 1);
-        return { name, createdAt: parseInt(createdStr, 10) };
-      })
-      .filter((s) => s.name.startsWith(SESSION_PREFIX));
-
+    const sessionPrefix = `${this.config.sessionPrefix}_agt_`;
+    const sessions = await this.runtime.listSessions(sessionPrefix);
     if (sessions.length === 0) return;
 
-    // Extract agent IDs from session names
     const agentIds = sessions.map((s) => agentIdFromSessionName(s.name));
-
-    // Query DB for these agent IDs
     const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
     const dbResult = await this.pool.query(
       `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id IN (${placeholders})`,
@@ -1316,15 +1271,12 @@ export class AgentManager {
       dbAgents.set(row.id, row.status);
     }
 
-    const ORPHAN_AGE_THRESHOLD_S = 300;
-    const now = Math.floor(Date.now() / 1000);
     const toKill: string[] = [];
-
     for (const session of sessions) {
       const agentId = agentIdFromSessionName(session.name);
       const status = dbAgents.get(agentId);
 
-      // Agent in terminal state — session is definitely orphaned
+      // Agent in terminal state — session is definitely orphaned.
       if (status === "stopped" || status === "error") {
         this.logger.info(
           { session: session.name, agentId, status },
@@ -1334,9 +1286,10 @@ export class AgentManager {
         continue;
       }
 
-      // No DB record — leave it alone. The session may belong to another
-      // server instance using the same tmux namespace. Only clean up
-      // sessions that *this* database definitively knows about.
+      // No DB record — leave it alone. The session may belong to
+      // another server instance using the same tmux namespace; only
+      // clean up sessions that *this* database definitively knows
+      // about.
       if (!status) {
         this.logger.debug(
           { session: session.name, agentId },
@@ -1345,286 +1298,26 @@ export class AgentManager {
       }
     }
 
-    await Promise.all(
-      toKill.map((name) =>
-        runCommand("tmux", ["kill-session", "-t", name]).catch(() => {})
-      )
-    );
+    await Promise.all(toKill.map((name) => this.runtime.killSession(name)));
   }
 
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
     const fallback = agent.cwd;
     const session = agent.tmuxSession?.trim();
-    if (!session || this.config.agentRuntime !== "tmux") {
-      return fallback;
-    }
+    if (!session) return fallback;
 
+    // Don't probe stopped/archived agents — their session may be gone
+    // and the probe would just fall back to the agent's recorded cwd
+    // anyway. Skip the runtime call to avoid the ~30ms ps/lsof chain.
     if (agent.status !== "running" && agent.status !== "creating") {
       return fallback;
     }
 
-    const cacheKey = `${agent.id}:${session}`;
-    const cached = this.runtimeCwdCache.get(cacheKey);
-    const now = Date.now();
-    if (cached && cached.expiresAt > now) {
-      return cached.value;
-    }
-
-    try {
-      // First, try to resolve the CWD from the agent CLI process itself.
-      // tmux pane_current_path only tracks the shell's CWD, but agent CLIs
-      // (claude, codex, opencode) may cd internally without updating the shell.
-      const agentCwd = await this.resolveAgentProcessCwd(session);
-      if (agentCwd) {
-        this.runtimeCwdCache.set(cacheKey, {
-          value: agentCwd,
-          expiresAt: now + 10_000,
-        });
-        return agentCwd;
-      }
-
-      // Fall back to tmux pane_current_path (the shell's CWD).
-      const result = await runCommand(
-        "tmux",
-        ["display-message", "-p", "-t", session, "#{pane_current_path}"],
-        {
-          allowedExitCodes: [0, 1],
-          timeoutMs: 800,
-        }
-      );
-      const cwd = result.stdout.trim();
-      if (result.exitCode !== 0 || !cwd) {
-        return fallback;
-      }
-      this.runtimeCwdCache.set(cacheKey, {
-        value: cwd,
-        expiresAt: now + 10_000,
-      });
-      return cwd;
-    } catch {
-      return fallback;
-    }
-  }
-
-  /**
-   * Resolve the CWD of the agent CLI process (claude/codex/opencode) running
-   * inside a tmux pane. The CLI process may have cd'd into a worktree
-   * internally, which tmux's pane_current_path won't reflect.
-   */
-  private async resolveAgentProcessCwd(
-    session: string
-  ): Promise<string | null> {
-    try {
-      // Get the PID of the tmux pane's shell process.
-      const pidResult = await runCommand(
-        "tmux",
-        ["display-message", "-p", "-t", session, "#{pane_pid}"],
-        { allowedExitCodes: [0, 1], timeoutMs: 800 }
-      );
-      const panePid = pidResult.stdout.trim();
-      if (pidResult.exitCode !== 0 || !panePid) {
-        this.logger.debug({ session }, "resolveAgentProcessCwd: no pane_pid");
-        return null;
-      }
-
-      // Find the agent CLI child process (claude, codex, or opencode).
-      const childrenResult = await runCommand("pgrep", ["-P", panePid], {
-        allowedExitCodes: [0, 1],
-        timeoutMs: 800,
-      });
-      if (childrenResult.exitCode !== 0 || !childrenResult.stdout.trim()) {
-        this.logger.debug(
-          { session, panePid },
-          "resolveAgentProcessCwd: no children"
-        );
-        return null;
-      }
-
-      const childPids = childrenResult.stdout.trim().split("\n");
-      let agentPid: string | null = null;
-
-      for (const pid of childPids) {
-        const commResult = await runCommand(
-          "ps",
-          ["-o", "comm=", "-p", pid.trim()],
-          { allowedExitCodes: [0, 1], timeoutMs: 800 }
-        );
-        const comm = commResult.stdout.trim();
-        // Match agent CLI binaries by basename.
-        const basename = comm.split("/").pop() ?? "";
-        if (
-          basename === "claude" ||
-          basename === "codex" ||
-          basename === "opencode"
-        ) {
-          agentPid = pid.trim();
-          break;
-        }
-      }
-
-      if (!agentPid) {
-        this.logger.debug(
-          { session, panePid },
-          "resolveAgentProcessCwd: no agent CLI among children"
-        );
-        return null;
-      }
-
-      // Read the process's CWD via lsof (works on macOS and Linux).
-      const lsofResult = await runCommand(
-        "lsof",
-        ["-a", "-p", agentPid, "-d", "cwd", "-Fn"],
-        { allowedExitCodes: [0, 1], timeoutMs: 800 }
-      );
-      if (lsofResult.exitCode !== 0 || !lsofResult.stdout) {
-        this.logger.debug(
-          { session, agentPid },
-          "resolveAgentProcessCwd: lsof failed"
-        );
-        return null;
-      }
-
-      // lsof -Fn outputs lines like "p<pid>" and "n<path>". Extract the path.
-      for (const line of lsofResult.stdout.split("\n")) {
-        if (line.startsWith("n/")) {
-          const cwd = line.slice(1);
-          this.logger.debug(
-            { session, agentPid, cwd },
-            "resolveAgentProcessCwd: resolved"
-          );
-          return cwd;
-        }
-      }
-
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private async startAgentSession(
-    agentId: string,
-    sessionName: string,
-    cwd: string,
-    mediaDir: string,
-    agentName: string,
-    persona: string | null,
-    type: AgentType,
-    role: AgentRole,
-    agentArgs: string[],
-    fullAccess: boolean,
-    cliSessionId?: string,
-    resume?: boolean,
-    autoReview?: boolean
-  ): Promise<void> {
-    if (this.config.agentRuntime === "inert") {
-      await mkdir(mediaDir, { recursive: true });
-      return;
-    }
-
-    await mkdir(mediaDir, { recursive: true });
-    const agentCommand = buildAgentCommand(
-      this.config,
-      type,
-      role,
-      agentArgs,
-      mediaDir,
-      sessionName,
-      fullAccess,
-      cliSessionId,
-      resume,
-      undefined,
-      shouldSuggestSessionRename(agentName, agentId, { persona }),
-      !persona && (autoReview ?? false)
-    );
-    const exitFile = `/tmp/dispatch_${sessionName}.exit`;
-    const sessionLogFile = `/tmp/dispatch_setup_${agentId}.log`;
-    const wrappedCommand = `bash -c 'exec 2> >(tee "${sessionLogFile}" >&2); ${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`;
-    await runCommand("tmux", [
-      "new-session",
-      "-d",
-      "-s",
-      sessionName,
-      "-c",
-      cwd,
-      wrappedCommand,
-    ]);
-    await runCommand(
-      "tmux",
-      ["set-option", "-t", sessionName, "status", "off"],
-      {
-        allowedExitCodes: [0, 1],
-      }
-    );
-    // Allow DCS passthrough so agent CLIs that wrap escape sequences
-    // (e.g. synchronized output) can reach the outer terminal directly.
-    await runCommand(
-      "tmux",
-      ["set-option", "-t", sessionName, "allow-passthrough", "on"],
-      {
-        allowedExitCodes: [0, 1],
-      }
-    );
-    // Advertise synchronized output support so tmux wraps frame rendering
-    // in DEC 2026 sequences, reducing terminal flashing.  Set once per session
-    // start (not per WebSocket attach) to avoid unbounded array growth.
-    await runCommand(
-      "tmux",
-      ["set-option", "-as", "terminal-features", "xterm-256color:sync"],
-      {
-        allowedExitCodes: [0, 1],
-      }
-    );
-
-    // Detect fast-fail launches (for example, missing codex executable) so status
-    // is not left as "running" with no backing tmux session.
-    if (!(await this.hasAgentSession(sessionName))) {
-      const detail = await this.readSetupLogTail(agentId);
-      throw new Error(`tmux session exited immediately after launch${detail}`);
-    }
-  }
-
-  private async ensureNoExistingSession(sessionName: string): Promise<void> {
-    if (this.config.agentRuntime !== "tmux") {
-      return;
-    }
-
-    if (await this.hasAgentSession(sessionName)) {
-      await runCommand("tmux", ["kill-session", "-t", sessionName]);
-    }
-  }
-
-  private async hasAgentSession(sessionName: string): Promise<boolean> {
-    if (this.config.agentRuntime === "inert") {
-      return sessionName.trim().length > 0;
-    }
-
-    const result = await runCommand(
-      "tmux",
-      ["has-session", "-t", sessionName],
-      {
-        allowedExitCodes: [0, 1],
-      }
-    );
-    return result.exitCode === 0;
-  }
-
-  private async stopAgentSession(
-    sessionName: string,
-    force: boolean
-  ): Promise<void> {
-    if (this.config.agentRuntime === "inert") {
-      return;
-    }
-
-    if (!force) {
-      await runCommand("tmux", ["send-keys", "-t", sessionName, "C-c"]);
-      await this.sleep(1200);
-    }
-
-    if (await this.hasAgentSession(sessionName)) {
-      await runCommand("tmux", ["kill-session", "-t", sessionName]);
-    }
+    return this.runtime.getCurrentCwd({
+      sessionName: session,
+      agentId: agent.id,
+      fallback,
+    });
   }
 
   private async runLifecycleHook(
@@ -2097,39 +1790,6 @@ export class AgentManager {
   private errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : "Unknown error";
   }
-
-  /**
-   * Read the last 20 lines of a setup/session stderr log to include in error messages.
-   */
-  private async readSetupLogTail(idOrSession: string): Promise<string> {
-    const logPath = `/tmp/dispatch_setup_${idOrSession}.log`;
-    try {
-      const log = await readFile(logPath, "utf-8");
-      const tail = log.trim().split("\n").slice(-20).join("\n");
-      if (tail) return `\n\nSetup log (last 20 lines):\n${tail}`;
-    } catch {
-      /* no log file */
-    }
-    return "";
-  }
-
-  private async readExitFile(sessionName: string): Promise<number | null> {
-    try {
-      const content = await readFile(
-        `/tmp/dispatch_${sessionName}.exit`,
-        "utf-8"
-      );
-      const match = content.trim().match(/^EXIT:(\d+)$/);
-      return match ? Number(match[1]) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private async sleep(ms: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   private async setSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.pool.query(
       `UPDATE agents SET setup_phase = $2, updated_at = NOW() WHERE id = $1`,
