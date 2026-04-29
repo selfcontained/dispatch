@@ -1,6 +1,8 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { access } from "node:fs/promises";
+import { access, copyFile, stat } from "node:fs/promises";
+
+import type { FastifyBaseLogger } from "fastify";
 
 import { runCommand, type RunCommandResult } from "../lib/run-command.js";
 
@@ -540,4 +542,74 @@ function slugify(value: string): string {
 
 function normalizePath(value: string): string {
   return path.resolve(value).replace(/[\\/]+$/, "");
+}
+
+/**
+ * Lockfile → package-manager command for the auto-deps-install path.
+ * The first match wins, so the priority order matters.
+ */
+const LOCKFILE_INSTALL_COMMANDS: ReadonlyArray<
+  readonly [string, string, readonly string[]]
+> = [
+  ["pnpm-lock.yaml", "pnpm", ["install"]],
+  ["yarn.lock", "yarn", ["install"]],
+  ["package-lock.json", "npm", ["install"]],
+  ["bun.lockb", "bun", ["install"]],
+];
+
+/**
+ * Prepare a freshly-created worktree for use:
+ *   1. Copy `.env` from the source repo into the worktree (best-effort —
+ *      missing source `.env` is a no-op, not an error).
+ *   2. Detect a lockfile and run the matching package manager's install.
+ *      First match in `LOCKFILE_INSTALL_COMMANDS` wins; install failures
+ *      are logged but not propagated (the worktree is usable without
+ *      deps for the agent's first turn, and the user can re-run install
+ *      themselves if needed).
+ *
+ * Used only by the inert-mode launch path. The tmux-mode launch path
+ * does the equivalent inside the bash setup script that runs in the
+ * agent's pane (see `agents/tmux/setup-script.ts`), so this function
+ * doesn't have to satisfy that contract.
+ */
+export async function setupWorktree(
+  originalCwd: string,
+  worktreePath: string,
+  logger: FastifyBaseLogger
+): Promise<void> {
+  const envSource = path.join(originalCwd, ".env");
+  const envDest = path.join(worktreePath, ".env");
+  try {
+    await copyFile(envSource, envDest);
+    logger.info({ worktreePath }, "Copied .env into worktree.");
+  } catch {
+    // .env doesn't exist — that's fine
+  }
+
+  for (const [lockfile, bin, args] of LOCKFILE_INSTALL_COMMANDS) {
+    const lockPath = path.join(worktreePath, lockfile);
+    const exists = await stat(lockPath).catch(() => null);
+    if (!exists) continue;
+
+    logger.info(
+      { worktreePath, packageManager: bin },
+      "Installing dependencies in worktree."
+    );
+    try {
+      await runCommand(bin, [...args], {
+        cwd: worktreePath,
+        timeoutMs: 120_000,
+      });
+      logger.info(
+        { worktreePath, packageManager: bin },
+        "Dependency install complete."
+      );
+    } catch (error) {
+      logger.warn(
+        { err: error, worktreePath, packageManager: bin },
+        "Dependency install failed."
+      );
+    }
+    return;
+  }
 }

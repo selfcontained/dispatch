@@ -23,8 +23,14 @@ import {
   cleanupGitWorktree,
   createGitWorktree,
   GitWorktreeError,
+  setupWorktree,
   worktreePathSlug,
 } from "../shared/git/worktree.js";
+import {
+  checkWorktreeStatus as inspectWorktreeStatus,
+  getUncommittedChanges,
+  getUnmergedChanges,
+} from "../shared/git/worktree-status.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
@@ -383,7 +389,7 @@ export class AgentManager {
             { agentId: id, worktreePath, worktreeBranch },
             "Created worktree for inert agent."
           );
-          await this.setupWorktree(originalCwd, worktreePath);
+          await setupWorktree(originalCwd, worktreePath, this.logger);
         } catch (error) {
           // The user explicitly asked for an isolated worktree. Don't silently
           // fall back to running in their primary checkout — surface the
@@ -858,8 +864,8 @@ export class AgentManager {
 
           if (!shouldCleanup && cleanupWorktree === "auto") {
             const [unmerged, uncommitted] = await Promise.all([
-              this.getUnmergedChanges(agent.worktreePath),
-              this.getUncommittedChanges(agent.worktreePath),
+              getUnmergedChanges(agent.worktreePath),
+              getUncommittedChanges(agent.worktreePath),
             ]);
             const hasChanges =
               unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
@@ -1080,43 +1086,7 @@ export class AgentManager {
       };
     }
 
-    let branchName: string | null = null;
-    let hasUnmergedCommits = false;
-    let hasUncommittedChanges = false;
-    let changedFiles: string[] = [];
-    let uncommittedFiles: string[] = [];
-
-    try {
-      const branchResult = await runCommand(
-        "git",
-        ["-C", agent.worktreePath, "symbolic-ref", "--short", "-q", "HEAD"],
-        { allowedExitCodes: [0, 1] }
-      );
-      branchName =
-        branchResult.exitCode === 0 && branchResult.stdout
-          ? branchResult.stdout
-          : null;
-      const [unmerged, uncommitted] = await Promise.all([
-        this.getUnmergedChanges(agent.worktreePath),
-        this.getUncommittedChanges(agent.worktreePath),
-      ]);
-      hasUnmergedCommits = unmerged.hasUnmergedCommits;
-      changedFiles = unmerged.changedFiles;
-      hasUncommittedChanges = uncommitted.hasUncommittedChanges;
-      uncommittedFiles = uncommitted.uncommittedFiles;
-    } catch {
-      // Worktree may have been manually removed
-    }
-
-    return {
-      hasWorktree: true,
-      hasUnmergedCommits,
-      hasUncommittedChanges,
-      worktreePath: agent.worktreePath,
-      branchName,
-      changedFiles,
-      uncommittedFiles,
-    };
+    return inspectWorktreeStatus(agent.worktreePath);
   }
 
   async upsertLatestEvent(
@@ -2203,179 +2173,5 @@ export class AgentManager {
         "Failed to upsert system latest event."
       );
     }
-  }
-
-  private async setupWorktree(
-    originalCwd: string,
-    worktreePath: string
-  ): Promise<void> {
-    // Copy .env if it exists
-    const envSource = path.join(originalCwd, ".env");
-    const envDest = path.join(worktreePath, ".env");
-    try {
-      await copyFile(envSource, envDest);
-      this.logger.info({ worktreePath }, "Copied .env into worktree.");
-    } catch {
-      // .env doesn't exist — that's fine
-    }
-
-    // Auto-install dependencies
-    const lockfileMap: Array<[string, string, string[]]> = [
-      ["pnpm-lock.yaml", "pnpm", ["install"]],
-      ["yarn.lock", "yarn", ["install"]],
-      ["package-lock.json", "npm", ["install"]],
-      ["bun.lockb", "bun", ["install"]],
-    ];
-
-    for (const [lockfile, bin, args] of lockfileMap) {
-      const lockPath = path.join(worktreePath, lockfile);
-      const exists = await stat(lockPath).catch(() => null);
-      if (exists) {
-        this.logger.info(
-          { worktreePath, packageManager: bin },
-          "Installing dependencies in worktree."
-        );
-        try {
-          await runCommand(bin, args, {
-            cwd: worktreePath,
-            timeoutMs: 120_000,
-          });
-          this.logger.info(
-            { worktreePath, packageManager: bin },
-            "Dependency install complete."
-          );
-        } catch (error) {
-          this.logger.warn(
-            { err: error, worktreePath, packageManager: bin },
-            "Dependency install failed."
-          );
-        }
-        break;
-      }
-    }
-  }
-
-  private async hasOutstandingChanges(worktreePath: string): Promise<boolean> {
-    const [unmerged, uncommitted] = await Promise.all([
-      this.getUnmergedChanges(worktreePath),
-      this.getUncommittedChanges(worktreePath),
-    ]);
-    return unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
-  }
-
-  private async getUnmergedChanges(
-    worktreePath: string
-  ): Promise<{ hasUnmergedCommits: boolean; changedFiles: string[] }> {
-    try {
-      // Discover the upstream tracking branch (set at worktree creation time).
-      // Falls back to origin/main for older worktrees that don't have one.
-      let upstreamRef: string | null = null;
-      try {
-        const upstream = await runCommand(
-          "git",
-          ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
-          { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
-        );
-        if (upstream.exitCode === 0 && upstream.stdout) {
-          upstreamRef = upstream.stdout;
-        }
-      } catch {
-        // No upstream set — will fall back below
-      }
-
-      // Determine which remote branch to fetch
-      const remoteBranch = upstreamRef?.startsWith("origin/")
-        ? upstreamRef.slice("origin/".length)
-        : "main";
-
-      await runCommand(
-        "git",
-        ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
-        { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
-      );
-
-      // Resolve the base ref: prefer upstream, fall back to origin/main → main
-      const baseRef =
-        (upstreamRef
-          ? await this.resolveRef(worktreePath, upstreamRef)
-          : null) ??
-        (await this.resolveRef(worktreePath, "origin/main")) ??
-        (await this.resolveRef(worktreePath, "main"));
-      if (!baseRef) {
-        return { hasUnmergedCommits: false, changedFiles: [] };
-      }
-
-      // Simulate merging this branch into main. If the resulting tree is
-      // identical to main's tree, everything on this branch is already in main
-      // (handles squash-merges, rebases, and main moving forward with releases).
-      const mergeTree = await runCommand(
-        "git",
-        ["-C", worktreePath, "merge-tree", "--write-tree", baseRef, "HEAD"],
-        { allowedExitCodes: [0, 1], timeoutMs: 10_000 }
-      );
-      // merge-tree outputs the tree hash on the first line (exit 1 = conflicts)
-      const resultTree = mergeTree.stdout.trim().split("\n")[0];
-      const mainTree = await runCommand(
-        "git",
-        ["-C", worktreePath, "rev-parse", `${baseRef}^{tree}`],
-        { allowedExitCodes: [0], timeoutMs: 5_000 }
-      );
-
-      if (resultTree === mainTree.stdout.trim()) {
-        return { hasUnmergedCommits: false, changedFiles: [] };
-      }
-
-      // Trees differ — find which files the branch would actually change
-      const fileDiff = await runCommand(
-        "git",
-        [
-          "-C",
-          worktreePath,
-          "diff",
-          "--name-only",
-          mainTree.stdout.trim(),
-          resultTree,
-        ],
-        { allowedExitCodes: [0], timeoutMs: 10_000 }
-      );
-      const changedFiles = fileDiff.stdout.trim().split("\n").filter(Boolean);
-
-      return { hasUnmergedCommits: changedFiles.length > 0, changedFiles };
-    } catch {
-      return { hasUnmergedCommits: false, changedFiles: [] };
-    }
-  }
-
-  private async getUncommittedChanges(
-    worktreePath: string
-  ): Promise<{ hasUncommittedChanges: boolean; uncommittedFiles: string[] }> {
-    try {
-      // Detect staged + unstaged modifications and untracked files
-      const status = await runCommand(
-        "git",
-        ["-C", worktreePath, "status", "--porcelain"],
-        { allowedExitCodes: [0], timeoutMs: 10_000 }
-      );
-      const uncommittedFiles = status.stdout.trim().split("\n").filter(Boolean);
-
-      return {
-        hasUncommittedChanges: uncommittedFiles.length > 0,
-        uncommittedFiles,
-      };
-    } catch {
-      return { hasUncommittedChanges: false, uncommittedFiles: [] };
-    }
-  }
-
-  private async resolveRef(
-    worktreePath: string,
-    ref: string
-  ): Promise<string | null> {
-    const result = await runCommand(
-      "git",
-      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
-      { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
-    );
-    return result.exitCode === 0 && result.stdout.trim() ? ref : null;
   }
 }
