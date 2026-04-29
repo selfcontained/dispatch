@@ -57,30 +57,42 @@ export type ReconcilerDeps = {
 
 export type Reconciler = {
   /**
-   * Run one reconciliation tick. Two passes:
-   *   1. `reconcileAgentStatuses()` — flip agents whose tmux session
-   *      vanished out from under them to `stopped`/`error`, and rescue
-   *      agents stuck in `stopping`.
-   *   2. `cleanupOrphanedSessions()` — kill tmux sessions whose DB
-   *      records say they should be terminated.
+   * Status-only pass: flip agents whose tmux session vanished out from
+   * under them to `stopped`/`error`, and rescue agents stuck in
+   * `stopping`. Returns the agents whose status the reconciler changed
+   * — the caller (manager) re-broadcasts these via SSE.
    *
-   * Returns the agents whose status the reconciler changed during the
-   * status pass — the caller (manager) re-broadcasts these via SSE.
+   * Does NOT touch orphaned tmux sessions — that's a separate concern
+   * exposed via `cleanupOrphanedSessions()`. The status pass and the
+   * orphan-cleanup pass are kept distinct so the manager can run them
+   * independently (e.g. callers that just want the changed-record
+   * list shouldn't pay the cost of `tmux list-sessions` + a DB
+   * IN-clause query for every status reconciliation tick).
    */
-  reconcile(): Promise<AgentRecord[]>;
+  reconcileAgentStatuses(): Promise<AgentRecord[]>;
+
+  /**
+   * Find tmux sessions whose DB records say the agent is in a terminal
+   * state and kill them. No-op when the runtime doesn't track sessions
+   * (`runtime.listSessions` returns `[]`).
+   */
+  cleanupOrphanedSessions(): Promise<void>;
 };
 
 /**
  * Build a reconciler bound to the given pool + runtime + diagnostics.
  * The factory is the unit of construction; the manager creates one in
- * its constructor and calls `reconcile()` from `reconcileAgents()`.
+ * its constructor and calls both methods from `reconcileAgents()`,
+ * but exposes only the status pass via `AgentManager#reconcileAgentStatuses`
+ * so the historical contract (status-only) is preserved.
  */
 export function createReconciler(deps: ReconcilerDeps): Reconciler {
   return {
-    async reconcile(): Promise<AgentRecord[]> {
-      const reconciled = await reconcileAgentStatuses(deps);
-      await cleanupOrphanedSessions(deps);
-      return reconciled;
+    async reconcileAgentStatuses(): Promise<AgentRecord[]> {
+      return reconcileAgentStatuses(deps);
+    },
+    async cleanupOrphanedSessions(): Promise<void> {
+      return cleanupOrphanedSessions(deps);
     },
   };
 }

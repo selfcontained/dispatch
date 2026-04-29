@@ -1127,16 +1127,20 @@ export class AgentManager {
   }
 
   async reconcileAgents(): Promise<void> {
-    await this.reconciler.reconcile();
+    // Two passes: status reconciliation + orphan-session cleanup. The
+    // SSE broadcaster doesn't need the changed-record list at this
+    // entry point, so we drop the return value.
+    await this.reconciler.reconcileAgentStatuses();
+    await this.reconciler.cleanupOrphanedSessions();
   }
 
   /**
-   * @deprecated Kept for callers that want just the status-pass result
-   * (e.g. tests). New code should call `reconcileAgents()` which also
-   * runs the orphan-session cleanup pass.
+   * Status-only reconciliation pass — the historical contract. Returns
+   * the records whose status the reconciler changed. Callers that want
+   * the orphan-session cleanup too should call `reconcileAgents()`.
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
-    return this.reconciler.reconcile();
+    return this.reconciler.reconcileAgentStatuses();
   }
 
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
