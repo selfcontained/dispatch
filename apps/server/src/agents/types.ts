@@ -59,15 +59,10 @@ export type AgentGitContext = {
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
 
-export type WorktreeStatus = {
-  hasWorktree: boolean;
-  hasUnmergedCommits: boolean;
-  hasUncommittedChanges: boolean;
-  worktreePath: string | null;
-  branchName: string | null;
-  changedFiles: string[];
-  uncommittedFiles: string[];
-};
+// Canonical home is `shared/git/worktree-status.ts` — this re-export is
+// here so existing importers (manager.ts's public surface, and through
+// it routes/agents.ts) keep resolving without churn.
+export type { WorktreeStatus } from "../shared/git/worktree-status.js";
 
 export type AgentTerminalAccess =
   | { mode: "tmux"; sessionName: string }

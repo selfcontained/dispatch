@@ -5,7 +5,7 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 const {
-  checkWorktreeStatus,
+  readWorktreeStatus,
   getUncommittedChanges,
   getUnmergedChanges,
   hasOutstandingChanges,
@@ -292,7 +292,7 @@ describe("hasOutstandingChanges", () => {
   });
 });
 
-describe("checkWorktreeStatus", () => {
+describe("readWorktreeStatus", () => {
   it("always returns hasWorktree:true (caller handles the no-worktree case)", async () => {
     vi.mocked(runCommand).mockImplementation(
       async (_cmd: string, args: string[]) => {
@@ -303,7 +303,7 @@ describe("checkWorktreeStatus", () => {
         return fail();
       }
     );
-    const result = await checkWorktreeStatus("/wt");
+    const result = await readWorktreeStatus("/wt");
     expect(result.hasWorktree).toBe(true);
     expect(result.worktreePath).toBe("/wt");
   });
@@ -318,7 +318,7 @@ describe("checkWorktreeStatus", () => {
         return fail();
       }
     );
-    const result = await checkWorktreeStatus("/wt");
+    const result = await readWorktreeStatus("/wt");
     expect(result.branchName).toBe("my-branch");
   });
 
@@ -332,7 +332,7 @@ describe("checkWorktreeStatus", () => {
         return fail();
       }
     );
-    const result = await checkWorktreeStatus("/wt");
+    const result = await readWorktreeStatus("/wt");
     expect(result.branchName).toBeNull();
   });
 
@@ -365,7 +365,7 @@ describe("checkWorktreeStatus", () => {
       }
     );
 
-    const result = await checkWorktreeStatus("/wt");
+    const result = await readWorktreeStatus("/wt");
     expect(result).toEqual({
       hasWorktree: true,
       hasUnmergedCommits: true,

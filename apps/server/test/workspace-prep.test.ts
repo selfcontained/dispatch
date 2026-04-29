@@ -8,7 +8,7 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(),
 }));
 
-const { setupWorktree } = await import("../src/shared/git/worktree.js");
+const { setupAgentWorkspace } = await import("../src/agents/workspace-prep.js");
 const { runCommand } = await import("../src/shared/lib/run-command.js");
 
 const noopLogger = (() => {
@@ -49,10 +49,10 @@ afterEach(async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
-describe("setupWorktree — .env copy", () => {
+describe("setupAgentWorkspace — .env copy", () => {
   it("copies .env from the source repo into the worktree when present", async () => {
     await writeFile(path.join(originalCwd, ".env"), "FOO=bar\nBAZ=qux\n");
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const copied = await readFile(path.join(worktreePath, ".env"), "utf-8");
     expect(copied).toBe("FOO=bar\nBAZ=qux\n");
@@ -60,20 +60,20 @@ describe("setupWorktree — .env copy", () => {
 
   it("does not error when the source .env is missing (best-effort)", async () => {
     await expect(
-      setupWorktree(originalCwd, worktreePath, noopLogger)
+      setupAgentWorkspace(originalCwd, worktreePath, noopLogger)
     ).resolves.toBeUndefined();
     // Confirm no .env was created in the worktree.
     await expect(readFile(path.join(worktreePath, ".env"))).rejects.toThrow();
   });
 });
 
-describe("setupWorktree — auto deps install", () => {
+describe("setupAgentWorkspace — auto deps install", () => {
   it("runs pnpm install when pnpm-lock.yaml is present", async () => {
     await writeFile(
       path.join(worktreePath, "pnpm-lock.yaml"),
       "lockfileVersion: 6\n"
     );
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const installCall = vi
       .mocked(runCommand)
@@ -87,7 +87,7 @@ describe("setupWorktree — auto deps install", () => {
     // Both pnpm and yarn lockfiles present; pnpm wins.
     await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "");
     await writeFile(path.join(worktreePath, "yarn.lock"), "");
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const calls = vi.mocked(runCommand).mock.calls.map(([cmd]) => cmd);
     expect(calls).toContain("pnpm");
@@ -96,7 +96,7 @@ describe("setupWorktree — auto deps install", () => {
 
   it("runs npm install when only package-lock.json is present", async () => {
     await writeFile(path.join(worktreePath, "package-lock.json"), "{}");
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const installCall = vi
       .mocked(runCommand)
@@ -107,7 +107,7 @@ describe("setupWorktree — auto deps install", () => {
 
   it("runs bun install when only bun.lockb is present", async () => {
     await writeFile(path.join(worktreePath, "bun.lockb"), "");
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const installCall = vi
       .mocked(runCommand)
@@ -116,7 +116,7 @@ describe("setupWorktree — auto deps install", () => {
   });
 
   it("invokes no install command when no lockfile is present", async () => {
-    await setupWorktree(originalCwd, worktreePath, noopLogger);
+    await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
     const calls = vi.mocked(runCommand).mock.calls;
     expect(calls).toEqual([]);
@@ -140,7 +140,7 @@ describe("setupWorktree — auto deps install", () => {
     vi.mocked(runCommand).mockRejectedValue(new Error("install crashed"));
 
     await expect(
-      setupWorktree(originalCwd, worktreePath, logger)
+      setupAgentWorkspace(originalCwd, worktreePath, logger)
     ).resolves.toBeUndefined();
 
     expect(warnSpy).toHaveBeenCalledTimes(1);

@@ -36,7 +36,7 @@ export type UncommittedChanges = {
  * the agent-level "no worktree" empty status should be constructed
  * separately rather than calling this.
  */
-export async function checkWorktreeStatus(
+export async function readWorktreeStatus(
   worktreePath: string
 ): Promise<WorktreeStatus> {
   let branchName: string | null = null;

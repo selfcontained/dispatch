@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  rm,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -23,13 +15,12 @@ import {
   cleanupGitWorktree,
   createGitWorktree,
   GitWorktreeError,
-  setupWorktree,
   worktreePathSlug,
 } from "../shared/git/worktree.js";
 import {
-  checkWorktreeStatus as inspectWorktreeStatus,
   getUncommittedChanges,
   getUnmergedChanges,
+  readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
@@ -50,6 +41,7 @@ import {
   toSessionName,
 } from "./tmux/session-name.js";
 import { generateSetupScript } from "./tmux/setup-script.js";
+import { setupAgentWorkspace } from "./workspace-prep.js";
 import type {
   AgentGitContext,
   AgentLatestEventInput,
@@ -389,7 +381,7 @@ export class AgentManager {
             { agentId: id, worktreePath, worktreeBranch },
             "Created worktree for inert agent."
           );
-          await setupWorktree(originalCwd, worktreePath, this.logger);
+          await setupAgentWorkspace(originalCwd, worktreePath, this.logger);
         } catch (error) {
           // The user explicitly asked for an isolated worktree. Don't silently
           // fall back to running in their primary checkout — surface the
@@ -1086,7 +1078,7 @@ export class AgentManager {
       };
     }
 
-    return inspectWorktreeStatus(agent.worktreePath);
+    return readWorktreeStatus(agent.worktreePath);
   }
 
   async upsertLatestEvent(
