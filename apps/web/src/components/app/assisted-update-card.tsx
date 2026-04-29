@@ -41,31 +41,21 @@ type AssistedUpdateGateProps = {
   metadata: AssistedUpdateMetadata;
   /** True when the release is mode=required for the current install. */
   required: boolean;
-  onStart: () => Promise<void>;
-  starting: boolean;
-  startError: string | null;
 };
 
 type PendingMigrationsGateProps = {
   tag: string;
   pendingMigrations: PendingMigration[];
-  onStart: () => Promise<void>;
-  starting: boolean;
-  startError: string | null;
 };
 
 /**
  * Pre-launch card shown when the target release has unapplied install-update
- * migration manifests (CRU-146). Replaces the legacy single-block gate when
- * any migrations are pending; the one-click update is hidden so the only
- * forward path is the assisted flow.
+ * migration manifests (CRU-146). Informational only — the action lives in the
+ * unified split button rendered by UpdatesSection below.
  */
 export function PendingMigrationsGate({
   tag,
   pendingMigrations,
-  onStart,
-  starting,
-  startError,
 }: PendingMigrationsGateProps): JSX.Element {
   return (
     <div
@@ -73,6 +63,7 @@ export function PendingMigrationsGate({
         "flex flex-col gap-4 rounded-lg border p-4",
         "border-amber-500/40 bg-amber-500/[0.06]"
       )}
+      data-testid="pending-migrations-gate"
     >
       <div className="flex items-start gap-2">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
@@ -110,40 +101,20 @@ export function PendingMigrationsGate({
           </li>
         ))}
       </ul>
-
-      {startError && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {startError}
-        </div>
-      )}
-
-      <Button
-        size="sm"
-        variant="primary"
-        disabled={starting}
-        onClick={() => void onStart()}
-        className="self-start"
-        data-testid="pending-migrations-start"
-      >
-        {starting ? "Launching agent..." : `Start assisted update to ${tag}`}
-      </Button>
     </div>
   );
 }
 
 /**
- * The pre-launch card shown in place of the one-click update button when a
- * release declares assisted-update metadata. For required releases the
- * generic update path is unavailable — the operator launches the assisted
- * agent from this card.
+ * Informational card describing the release's declared assisted-update
+ * metadata (instructions, required checks, rollback guidance). Shown when the
+ * release is `mode=required` or `mode=recommended`. The action sits in the
+ * unified split button rendered by UpdatesSection — this card is context.
  */
 export function AssistedUpdateGate({
   tag,
   metadata,
   required,
-  onStart,
-  starting,
-  startError,
 }: AssistedUpdateGateProps): JSX.Element {
   const [instructionsOpen, setInstructionsOpen] = useState(true);
   const [rollbackOpen, setRollbackOpen] = useState(false);
@@ -239,22 +210,6 @@ export function AssistedUpdateGate({
           )}
         </div>
       )}
-
-      {startError && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {startError}
-        </div>
-      )}
-
-      <Button
-        size="sm"
-        variant="primary"
-        disabled={starting}
-        onClick={() => void onStart()}
-        className="self-start"
-      >
-        {starting ? "Launching agent..." : `Start assisted update to ${tag}`}
-      </Button>
     </div>
   );
 }
