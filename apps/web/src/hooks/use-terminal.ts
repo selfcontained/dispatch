@@ -460,14 +460,18 @@ export function useTerminal(args: {
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
           if (term && enhancedTerminalRef.current) {
-            const history = await api<TerminalHistoryResponse>(
-              `/api/v1/agents/${agent.id}/terminal/history?lines=${TERMINAL_BACKFILL_LINES}&skipBottomLines=${rows}`
-            );
-            if (!isCurrentAttempt()) {
-              return;
-            }
-            if (history.data.trim().length > 0) {
-              term.write(normalizeBackfill(history.data));
+            try {
+              const history = await api<TerminalHistoryResponse>(
+                `/api/v1/agents/${agent.id}/terminal/history?lines=${TERMINAL_BACKFILL_LINES}&skipBottomLines=${rows}`
+              );
+              if (!isCurrentAttempt()) {
+                return;
+              }
+              if (history.data.trim().length > 0) {
+                term.write(normalizeBackfill(history.data));
+              }
+            } catch (error) {
+              console.warn("Terminal history backfill failed:", error);
             }
           }
           setTerminalMode("tmux");
