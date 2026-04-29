@@ -1,0 +1,390 @@
+import path from "node:path";
+
+import {
+  createAgentMcpToken,
+  createJobMcpToken,
+  createReleaseUpdateToken,
+} from "../../auth.js";
+import type { AppConfig } from "../../config.js";
+import type { AgentPin, AgentRole, AgentType } from "../types.js";
+import { shellEscape } from "./quoting.js";
+import { agentIdFromSessionName } from "./session-name.js";
+
+const CLI_BY_AGENT_TYPE: Record<
+  Exclude<AgentType, "terminal">,
+  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">
+> = {
+  codex: "codexBin",
+  claude: "claudeBin",
+  opencode: "opencodeBin",
+};
+
+const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
+const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
+
+/** Build the URL the agent CLI uses to reach Dispatch's MCP endpoint. */
+export function dispatchMcpUrl(
+  config: AppConfig,
+  agentId: string,
+  jobRunId?: string
+): string {
+  const route = jobRunId
+    ? `/api/mcp/jobs/${jobRunId}/${agentId}`
+    : `/api/mcp/${agentId}`;
+  return `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}${route}`;
+}
+
+/**
+ * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /
+ * opencode put system prompts in their own flag). Claude doesn't need this
+ * normalization because its CLI accepts the flag directly.
+ */
+export function normalizeAgentArgsForType(
+  type: AgentType,
+  args: string[]
+): { passthroughArgs: string[]; appendedSystemPrompt: string | null } {
+  if (type === "claude") {
+    return { passthroughArgs: args, appendedSystemPrompt: null };
+  }
+
+  const passthroughArgs: string[] = [];
+  let appendedSystemPrompt: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (
+      arg === "--append-system-prompt" &&
+      typeof args[index + 1] === "string"
+    ) {
+      appendedSystemPrompt = args[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+    passthroughArgs.push(arg);
+  }
+
+  return { passthroughArgs, appendedSystemPrompt };
+}
+
+/**
+ * Compose the first user-message-style prompt handed to the agent on
+ * launch — formats `initialPrompt`, `initialPins`, and `initialMedia` into
+ * a single string the CLI passes through as the opening turn.
+ *
+ * Returns `undefined` when there's nothing to attach (the caller can then
+ * skip the prompt entirely).
+ */
+export function buildStartupPrompt(
+  initialPrompt: string | undefined,
+  initialPins: AgentPin[],
+  initialMedia: Array<{
+    fileName: string;
+    displayName: string;
+    source: string;
+    description: string | null;
+  }>
+): string | undefined {
+  const trimmedPrompt = initialPrompt?.trim() || "";
+  if (initialPins.length === 0 && initialMedia.length === 0) {
+    return trimmedPrompt || undefined;
+  }
+
+  const sections = [
+    "Startup context is attached to this session.",
+    "Inspect the provided pins and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
+  ];
+
+  if (trimmedPrompt) {
+    sections.push(`Instructions:\n${trimmedPrompt}`);
+  }
+
+  if (initialPins.length > 0) {
+    sections.push(
+      [
+        "Links:",
+        ...initialPins.map((pin) => {
+          try {
+            const hostname =
+              new URL(pin.value).hostname.replace(/^www\./, "") || "Link";
+            const numberedHostPattern = new RegExp(
+              `^${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\d+)?$`,
+              "i"
+            );
+            return numberedHostPattern.test(pin.label)
+              ? `- ${pin.value}`
+              : `- ${pin.label}: ${pin.value}`;
+          } catch {
+            return `- ${pin.value}`;
+          }
+        }),
+      ].join("\n")
+    );
+  }
+
+  if (initialMedia.length > 0) {
+    sections.push(
+      [
+        "Attached files:",
+        ...initialMedia.map((file) => {
+          const detail = file.description?.trim();
+          const suffix = detail ? ` — ${detail}` : "";
+          return `- ${file.displayName}${suffix} (available via dispatch shared media)`;
+        }),
+      ].join("\n")
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
+/**
+ * Build the bash invocation that launches the agent CLI inside its tmux
+ * session. Pure — takes config + inputs, returns a shell-ready string.
+ *
+ * Encodes the per-CLI launch quirks (claude/opencode/codex MCP wiring,
+ * resume vs. new session flags, terminal-only fallback to `bash -il`).
+ *
+ * Security note: every interpolated value flows through `shellEscape`,
+ * since this string lands directly in `tmux new-session … bash -c …`.
+ */
+export function buildAgentCommand(
+  config: AppConfig,
+  type: AgentType,
+  role: AgentRole,
+  args: string[],
+  mediaDir: string,
+  sessionName: string,
+  fullAccess: boolean,
+  cliSessionId?: string,
+  resume?: boolean,
+  jobRunId?: string,
+  suggestSessionRename?: boolean,
+  autoReview?: boolean,
+  initialPrompt?: string
+): string {
+  const agentId = agentIdFromSessionName(sessionName);
+  // Lean startup guidance shared by both agent types. Full behavioral specs live in
+  // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
+  // Rules are built as an array and numbered on output so the agent sees a scannable
+  // list rather than a run-on paragraph.
+  const rules: string[] = [];
+
+  if (jobRunId) {
+    rules.push(
+      `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
+    );
+    if (suggestSessionRename) {
+      rules.push(
+        "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
+      );
+    }
+    rules.push("Report status with dispatch_event to keep the UI current.");
+    rules.push("Log task-level progress with job_log.");
+    rules.push(
+      "Call a job terminal tool when the run is complete, failed, or needs input."
+    );
+  } else {
+    rules.push(
+      "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
+    );
+    if (suggestSessionRename) {
+      rules.push(
+        "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
+      );
+    }
+    rules.push(
+      "Report status with dispatch_event. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). Emit working at turn start and when shifting phases (e.g. research → coding → testing). Emit a terminal event before your final response. Use blocked only when truly stuck — not for errors you're actively fixing."
+    );
+    rules.push(
+      "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). Update or delete stale pins. For longer artifacts, write a file via dispatch_share and pin a reference."
+    );
+    rules.push(
+      "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
+    );
+    rules.push(
+      "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+    );
+    if (autoReview) {
+      rules.push(
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, keep the turn alive and wait for server-injected review prompts instead of polling dispatch_get_feedback. For single-pass reviews you'll receive one completion prompt; for recheck reviews you'll receive a round-1 prompt and, after dispatch_submit_resolution, a round-2 prompt. Only call dispatch_get_feedback after a completion prompt says findings are ready. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
+      );
+    }
+  }
+
+  const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");
+  const header = jobRunId
+    ? "Dispatch job startup rules:"
+    : "Dispatch startup rules:";
+  const launchGuidance = `[dispatch:${agentId}] ${header}\n${numbered}`;
+
+  const userLocalBin = process.env.HOME
+    ? path.join(process.env.HOME, ".local/bin")
+    : null;
+  const launchPathEntries = [config.dispatchBinDir, userLocalBin].filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0
+  );
+  const launchPathPrefix = Array.from(new Set(launchPathEntries)).join(":");
+
+  const envPrefixParts = [
+    `DISPATCH_AGENT_ID=${shellEscape(agentId)}`,
+    `DISPATCH_MEDIA_DIR=${shellEscape(mediaDir)}`,
+    `DISPATCH_PORT=${shellEscape(String(config.port))}`,
+    `DISPATCH_SCHEME=${config.tls ? "https" : "http"}`,
+    `PATH=${shellEscape(launchPathPrefix)}:$PATH`,
+    // Pin the Bash tool's cwd to the project root (worktree) after every command.
+    // Prevents cwd drift back to the original repo root during long conversations.
+    `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`,
+  ];
+
+  if (role === "assisted_update") {
+    envPrefixParts.push(
+      `${DISPATCH_API_URL_ENV}=${shellEscape(
+        `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}`
+      )}`,
+      `${DISPATCH_RELEASE_UPDATE_TOKEN_ENV}=${shellEscape(
+        createReleaseUpdateToken(config.authToken, agentId)
+      )}`
+    );
+  }
+
+  // Forward the clipboard display to agent sessions so CLI tools can read
+  // images pasted via the browser clipboard (xclip needs a DISPLAY).
+  if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
+    envPrefixParts.push(
+      `DISPATCH_COPY_DISPLAY=${shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`
+    );
+  }
+
+  // When TLS is enabled with a CA cert, tell agent CLI tools to trust it
+  // so loopback MCP connections don't fail certificate verification.
+  // TLS_CA should point at the CA that signed the server cert (e.g. mkcert's rootCA.pem).
+  const tlsCaPath = process.env.TLS_CA;
+  if (config.tls && tlsCaPath) {
+    envPrefixParts.push(`NODE_EXTRA_CA_CERTS=${shellEscape(tlsCaPath)}`);
+  }
+
+  if (type === "opencode" && fullAccess) {
+    envPrefixParts.push(
+      `OPENCODE_PERMISSION=${shellEscape(
+        JSON.stringify({
+          bash: { "*": "allow" },
+          edit: { "*": "allow" },
+          read: { "*": "allow" },
+          list: { "*": "allow" },
+          glob: { "*": "allow" },
+          grep: { "*": "allow" },
+          task: { "*": "allow" },
+          todowrite: { "*": "allow" },
+          todoread: { "*": "allow" },
+          webfetch: { "*": "allow" },
+          websearch: { "*": "allow" },
+          codesearch: { "*": "allow" },
+          lsp: { "*": "allow" },
+          skill: { "*": "allow" },
+          external_directory: { "*": "allow" },
+        })
+      )}`
+    );
+  }
+
+  const envPrefix = envPrefixParts.join(" ");
+
+  // Terminal agents have no CLI to launch — drop the user into an
+  // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
+  // non-interactive login shell that exits immediately under `bash -c`,
+  // which tears down the tmux session before the browser can attach.
+  if (type === "terminal") {
+    return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
+  }
+
+  const cliBin = config[CLI_BY_AGENT_TYPE[type]];
+  const mcpUrl = dispatchMcpUrl(config, agentId, jobRunId);
+  const dispatchMcpToken = jobRunId
+    ? createJobMcpToken(config.authToken, jobRunId, agentId)
+    : createAgentMcpToken(config.authToken, agentId);
+  const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
+  const { passthroughArgs, appendedSystemPrompt } = normalizeAgentArgsForType(
+    type,
+    args
+  );
+
+  if (type === "claude") {
+    const mcpConfig = shellEscape(
+      JSON.stringify({
+        mcpServers: {
+          dispatch: {
+            type: "http",
+            url: mcpUrl,
+            headers: {
+              Authorization: `Bearer ${dispatchMcpToken}`,
+            },
+          },
+        },
+      })
+    );
+    const mcpFlag = `--mcp-config ${mcpConfig}`;
+    // Elevate guidance to system prompt so it persists through long conversations
+    // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
+    // Claude Code and provides the full behavioral spec.
+    const systemFlag = `--append-system-prompt ${shellEscape(launchGuidance)}`;
+    // Session tracking: --resume continues an existing session, --session-id starts
+    // a new one with a known ID for token attribution and future resume.
+    const sessionFlag = cliSessionId
+      ? resume
+        ? `--resume ${shellEscape(cliSessionId)}`
+        : `--session-id ${shellEscape(cliSessionId)}`
+      : "";
+    const flags = [mcpFlag, systemFlag, sessionFlag].filter(Boolean).join(" ");
+    // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
+    const allArgs = initialPrompt ? [...args, initialPrompt] : args;
+    if (allArgs.length === 0) {
+      return `${envPrefix} ${shellEscape(cliBin)} ${flags}`;
+    }
+    const escaped = allArgs.map((arg) => shellEscape(arg)).join(" ");
+    return `${envPrefix} ${shellEscape(cliBin)} ${flags} ${escaped}`;
+  }
+
+  if (type === "opencode") {
+    const promptParts = [
+      launchGuidance,
+      appendedSystemPrompt,
+      initialPrompt,
+    ].filter(Boolean);
+    const startupPrompt = promptParts.join("\n\n");
+    const promptFlag = `--prompt ${shellEscape(startupPrompt)}`;
+    const sessionFlag =
+      resume && cliSessionId ? `--session ${shellEscape(cliSessionId)}` : "";
+    const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
+    if (passthroughArgs.length === 0) {
+      return `${envPrefix} ${shellEscape(cliBin)} ${flagParts}`;
+    }
+    const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+    return `${envPrefix} ${shellEscape(cliBin)} ${escaped} ${flagParts}`;
+  }
+
+  // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
+  const codexMcpFlags = [
+    "-c",
+    shellEscape(`mcp_servers.dispatch.url=${JSON.stringify(mcpUrl)}`),
+    "-c",
+    shellEscape(
+      `mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`
+    ),
+  ].join(" ");
+  const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
+  // Codex resume: `codex resume <sessionId>` with MCP flags
+  if (resume && cliSessionId) {
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${codexMcpFlags}`;
+  }
+  const codexPromptParts = [
+    launchGuidance,
+    appendedSystemPrompt,
+    initialPrompt,
+  ].filter(Boolean);
+  const startupPrompt = codexPromptParts.join("\n\n");
+  if (passthroughArgs.length === 0) {
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${shellEscape(startupPrompt)}`;
+  }
+  const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+  return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${shellEscape(startupPrompt)}`;
+}

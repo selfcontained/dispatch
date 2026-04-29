@@ -20,11 +20,6 @@ import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
 import {
-  createAgentMcpToken,
-  createJobMcpToken,
-  createReleaseUpdateToken,
-} from "../auth.js";
-import {
   assertSafeRefName,
   cleanupGitWorktree,
   createGitWorktree,
@@ -35,6 +30,16 @@ import { runCommand } from "../shared/lib/run-command.js";
 import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
+import {
+  buildAgentCommand,
+  buildStartupPrompt,
+} from "./tmux/command-builder.js";
+import {
+  agentIdFromSessionName,
+  shouldSuggestSessionRename,
+  toSessionName,
+} from "./tmux/session-name.js";
+import { generateSetupScript } from "./tmux/setup-script.js";
 import type {
   AgentGitContext,
   AgentLatestEventInput,
@@ -93,19 +98,8 @@ export type {
 export { resolveProgressPingStatus } from "./persona-reviews.js";
 export type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 
-const CLI_BY_AGENT_TYPE: Record<
-  Exclude<AgentType, "terminal">,
-  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">
-> = {
-  codex: "codexBin",
-  claude: "claudeBin",
-  opencode: "opencodeBin",
-};
-
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
-const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -237,7 +231,7 @@ export class AgentManager {
         ? Array.from(new Set([...(input.agentArgs ?? []), fullAccessArg]))
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
-    const tmuxSession = this.toSessionName(id, name);
+    const tmuxSession = toSessionName(this.config.sessionPrefix, id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
     const initialPins = input.initialPins ?? [];
@@ -361,7 +355,7 @@ export class AgentManager {
         throw error;
       }
     }
-    const startupPrompt = this.buildStartupPrompt(
+    const startupPrompt = buildStartupPrompt(
       input.initialPrompt,
       initialPins,
       initialMedia
@@ -430,7 +424,8 @@ export class AgentManager {
         await this.ensureNoExistingSession(tmuxSession);
 
         // Build the agent command that the setup script will exec into
-        const agentCommand = this.buildAgentCommand(
+        const agentCommand = buildAgentCommand(
+          this.config,
           type,
           role,
           agentArgs,
@@ -440,7 +435,7 @@ export class AgentManager {
           cliSessionId ?? undefined,
           false,
           input.jobRunId,
-          this.shouldSuggestSessionRename(name, id, {
+          shouldSuggestSessionRename(name, id, {
             persona: input.persona,
             jobRunId: input.jobRunId,
           }),
@@ -451,7 +446,7 @@ export class AgentManager {
 
         // Generate a setup script that handles worktree creation, env copy,
         // dep install, and then exec's into the agent CLI — all visible in the terminal.
-        const setupScript = this.generateSetupScript({
+        const setupScript = generateSetupScript(this.config, {
           agentId: id,
           agentType: type,
           originalCwd,
@@ -604,7 +599,8 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     const tmuxSession =
-      agent.tmuxSession ?? this.toSessionName(agent.id, agent.name);
+      agent.tmuxSession ??
+      toSessionName(this.config.sessionPrefix, agent.id, agent.name);
     const hasSession = await this.hasAgentSession(tmuxSession);
 
     if (hasSession) {
@@ -1386,7 +1382,7 @@ export class AgentManager {
     if (sessions.length === 0) return;
 
     // Extract agent IDs from session names
-    const agentIds = sessions.map((s) => this.agentIdFromSessionName(s.name));
+    const agentIds = sessions.map((s) => agentIdFromSessionName(s.name));
 
     // Query DB for these agent IDs
     const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
@@ -1404,7 +1400,7 @@ export class AgentManager {
     const toKill: string[] = [];
 
     for (const session of sessions) {
-      const agentId = this.agentIdFromSessionName(session.name);
+      const agentId = agentIdFromSessionName(session.name);
       const status = dbAgents.get(agentId);
 
       // Agent in terminal state — session is definitely orphaned
@@ -1883,7 +1879,8 @@ export class AgentManager {
     }
 
     await mkdir(mediaDir, { recursive: true });
-    const agentCommand = this.buildAgentCommand(
+    const agentCommand = buildAgentCommand(
+      this.config,
       type,
       role,
       agentArgs,
@@ -1893,7 +1890,7 @@ export class AgentManager {
       cliSessionId,
       resume,
       undefined,
-      this.shouldSuggestSessionRename(agentName, agentId, { persona }),
+      shouldSuggestSessionRename(agentName, agentId, { persona }),
       !persona && (autoReview ?? false)
     );
     const exitFile = `/tmp/dispatch_${sessionName}.exit`;
@@ -2024,318 +2021,6 @@ export class AgentManager {
     }
   }
 
-  private buildAgentCommand(
-    type: AgentType,
-    role: AgentRole,
-    args: string[],
-    mediaDir: string,
-    sessionName: string,
-    fullAccess: boolean,
-    cliSessionId?: string,
-    resume?: boolean,
-    jobRunId?: string,
-    suggestSessionRename?: boolean,
-    autoReview?: boolean,
-    initialPrompt?: string
-  ): string {
-    const agentId = this.agentIdFromSessionName(sessionName);
-    // Lean startup guidance shared by both agent types. Full behavioral specs live in
-    // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
-    // Rules are built as an array and numbered on output so the agent sees a scannable
-    // list rather than a run-on paragraph.
-    const rules: string[] = [];
-
-    if (jobRunId) {
-      rules.push(
-        `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
-      );
-      if (suggestSessionRename) {
-        rules.push(
-          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature. The name is a stable label describing what the run is about, not a live status update."
-        );
-      }
-      rules.push("Report status with dispatch_event to keep the UI current.");
-      rules.push("Log task-level progress with job_log.");
-      rules.push(
-        "Call a job terminal tool when the run is complete, failed, or needs input."
-      );
-    } else {
-      rules.push(
-        "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
-      );
-      if (suggestSessionRename) {
-        rules.push(
-          "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
-        );
-      }
-      rules.push(
-        "Report status with dispatch_event. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). Emit working at turn start and when shifting phases (e.g. research → coding → testing). Emit a terminal event before your final response. Use blocked only when truly stuck — not for errors you're actively fixing."
-      );
-      rules.push(
-        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). Update or delete stale pins. For longer artifacts, write a file via dispatch_share and pin a reference."
-      );
-      rules.push(
-        "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
-      );
-      rules.push(
-        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
-      );
-      if (autoReview) {
-        rules.push(
-          "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, keep the turn alive and wait for server-injected review prompts instead of polling dispatch_get_feedback. For single-pass reviews you'll receive one completion prompt; for recheck reviews you'll receive a round-1 prompt and, after dispatch_submit_resolution, a round-2 prompt. Only call dispatch_get_feedback after a completion prompt says findings are ready. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
-        );
-      }
-    }
-
-    const numbered = rules.map((rule, i) => `${i + 1}. ${rule}`).join("\n");
-    const header = jobRunId
-      ? "Dispatch job startup rules:"
-      : "Dispatch startup rules:";
-    const launchGuidance = `[dispatch:${agentId}] ${header}\n${numbered}`;
-
-    const userLocalBin = process.env.HOME
-      ? path.join(process.env.HOME, ".local/bin")
-      : null;
-    const launchPathEntries = [this.config.dispatchBinDir, userLocalBin].filter(
-      (entry): entry is string => typeof entry === "string" && entry.length > 0
-    );
-    const launchPathPrefix = Array.from(new Set(launchPathEntries)).join(":");
-
-    const envPrefixParts = [
-      `DISPATCH_AGENT_ID=${this.shellEscape(agentId)}`,
-      `DISPATCH_MEDIA_DIR=${this.shellEscape(mediaDir)}`,
-      `DISPATCH_PORT=${this.shellEscape(String(this.config.port))}`,
-      `DISPATCH_SCHEME=${this.config.tls ? "https" : "http"}`,
-      `PATH=${this.shellEscape(launchPathPrefix)}:$PATH`,
-      // Pin the Bash tool's cwd to the project root (worktree) after every command.
-      // Prevents cwd drift back to the original repo root during long conversations.
-      `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`,
-    ];
-
-    if (role === "assisted_update") {
-      envPrefixParts.push(
-        `${DISPATCH_API_URL_ENV}=${this.shellEscape(
-          `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`
-        )}`,
-        `${DISPATCH_RELEASE_UPDATE_TOKEN_ENV}=${this.shellEscape(
-          createReleaseUpdateToken(this.config.authToken, agentId)
-        )}`
-      );
-    }
-
-    // Forward the clipboard display to agent sessions so CLI tools can read
-    // images pasted via the browser clipboard (xclip needs a DISPLAY).
-    if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
-      envPrefixParts.push(
-        `DISPATCH_COPY_DISPLAY=${this.shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`
-      );
-    }
-
-    // When TLS is enabled with a CA cert, tell agent CLI tools to trust it
-    // so loopback MCP connections don't fail certificate verification.
-    // TLS_CA should point at the CA that signed the server cert (e.g. mkcert's rootCA.pem).
-    const tlsCaPath = process.env.TLS_CA;
-    if (this.config.tls && tlsCaPath) {
-      envPrefixParts.push(`NODE_EXTRA_CA_CERTS=${this.shellEscape(tlsCaPath)}`);
-    }
-
-    if (type === "opencode" && fullAccess) {
-      envPrefixParts.push(
-        `OPENCODE_PERMISSION=${this.shellEscape(
-          JSON.stringify({
-            bash: { "*": "allow" },
-            edit: { "*": "allow" },
-            read: { "*": "allow" },
-            list: { "*": "allow" },
-            glob: { "*": "allow" },
-            grep: { "*": "allow" },
-            task: { "*": "allow" },
-            todowrite: { "*": "allow" },
-            todoread: { "*": "allow" },
-            webfetch: { "*": "allow" },
-            websearch: { "*": "allow" },
-            codesearch: { "*": "allow" },
-            lsp: { "*": "allow" },
-            skill: { "*": "allow" },
-            external_directory: { "*": "allow" },
-          })
-        )}`
-      );
-    }
-
-    const envPrefix = envPrefixParts.join(" ");
-
-    // Terminal agents have no CLI to launch — drop the user into an
-    // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
-    // non-interactive login shell that exits immediately under `bash -c`,
-    // which tears down the tmux session before the browser can attach.
-    if (type === "terminal") {
-      return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
-    }
-
-    const cliBin = this.config[CLI_BY_AGENT_TYPE[type]];
-    const dispatchMcpUrl = this.dispatchMcpUrl(agentId, jobRunId);
-    const dispatchMcpToken = jobRunId
-      ? createJobMcpToken(this.config.authToken, jobRunId, agentId)
-      : createAgentMcpToken(this.config.authToken, agentId);
-    const codexDispatchAuthEnv = "DISPATCH_AUTH_TOKEN";
-    const { passthroughArgs, appendedSystemPrompt } =
-      this.normalizeAgentArgsForType(type, args);
-
-    if (type === "claude") {
-      const mcpConfig = this.shellEscape(
-        JSON.stringify({
-          mcpServers: {
-            dispatch: {
-              type: "http",
-              url: dispatchMcpUrl,
-              headers: {
-                Authorization: `Bearer ${dispatchMcpToken}`,
-              },
-            },
-          },
-        })
-      );
-      const mcpFlag = `--mcp-config ${mcpConfig}`;
-      // Elevate guidance to system prompt so it persists through long conversations
-      // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
-      // Claude Code and provides the full behavioral spec.
-      const systemFlag = `--append-system-prompt ${this.shellEscape(launchGuidance)}`;
-      // Session tracking: --resume continues an existing session, --session-id starts
-      // a new one with a known ID for token attribution and future resume.
-      const sessionFlag = cliSessionId
-        ? resume
-          ? `--resume ${this.shellEscape(cliSessionId)}`
-          : `--session-id ${this.shellEscape(cliSessionId)}`
-        : "";
-      const flags = [mcpFlag, systemFlag, sessionFlag]
-        .filter(Boolean)
-        .join(" ");
-      // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
-      const allArgs = initialPrompt ? [...args, initialPrompt] : args;
-      if (allArgs.length === 0) {
-        return `${envPrefix} ${this.shellEscape(cliBin)} ${flags}`;
-      }
-      const escaped = allArgs.map((arg) => this.shellEscape(arg)).join(" ");
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${flags} ${escaped}`;
-    }
-
-    if (type === "opencode") {
-      const promptParts = [
-        launchGuidance,
-        appendedSystemPrompt,
-        initialPrompt,
-      ].filter(Boolean);
-      const startupPrompt = promptParts.join("\n\n");
-      const promptFlag = `--prompt ${this.shellEscape(startupPrompt)}`;
-      const sessionFlag =
-        resume && cliSessionId
-          ? `--session ${this.shellEscape(cliSessionId)}`
-          : "";
-      const flagParts = [promptFlag, sessionFlag].filter(Boolean).join(" ");
-      if (passthroughArgs.length === 0) {
-        return `${envPrefix} ${this.shellEscape(cliBin)} ${flagParts}`;
-      }
-      const escaped = passthroughArgs
-        .map((arg) => this.shellEscape(arg))
-        .join(" ");
-      return `${envPrefix} ${this.shellEscape(cliBin)} ${escaped} ${flagParts}`;
-    }
-
-    // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.
-    const codexMcpFlags = [
-      "-c",
-      this.shellEscape(
-        `mcp_servers.dispatch.url=${JSON.stringify(dispatchMcpUrl)}`
-      ),
-      "-c",
-      this.shellEscape(
-        `mcp_servers.dispatch.bearer_token_env_var=${JSON.stringify(codexDispatchAuthEnv)}`
-      ),
-    ].join(" ");
-    const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${this.shellEscape(dispatchMcpToken)}`;
-    // Codex resume: `codex resume <sessionId>` with MCP flags
-    if (resume && cliSessionId) {
-      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} resume ${this.shellEscape(cliSessionId)} ${codexMcpFlags}`;
-    }
-    const codexPromptParts = [
-      launchGuidance,
-      appendedSystemPrompt,
-      initialPrompt,
-    ].filter(Boolean);
-    const startupPrompt = codexPromptParts.join("\n\n");
-    if (passthroughArgs.length === 0) {
-      return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${this.shellEscape(startupPrompt)}`;
-    }
-    const escaped = passthroughArgs
-      .map((arg) => this.shellEscape(arg))
-      .join(" ");
-    return `${codexEnvPrefix} ${this.shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${this.shellEscape(startupPrompt)}`;
-  }
-
-  private buildStartupPrompt(
-    initialPrompt: string | undefined,
-    initialPins: AgentPin[],
-    initialMedia: Array<{
-      fileName: string;
-      displayName: string;
-      source: string;
-      description: string | null;
-    }>
-  ): string | undefined {
-    const trimmedPrompt = initialPrompt?.trim() || "";
-    if (initialPins.length === 0 && initialMedia.length === 0) {
-      return trimmedPrompt || undefined;
-    }
-
-    const sections = [
-      "Startup context is attached to this session.",
-      "Inspect the provided pins and shared media before acting. Use Dispatch shared-media tools to access attached files; do not try to locate them by searching the filesystem by name.",
-    ];
-
-    if (trimmedPrompt) {
-      sections.push(`Instructions:\n${trimmedPrompt}`);
-    }
-
-    if (initialPins.length > 0) {
-      sections.push(
-        [
-          "Links:",
-          ...initialPins.map((pin) => {
-            try {
-              const hostname =
-                new URL(pin.value).hostname.replace(/^www\./, "") || "Link";
-              const numberedHostPattern = new RegExp(
-                `^${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\d+)?$`,
-                "i"
-              );
-              return numberedHostPattern.test(pin.label)
-                ? `- ${pin.value}`
-                : `- ${pin.label}: ${pin.value}`;
-            } catch {
-              return `- ${pin.value}`;
-            }
-          }),
-        ].join("\n")
-      );
-    }
-
-    if (initialMedia.length > 0) {
-      sections.push(
-        [
-          "Attached files:",
-          ...initialMedia.map((file) => {
-            const detail = file.description?.trim();
-            const suffix = detail ? ` — ${detail}` : "";
-            return `- ${file.displayName}${suffix} (available via dispatch shared media)`;
-          }),
-        ].join("\n")
-      );
-    }
-
-    return sections.join("\n\n");
-  }
-
   private async seedInitialMedia(
     agentId: string,
     mediaDir: string,
@@ -2404,44 +2089,6 @@ export class AgentManager {
     const ext = path.extname(fileName);
     const base = path.basename(fileName, ext);
     return `${base}-${timestamp}-${index + 1}${ext}`;
-  }
-
-  private dispatchMcpUrl(agentId: string, jobRunId?: string): string {
-    const path = jobRunId
-      ? `/api/mcp/jobs/${jobRunId}/${agentId}`
-      : `/api/mcp/${agentId}`;
-    return `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}${path}`;
-  }
-
-  private shellEscape(value: string): string {
-    return `'${value.replaceAll("'", `'\\''`)}'`;
-  }
-
-  private normalizeAgentArgsForType(
-    type: AgentType,
-    args: string[]
-  ): { passthroughArgs: string[]; appendedSystemPrompt: string | null } {
-    if (type === "claude") {
-      return { passthroughArgs: args, appendedSystemPrompt: null };
-    }
-
-    const passthroughArgs: string[] = [];
-    let appendedSystemPrompt: string | null = null;
-
-    for (let index = 0; index < args.length; index += 1) {
-      const arg = args[index];
-      if (
-        arg === "--append-system-prompt" &&
-        typeof args[index + 1] === "string"
-      ) {
-        appendedSystemPrompt = args[index + 1] ?? null;
-        index += 1;
-        continue;
-      }
-      passthroughArgs.push(arg);
-    }
-
-    return { passthroughArgs, appendedSystemPrompt };
   }
 
   private async validateWorkingDirectory(rawCwd: string): Promise<string> {
@@ -2799,50 +2446,6 @@ export class AgentManager {
     return `agt_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
   }
 
-  /** Extract agent ID from a session name like "dispatch_agt_abc123_my-task" or "dispatch_dev_agt_abc123_my-task". */
-  private agentIdFromSessionName(sessionName: string): string {
-    const match = sessionName.match(/(agt_[a-f0-9]{12})/);
-    return match?.[1] ?? sessionName.replace(/^[^_]*_/, "");
-  }
-
-  private toSessionName(agentId: string, agentName?: string): string {
-    const prefix = this.config.sessionPrefix;
-    if (!agentName) {
-      return `${prefix}_${agentId}`;
-    }
-    // Sanitize: tmux disallows colons and periods in session names.
-    // Collapse whitespace/special chars to hyphens, truncate to keep it readable.
-    const slug = agentName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 30);
-    return `${prefix}_${agentId}_${slug}`;
-  }
-
-  private shouldSuggestSessionRename(
-    agentName: string | null | undefined,
-    agentId: string,
-    opts: { persona?: string | null; jobRunId?: string }
-  ): boolean {
-    if (opts.persona) {
-      return false;
-    }
-
-    const trimmed = agentName?.trim();
-    if (opts.jobRunId) {
-      const jobNameSuffix = `-${opts.jobRunId.slice(0, 8)}`;
-      return (
-        !!trimmed &&
-        trimmed.startsWith("job-") &&
-        trimmed.endsWith(jobNameSuffix)
-      );
-    }
-
-    return trimmed === `agent-${agentId.slice(-6)}`;
-  }
-
   private defaultMediaDir(agentId: string): string {
     return path.join(this.config.mediaRoot, agentId);
   }
@@ -2898,278 +2501,6 @@ export class AgentManager {
       `UPDATE agents SET archive_phase = $2, updated_at = NOW() WHERE id = $1`,
       [id, phase]
     );
-  }
-
-  private generateSetupScript(params: {
-    agentId: string;
-    agentType: AgentType;
-    originalCwd: string;
-    useWorktree: boolean;
-    createNewBranch: boolean;
-    worktreeBranchName?: string;
-    baseBranch?: string;
-    worktreePathOverride?: string;
-    agentName: string;
-    agentCommand: string;
-    exitFile: string;
-    jobRunId?: string;
-  }): string {
-    const {
-      agentId,
-      agentType,
-      originalCwd,
-      useWorktree,
-      createNewBranch,
-      worktreeBranchName,
-      worktreePathOverride,
-      agentName,
-      agentCommand,
-      exitFile,
-    } = params;
-
-    const serverUrl = `${this.config.tls ? "https" : "http"}://127.0.0.1:${this.config.port}`;
-    const authToken = this.config.authToken;
-
-    // Helper function to call back to the server to update setup phase
-    const curlPhase = (phase: string) =>
-      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/phase" ` +
-      `-H "Content-Type: application/json" ` +
-      `-H "Authorization: Bearer ${authToken}" ` +
-      `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
-
-    // Helper to report an unrecoverable setup failure. The bash variable
-    // SETUP_ERROR_MSG is interpolated as a JSON string body so the message
-    // surfaces in the agent's last_error.
-    const curlSetupError = (msgBashVar: string) =>
-      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/error" ` +
-      `-H "Content-Type: application/json" ` +
-      `-H "Authorization: Bearer ${authToken}" ` +
-      `-d "{\\"message\\":\\"\${${msgBashVar}}\\"}" > /dev/null 2>&1 || true`;
-
-    // Helper function for the completion callback
-    const curlComplete = (
-      cwdVar: string,
-      worktreePathVar: string,
-      worktreeBranchVar: string
-    ) =>
-      `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/complete" ` +
-      `-H "Content-Type: application/json" ` +
-      `-H "Authorization: Bearer ${authToken}" ` +
-      `-d "{\\"effectiveCwd\\":\\"${cwdVar}\\",\\"worktreePath\\":${worktreePathVar},\\"worktreeBranch\\":${worktreeBranchVar}}" > /dev/null 2>&1`;
-
-    const lines: string[] = [
-      `#!/usr/bin/env bash`,
-      `set -euo pipefail`,
-      ``,
-      `# Dispatch agent setup script for ${agentName}`,
-      `# This script runs in tmux so the user can see setup progress in real time.`,
-      ``,
-      `# Tee stderr to a log file so the server can surface errors when the session`,
-      `# exits immediately (e.g. a broken profile script).`,
-      `exec 2> >(tee "/tmp/dispatch_setup_${agentId}.log" >&2)`,
-      ``,
-      `# Source user-defined overrides for agent sessions`,
-      `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
-      ``,
-      `BOLD="\\033[1m"`,
-      `DIM="\\033[2m"`,
-      `GREEN="\\033[32m"`,
-      `YELLOW="\\033[33m"`,
-      `RED="\\033[31m"`,
-      `RESET="\\033[0m"`,
-      ``,
-      `phase() { printf "\\n\${BOLD}\${GREEN}▸ %s\${RESET}\\n" "$1"; }`,
-      `info()  { printf "  \${DIM}%s\${RESET}\\n" "$1"; }`,
-      `warn()  { printf "  \${YELLOW}⚠ %s\${RESET}\\n" "$1"; }`,
-      `fail()  { printf "  \${RED}✗ %s\${RESET}\\n" "$1"; }`,
-      `ok()    { printf "  \${GREEN}✓ %s\${RESET}\\n" "$1"; }`,
-      ``,
-      `EFFECTIVE_CWD="${this.shellQuote(originalCwd)}"`,
-      `WORKTREE_PATH="null"`,
-      `WORKTREE_BRANCH="null"`,
-      ``,
-    ];
-
-    if (useWorktree && worktreeBranchName) {
-      // Defense in depth: refs flowing through this function are interpolated
-      // into a bash script that runs in tmux, so re-validate them here even
-      // though createAgent already normalized them. A failure here is a bug,
-      // not user error.
-      assertSafeRefName(worktreeBranchName, "worktreeBranchName");
-      const effectiveBaseBranch = assertSafeRefName(
-        params.baseBranch || "main",
-        "baseBranch"
-      );
-
-      const phaseLabel = createNewBranch
-        ? "Creating git worktree"
-        : "Creating managed git worktree";
-      const branchLine = createNewBranch
-        ? `info "Branch: ${worktreeBranchName}"`
-        : `info "Checking out: ${worktreeBranchName}"`;
-      lines.push(
-        `# --- Worktree creation ---`,
-        `phase "${phaseLabel}"`,
-        branchLine,
-        ``
-      );
-
-      // Determine worktree path arg
-      const wtPathArg = worktreePathOverride ? `"${worktreePathOverride}"` : "";
-      lines.push(
-        `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
-        `  warn "Not a git repository — skipping worktree"`,
-        `  ${curlPhase("session")}`,
-        `  exec_agent=true`,
-        `}`,
-        ``,
-        `if [ "\${exec_agent:-}" != "true" ]; then`,
-        `  info "Fetching origin/${effectiveBaseBranch}..."`,
-        `  git -C "$REPO_ROOT" fetch origin "${effectiveBaseBranch}" --quiet 2>/dev/null || true`,
-        ``,
-        `  BASE_REF="origin/${effectiveBaseBranch}"`,
-        `  git -C "$REPO_ROOT" rev-parse --verify "$BASE_REF" > /dev/null 2>&1 || {`,
-        `    BASE_REF="${effectiveBaseBranch}"`,
-        `  }`,
-        ``
-      );
-
-      if (worktreePathOverride) {
-        lines.push(`  WT_PATH="${worktreePathOverride}"`);
-      } else {
-        // Default sibling path: <repoRoot>/../<basename>-<slug>. Use the
-        // shared slug helper so the bash path matches what worktree.ts
-        // computes on the inert path (and includes a hash discriminator
-        // when createNewBranch=false to avoid slug collisions).
-        const slugSource = createNewBranch
-          ? worktreeBranchName
-          : effectiveBaseBranch;
-        const sluggedBranch = worktreePathSlug(slugSource, { createNewBranch });
-        lines.push(
-          `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
-          `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`
-        );
-      }
-
-      const addCmd = createNewBranch
-        ? `git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF"`
-        : `git -C "$REPO_ROOT" worktree add "$WT_PATH" "${effectiveBaseBranch}"`;
-      const upstreamLine = createNewBranch
-        ? `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`
-        : null;
-
-      lines.push(
-        ``,
-        `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
-        `  if [ $? -eq 0 ]; then`,
-        `    ok "Worktree created at $WT_PATH"`,
-        ...(upstreamLine ? [upstreamLine] : []),
-        `    EFFECTIVE_CWD="$WT_PATH"`,
-        `    WORKTREE_PATH="\\"$WT_PATH\\""`,
-        `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
-        ``,
-        `    # --- Copy .env ---`,
-        `    ${curlPhase("env")}`,
-        `    phase "Copying environment files"`,
-        `    if [ -f "${originalCwd}/.env" ]; then`,
-        `      cp "${originalCwd}/.env" "$WT_PATH/.env" && ok "Copied .env" || warn "Failed to copy .env"`,
-        `    else`,
-        `      info "No .env file found — skipping"`,
-        `    fi`,
-        ``
-      );
-
-      if (agentType !== "terminal") {
-        lines.push(
-          `    # --- Install dependencies ---`,
-          `    ${curlPhase("deps")}`,
-          `    phase "Installing dependencies"`,
-          `    cd "$WT_PATH"`,
-          `    if [ -f "pnpm-lock.yaml" ]; then`,
-          `      info "Detected pnpm-lock.yaml"`,
-          `      pnpm install 2>&1 || warn "pnpm install failed (continuing anyway)"`,
-          `      ok "Dependencies installed"`,
-          `    elif [ -f "yarn.lock" ]; then`,
-          `      info "Detected yarn.lock"`,
-          `      yarn install 2>&1 || warn "yarn install failed (continuing anyway)"`,
-          `      ok "Dependencies installed"`,
-          `    elif [ -f "package-lock.json" ]; then`,
-          `      info "Detected package-lock.json"`,
-          `      npm install 2>&1 || warn "npm install failed (continuing anyway)"`,
-          `      ok "Dependencies installed"`,
-          `    elif [ -f "bun.lockb" ]; then`,
-          `      info "Detected bun.lockb"`,
-          `      bun install 2>&1 || warn "bun install failed (continuing anyway)"`,
-          `      ok "Dependencies installed"`,
-          `    else`,
-          `      info "No lockfile found — skipping dependency install"`,
-          `    fi`,
-          ``
-        );
-      }
-
-      lines.push(
-        `  else`,
-        // The user explicitly asked for an isolated worktree. Don't fall back
-        // to running in the primary checkout — surface the failure to the
-        // server (so last_error shows up in the UI) and exit. The tmux
-        // session-died monitor will reconcile status to stopped.
-        `    fail "Worktree creation failed"`,
-        `    fail "$WORKTREE_ADD_OUTPUT"`,
-        `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
-        `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
-        `    ${curlSetupError("SETUP_ERROR_MSG")}`,
-        `    exit 1`,
-        `  fi`,
-        `fi`,
-        ``
-      );
-    }
-
-    lines.push(
-      `# --- Start agent session ---`,
-      `${curlPhase("session")}`,
-      `phase "Starting agent session"`,
-      `info "Type: ${params.agentName}"`,
-      ``,
-      `# Notify server that setup is complete`,
-      `cd "$EFFECTIVE_CWD"`,
-      `${curlComplete("$EFFECTIVE_CWD", "$WORKTREE_PATH", "$WORKTREE_BRANCH")}`,
-      ``
-    );
-
-    // Opencode: write opencode.json with the Dispatch MCP server config.
-    if (agentType === "opencode") {
-      const dispatchMcpUrl = this.dispatchMcpUrl(agentId, params.jobRunId);
-      const dispatchMcpToken = params.jobRunId
-        ? createJobMcpToken(authToken, params.jobRunId, agentId)
-        : createAgentMcpToken(authToken, agentId);
-      const mcpEntry = JSON.stringify({
-        type: "remote",
-        url: dispatchMcpUrl,
-        headers: { Authorization: `Bearer ${dispatchMcpToken}` },
-      });
-      lines.push(
-        `# --- Configure opencode MCP ---`,
-        `OPENCODE_CFG="$EFFECTIVE_CWD/opencode.json"`,
-        `MCP_ENTRY=${this.shellEscape(mcpEntry)}`,
-        `node --input-type=module -e 'import { readFileSync, renameSync, writeFileSync } from "node:fs"; const [configPath, mcpEntryJson] = process.argv.slice(1); const mcpEntry = JSON.parse(mcpEntryJson); let cfg = {}; try { cfg = JSON.parse(readFileSync(configPath, "utf8")); } catch (error) { if (error?.code !== "ENOENT") throw error; } cfg.mcp = { ...(cfg.mcp ?? {}), dispatch: mcpEntry }; const tmpPath = \`\${configPath}.tmp-\${process.pid}\`; writeFileSync(tmpPath, JSON.stringify(cfg, null, 2) + "\\n"); renameSync(tmpPath, configPath);' "$OPENCODE_CFG" "$MCP_ENTRY"`,
-        `ok "Configured dispatch MCP in opencode.json"`,
-        ``
-      );
-    }
-
-    lines.push(
-      `# exec replaces this shell with the agent CLI — seamless transition`,
-      `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`
-    );
-
-    return lines.join("\n") + "\n";
-  }
-
-  /** Quote a value for safe embedding in a bash script (single-quote wrapping). */
-  private shellQuote(value: string): string {
-    return value.replaceAll("'", "'\\''");
   }
 
   private async setSystemLatestEvent(

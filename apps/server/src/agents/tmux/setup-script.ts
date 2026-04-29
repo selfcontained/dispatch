@@ -1,0 +1,299 @@
+import { createAgentMcpToken, createJobMcpToken } from "../../auth.js";
+import type { AppConfig } from "../../config.js";
+import {
+  assertSafeRefName,
+  worktreePathSlug,
+} from "../../shared/git/worktree.js";
+import type { AgentType } from "../types.js";
+import { dispatchMcpUrl } from "./command-builder.js";
+import { shellEscape, shellQuote } from "./quoting.js";
+
+export type SetupScriptParams = {
+  agentId: string;
+  agentType: AgentType;
+  originalCwd: string;
+  useWorktree: boolean;
+  createNewBranch: boolean;
+  worktreeBranchName?: string;
+  baseBranch?: string;
+  worktreePathOverride?: string;
+  agentName: string;
+  agentCommand: string;
+  exitFile: string;
+  jobRunId?: string;
+};
+
+/**
+ * Generate the bash setup script that runs in the agent's tmux pane on
+ * launch. Pure — takes config + inputs, returns the full script as a
+ * single string (the caller writes it to `/tmp/dispatch_setup_<id>.sh`
+ * and execs it via tmux).
+ *
+ * The script:
+ *   1. Optionally creates a git worktree from `baseBranch` and copies
+ *      `.env` + installs deps inside it.
+ *   2. Phones the server back via curl at each phase boundary
+ *      (`worktree`/`env`/`deps`/`session`).
+ *   3. For opencode agents, writes `opencode.json` with the dispatch
+ *      MCP entry before launch.
+ *   4. `exec`s into `agentCommand` so the tmux pane becomes the agent.
+ *
+ * Security note: ref names flowing into the bash script are re-validated
+ * via `assertSafeRefName` even though `createAgent` already normalizes
+ * them — defense in depth, since a failure here is a bug rather than
+ * user error.
+ */
+export function generateSetupScript(
+  config: AppConfig,
+  params: SetupScriptParams
+): string {
+  const {
+    agentId,
+    agentType,
+    originalCwd,
+    useWorktree,
+    createNewBranch,
+    worktreeBranchName,
+    worktreePathOverride,
+    agentName,
+    agentCommand,
+    exitFile,
+  } = params;
+
+  const serverUrl = `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}`;
+  const authToken = config.authToken;
+
+  // Helper function to call back to the server to update setup phase
+  const curlPhase = (phase: string) =>
+    `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/phase" ` +
+    `-H "Content-Type: application/json" ` +
+    `-H "Authorization: Bearer ${authToken}" ` +
+    `-d '{"phase":"${phase}"}' > /dev/null 2>&1 || true`;
+
+  // Helper to report an unrecoverable setup failure. The bash variable
+  // SETUP_ERROR_MSG is interpolated as a JSON string body so the message
+  // surfaces in the agent's last_error.
+  const curlSetupError = (msgBashVar: string) =>
+    `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/error" ` +
+    `-H "Content-Type: application/json" ` +
+    `-H "Authorization: Bearer ${authToken}" ` +
+    `-d "{\\"message\\":\\"\${${msgBashVar}}\\"}" > /dev/null 2>&1 || true`;
+
+  // Helper function for the completion callback
+  const curlComplete = (
+    cwdVar: string,
+    worktreePathVar: string,
+    worktreeBranchVar: string
+  ) =>
+    `curl -sf -X POST "${serverUrl}/api/v1/agents/${agentId}/setup/complete" ` +
+    `-H "Content-Type: application/json" ` +
+    `-H "Authorization: Bearer ${authToken}" ` +
+    `-d "{\\"effectiveCwd\\":\\"${cwdVar}\\",\\"worktreePath\\":${worktreePathVar},\\"worktreeBranch\\":${worktreeBranchVar}}" > /dev/null 2>&1`;
+
+  const lines: string[] = [
+    `#!/usr/bin/env bash`,
+    `set -euo pipefail`,
+    ``,
+    `# Dispatch agent setup script for ${agentName}`,
+    `# This script runs in tmux so the user can see setup progress in real time.`,
+    ``,
+    `# Tee stderr to a log file so the server can surface errors when the session`,
+    `# exits immediately (e.g. a broken profile script).`,
+    `exec 2> >(tee "/tmp/dispatch_setup_${agentId}.log" >&2)`,
+    ``,
+    `# Source user-defined overrides for agent sessions`,
+    `[[ -f ~/.dispatch/env ]] && { set +e; source ~/.dispatch/env; set -euo pipefail; }`,
+    ``,
+    `BOLD="\\033[1m"`,
+    `DIM="\\033[2m"`,
+    `GREEN="\\033[32m"`,
+    `YELLOW="\\033[33m"`,
+    `RED="\\033[31m"`,
+    `RESET="\\033[0m"`,
+    ``,
+    `phase() { printf "\\n\${BOLD}\${GREEN}▸ %s\${RESET}\\n" "$1"; }`,
+    `info()  { printf "  \${DIM}%s\${RESET}\\n" "$1"; }`,
+    `warn()  { printf "  \${YELLOW}⚠ %s\${RESET}\\n" "$1"; }`,
+    `fail()  { printf "  \${RED}✗ %s\${RESET}\\n" "$1"; }`,
+    `ok()    { printf "  \${GREEN}✓ %s\${RESET}\\n" "$1"; }`,
+    ``,
+    `EFFECTIVE_CWD="${shellQuote(originalCwd)}"`,
+    `WORKTREE_PATH="null"`,
+    `WORKTREE_BRANCH="null"`,
+    ``,
+  ];
+
+  if (useWorktree && worktreeBranchName) {
+    // Defense in depth: refs flowing through this function are interpolated
+    // into a bash script that runs in tmux, so re-validate them here even
+    // though createAgent already normalized them. A failure here is a bug,
+    // not user error.
+    assertSafeRefName(worktreeBranchName, "worktreeBranchName");
+    const effectiveBaseBranch = assertSafeRefName(
+      params.baseBranch || "main",
+      "baseBranch"
+    );
+
+    const phaseLabel = createNewBranch
+      ? "Creating git worktree"
+      : "Creating managed git worktree";
+    const branchLine = createNewBranch
+      ? `info "Branch: ${worktreeBranchName}"`
+      : `info "Checking out: ${worktreeBranchName}"`;
+    lines.push(
+      `# --- Worktree creation ---`,
+      `phase "${phaseLabel}"`,
+      branchLine,
+      ``
+    );
+
+    lines.push(
+      `REPO_ROOT=$(git -C "${originalCwd}" rev-parse --show-toplevel 2>/dev/null) || {`,
+      `  warn "Not a git repository — skipping worktree"`,
+      `  ${curlPhase("session")}`,
+      `  exec_agent=true`,
+      `}`,
+      ``,
+      `if [ "\${exec_agent:-}" != "true" ]; then`,
+      `  info "Fetching origin/${effectiveBaseBranch}..."`,
+      `  git -C "$REPO_ROOT" fetch origin "${effectiveBaseBranch}" --quiet 2>/dev/null || true`,
+      ``,
+      `  BASE_REF="origin/${effectiveBaseBranch}"`,
+      `  git -C "$REPO_ROOT" rev-parse --verify "$BASE_REF" > /dev/null 2>&1 || {`,
+      `    BASE_REF="${effectiveBaseBranch}"`,
+      `  }`,
+      ``
+    );
+
+    if (worktreePathOverride) {
+      lines.push(`  WT_PATH="${worktreePathOverride}"`);
+    } else {
+      // Default sibling path: <repoRoot>/../<basename>-<slug>. Use the
+      // shared slug helper so the bash path matches what worktree.ts
+      // computes on the inert path (and includes a hash discriminator
+      // when createNewBranch=false to avoid slug collisions).
+      const slugSource = createNewBranch
+        ? worktreeBranchName
+        : effectiveBaseBranch;
+      const sluggedBranch = worktreePathSlug(slugSource, { createNewBranch });
+      lines.push(
+        `  REPO_BASENAME=$(basename "$REPO_ROOT")`,
+        `  WT_PATH="$(dirname "$REPO_ROOT")/\${REPO_BASENAME}-${sluggedBranch}"`
+      );
+    }
+
+    const addCmd = createNewBranch
+      ? `git -C "$REPO_ROOT" worktree add -b "${worktreeBranchName}" "$WT_PATH" "$BASE_REF"`
+      : `git -C "$REPO_ROOT" worktree add "$WT_PATH" "${effectiveBaseBranch}"`;
+    const upstreamLine = createNewBranch
+      ? `    git -C "$WT_PATH" branch --set-upstream-to "$BASE_REF" "${worktreeBranchName}" 2>/dev/null || true`
+      : null;
+
+    lines.push(
+      ``,
+      `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
+      `  if [ $? -eq 0 ]; then`,
+      `    ok "Worktree created at $WT_PATH"`,
+      ...(upstreamLine ? [upstreamLine] : []),
+      `    EFFECTIVE_CWD="$WT_PATH"`,
+      `    WORKTREE_PATH="\\"$WT_PATH\\""`,
+      `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
+      ``,
+      `    # --- Copy .env ---`,
+      `    ${curlPhase("env")}`,
+      `    phase "Copying environment files"`,
+      `    if [ -f "${originalCwd}/.env" ]; then`,
+      `      cp "${originalCwd}/.env" "$WT_PATH/.env" && ok "Copied .env" || warn "Failed to copy .env"`,
+      `    else`,
+      `      info "No .env file found — skipping"`,
+      `    fi`,
+      ``
+    );
+
+    if (agentType !== "terminal") {
+      lines.push(
+        `    # --- Install dependencies ---`,
+        `    ${curlPhase("deps")}`,
+        `    phase "Installing dependencies"`,
+        `    cd "$WT_PATH"`,
+        `    if [ -f "pnpm-lock.yaml" ]; then`,
+        `      info "Detected pnpm-lock.yaml"`,
+        `      pnpm install 2>&1 || warn "pnpm install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "yarn.lock" ]; then`,
+        `      info "Detected yarn.lock"`,
+        `      yarn install 2>&1 || warn "yarn install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "package-lock.json" ]; then`,
+        `      info "Detected package-lock.json"`,
+        `      npm install 2>&1 || warn "npm install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    elif [ -f "bun.lockb" ]; then`,
+        `      info "Detected bun.lockb"`,
+        `      bun install 2>&1 || warn "bun install failed (continuing anyway)"`,
+        `      ok "Dependencies installed"`,
+        `    else`,
+        `      info "No lockfile found — skipping dependency install"`,
+        `    fi`,
+        ``
+      );
+    }
+
+    lines.push(
+      `  else`,
+      // The user explicitly asked for an isolated worktree. Don't fall back
+      // to running in the primary checkout — surface the failure to the
+      // server (so last_error shows up in the UI) and exit. The tmux
+      // session-died monitor will reconcile status to stopped.
+      `    fail "Worktree creation failed"`,
+      `    fail "$WORKTREE_ADD_OUTPUT"`,
+      `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
+      `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
+      `    ${curlSetupError("SETUP_ERROR_MSG")}`,
+      `    exit 1`,
+      `  fi`,
+      `fi`,
+      ``
+    );
+  }
+
+  lines.push(
+    `# --- Start agent session ---`,
+    `${curlPhase("session")}`,
+    `phase "Starting agent session"`,
+    `info "Type: ${params.agentName}"`,
+    ``,
+    `# Notify server that setup is complete`,
+    `cd "$EFFECTIVE_CWD"`,
+    `${curlComplete("$EFFECTIVE_CWD", "$WORKTREE_PATH", "$WORKTREE_BRANCH")}`,
+    ``
+  );
+
+  // Opencode: write opencode.json with the Dispatch MCP server config.
+  if (agentType === "opencode") {
+    const mcpUrl = dispatchMcpUrl(config, agentId, params.jobRunId);
+    const dispatchMcpToken = params.jobRunId
+      ? createJobMcpToken(authToken, params.jobRunId, agentId)
+      : createAgentMcpToken(authToken, agentId);
+    const mcpEntry = JSON.stringify({
+      type: "remote",
+      url: mcpUrl,
+      headers: { Authorization: `Bearer ${dispatchMcpToken}` },
+    });
+    lines.push(
+      `# --- Configure opencode MCP ---`,
+      `OPENCODE_CFG="$EFFECTIVE_CWD/opencode.json"`,
+      `MCP_ENTRY=${shellEscape(mcpEntry)}`,
+      `node --input-type=module -e 'import { readFileSync, renameSync, writeFileSync } from "node:fs"; const [configPath, mcpEntryJson] = process.argv.slice(1); const mcpEntry = JSON.parse(mcpEntryJson); let cfg = {}; try { cfg = JSON.parse(readFileSync(configPath, "utf8")); } catch (error) { if (error?.code !== "ENOENT") throw error; } cfg.mcp = { ...(cfg.mcp ?? {}), dispatch: mcpEntry }; const tmpPath = \`\${configPath}.tmp-\${process.pid}\`; writeFileSync(tmpPath, JSON.stringify(cfg, null, 2) + "\\n"); renameSync(tmpPath, configPath);' "$OPENCODE_CFG" "$MCP_ENTRY"`,
+      `ok "Configured dispatch MCP in opencode.json"`,
+      ``
+    );
+  }
+
+  lines.push(
+    `# exec replaces this shell with the agent CLI — seamless transition`,
+    `exec bash -c '${agentCommand.replaceAll("'", "'\\''")}; echo "EXIT:$?" > ${exitFile}'`
+  );
+
+  return lines.join("\n") + "\n";
+}
