@@ -166,6 +166,8 @@ export function useTerminal(args: {
   // effect and cause spurious reconnect attempts that abort in-flight connects).
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const deferMediaResizeRef = useRef(deferMediaResize);
+  deferMediaResizeRef.current = deferMediaResize;
 
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
@@ -840,7 +842,7 @@ export function useTerminal(args: {
     });
 
     const onResize = () => {
-      if (deferMediaResize) return;
+      if (deferMediaResizeRef.current) return;
       fit.fit();
       sendResize();
     };
@@ -878,7 +880,6 @@ export function useTerminal(args: {
     };
   }, [
     authState,
-    deferMediaResize,
     enhancedTerminal,
     invalidateAttachAttempt,
     sendResize,

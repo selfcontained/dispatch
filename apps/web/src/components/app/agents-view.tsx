@@ -317,6 +317,15 @@ export function AgentsView({
   const focusedAgentStreamUrl = focusedAgentId
     ? `/api/v1/agents/${focusedAgentId}/stream`
     : null;
+  const prevFocusedAgentHasStreamRef = useRef(focusedAgentHasStream);
+
+  useEffect(() => {
+    const streamStarted =
+      !prevFocusedAgentHasStreamRef.current && focusedAgentHasStream;
+    prevFocusedAgentHasStreamRef.current = focusedAgentHasStream;
+    if (!streamStarted) return;
+    setMediaOpen(true);
+  }, [focusedAgentHasStream, setMediaOpen]);
 
   useAgentFocus(focusedAgentId, "authenticated");
 
