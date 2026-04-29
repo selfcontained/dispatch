@@ -781,7 +781,6 @@ export class AgentManager {
             allowedExitCodes: [0, 1],
           }
         );
-
         if (!(await this.hasAgentSession(tmuxSession))) {
           const detail = await this.readSetupLogTail(id);
           throw new Error(
@@ -2215,7 +2214,6 @@ export class AgentManager {
         allowedExitCodes: [0, 1],
       }
     );
-
     // Detect fast-fail launches (for example, missing codex executable) so status
     // is not left as "running" with no backing tmux session.
     if (!(await this.hasAgentSession(sessionName))) {

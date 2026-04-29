@@ -41,6 +41,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -120,6 +121,7 @@ export function AgentsView({
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
   >(null);
+  const { enhancedTerminal } = useEnhancedTerminal();
   const [sharedConnState, setSharedConnState] =
     useState<ConnState>("disconnected");
 
@@ -193,6 +195,7 @@ export function AgentsView({
     leftOpen,
     mediaOpen,
     feedbackOpen: !!feedbackDetail,
+    enhancedTerminal,
   });
 
   useEffect(() => {
@@ -627,6 +630,7 @@ export function AgentsView({
                 terminalMode={terminalMode}
                 terminalPlaceholderMessage={terminalPlaceholderMessage}
                 terminalHostRef={terminalHostRef}
+                enhancedTerminal={enhancedTerminal}
                 archivePhase={
                   selectedAgent?.status === "archiving"
                     ? selectedAgent.archivePhase

@@ -25,12 +25,20 @@ const TERMINAL_FRESHNESS_MS =
   TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
+const TERMINAL_BACKFILL_LINES = 1_200;
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
   | { type: "output"; data: string }
   | { type: "error"; message: string }
   | { type: "exit"; exitCode?: number };
+
+type TerminalHistoryResponse = {
+  mode: "tmux";
+  data: string;
+  lines: number;
+  skipBottomLines: number;
+};
 
 function isTerminalSessionGone(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -61,6 +69,10 @@ function cleanCopiedText(text: string): string {
   return text;
 }
 
+function normalizeBackfill(text: string): string {
+  return text.replace(/\r?\n/g, "\r\n");
+}
+
 export function useTerminal(args: {
   authState: AuthState;
   agents: Agent[];
@@ -70,6 +82,7 @@ export function useTerminal(args: {
   leftOpen: boolean;
   mediaOpen: boolean;
   feedbackOpen: boolean;
+  enhancedTerminal: boolean;
 }): {
   connState: ConnState;
   connectedAgentId: string | null;
@@ -96,6 +109,7 @@ export function useTerminal(args: {
     leftOpen,
     mediaOpen,
     feedbackOpen,
+    enhancedTerminal,
   } = args;
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
@@ -110,6 +124,8 @@ export function useTerminal(args: {
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
+  const enhancedTerminalRef = useRef(enhancedTerminal);
+  enhancedTerminalRef.current = enhancedTerminal;
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const [terminalHostElement, setTerminalHostElement] =
@@ -410,6 +426,7 @@ export function useTerminal(args: {
 
         clearReconnectTimer();
         closeSocket(false);
+        resetTerminalSurface();
 
         if (clearScreen) {
           terminalRef.current?.clear();
@@ -442,6 +459,17 @@ export function useTerminal(args: {
           const term = terminalRef.current;
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
+          if (term && enhancedTerminalRef.current) {
+            const history = await api<TerminalHistoryResponse>(
+              `/api/v1/agents/${agent.id}/terminal/history?lines=${TERMINAL_BACKFILL_LINES}&skipBottomLines=${rows}`
+            );
+            if (!isCurrentAttempt()) {
+              return;
+            }
+            if (history.data.trim().length > 0) {
+              term.write(normalizeBackfill(history.data));
+            }
+          }
           setTerminalMode("tmux");
           setTerminalPlaceholderMessage(null);
           const ws = new WebSocket(
@@ -610,7 +638,6 @@ export function useTerminal(args: {
     if (!host) return;
 
     const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-
     const palette = getTerminalPalette(themeRef.current);
     const term = new XTerm({
       convertEol: false,
@@ -619,7 +646,7 @@ export function useTerminal(args: {
       fontSize: 13,
       scrollback: 1000,
       macOptionClickForcesSelection: true,
-      screenReaderMode: isTouchDevice,
+      screenReaderMode: isTouchDevice && !enhancedTerminal,
       minimumContrastRatio: palette.minimumContrastRatio ?? 1,
       theme: palette,
     });
@@ -688,37 +715,56 @@ export function useTerminal(args: {
     host.addEventListener("paste", handlePaste, true);
 
     const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
+    const scrollableEl = host.querySelector(
+      ".xterm-scrollable-element"
+    ) as HTMLElement | null;
     let touchY = 0;
     let touchAccum = 0;
-    const SCROLL_SENSITIVITY = 30;
+    const TOUCH_LINE_PX = 24;
+    const LEGACY_SCROLL_SENSITIVITY_PX = 30;
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        touchY = e.touches[0].clientY;
-        touchAccum = 0;
-      }
+      if (!isTouchDevice || e.touches.length !== 1) return;
+      touchY = e.touches[0].clientY;
+      touchAccum = 0;
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1 || !screenEl) return;
+      if (!isTouchDevice || e.touches.length !== 1) return;
+      if (!enhancedTerminalRef.current) {
+        if (!screenEl) return;
+        const currentY = e.touches[0].clientY;
+        const delta = touchY - currentY;
+        touchY = currentY;
+        touchAccum += delta;
+        while (Math.abs(touchAccum) >= LEGACY_SCROLL_SENSITIVITY_PX) {
+          const direction = touchAccum > 0 ? 1 : -1;
+          touchAccum -= direction * LEGACY_SCROLL_SENSITIVITY_PX;
+          screenEl.dispatchEvent(
+            new WheelEvent("wheel", {
+              deltaY: direction * 100,
+              deltaMode: 0,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        }
+        return;
+      }
+      const active = term.buffer.active;
+      if (active.type !== "normal" || active.baseY <= 0) return;
+      e.preventDefault();
+      e.stopPropagation();
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
       touchAccum += delta;
-      while (Math.abs(touchAccum) >= SCROLL_SENSITIVITY) {
-        const direction = touchAccum > 0 ? 1 : -1;
-        touchAccum -= direction * SCROLL_SENSITIVITY;
-        screenEl.dispatchEvent(
-          new WheelEvent("wheel", {
-            deltaY: direction * 100,
-            deltaMode: 0,
-            bubbles: true,
-            cancelable: true,
-          })
-        );
-      }
+      const wholeLines =
+        touchAccum > 0
+          ? Math.floor(touchAccum / TOUCH_LINE_PX)
+          : Math.ceil(touchAccum / TOUCH_LINE_PX);
+      if (wholeLines === 0) return;
+      touchAccum -= wholeLines * TOUCH_LINE_PX;
+      term.scrollLines(wholeLines);
     };
-    host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: true });
-
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
       if (dispatchingMouseDown) return;
@@ -746,8 +792,23 @@ export function useTerminal(args: {
       );
       dispatchingMouseDown = false;
     };
-    if (screenEl) {
-      screenEl.addEventListener("mousedown", onMouseDown, true);
+
+    host.addEventListener("touchstart", onTouchStart, { passive: true });
+    if (enhancedTerminal) {
+      host.addEventListener("touchmove", onTouchMove, { passive: false });
+      screenEl?.addEventListener("touchstart", onTouchStart, { passive: true });
+      screenEl?.addEventListener("touchmove", onTouchMove, { passive: false });
+      scrollableEl?.addEventListener("touchstart", onTouchStart, {
+        passive: true,
+      });
+      scrollableEl?.addEventListener("touchmove", onTouchMove, {
+        passive: false,
+      });
+    } else {
+      host.addEventListener("touchmove", onTouchMove, { passive: true });
+      if (screenEl) {
+        screenEl.addEventListener("mousedown", onMouseDown, true);
+      }
     }
 
     const disposable = term.onData((data) => {
@@ -790,8 +851,13 @@ export function useTerminal(args: {
       host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
-      if (screenEl)
+      screenEl?.removeEventListener("touchstart", onTouchStart);
+      screenEl?.removeEventListener("touchmove", onTouchMove);
+      scrollableEl?.removeEventListener("touchstart", onTouchStart);
+      scrollableEl?.removeEventListener("touchmove", onTouchMove);
+      if (screenEl) {
         screenEl.removeEventListener("mousedown", onMouseDown, true);
+      }
       window.removeEventListener("resize", onResize);
       try {
         wsRef.current?.close();
@@ -801,7 +867,13 @@ export function useTerminal(args: {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [authState, invalidateAttachAttempt, sendResize, terminalHostElement]);
+  }, [
+    authState,
+    enhancedTerminal,
+    invalidateAttachAttempt,
+    sendResize,
+    terminalHostElement,
+  ]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {
