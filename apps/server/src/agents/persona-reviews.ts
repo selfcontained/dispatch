@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { AgentError } from "./errors.js";
 
@@ -82,6 +82,35 @@ export function resolveProgressPingStatus(requested: string): "reviewing" {
     );
   }
   return "reviewing";
+}
+
+/**
+ * Within a transaction that's about to insert a feedback row for `agentId`,
+ * derive which review round the new feedback belongs to. Owns the
+ * `awaiting_recheck → roundNumber + 1` rule so feedback.ts doesn't need to
+ * read persona_reviews columns or know the status names.
+ *
+ * Caller must hold an open transaction; the SELECT uses FOR UPDATE.
+ */
+export async function resolveFeedbackRoundNumber(
+  client: PoolClient,
+  agentId: string
+): Promise<number> {
+  const reviewResult = await client.query<{
+    status: string;
+    roundNumber: number;
+  }>(
+    `SELECT status, round_number AS "roundNumber"
+       FROM persona_reviews
+       WHERE agent_id = $1
+       FOR UPDATE`,
+    [agentId]
+  );
+  const review = reviewResult.rows[0];
+  if (!review) return 1;
+  return review.status === "awaiting_recheck"
+    ? review.roundNumber + 1
+    : review.roundNumber;
 }
 
 export async function createPersonaReview(

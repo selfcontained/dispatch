@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 
 import { AgentError } from "./errors.js";
+import { resolveFeedbackRoundNumber } from "./persona-reviews.js";
 
 export type FeedbackInput = {
   severity?: "critical" | "high" | "medium" | "low" | "info";
@@ -63,22 +64,10 @@ export async function submitFeedback(
   try {
     await client.query("BEGIN");
 
-    const reviewResult = await client.query<{
-      status: string;
-      roundNumber: number;
-    }>(
-      `SELECT status, round_number AS "roundNumber"
-         FROM persona_reviews
-         WHERE agent_id = $1
-         FOR UPDATE`,
-      [agentId]
+    const feedbackRoundNumber = await resolveFeedbackRoundNumber(
+      client,
+      agentId
     );
-    const review = reviewResult.rows[0];
-    const feedbackRoundNumber = review
-      ? review.status === "awaiting_recheck"
-        ? review.roundNumber + 1
-        : review.roundNumber
-      : 1;
 
     if (feedback.respondsToFeedbackId != null) {
       const originalResult = await client.query<{
