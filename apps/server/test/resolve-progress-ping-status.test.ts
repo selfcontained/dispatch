@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { resolveProgressPingStatus } from "../src/agents/manager.js";
+import { resolveProgressPingStatus } from "../src/agents/persona-reviews.js";
 
 describe("resolveProgressPingStatus", () => {
   it("accepts 'reviewing'", () => {
