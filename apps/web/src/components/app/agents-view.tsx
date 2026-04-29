@@ -53,6 +53,7 @@ const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
 const EXPANDED_AGENT_ID_KEY = "dispatch:expandedAgentId";
+const MEDIA_SIDEBAR_RESIZE_SETTLE_MS = 340;
 
 function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
   return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
@@ -182,11 +183,14 @@ export function AgentsView({
   const [desktopMediaSidebarState, setDesktopMediaSidebarState] = useAtom(
     desktopMediaSidebarAtom
   );
+  const [deferMediaResize, setDeferMediaResize] = useState(false);
+  const [mediaResizeSettleKey, setMediaResizeSettleKey] = useState(0);
   const mediaOpen = isMobile
     ? mobileMediaOpen
     : desktopMediaSidebarState.isOpen;
   const mediaPanelOpen = mediaOpen;
   const mediaActiveTab = desktopMediaSidebarState.activeTab;
+  const mediaResizeTimerRef = useRef<number | null>(null);
 
   const setMediaActiveTab = useCallback(
     (activeTab: MediaSidebarTab) => {
@@ -215,6 +219,42 @@ export function AgentsView({
     ]
   );
 
+  const finishMediaResizeSettle = useCallback(() => {
+    if (mediaResizeTimerRef.current) {
+      window.clearTimeout(mediaResizeTimerRef.current);
+      mediaResizeTimerRef.current = null;
+    }
+    setDeferMediaResize(false);
+    setMediaResizeSettleKey((current) => current + 1);
+  }, []);
+
+  const prevDesktopMediaOpenRef = useRef(mediaOpen);
+  useEffect(() => {
+    if (isMobile) {
+      prevDesktopMediaOpenRef.current = mediaOpen;
+      return;
+    }
+    if (prevDesktopMediaOpenRef.current === mediaOpen) return;
+    prevDesktopMediaOpenRef.current = mediaOpen;
+    setDeferMediaResize(true);
+    if (mediaResizeTimerRef.current) {
+      window.clearTimeout(mediaResizeTimerRef.current);
+    }
+    mediaResizeTimerRef.current = window.setTimeout(
+      finishMediaResizeSettle,
+      MEDIA_SIDEBAR_RESIZE_SETTLE_MS
+    );
+  }, [finishMediaResizeSettle, isMobile, mediaOpen]);
+
+  useEffect(
+    () => () => {
+      if (mediaResizeTimerRef.current) {
+        window.clearTimeout(mediaResizeTimerRef.current);
+      }
+    },
+    []
+  );
+
   const {
     connState,
     connectedAgentId,
@@ -235,6 +275,8 @@ export function AgentsView({
     isMobile,
     leftOpen,
     mediaOpen,
+    deferMediaResize,
+    mediaResizeSettleKey,
     feedbackOpen: !!feedbackDetail,
     enhancedTerminal,
   });
@@ -753,6 +795,7 @@ export function AgentsView({
             setMediaOpen={setMediaOpen}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
+            onWidthTransitionEnd={finishMediaResizeSettle}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}

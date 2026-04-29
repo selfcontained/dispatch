@@ -54,6 +54,7 @@ type MediaSidebarProps = MediaSidebarSharedProps & {
   setMediaOpen: (open: boolean) => void;
   activeTab: MediaSidebarTab;
   setActiveTab: (tab: MediaSidebarTab) => void;
+  onWidthTransitionEnd?: () => void;
 };
 
 type MediaSidebarContentProps = MediaSidebarSharedProps & {
@@ -494,12 +495,18 @@ export function MediaSidebarContent({
 export function MediaSidebar({
   mediaOpen,
   setMediaOpen,
+  onWidthTransitionEnd,
   ...props
 }: MediaSidebarProps): JSX.Element {
   return (
     <div
       className="h-full min-w-0 flex-none overflow-hidden transition-[width] duration-300 ease-out"
       style={{ width: mediaOpen ? 360 : 0 }}
+      onTransitionEnd={(event) => {
+        if (event.propertyName === "width") {
+          onWidthTransitionEnd?.();
+        }
+      }}
     >
       <MediaSidebarContent
         {...props}
