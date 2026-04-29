@@ -1,24 +1,23 @@
 import { randomUUID } from "node:crypto";
 import {
-  appendFile,
   copyFile,
   mkdir,
-  open,
   readFile,
-  readdir,
-  rename,
   rm,
   stat,
   unlink,
   writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AppConfig } from "../config.js";
+import {
+  createDiagnosticsRecorder,
+  type DiagnosticsRecorder,
+} from "../diagnostics.js";
 import {
   assertSafeRefName,
   cleanupGitWorktree,
@@ -143,11 +142,6 @@ type StopAgentInput = {
 };
 
 export class AgentManager {
-  private static readonly TMUX_INVENTORY_INTERVAL_MS = 60_000;
-  private static readonly LOG_MAINTENANCE_INTERVAL_MS = 5 * 60_000;
-  private static readonly MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-  private static readonly DIAGNOSTICS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-  private static readonly SERVER_LOG_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
@@ -156,13 +150,13 @@ export class AgentManager {
     { value: string; expiresAt: number }
   >();
   private readonly eventListeners: AgentEventListener[] = [];
-  private lastTmuxInventoryAt = 0;
-  private lastLogMaintenanceAt = 0;
+  private readonly diagnostics: DiagnosticsRecorder;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
     this.logger = logger;
     this.config = config;
+    this.diagnostics = createDiagnosticsRecorder(logger);
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -1223,8 +1217,8 @@ export class AgentManager {
   }
 
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
-    await this.maybeCaptureTmuxInventory();
-    await this.maybeMaintenanceLogs();
+    await this.diagnostics.maybeCaptureTmuxInventory();
+    await this.diagnostics.maybeMaintenanceLogs();
 
     const result = await this.pool.query(
       "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
@@ -1265,7 +1259,7 @@ export class AgentManager {
             ? await this.readExitFile(row.tmuxSession)
             : null;
         if (this.config.agentRuntime === "tmux" && row.tmuxSession) {
-          await this.captureMissingSessionIncident({
+          await this.diagnostics.captureMissingSessionIncident({
             agentId: row.id,
             tmuxSession: row.tmuxSession,
             status: row.status,
@@ -1429,283 +1423,6 @@ export class AgentManager {
         runCommand("tmux", ["kill-session", "-t", name]).catch(() => {})
       )
     );
-  }
-
-  private diagnosticsRoot(): string {
-    return path.join(os.homedir(), ".dispatch", "diagnostics");
-  }
-
-  private async maybeCaptureTmuxInventory(): Promise<void> {
-    const now = Date.now();
-    if (
-      now - this.lastTmuxInventoryAt <
-      AgentManager.TMUX_INVENTORY_INTERVAL_MS
-    ) {
-      return;
-    }
-    this.lastTmuxInventoryAt = now;
-
-    try {
-      await mkdir(this.diagnosticsRoot(), { recursive: true });
-      const payload = {
-        capturedAt: new Date(now).toISOString(),
-        source: "reconcile",
-        tmux: {
-          serverPid: await this.detectTmuxServerPid(),
-          sessions: await this.captureCommand(
-            "tmux",
-            ["list-sessions", "-F", "#{session_name}:#{session_created}"],
-            [0, 1]
-          ),
-          panes: await this.captureCommand(
-            "tmux",
-            [
-              "list-panes",
-              "-a",
-              "-F",
-              "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
-            ],
-            [0, 1]
-          ),
-        },
-      };
-      await appendFile(
-        path.join(this.diagnosticsRoot(), "tmux-inventory.jsonl"),
-        `${JSON.stringify(payload)}\n`,
-        "utf-8"
-      );
-    } catch (error) {
-      this.logger.warn({ err: error }, "Failed to capture tmux inventory.");
-    }
-  }
-
-  private async captureMissingSessionIncident(input: {
-    agentId: string;
-    tmuxSession: string;
-    status: string;
-    updatedAt: string;
-    exitInfo: number | null;
-  }): Promise<void> {
-    try {
-      await mkdir(this.diagnosticsRoot(), { recursive: true });
-      const capturedAt = new Date().toISOString();
-      const safeTs = capturedAt.replaceAll(":", "-");
-      const payload = {
-        capturedAt,
-        incident: "missing_tmux_session",
-        agent: input,
-        tmux: {
-          serverPid: await this.detectTmuxServerPid(),
-          sessions: await this.captureCommand(
-            "tmux",
-            ["list-sessions", "-F", "#{session_name}:#{session_created}"],
-            [0, 1]
-          ),
-          panes: await this.captureCommand(
-            "tmux",
-            [
-              "list-panes",
-              "-a",
-              "-F",
-              "#{session_name}:#{window_name}:#{pane_id}:#{pane_pid}:#{pane_current_command}",
-            ],
-            [0, 1]
-          ),
-        },
-        processes: await this.captureCommand(
-          "ps",
-          ["-axo", "pid,ppid,pgid,user,command"],
-          [0]
-        ),
-        launchctl: await this.captureCommand(
-          "launchctl",
-          ["print", `gui/${process.getuid?.() ?? -1}/com.dispatch.server`],
-          [0, 113]
-        ),
-      };
-      const fileName = `${safeTs}-missing-session-${input.agentId}.json`;
-      await writeFile(
-        path.join(this.diagnosticsRoot(), fileName),
-        JSON.stringify(payload, null, 2),
-        "utf-8"
-      );
-    } catch (error) {
-      this.logger.warn(
-        { err: error, agentId: input.agentId },
-        "Failed to capture missing tmux session incident."
-      );
-    }
-  }
-
-  private async maybeMaintenanceLogs(): Promise<void> {
-    const now = Date.now();
-    if (
-      now - this.lastLogMaintenanceAt <
-      AgentManager.LOG_MAINTENANCE_INTERVAL_MS
-    ) {
-      return;
-    }
-    this.lastLogMaintenanceAt = now;
-
-    try {
-      // Rotate tmux-inventory.jsonl (keep 1 backup)
-      const inventoryPath = path.join(
-        this.diagnosticsRoot(),
-        "tmux-inventory.jsonl"
-      );
-      await this.rotateFile(inventoryPath, 1);
-
-      // Rotate dispatch.log via copytruncate (keep 3 backups)
-      const serverLogPath = path.join(
-        os.homedir(),
-        ".dispatch",
-        "logs",
-        "dispatch.log"
-      );
-      await this.copyTruncateFile(serverLogPath, 3);
-
-      // Delete old diagnostics JSON files (> 7 days)
-      await this.deleteOldFiles(
-        this.diagnosticsRoot(),
-        /\.json$/,
-        AgentManager.DIAGNOSTICS_MAX_AGE_MS
-      );
-
-      // Delete old rotated logs (inventory backups > 7 days, server log backups > 14 days)
-      await this.deleteOldFiles(
-        this.diagnosticsRoot(),
-        /tmux-inventory\.jsonl\.\d+$/,
-        AgentManager.DIAGNOSTICS_MAX_AGE_MS
-      );
-      await this.deleteOldFiles(
-        path.join(os.homedir(), ".dispatch", "logs"),
-        /dispatch\.log\.\d+$/,
-        AgentManager.SERVER_LOG_MAX_AGE_MS
-      );
-    } catch (error) {
-      this.logger.warn({ err: error }, "Log maintenance failed.");
-    }
-  }
-
-  /** Rotate by renaming: file -> file.1, file.1 -> file.2, etc. */
-  private async rotateFile(
-    filePath: string,
-    maxBackups: number
-  ): Promise<void> {
-    try {
-      const s = await stat(filePath);
-      if (s.size < AgentManager.MAX_LOG_SIZE_BYTES) return;
-    } catch {
-      return;
-    } // file doesn't exist
-
-    // Shift existing backups
-    for (let i = maxBackups; i >= 1; i--) {
-      const src = i === 1 ? filePath : `${filePath}.${i - 1}`;
-      const dst = `${filePath}.${i}`;
-      try {
-        await rename(src, dst);
-      } catch {
-        /* missing, skip */
-      }
-    }
-  }
-
-  /** Copy then truncate in-place (preserves open file descriptors like launchd's). */
-  private async copyTruncateFile(
-    filePath: string,
-    maxBackups: number
-  ): Promise<void> {
-    try {
-      const s = await stat(filePath);
-      if (s.size < AgentManager.MAX_LOG_SIZE_BYTES) return;
-    } catch {
-      return;
-    }
-
-    // Shift existing backups
-    for (let i = maxBackups; i >= 2; i--) {
-      try {
-        await rename(`${filePath}.${i - 1}`, `${filePath}.${i}`);
-      } catch {
-        /* missing */
-      }
-    }
-
-    // Copy current to .1, then truncate in place.
-    // Small data-loss window between copy and truncate (same as logrotate copytruncate). Acceptable for diagnostic logs.
-    await copyFile(filePath, `${filePath}.1`);
-    const fh = await open(filePath, "r+");
-    try {
-      await fh.truncate(0);
-    } finally {
-      await fh.close();
-    }
-  }
-
-  /** Delete files matching a pattern that are older than maxAgeMs. */
-  private async deleteOldFiles(
-    dir: string,
-    pattern: RegExp,
-    maxAgeMs: number
-  ): Promise<void> {
-    let entries: string[];
-    try {
-      entries = await readdir(dir);
-    } catch {
-      return;
-    }
-
-    const now = Date.now();
-    for (const entry of entries) {
-      if (!pattern.test(entry)) continue;
-      const filePath = path.join(dir, entry);
-      try {
-        const s = await stat(filePath);
-        if (now - s.mtimeMs > maxAgeMs) {
-          await unlink(filePath);
-        }
-      } catch {
-        /* already gone or inaccessible */
-      }
-    }
-  }
-
-  private async detectTmuxServerPid(): Promise<number | null> {
-    const processes = await this.captureCommand(
-      "ps",
-      ["-axo", "pid=,comm="],
-      [0]
-    );
-    if (processes.exitCode !== 0) {
-      return null;
-    }
-    const pidLine = processes.stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => /\btmux$/.test(line));
-    if (!pidLine) {
-      return null;
-    }
-    const [pidText] = pidLine.split(/\s+/, 1);
-    const pid = Number(pidText);
-    return Number.isFinite(pid) && pid > 0 ? pid : null;
-  }
-
-  private async captureCommand(
-    command: string,
-    args: string[],
-    allowedExitCodes: number[]
-  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    try {
-      return await runCommand(command, args, { allowedExitCodes });
-    } catch (error) {
-      return {
-        exitCode: -1,
-        stdout: "",
-        stderr: this.errorMessage(error),
-      };
-    }
   }
 
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
