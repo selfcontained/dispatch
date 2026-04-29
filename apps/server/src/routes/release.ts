@@ -118,7 +118,7 @@ export async function registerReleaseRoutes(
     return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
   });
 
-  app.get("/api/v1/release/info", async (_, reply) => {
+  app.get("/api/v1/release/info", async (request, reply) => {
     try {
       await runCommand("git", [
         "-C",
@@ -226,6 +226,10 @@ export async function registerReleaseRoutes(
         } catch (err) {
           migrationsError =
             err instanceof Error ? err.message : "migration evaluation failed";
+          request.log.error(
+            { err, tag: latestTag },
+            "release/info: migration evaluation failed; UI will surface error and offer standard update fallback"
+          );
         }
       }
       const assistedRequired =
@@ -427,7 +431,7 @@ export async function registerReleaseRoutes(
   });
 
   app.post("/api/v1/release/update", async (request, reply) => {
-    const body = request.body as { tag?: unknown } | undefined;
+    const body = request.body as { tag?: unknown; force?: unknown } | undefined;
     const bearerToken = deps.getBearerToken(request);
     if (
       !body?.tag ||
@@ -439,6 +443,7 @@ export async function registerReleaseRoutes(
       });
     }
     const tag = body.tag;
+    const force = body.force === true;
     const releaseUpdateAgentId = bearerToken
       ? getReleaseUpdateAgentId(deps.config.authToken, bearerToken)
       : null;
@@ -491,19 +496,23 @@ export async function registerReleaseRoutes(
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[release/update] migration evaluation failed for ${tag}: ${message}`
+        request.log.warn(
+          { err, tag, force },
+          "release/update: migration evaluation failed"
         );
-        return reply.code(503).send({
-          error: "MIGRATION_EVALUATION_UNAVAILABLE",
-          message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears.`,
-        });
+        if (!force) {
+          return reply.code(503).send({
+            error: "MIGRATION_EVALUATION_UNAVAILABLE",
+            message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears, or pass force=true to skip the check.`,
+          });
+        }
+        pendingMigrationsForGate = [];
       }
-      if (pendingMigrationsForGate.length > 0) {
+      if (pendingMigrationsForGate.length > 0 && !force) {
         return reply.code(409).send({
           error: "ASSISTED_UPDATE_REQUIRED",
           message:
-            "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead.",
+            "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
           pendingMigrations: pendingMigrationsForGate,
         });
       }
@@ -518,13 +527,30 @@ export async function registerReleaseRoutes(
       }
       const targetAssisted =
         inspected.state === "valid" ? inspected.metadata : null;
-      if (isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null)) {
+      if (
+        isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null) &&
+        !force
+      ) {
         return reply.code(409).send({
           error: "ASSISTED_UPDATE_REQUIRED",
           message:
-            "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead.",
+            "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
           assisted: targetAssisted,
         });
+      }
+      if (
+        force &&
+        (pendingMigrationsForGate.length > 0 ||
+          isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null))
+      ) {
+        request.log.warn(
+          {
+            tag,
+            pendingMigrationCount: pendingMigrationsForGate.length,
+            assistedMode: targetAssisted?.mode ?? null,
+          },
+          "release/update: force=true bypassing assisted-update gate"
+        );
       }
     }
 

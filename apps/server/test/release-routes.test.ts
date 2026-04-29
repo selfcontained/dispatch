@@ -581,6 +581,125 @@ describe("release metadata route handling", () => {
     expect(response.statusCode).toBe(202);
     expect(response.json()).toMatchObject({ ok: true });
   });
+
+  it("allows /release/update with force=true to bypass mode=required gate", async () => {
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "required",
+              title: "Bun runtime migration",
+              summary: "Switch runtime from Node to Bun.",
+              requiredChecks: [],
+              appliesFrom: "v0.18.0",
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0", force: true },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ ok: true });
+  });
+
+  it("allows /release/update with force=true to bypass pending-migrations gate", async () => {
+    evaluateMock.mockResolvedValueOnce({
+      pending: [
+        {
+          filename: "0001-bun-cutover.yaml",
+          order: 1,
+          manifest: {
+            id: "bun-cutover",
+            title: "Bun runtime cutover",
+            summary: "Switch runtime from Node to Bun.",
+            alreadySatisfied: { description: "x" },
+            instructions: ["x"],
+            validation: { requiredChecks: [] },
+            rollback: [],
+          },
+        },
+      ],
+      all: [],
+      appliedIds: new Set(),
+      errors: [],
+    });
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0", force: true },
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ ok: true });
+  });
+
+  it("allows /release/update with force=true to bypass migration evaluator failure", async () => {
+    evaluateMock.mockRejectedValueOnce(
+      new Error("simulated network failure fetching tarball")
+    );
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody(
+            JSON.stringify({
+              mode: "normal",
+              title: "x",
+              summary: "x",
+              requiredChecks: [],
+            })
+          ),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0", force: true },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ ok: true });
+  });
+
+  it("rejects /release/update with force=true when target metadata is malformed", async () => {
+    // force=true should not bypass the malformed-metadata error — that's a
+    // real correctness signal, not a "we couldn't check" signal.
+    mockReleaseCommands({
+      releaseViews: {
+        "v0.19.0": validReleaseView({
+          body: releaseBody("{ not valid json }"),
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/release/update",
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { tag: "v0.19.0", force: true },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "ASSISTED_UPDATE_METADATA_INVALID",
+    });
+  });
 });
 
 async function writeReleaseStore(record: {

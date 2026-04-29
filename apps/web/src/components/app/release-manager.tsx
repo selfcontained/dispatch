@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowDownToLine,
+  Bot,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -12,6 +14,12 @@ import {
 } from "lucide-react";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Markdown } from "@/components/ui/markdown";
 import {
   DropdownMenu,
@@ -64,6 +72,27 @@ function cleanError(raw: string): string {
   return raw;
 }
 
+function describeForceTriggers(info: ReleaseInfo): string {
+  const migrationCount = info.pendingMigrations?.length ?? 0;
+  // Migrations are the concrete signal — when present the user already
+  // sees them spelled out in the gate card, so the dialog references the
+  // count directly. mode=required is meta (release author flagged it);
+  // when migrations are also present, the migration count is the more
+  // useful framing, so we don't double-mention.
+  if (migrationCount > 0) {
+    return `has ${migrationCount} complex update step${
+      migrationCount === 1 ? "" : "s"
+    }; safer with the agent`;
+  }
+  if (info.assisted?.mode === "required") {
+    return "needs the agent for a safe update";
+  }
+  if (info.migrationsError) {
+    return "couldn't be checked for complex update steps";
+  }
+  return "is gated by the assisted-update flow";
+}
+
 type UpdatesSectionProps = {
   stream: UseReleaseStreamResult;
 };
@@ -81,6 +110,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
+  const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const reloadingRef = useRef(false);
 
   // Fetch version info + channel on mount
@@ -142,25 +172,15 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     }
   };
 
-  const handleUpdate = async (tag: string) => {
+  const handleUpdate = async (tag: string, options?: { force?: boolean }) => {
     setUpdateError(null);
     const res = await fetch("/api/v1/release/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag }),
+      body: JSON.stringify({ tag, force: options?.force === true }),
     });
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
-      // The backend returns 409 with code "ASSISTED_UPDATE_REQUIRED" when
-      // the target release gates the generic flow. Re-fetch info so the
-      // assisted gate card renders in place of the standard button.
-      if (err.error === "ASSISTED_UPDATE_REQUIRED") {
-        setUpdateError(
-          "This release requires the assisted update flow. Use the assisted-update card below."
-        );
-        await handleCheckForUpdates();
-        return;
-      }
       setUpdateError(cleanError(err.error ?? "Failed to start update"));
       return;
     }
@@ -444,76 +464,78 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </div>
                 )}
 
-                {/*
-                  Gate visibility:
-                  - migrations:  the new persistent-migration model (CRU-146).
-                                 When the target release ships unapplied
-                                 migration manifests, the standard buttons
-                                 are hidden and the operator must launch the
-                                 assisted flow from the migrations gate card.
-                  - legacy required: same UX as migrations, but driven by the
-                                 release-scoped `dispatch-update` block. We
-                                 still hide the standard buttons when
-                                 `info.assistedRequired` is true — the server
-                                 will 409 on the one-click path.
-                  - recommended: legacy gate AND standard buttons (operator
-                                 may opt into the assisted flow but isn't
-                                 forced).
-                  - normal/none: standard buttons only.
-                */}
-                {info.pendingMigrations && info.pendingMigrations.length > 0 ? (
-                  <PendingMigrationsGate
-                    tag={info.latestTag}
-                    pendingMigrations={info.pendingMigrations}
-                    onStart={() => handleAssistedUpdate(info.latestTag!)}
-                    starting={assistedUpdateLaunching}
-                    startError={null}
-                  />
-                ) : (
-                  info.assisted &&
-                  info.assisted.mode !== "normal" && (
-                    <AssistedUpdateGate
-                      tag={info.latestTag}
-                      metadata={info.assisted}
-                      required={info.assistedRequired === true}
-                      onStart={() => handleAssistedUpdate(info.latestTag!)}
-                      starting={assistedUpdateLaunching}
-                      startError={null}
-                    />
-                  )
+                {info.migrationsError && (
+                  <div
+                    className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-sm text-amber-200"
+                    data-testid="migration-eval-warning"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-medium text-amber-100">
+                        Could not evaluate update migrations
+                      </span>
+                      <span className="max-h-24 overflow-y-auto break-all text-xs text-amber-200/80">
+                        {info.migrationsError}
+                      </span>
+                      <span className="text-xs text-amber-200/60">
+                        Standard update is still available — the assisted flow
+                        is the safer choice if you&rsquo;re unsure.
+                      </span>
+                    </div>
+                  </div>
                 )}
-                {!(info.assistedRequired === true) && (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => void handleUpdate(info.latestTag!)}
-                        className="self-start rounded border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-400 transition-all hover:border-blue-500/60 hover:bg-blue-500/20"
-                      >
-                        Update to {info.latestTag}
-                      </button>
-                      <Button
-                        size="sm"
-                        variant="default"
-                        data-testid="assisted-update-button"
-                        disabled={assistedUpdateLaunching}
-                        onClick={() =>
+
+                {/*
+                  Informational gate cards — the action lives in the split
+                  button below. Migration list shows when the release ships
+                  unapplied install-update migrations; assisted-metadata card
+                  shows when the release declares mode=required/recommended.
+                */}
+                {info.pendingMigrations &&
+                  info.pendingMigrations.length > 0 && (
+                    <PendingMigrationsGate
+                      tag={info.latestTag}
+                      pendingMigrations={info.pendingMigrations}
+                    />
+                  )}
+                {info.assisted && info.assisted.mode !== "normal" && (
+                  <AssistedUpdateGate
+                    tag={info.latestTag}
+                    metadata={info.assisted}
+                    required={info.assistedRequired === true}
+                  />
+                )}
+
+                {(() => {
+                  const assistedPreferred =
+                    info.assistedRequired === true ||
+                    (info.pendingMigrations?.length ?? 0) > 0 ||
+                    info.assisted?.mode === "recommended";
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
+                      <UpdateActions
+                        tag={info.latestTag}
+                        assistedPreferred={assistedPreferred}
+                        forceRequired={
+                          info.assistedRequired === true ||
+                          (info.pendingMigrations?.length ?? 0) > 0
+                        }
+                        assistedLaunching={assistedUpdateLaunching}
+                        onStandardUpdate={() =>
+                          void handleUpdate(info.latestTag!)
+                        }
+                        onAssistedUpdate={() =>
                           void handleAssistedUpdate(info.latestTag!)
                         }
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        {assistedUpdateLaunching
-                          ? "Launching agent..."
-                          : "Assisted update"}
-                      </Button>
+                        onForceStandardUpdate={() => setForceConfirmOpen(true)}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        or {assistedPreferred ? "standard" : "agent-assisted"}{" "}
+                        update
+                      </span>
                     </div>
-                    <p className="max-w-xl text-xs text-muted-foreground">
-                      Assisted update launches a full-access agent on the
-                      production checkout, redirects you into its terminal, and
-                      tells it to recover service first if the restart goes
-                      sideways.
-                    </p>
-                  </>
-                )}
+                  );
+                })()}
               </div>
             ) : (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -567,6 +589,166 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           </DropdownMenu>
         </div>
       </div>
+
+      {info?.updateAvailable && info.latestTag && (
+        <Dialog open={forceConfirmOpen} onOpenChange={setForceConfirmOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Skip the agent-assisted update?</DialogTitle>
+            </DialogHeader>
+
+            <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-sm text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                <span className="font-mono text-amber-100">
+                  {info.latestTag}
+                </span>{" "}
+                {describeForceTriggers(info)}. This may leave your install in a
+                non-working state.
+              </span>
+            </div>
+
+            <div className="mt-1 flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setForceConfirmOpen(false);
+                  void handleUpdate(info.latestTag!, { force: true });
+                }}
+                data-testid="force-standard-update-confirm"
+              >
+                Run standard update anyway
+              </Button>
+              <Button
+                variant="default"
+                onClick={() => setForceConfirmOpen(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+type UpdateActionsProps = {
+  tag: string;
+  /** True when the assisted flow should be the primary action — release ships
+   *  pending migrations, declares mode=required, or declares mode=recommended. */
+  assistedPreferred: boolean;
+  /** True when the standard path requires a force-override confirmation —
+   *  pending migrations or mode=required. mode=recommended does not require
+   *  confirmation; the operator can still run standard one-click. */
+  forceRequired: boolean;
+  assistedLaunching: boolean;
+  onStandardUpdate: () => void;
+  onAssistedUpdate: () => void;
+  /** Invoked when the user picks "Standard update" from the menu in a state
+   *  that requires force-override confirmation. */
+  onForceStandardUpdate: () => void;
+};
+
+function UpdateActions({
+  tag,
+  assistedPreferred,
+  forceRequired,
+  assistedLaunching,
+  onStandardUpdate,
+  onAssistedUpdate,
+  onForceStandardUpdate,
+}: UpdateActionsProps): JSX.Element {
+  const standardLabel = `Update to ${tag}`;
+  const assistedLabel = assistedLaunching
+    ? "Launching agent..."
+    : "Agent-assisted update";
+  const assistedDescription = "Agent runs and validates each step";
+
+  // Trailing ellipsis follows the platform convention "selecting this opens
+  // a dialog before committing." Used in the forceRequired branch where the
+  // menu item triggers a confirmation, not the update itself.
+  const standardMenuLabel = forceRequired ? `${standardLabel}…` : standardLabel;
+
+  if (assistedPreferred) {
+    return (
+      <div className="inline-flex items-center self-start">
+        <Button
+          variant="primary"
+          disabled={assistedLaunching}
+          onClick={onAssistedUpdate}
+          className="rounded-r-none border-r-0"
+          data-testid="assisted-update-button"
+        >
+          {assistedLabel}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="primary"
+              disabled={assistedLaunching}
+              className="rounded-l-none border-l border-white/[0.18] px-1"
+              aria-label="More update options"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() =>
+                forceRequired ? onForceStandardUpdate() : onStandardUpdate()
+              }
+              className="flex items-center gap-2.5 text-foreground"
+              data-testid="standard-update-menu-item"
+            >
+              <ArrowDownToLine className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {standardMenuLabel}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center self-start">
+      <Button
+        variant="primary"
+        disabled={assistedLaunching}
+        onClick={onStandardUpdate}
+        className="rounded-r-none border-r-0"
+        data-testid="standard-update-button"
+      >
+        {standardLabel}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="primary"
+            disabled={assistedLaunching}
+            className="rounded-l-none border-l border-white/[0.18] px-1"
+            aria-label="More update options"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            disabled={assistedLaunching}
+            onClick={onAssistedUpdate}
+            className="flex items-start gap-2.5 text-foreground"
+            data-testid="assisted-update-menu-item"
+          >
+            <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div className="flex flex-col">
+              <span>{assistedLabel}</span>
+              <span className="text-xs text-muted-foreground">
+                {assistedDescription}
+              </span>
+            </div>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
