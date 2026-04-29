@@ -104,6 +104,36 @@ export type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
+/**
+ * Maximum number of pins per agent. Enforced by `upsertPin` when adding
+ * one at a time and by `normalizeInitialPins` when seeding via
+ * `createAgent({ initialPins })`. Pins also flow into the startup
+ * prompt via `buildStartupPrompt`, so the cap also bounds prompt size.
+ */
+const MAX_PINS = 50;
+
+/**
+ * Validate + de-duplicate the `initialPins` array supplied to
+ * `createAgent`. De-dup is case-insensitive on label with last-write-wins
+ * semantics — same rule `upsertPin` applies for incremental adds. Throws
+ * `AgentError(400)` when the de-duplicated count exceeds `MAX_PINS` so a
+ * client can't bypass the quota by piling pins into the create payload.
+ */
+function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
+  const byLabel = new Map<string, AgentPin>();
+  for (const pin of pins) {
+    byLabel.set(pin.label.toLowerCase(), pin);
+  }
+  const deduped = Array.from(byLabel.values());
+  if (deduped.length > MAX_PINS) {
+    throw new AgentError(
+      `Cannot seed agent with more than ${MAX_PINS} initial pins (got ${deduped.length} after de-duplication).`,
+      400
+    );
+  }
+  return deduped;
+}
+
 type WorktreeLocation = "sibling" | "nested";
 
 type CreateAgentInput = {
@@ -243,7 +273,10 @@ export class AgentManager {
     const tmuxSession = toSessionName(this.config.sessionPrefix, id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
-    const initialPins = input.initialPins ?? [];
+    // Apply the same cap + de-dup that `upsertPin` enforces; otherwise
+    // the create-agent endpoint is a quota bypass and a prompt-bloat
+    // vector (pins flow into `buildStartupPrompt`).
+    const initialPins = normalizeInitialPins(input.initialPins ?? []);
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
@@ -1089,7 +1122,6 @@ export class AgentManager {
   }
 
   async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
-    const MAX_PINS = 50;
     const current = await this.getAgent(id);
     if (!current) throw new AgentError("Agent not found.", 404);
 

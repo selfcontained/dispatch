@@ -218,6 +218,57 @@ describe("AgentManager", () => {
       expect(agent.agentArgs).toEqual(["--model", "o3"]);
     });
 
+    it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {
+      // The createAgent path bypasses upsertPin's "later upsert overwrites
+      // earlier" loop, so it has to apply the same de-dup rule itself.
+      // Otherwise the seeded pins would carry duplicates that upsertPin
+      // would silently merge later.
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        initialPins: [
+          { label: "PR", value: "https://example.com/pr/1", type: "pr" },
+          { label: "pr", value: "https://example.com/pr/2", type: "pr" },
+        ],
+      });
+      expect(agent.pins).toHaveLength(1);
+      expect(agent.pins[0]?.value).toBe("https://example.com/pr/2");
+    });
+
+    it("rejects initialPins that exceed the 50-pin cap (quota bypass guard)", async () => {
+      // Without this guard, /api/v1/agents was a vector for piling
+      // unbounded pins into a fresh agent — both a DB-row size concern
+      // and a prompt-bloat concern (pins flow into buildStartupPrompt).
+      const tooMany = Array.from({ length: 51 }, (_, i) => ({
+        label: `pin-${i}`,
+        value: `value-${i}`,
+        type: "string" as const,
+      }));
+      await expect(
+        manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          initialPins: tooMany,
+        })
+      ).rejects.toThrow(/more than 50 initial pins/);
+    });
+
+    it("counts post-dedup against the 50-pin cap, not pre-dedup", async () => {
+      // 51 entries that all collapse to the same label should pass —
+      // de-dup runs first, cap check runs against the deduped count.
+      const allSameLabel = Array.from({ length: 51 }, (_, i) => ({
+        label: "duplicate",
+        value: `value-${i}`,
+        type: "string" as const,
+      }));
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+        initialPins: allSameLabel,
+      });
+      expect(agent.pins).toHaveLength(1);
+    });
+
     it("should persist fullAccess", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
