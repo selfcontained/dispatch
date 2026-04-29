@@ -41,6 +41,11 @@ export function toSessionName(
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 30);
+  // If sanitization stripped everything, fall through to the no-name shape
+  // rather than emitting a trailing underscore that no other branch produces.
+  if (!slug) {
+    return `${prefix}_${agentId}`;
+  }
   return `${prefix}_${agentId}_${slug}`;
 }
 

@@ -5,7 +5,7 @@ import {
   worktreePathSlug,
 } from "../../shared/git/worktree.js";
 import type { AgentType } from "../types.js";
-import { dispatchMcpUrl } from "./command-builder.js";
+import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape, shellQuote } from "./quoting.js";
 
 export type SetupScriptParams = {

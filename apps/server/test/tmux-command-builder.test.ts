@@ -1,12 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import type { AppConfig } from "../src/config.js";
 import {
   buildAgentCommand,
   buildStartupPrompt,
-  dispatchMcpUrl,
   normalizeAgentArgsForType,
 } from "../src/agents/tmux/command-builder.js";
+import { dispatchMcpUrl } from "../src/agents/tmux/mcp-url.js";
 
 const baseConfig: AppConfig = {
   host: "127.0.0.1",
@@ -401,5 +401,143 @@ describe("buildAgentCommand", () => {
       "begin work"
     );
     expect(cmd).toContain("'begin work'");
+  });
+});
+
+describe("buildAgentCommand — host-env reads (process.env / process.platform)", () => {
+  // The function reads a handful of values from the host environment
+  // rather than from AppConfig. The JSDoc lists them; these tests pin
+  // down the conditional branches so a future refactor (threading them
+  // into config) can't silently change behaviour.
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("PATH prefix: includes ~/.local/bin when HOME is set", () => {
+    vi.stubEnv("HOME", "/home/agentuser");
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    // Expected: dispatchBinDir + ~/.local/bin joined by ':' — the order
+    // is dispatchBinDir first because that's where the wrapper scripts live.
+    expect(cmd).toContain(
+      `PATH='/usr/local/bin/dispatch:/home/agentuser/.local/bin':$PATH`
+    );
+  });
+
+  it("PATH prefix: omits ~/.local/bin when HOME is unset", () => {
+    vi.stubEnv("HOME", "");
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).toContain(`PATH='/usr/local/bin/dispatch':$PATH`);
+    expect(cmd).not.toContain("/.local/bin");
+  });
+
+  it("DISPATCH_COPY_DISPLAY: forwards on linux when set", () => {
+    vi.stubEnv("DISPATCH_COPY_DISPLAY", ":99");
+    Object.defineProperty(process, "platform", {
+      value: "linux",
+      configurable: true,
+    });
+    try {
+      const cmd = buildAgentCommand(
+        baseConfig,
+        "claude",
+        "standard",
+        [],
+        "/tmp/media",
+        SESSION,
+        false
+      );
+      expect(cmd).toContain(`DISPATCH_COPY_DISPLAY=':99'`);
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: process.platform === "linux" ? "linux" : "darwin",
+        configurable: true,
+      });
+    }
+  });
+
+  it("DISPATCH_COPY_DISPLAY: never forwarded on non-linux platforms", () => {
+    vi.stubEnv("DISPATCH_COPY_DISPLAY", ":99");
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).not.toContain("DISPATCH_COPY_DISPLAY=");
+  });
+
+  it("TLS_CA: sets NODE_EXTRA_CA_CERTS when TLS is configured AND TLS_CA is set", () => {
+    vi.stubEnv("TLS_CA", "/etc/dispatch/rootCA.pem");
+    const tlsConfig: AppConfig = {
+      ...baseConfig,
+      tls: { cert: Buffer.from(""), key: Buffer.from("") },
+    };
+    const cmd = buildAgentCommand(
+      tlsConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).toContain(`NODE_EXTRA_CA_CERTS='/etc/dispatch/rootCA.pem'`);
+  });
+
+  it("TLS_CA: NOT set when TLS_CA is configured but TLS is not enabled", () => {
+    vi.stubEnv("TLS_CA", "/etc/dispatch/rootCA.pem");
+    // baseConfig has tls: null
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).not.toContain("NODE_EXTRA_CA_CERTS");
+  });
+
+  it("TLS_CA: NOT set when TLS is enabled but TLS_CA is not configured", () => {
+    vi.stubEnv("TLS_CA", "");
+    const tlsConfig: AppConfig = {
+      ...baseConfig,
+      tls: { cert: Buffer.from(""), key: Buffer.from("") },
+    };
+    const cmd = buildAgentCommand(
+      tlsConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).not.toContain("NODE_EXTRA_CA_CERTS");
   });
 });

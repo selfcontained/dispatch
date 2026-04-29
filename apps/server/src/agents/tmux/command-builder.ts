@@ -7,6 +7,7 @@ import {
 } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
+import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
 import { agentIdFromSessionName } from "./session-name.js";
 
@@ -21,18 +22,6 @@ const CLI_BY_AGENT_TYPE: Record<
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
 const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
-
-/** Build the URL the agent CLI uses to reach Dispatch's MCP endpoint. */
-export function dispatchMcpUrl(
-  config: AppConfig,
-  agentId: string,
-  jobRunId?: string
-): string {
-  const route = jobRunId
-    ? `/api/mcp/jobs/${jobRunId}/${agentId}`
-    : `/api/mcp/${agentId}`;
-  return `${config.tls ? "https" : "http"}://127.0.0.1:${config.port}${route}`;
-}
 
 /**
  * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /
@@ -139,10 +128,20 @@ export function buildStartupPrompt(
 
 /**
  * Build the bash invocation that launches the agent CLI inside its tmux
- * session. Pure — takes config + inputs, returns a shell-ready string.
+ * session. Returns a shell-ready string.
  *
  * Encodes the per-CLI launch quirks (claude/opencode/codex MCP wiring,
  * resume vs. new session flags, terminal-only fallback to `bash -il`).
+ *
+ * Reads from the host environment (not threaded through `AppConfig`):
+ * - `process.env.HOME` — appended to PATH so the agent can find tools in
+ *   `~/.local/bin`. Falls back gracefully when unset.
+ * - `process.platform` + `process.env.DISPATCH_COPY_DISPLAY` — Linux only;
+ *   forwards the X display so xclip can paste browser-clipboard images.
+ * - `process.env.TLS_CA` — when TLS is enabled, sets `NODE_EXTRA_CA_CERTS`
+ *   so the agent's MCP loopback connection trusts the server cert.
+ *
+ * These are stubbable via `vi.stubEnv` for testing.
  *
  * Security note: every interpolated value flows through `shellEscape`,
  * since this string lands directly in `tmux new-session … bash -c …`.

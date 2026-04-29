@@ -85,12 +85,11 @@ describe("toSessionName", () => {
     );
   });
 
-  it("handles a name that sanitizes to an empty string", () => {
-    // All non-alphanumeric input collapses to empty after trimming. Current
-    // behaviour is to still emit the trailing underscore — we lock that in
-    // with a test rather than a code comment so any future change is
-    // intentional.
-    expect(toSessionName("dispatch", "agt_x", "!!!")).toBe("dispatch_agt_x_");
+  it("falls through to the no-name shape when sanitization strips everything", () => {
+    // `!!!` sanitizes to "", so the function collapses to `<prefix>_<id>`
+    // rather than emitting a trailing-underscore shape that no other
+    // branch produces.
+    expect(toSessionName("dispatch", "agt_x", "!!!")).toBe("dispatch_agt_x");
   });
 });
 
