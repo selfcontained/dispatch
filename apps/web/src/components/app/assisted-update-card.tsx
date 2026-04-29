@@ -69,10 +69,10 @@ export function PendingMigrationsGate({
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
         <div className="flex flex-col gap-1">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Assisted update required
+            Agent-assisted update required
           </div>
           <div className="text-sm font-semibold text-foreground">
-            {pendingMigrations.length} pending migration
+            {pendingMigrations.length} complex update step
             {pendingMigrations.length === 1 ? "" : "s"}
           </div>
           <div className="font-mono text-xs text-muted-foreground">{tag}</div>
@@ -80,9 +80,8 @@ export function PendingMigrationsGate({
       </div>
 
       <p className="text-sm text-muted-foreground">
-        This release ships install-update migrations that haven&rsquo;t been
-        applied on this Dispatch yet. The assisted-update agent walks them in
-        order and validates each before marking it applied.
+        This release has update steps that haven&rsquo;t run on this install
+        yet. The agent walks them in order and validates each.
       </p>
 
       <ul className="flex flex-col gap-2 text-sm">
@@ -138,8 +137,8 @@ export function AssistedUpdateGate({
         <div className="flex flex-col gap-1">
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
             {required
-              ? "Assisted update required"
-              : "Assisted update recommended"}
+              ? "Agent-assisted update required"
+              : "Agent-assisted update recommended"}
           </div>
           <div className="text-sm font-semibold text-foreground">
             {metadata.title}

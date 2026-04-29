@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowDownToLine,
+  Bot,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -16,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -74,28 +74,23 @@ function cleanError(raw: string): string {
 
 function describeForceTriggers(info: ReleaseInfo): string {
   const migrationCount = info.pendingMigrations?.length ?? 0;
-  const isRequired = info.assistedRequired === true && migrationCount === 0;
-  const reasons: string[] = [];
+  // Migrations are the concrete signal — when present the user already
+  // sees them spelled out in the gate card, so the dialog references the
+  // count directly. mode=required is meta (release author flagged it);
+  // when migrations are also present, the migration count is the more
+  // useful framing, so we don't double-mention.
   if (migrationCount > 0) {
-    reasons.push(
-      `ships ${migrationCount} install-update migration${
-        migrationCount === 1 ? "" : "s"
-      } that haven't been applied here yet`
-    );
+    return `has ${migrationCount} complex update step${
+      migrationCount === 1 ? "" : "s"
+    }; safer with the agent`;
   }
-  if (info.assistedRequired === true) {
-    // Distinct phrasing depending on whether migrations are also pending —
-    // when both apply, the operator should know they're overriding both
-    // signals, not just one.
-    reasons.push(
-      isRequired
-        ? "is marked assisted-update required"
-        : "is also marked assisted-update required"
-    );
+  if (info.assisted?.mode === "required") {
+    return "needs the agent for a safe update";
   }
-  if (reasons.length === 0) return "is gated by the assisted-update flow";
-  if (reasons.length === 1) return reasons[0]!;
-  return `${reasons[0]} and ${reasons[1]}`;
+  if (info.migrationsError) {
+    return "couldn't be checked for complex update steps";
+  }
+  return "is gated by the assisted-update flow";
 }
 
 type UpdatesSectionProps = {
@@ -511,29 +506,36 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   />
                 )}
 
-                <UpdateActions
-                  tag={info.latestTag}
-                  assistedPreferred={
+                {(() => {
+                  const assistedPreferred =
                     info.assistedRequired === true ||
                     (info.pendingMigrations?.length ?? 0) > 0 ||
-                    info.assisted?.mode === "recommended"
-                  }
-                  forceRequired={
-                    info.assistedRequired === true ||
-                    (info.pendingMigrations?.length ?? 0) > 0
-                  }
-                  assistedLaunching={assistedUpdateLaunching}
-                  onStandardUpdate={() => void handleUpdate(info.latestTag!)}
-                  onAssistedUpdate={() =>
-                    void handleAssistedUpdate(info.latestTag!)
-                  }
-                  onForceStandardUpdate={() => setForceConfirmOpen(true)}
-                />
-                <p className="max-w-xl text-xs text-muted-foreground">
-                  Assisted update launches a full-access agent on the production
-                  checkout, redirects you into its terminal, and tells it to
-                  recover service first if the restart goes sideways.
-                </p>
+                    info.assisted?.mode === "recommended";
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
+                      <UpdateActions
+                        tag={info.latestTag}
+                        assistedPreferred={assistedPreferred}
+                        forceRequired={
+                          info.assistedRequired === true ||
+                          (info.pendingMigrations?.length ?? 0) > 0
+                        }
+                        assistedLaunching={assistedUpdateLaunching}
+                        onStandardUpdate={() =>
+                          void handleUpdate(info.latestTag!)
+                        }
+                        onAssistedUpdate={() =>
+                          void handleAssistedUpdate(info.latestTag!)
+                        }
+                        onForceStandardUpdate={() => setForceConfirmOpen(true)}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        or {assistedPreferred ? "standard" : "agent-assisted"}{" "}
+                        update
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -592,18 +594,21 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         <Dialog open={forceConfirmOpen} onOpenChange={setForceConfirmOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Skip the assisted-update flow?</DialogTitle>
-              <DialogDescription>
-                This release <span className="font-mono">{info.latestTag}</span>{" "}
-                {describeForceTriggers(info)}. The standard update skips the
-                agent-driven steps — it just fetches the new artifact and
-                restarts the service. Use it as a recovery path when the
-                assisted flow can&rsquo;t run (for example if the AI provider is
-                unreachable). Your install may end up in an unsupported state if
-                the migration steps were actually needed.
-              </DialogDescription>
+              <DialogTitle>Skip the agent-assisted update?</DialogTitle>
             </DialogHeader>
-            <div className="mt-2 flex flex-wrap gap-2">
+
+            <div className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-sm text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                <span className="font-mono text-amber-100">
+                  {info.latestTag}
+                </span>{" "}
+                {describeForceTriggers(info)}. This may leave your install in a
+                non-working state.
+              </span>
+            </div>
+
+            <div className="mt-1 flex flex-wrap gap-2">
               <Button
                 variant="primary"
                 onClick={() => {
@@ -657,7 +662,8 @@ function UpdateActions({
   const standardLabel = `Update to ${tag}`;
   const assistedLabel = assistedLaunching
     ? "Launching agent..."
-    : "Assisted update";
+    : "Agent-assisted update";
+  const assistedDescription = "Agent runs and validates each step";
 
   // Trailing ellipsis follows the platform convention "selecting this opens
   // a dialog before committing." Used in the forceRequired branch where the
@@ -692,9 +698,10 @@ function UpdateActions({
               onClick={() =>
                 forceRequired ? onForceStandardUpdate() : onStandardUpdate()
               }
+              className="flex items-center gap-2.5 text-foreground"
               data-testid="standard-update-menu-item"
             >
-              <ArrowDownToLine className="mr-2 h-3.5 w-3.5" />
+              <ArrowDownToLine className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               {standardMenuLabel}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -729,9 +736,16 @@ function UpdateActions({
           <DropdownMenuItem
             disabled={assistedLaunching}
             onClick={onAssistedUpdate}
+            className="flex items-start gap-2.5 text-foreground"
             data-testid="assisted-update-menu-item"
           >
-            {assistedLabel}
+            <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <div className="flex flex-col">
+              <span>{assistedLabel}</span>
+              <span className="text-xs text-muted-foreground">
+                {assistedDescription}
+              </span>
+            </div>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
