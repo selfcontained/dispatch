@@ -101,6 +101,7 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
+import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
@@ -564,6 +565,10 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     handleAgentError,
   });
+
+  // --- Personalities ---
+
+  await registerPersonalityRoutes(app, { pool });
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
