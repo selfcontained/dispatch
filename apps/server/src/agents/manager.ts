@@ -30,6 +30,11 @@ import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
 import {
+  type AgentEventBus,
+  createAgentEventBus,
+  writeLatestEvent,
+} from "./events.js";
+import {
   buildAgentCommand,
   buildStartupPrompt,
 } from "./tmux/command-builder.js";
@@ -42,7 +47,6 @@ import { generateSetupScript } from "./tmux/setup-script.js";
 import type {
   AgentGitContext,
   AgentLatestEventInput,
-  AgentLatestEventType,
   AgentPin,
   AgentRecord,
   AgentRole,
@@ -149,19 +153,20 @@ export class AgentManager {
     string,
     { value: string; expiresAt: number }
   >();
-  private readonly eventListeners: AgentEventListener[] = [];
   private readonly diagnostics: DiagnosticsRecorder;
+  private readonly eventBus: AgentEventBus;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
     this.logger = logger;
     this.config = config;
     this.diagnostics = createDiagnosticsRecorder(logger);
+    this.eventBus = createAgentEventBus(logger);
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
   onLatestEvent(listener: AgentEventListener): void {
-    this.eventListeners.push(listener);
+    this.eventBus.subscribe(listener);
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -1118,56 +1123,16 @@ export class AgentManager {
     id: string,
     input: AgentLatestEventInput
   ): Promise<AgentRecord> {
-    const message = input.message.trim();
-    if (!message) {
-      throw new AgentError(
-        "Latest event message must be a non-empty string.",
-        400
-      );
-    }
+    await writeLatestEvent(this.pool, this.logger, id, input);
 
-    const result = await this.pool.query(
-      `
-      UPDATE agents
-      SET latest_event_type = $2,
-          latest_event_message = $3,
-          latest_event_metadata = $4::jsonb,
-          latest_event_updated_at = NOW(),
-          updated_at = NOW()
-      WHERE id = $1 AND deleted_at IS NULL
-      `,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    );
-
-    if (result.rowCount !== 1) {
-      throw new AgentError("Agent not found.", 404);
-    }
-
-    // Append to event history (fire-and-forget)
-    this.pool
-      .query(
-        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-         SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-         FROM agents WHERE id = $1`,
-        [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-      )
-      .catch((err) =>
-        this.logger.warn({ err }, "Failed to insert agent event history")
-      );
-
-    // Agent could be soft-deleted between the UPDATE and this SELECT in rare races.
-    // Guard against null to prevent downstream crashes (e.g. in event listeners).
+    // Agent could be soft-deleted between the UPDATE and this SELECT in rare
+    // races. Guard against null to prevent downstream crashes (e.g. in event
+    // listeners).
     const agent = await this.getAgent(id);
     if (!agent) {
       throw new AgentError("Agent not found.", 404);
     }
-    for (const listener of this.eventListeners) {
-      try {
-        listener(agent);
-      } catch (err) {
-        this.logger.warn({ err }, "Agent event listener threw");
-      }
-    }
+    this.eventBus.publish(agent);
     return agent;
   }
 
