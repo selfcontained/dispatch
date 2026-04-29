@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -22,8 +22,6 @@ import {
   getUnmergedChanges,
   readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
-import { runCommand } from "../shared/lib/run-command.js";
-import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
 import {
@@ -31,6 +29,9 @@ import {
   createAgentEventBus,
   writeLatestEvent,
 } from "./events.js";
+import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { seedInitialMedia } from "./media-seed.js";
+import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
   buildAgentCommand,
@@ -151,6 +152,7 @@ export class AgentManager {
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
+  private readonly reconciler: Reconciler;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -159,6 +161,17 @@ export class AgentManager {
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
     this.runtime = createAgentRuntime(config, logger);
+    this.reconciler = createReconciler({
+      pool,
+      logger,
+      runtime: this.runtime,
+      diagnostics: this.diagnostics,
+      sessionPrefix: config.sessionPrefix,
+      getAgent: (id) => this.getAgent(id),
+      setAgentStatus: (id, status, lastError, tmuxSession) =>
+        this.setAgentStatus(id, status, lastError, tmuxSession),
+      setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
+    });
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -338,7 +351,8 @@ export class AgentManager {
     }> = [];
     if (input.initialFiles && input.initialFiles.length > 0) {
       try {
-        initialMedia = await this.seedInitialMedia(
+        initialMedia = await seedInitialMedia(
+          this.pool,
           id,
           mediaDir,
           input.initialFiles
@@ -701,7 +715,7 @@ export class AgentManager {
     await this.setAgentStatus(id, "stopping", null, tmuxSession ?? undefined);
 
     // Run repo-defined stop hook (best-effort, non-blocking)
-    await this.runLifecycleHook("stop", agent).catch((err) =>
+    await runLifecycleHook("stop", agent, this.logger).catch((err) =>
       this.logger.warn(
         { err, agentId: id },
         "Stop hook failed; continuing shutdown"
@@ -789,7 +803,7 @@ export class AgentManager {
       // Phase: stopping — tear down session without changing agent status
       const t = Date.now();
       try {
-        await this.runLifecycleHook("stop", agent).catch((err) =>
+        await runLifecycleHook("stop", agent, this.logger).catch((err) =>
           this.logger.warn(
             { err, agentId: id },
             "Stop hook failed during archive; continuing"
@@ -1113,189 +1127,16 @@ export class AgentManager {
   }
 
   async reconcileAgents(): Promise<void> {
-    await this.reconcileAgentStatuses();
-    // listSessions returns [] in inert mode — runtime-agnostic call.
-    await this.cleanupOrphanedSessions();
+    await this.reconciler.reconcile();
   }
 
+  /**
+   * @deprecated Kept for callers that want just the status-pass result
+   * (e.g. tests). New code should call `reconcileAgents()` which also
+   * runs the orphan-session cleanup pass.
+   */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
-    await this.diagnostics.maybeCaptureTmuxInventory();
-    await this.diagnostics.maybeMaintenanceLogs();
-
-    const result = await this.pool.query(
-      "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
-    );
-
-    const reconciled: AgentRecord[] = [];
-
-    for (const row of result.rows as Array<{
-      id: string;
-      tmuxSession: string | null;
-      status: string;
-      updatedAt: string;
-    }>) {
-      // Archiving agents are handled separately — only resume if stuck for > 30s
-      if (row.status === "archiving") {
-        const stuckSeconds =
-          (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
-        if (stuckSeconds > 30) {
-          this.logger.info(
-            { id: row.id, stuckSeconds },
-            "Found agent stuck in archiving state — will be resumed"
-          );
-          const agent = await this.getAgent(row.id);
-          if (agent) {
-            reconciled.push(agent);
-          }
-        }
-        continue;
-      }
-
-      // Missing-session reconciliation only makes sense when the
-      // runtime actually tracks session state. Inert mode has no real
-      // sessions to lose, so a missing-session result there is just a
-      // statement of fact, not a reason to flip the agent to stopped.
-      if (!this.runtime.tracksSessions()) {
-        continue;
-      }
-
-      const exists = row.tmuxSession
-        ? await this.runtime.hasSession(row.tmuxSession)
-        : false;
-
-      if (!exists) {
-        // We've already gated on tracksSessions(), so reaching here
-        // means we're definitively in a session-tracking runtime.
-        const exitInfo = row.tmuxSession
-          ? await this.runtime.readExitInfo(row.tmuxSession)
-          : null;
-        if (row.tmuxSession) {
-          await this.diagnostics.captureMissingSessionIncident({
-            agentId: row.id,
-            tmuxSession: row.tmuxSession,
-            status: row.status,
-            updatedAt: row.updatedAt,
-            exitInfo,
-          });
-        }
-        if (exitInfo !== null) {
-          this.logger.info(
-            { id: row.id, exitCode: exitInfo },
-            "Agent process exited with code %d",
-            exitInfo
-          );
-        }
-        const setupLogTail = await this.runtime.readSetupLogTail(row.id);
-        const errorDetail = setupLogTail || null;
-        const launchFailed =
-          row.status === "creating" || (exitInfo !== null && exitInfo !== 0);
-        const nextStatus: AgentStatus = launchFailed ? "error" : "stopped";
-        const baseMessage = launchFailed
-          ? row.status === "creating"
-            ? exitInfo !== null
-              ? `Launch failed with exit code ${exitInfo}.`
-              : "Launch failed before the session became ready."
-            : exitInfo !== null
-              ? `Session exited with code ${exitInfo}.`
-              : "Session ended unexpectedly."
-          : "Session ended normally.";
-        await this.setAgentStatus(
-          row.id,
-          nextStatus,
-          errorDetail,
-          row.tmuxSession ?? undefined
-        );
-        await this.setSystemLatestEvent(row.id, {
-          type: launchFailed ? "blocked" : "idle",
-          message: setupLogTail
-            ? `${baseMessage}\n${setupLogTail}`
-            : baseMessage,
-          metadata: {
-            source: "system",
-            ...(exitInfo !== null ? { exitCode: exitInfo } : {}),
-            launchFailed,
-          },
-        });
-        const agent = await this.getAgent(row.id);
-        if (agent) {
-          reconciled.push(agent);
-        }
-      } else if (row.status === "stopping") {
-        const STUCK_STOPPING_TIMEOUT_S = 60;
-        const stuckSeconds =
-          (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
-        if (stuckSeconds > STUCK_STOPPING_TIMEOUT_S) {
-          this.logger.warn(
-            { id: row.id, stuckSeconds },
-            "Agent stuck in stopping state, reverting to running"
-          );
-          await this.setAgentStatus(
-            row.id,
-            "running",
-            null,
-            row.tmuxSession ?? undefined
-          );
-          await this.setSystemLatestEvent(row.id, {
-            type: "working",
-            message:
-              "Stop timed out — agent reverted to running. Try force stop.",
-            metadata: { source: "system" },
-          });
-          const agent = await this.getAgent(row.id);
-          if (agent) {
-            reconciled.push(agent);
-          }
-        }
-      }
-    }
-
-    return reconciled;
-  }
-
-  private async cleanupOrphanedSessions(): Promise<void> {
-    const sessionPrefix = `${this.config.sessionPrefix}_agt_`;
-    const sessions = await this.runtime.listSessions(sessionPrefix);
-    if (sessions.length === 0) return;
-
-    const agentIds = sessions.map((s) => agentIdFromSessionName(s.name));
-    const placeholders = agentIds.map((_, i) => `$${i + 1}`).join(", ");
-    const dbResult = await this.pool.query(
-      `SELECT id, status FROM agents WHERE deleted_at IS NULL AND id IN (${placeholders})`,
-      agentIds
-    );
-    const dbAgents = new Map<string, string>();
-    for (const row of dbResult.rows as Array<{ id: string; status: string }>) {
-      dbAgents.set(row.id, row.status);
-    }
-
-    const toKill: string[] = [];
-    for (const session of sessions) {
-      const agentId = agentIdFromSessionName(session.name);
-      const status = dbAgents.get(agentId);
-
-      // Agent in terminal state — session is definitely orphaned.
-      if (status === "stopped" || status === "error") {
-        this.logger.info(
-          { session: session.name, agentId, status },
-          "Killing orphaned tmux session (agent in terminal state)"
-        );
-        toKill.push(session.name);
-        continue;
-      }
-
-      // No DB record — leave it alone. The session may belong to
-      // another server instance using the same tmux namespace; only
-      // clean up sessions that *this* database definitively knows
-      // about.
-      if (!status) {
-        this.logger.debug(
-          { session: session.name, agentId },
-          "Ignoring tmux session with no matching DB record"
-        );
-      }
-    }
-
-    await Promise.all(toKill.map((name) => this.runtime.killSession(name)));
+    return this.reconciler.reconcile();
   }
 
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
@@ -1318,114 +1159,6 @@ export class AgentManager {
       agentId: agent.id,
     });
     return cwd ?? fallback;
-  }
-
-  private async runLifecycleHook(
-    hookName: "stop",
-    agent: AgentRecord
-  ): Promise<void> {
-    const repoRoot = agent.worktreePath ?? agent.cwd;
-    if (!repoRoot) return;
-
-    const hooks = await loadRepoHooks(repoRoot);
-    const hook = hooks[hookName];
-    if (!hook) return;
-
-    const [command, ...args] = hook.command;
-    this.logger.info(
-      { agentId: agent.id, hook: hookName, command: hook.command },
-      "Running lifecycle hook"
-    );
-
-    const result = await runCommand(command, args, {
-      cwd: repoRoot,
-      env: {
-        DISPATCH_AGENT_ID: agent.id,
-      },
-      timeoutMs: 15_000,
-    });
-
-    if (result.exitCode !== 0) {
-      this.logger.warn(
-        {
-          agentId: agent.id,
-          hook: hookName,
-          exitCode: result.exitCode,
-          stderr: result.stderr,
-        },
-        "Lifecycle hook exited with non-zero code"
-      );
-    }
-  }
-
-  private async seedInitialMedia(
-    agentId: string,
-    mediaDir: string,
-    files: Array<{
-      fileName: string;
-      originalName?: string;
-      buffer: Buffer;
-      source: "text" | "user";
-      description?: string | null;
-    }>
-  ): Promise<
-    Array<{
-      fileName: string;
-      displayName: string;
-      source: string;
-      description: string | null;
-    }>
-  > {
-    const createdAt = new Date();
-    const results: Array<{
-      fileName: string;
-      displayName: string;
-      source: string;
-      description: string | null;
-    }> = [];
-
-    for (const [index, file] of files.entries()) {
-      const timestampedFileName = this.timestampMediaFileName(
-        file.fileName,
-        createdAt,
-        index
-      );
-      await writeFile(path.join(mediaDir, timestampedFileName), file.buffer);
-      await this.pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          agentId,
-          timestampedFileName,
-          file.source,
-          file.buffer.length,
-          file.description ?? null,
-        ]
-      );
-      results.push({
-        fileName: timestampedFileName,
-        displayName: file.originalName?.trim() || file.fileName,
-        source: file.source,
-        description: file.description ?? null,
-      });
-    }
-
-    return results;
-  }
-
-  private timestampMediaFileName(
-    fileName: string,
-    createdAt: Date,
-    index: number
-  ): string {
-    const timestamp = createdAt
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "-")
-      .replace("Z", "");
-    const ext = path.extname(fileName);
-    const base = path.basename(fileName, ext);
-    return `${base}-${timestamp}-${index + 1}${ext}`;
   }
 
   private async validateWorkingDirectory(rawCwd: string): Promise<string> {
