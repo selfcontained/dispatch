@@ -25,20 +25,12 @@ const TERMINAL_FRESHNESS_MS =
   TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
-const TERMINAL_BACKFILL_LINES = 400;
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
   | { type: "output"; data: string }
   | { type: "error"; message: string }
   | { type: "exit"; exitCode?: number };
-
-type TerminalHistoryResponse = {
-  mode: "tmux";
-  data: string;
-  lines: number;
-  skipBottomLines: number;
-};
 
 function isTerminalSessionGone(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -69,10 +61,6 @@ function cleanCopiedText(text: string): string {
   return text;
 }
 
-function normalizeBackfill(text: string): string {
-  return text.replace(/\r?\n/g, "\r\n");
-}
-
 export function useTerminal(args: {
   authState: AuthState;
   agents: Agent[];
@@ -83,7 +71,6 @@ export function useTerminal(args: {
   deferMediaResize: boolean;
   mediaResizeSettleKey: number;
   feedbackOpen: boolean;
-  enhancedTerminal: boolean;
 }): {
   connState: ConnState;
   connectedAgentId: string | null;
@@ -100,8 +87,6 @@ export function useTerminal(args: {
   ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
-  runFit: () => void;
-  runRefresh: () => void;
   resyncing: boolean;
 } {
   const {
@@ -114,7 +99,6 @@ export function useTerminal(args: {
     deferMediaResize,
     mediaResizeSettleKey,
     feedbackOpen,
-    enhancedTerminal,
   } = args;
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
@@ -133,8 +117,6 @@ export function useTerminal(args: {
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
-  const enhancedTerminalRef = useRef(enhancedTerminal);
-  enhancedTerminalRef.current = enhancedTerminal;
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const [terminalHostElement, setTerminalHostElement] =
@@ -503,21 +485,6 @@ export function useTerminal(args: {
           const term = terminalRef.current;
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
-          if (term && enhancedTerminalRef.current) {
-            try {
-              const history = await api<TerminalHistoryResponse>(
-                `/api/v1/agents/${agent.id}/terminal/history?lines=${TERMINAL_BACKFILL_LINES}&skipBottomLines=${rows}`
-              );
-              if (!isCurrentAttempt()) {
-                return;
-              }
-              if (history.data.trim().length > 0) {
-                term.write(normalizeBackfill(history.data));
-              }
-            } catch (error) {
-              console.warn("Terminal history backfill failed:", error);
-            }
-          }
           setTerminalMode("tmux");
           setTerminalPlaceholderMessage(null);
           const ws = new WebSocket(
@@ -694,7 +661,7 @@ export function useTerminal(args: {
       fontSize: 13,
       scrollback: 1000,
       macOptionClickForcesSelection: true,
-      screenReaderMode: isTouchDevice && !enhancedTerminal,
+      screenReaderMode: isTouchDevice,
       minimumContrastRatio: palette.minimumContrastRatio ?? 1,
       theme: palette,
     });
@@ -763,56 +730,41 @@ export function useTerminal(args: {
     host.addEventListener("paste", handlePaste, true);
 
     const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
-    const scrollableEl = host.querySelector(
-      ".xterm-scrollable-element"
-    ) as HTMLElement | null;
     let touchY = 0;
     let touchAccum = 0;
-    const TOUCH_LINE_PX = 24;
-    const LEGACY_SCROLL_SENSITIVITY_PX = 30;
+    const TOUCH_SCROLL_SENSITIVITY_PX = 30;
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
       touchY = e.touches[0].clientY;
       touchAccum = 0;
     };
+    // Translate one-finger touch drags into wheel events on xterm's screen
+    // element. With tmux mouse mode on, xterm forwards those as SGR mouse
+    // wheel codes to tmux, which scrolls its own scrollback in copy-mode.
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
-      if (!enhancedTerminalRef.current) {
-        if (!screenEl) return;
-        const currentY = e.touches[0].clientY;
-        const delta = touchY - currentY;
-        touchY = currentY;
-        touchAccum += delta;
-        while (Math.abs(touchAccum) >= LEGACY_SCROLL_SENSITIVITY_PX) {
-          const direction = touchAccum > 0 ? 1 : -1;
-          touchAccum -= direction * LEGACY_SCROLL_SENSITIVITY_PX;
-          screenEl.dispatchEvent(
-            new WheelEvent("wheel", {
-              deltaY: direction * 100,
-              deltaMode: 0,
-              bubbles: true,
-              cancelable: true,
-            })
-          );
-        }
-        return;
-      }
-      const active = term.buffer.active;
-      if (active.type !== "normal" || active.baseY <= 0) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!screenEl) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
       touchAccum += delta;
-      const wholeLines =
-        touchAccum > 0
-          ? Math.floor(touchAccum / TOUCH_LINE_PX)
-          : Math.ceil(touchAccum / TOUCH_LINE_PX);
-      if (wholeLines === 0) return;
-      touchAccum -= wholeLines * TOUCH_LINE_PX;
-      term.scrollLines(wholeLines);
+      while (Math.abs(touchAccum) >= TOUCH_SCROLL_SENSITIVITY_PX) {
+        const direction = touchAccum > 0 ? 1 : -1;
+        touchAccum -= direction * TOUCH_SCROLL_SENSITIVITY_PX;
+        screenEl.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: direction * 100,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      }
     };
+    // On touch devices, xterm's text-selection mousedown handler doesn't
+    // fire from a real touch tap. Re-dispatch with shift+alt set so xterm
+    // treats the tap as the start of a selection, which in turn focuses
+    // the screen so subsequent input events route correctly.
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
       if (dispatchingMouseDown) return;
@@ -842,21 +794,9 @@ export function useTerminal(args: {
     };
 
     host.addEventListener("touchstart", onTouchStart, { passive: true });
-    if (enhancedTerminal) {
-      host.addEventListener("touchmove", onTouchMove, { passive: false });
-      screenEl?.addEventListener("touchstart", onTouchStart, { passive: true });
-      screenEl?.addEventListener("touchmove", onTouchMove, { passive: false });
-      scrollableEl?.addEventListener("touchstart", onTouchStart, {
-        passive: true,
-      });
-      scrollableEl?.addEventListener("touchmove", onTouchMove, {
-        passive: false,
-      });
-    } else {
-      host.addEventListener("touchmove", onTouchMove, { passive: true });
-      if (screenEl) {
-        screenEl.addEventListener("mousedown", onMouseDown, true);
-      }
+    host.addEventListener("touchmove", onTouchMove, { passive: true });
+    if (screenEl) {
+      screenEl.addEventListener("mousedown", onMouseDown, true);
     }
 
     const disposable = term.onData((data) => {
@@ -903,10 +843,6 @@ export function useTerminal(args: {
       host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
-      screenEl?.removeEventListener("touchstart", onTouchStart);
-      screenEl?.removeEventListener("touchmove", onTouchMove);
-      scrollableEl?.removeEventListener("touchstart", onTouchStart);
-      scrollableEl?.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
         screenEl.removeEventListener("mousedown", onMouseDown, true);
       }
@@ -919,13 +855,7 @@ export function useTerminal(args: {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [
-    authState,
-    enhancedTerminal,
-    invalidateAttachAttempt,
-    requestFit,
-    terminalHostElement,
-  ]);
+  }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {
@@ -1043,17 +973,6 @@ export function useTerminal(args: {
     }
   }, [resyncing, connState]);
 
-  const runFit = useCallback(() => {
-    fitAddonRef.current?.fit();
-    sendResize();
-  }, [sendResize]);
-
-  const runRefresh = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return;
-    term.refresh(0, term.rows - 1);
-  }, []);
-
   return useMemo(
     () => ({
       connState,
@@ -1068,8 +987,6 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
-      runFit,
-      runRefresh,
       resyncing,
     }),
     [
@@ -1083,8 +1000,6 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
-      runFit,
-      runRefresh,
       resyncing,
     ]
   );

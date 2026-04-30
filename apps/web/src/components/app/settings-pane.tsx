@@ -24,7 +24,6 @@ import { type ServiceState } from "@/components/app/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
-import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
 import { type ThemeId, THEMES } from "@/hooks/use-theme";
@@ -201,51 +200,6 @@ function RewriteLocalhostPinsSettings(): JSX.Element {
           Rewrite localhost in pins
         </div>
       </label>
-    </div>
-  );
-}
-
-function EnhancedTerminalSettings(): JSX.Element {
-  const { enhancedTerminal, setEnhancedTerminal, isSaving, saveError } =
-    useEnhancedTerminal();
-
-  return (
-    <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Terminal
-      </div>
-      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        Opt in to the enhanced terminal path for local xterm scrollback,
-        attach-time history backfill, and mobile touch scrolling. Takes effect
-        the next time a terminal attaches or reconnects.
-      </p>
-      <label
-        className={cn(
-          "flex max-w-lg items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
-          "cursor-pointer hover:bg-muted/50",
-          isSaving && "pointer-events-none opacity-60"
-        )}
-      >
-        <Checkbox
-          checked={enhancedTerminal}
-          onCheckedChange={(v) => setEnhancedTerminal(v === true)}
-          data-testid="enhanced-terminal-toggle"
-        />
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-foreground">
-            Use enhanced terminal mode
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Isolates the current scrollback and touch updates behind an opt-in
-            while we soak-test them.
-          </div>
-        </div>
-      </label>
-      {saveError ? (
-        <p className="mt-1.5 text-xs text-destructive">
-          Failed to save. Please try again.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -705,9 +659,6 @@ export function SettingsContent({
           <div className="flex flex-col">
             <div className="p-4 md:p-6">
               <InstanceNameSettings />
-            </div>
-            <div className="border-t border-border p-4 md:p-6">
-              <EnhancedTerminalSettings />
             </div>
             <div className="border-t border-border">
               <AppearanceSettings

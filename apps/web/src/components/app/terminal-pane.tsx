@@ -13,7 +13,6 @@ type TerminalPaneProps = {
   terminalPlaceholderMessage: string | null;
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
-  enhancedTerminal: boolean;
   resyncing: boolean;
 };
 
@@ -25,7 +24,6 @@ export const TerminalPane = memo(function TerminalPane({
   terminalPlaceholderMessage,
   terminalHostRef,
   archivePhase,
-  enhancedTerminal,
   resyncing,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
@@ -50,10 +48,7 @@ export const TerminalPane = memo(function TerminalPane({
   return (
     <div
       data-testid="terminal-pane"
-      className={cn(
-        "relative h-full min-h-0 overflow-hidden bg-background",
-        enhancedTerminal && "terminal-touch-island"
-      )}
+      className={cn("relative h-full min-h-0 overflow-hidden bg-background")}
     >
       {isAttached && connState === "connected" ? (
         <div data-testid="terminal-connected-state" className="sr-only">

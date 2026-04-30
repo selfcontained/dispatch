@@ -19,7 +19,6 @@ import { useSSE } from "@/hooks/use-sse";
 import { useAgentSoundCues } from "@/hooks/use-agent-sound-cues";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
-import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
 import { useTheme } from "@/hooks/use-theme";
 import { useTemporaryState } from "@/hooks/use-temporary-state";
 import {
@@ -90,7 +89,6 @@ export function DashboardLayout(): JSX.Element {
     clearError: clearIconColorError,
   } = useIconColor();
   const { instanceName } = useInstanceName();
-  const { enhancedTerminal } = useEnhancedTerminal();
   const { handleLogout } = useAuthContext();
   const {
     isMobile,
@@ -121,18 +119,6 @@ export function DashboardLayout(): JSX.Element {
   useEffect(() => {
     document.title = instanceName ? `${instanceName} — Dispatch` : "Dispatch";
   }, [instanceName]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (enhancedTerminal) {
-      root.setAttribute("data-terminal-mode", "enhanced");
-    } else {
-      root.setAttribute("data-terminal-mode", "legacy");
-    }
-    return () => {
-      root.removeAttribute("data-terminal-mode");
-    };
-  }, [enhancedTerminal]);
 
   useEffect(() => initEnergyMetrics(), []);
 

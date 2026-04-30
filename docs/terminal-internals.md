@@ -8,7 +8,7 @@ Roughly left-to-right:
 
 ```
 xterm.js (web)
-  ↕  WebSocket  (apps/server/src/routes/agents.ts:1008-1112)
+  ↕  WebSocket  (apps/server/src/routes/agents.ts — terminal/ws handler)
 PTY adapter    (apps/server/src/shared/terminal/bun-pty.ts) — wraps Bun.Terminal
   ↕  tmux client (process running `tmux attach-session -t <sessionName>`)
 tmux server (in-process, persistent across reattaches)
@@ -20,81 +20,18 @@ Two important properties:
 - **The Fastify WS handler is a pure byte relay.** It does no escape-code parsing, no batching, no transformation. Bytes from PTY stdout go to the WebSocket as `{type:"output", data}`. Bytes from the WebSocket go to PTY stdin via `ptyProcess.write()`. The only resize-path code is `ptyProcess.resize(cols, rows)` which is a `TIOCSWINSZ` ioctl — standard PTY resize. **If you suspect a terminal bug is server-side, you're almost certainly wrong.** Look at xterm or the agent CLI first.
 - **The PTY-tmux pair is the point of session persistence.** When a browser tab disconnects, only the tmux _client_ exits (not the session). New attaches spawn a fresh PTY running `tmux attach-session` against the same session, which is why state survives reloads.
 
-## Terminal modes (`legacy` / `enhanced`)
+The only piece of out-of-band server logic on attach is `enableTmuxMouseMode(sessionName)`, which sets `tmux set-option mouse on` once per WebSocket connect. tmux defaults to `mouse off`, and we want mouse on so wheel/touch events drive tmux's copy-mode scrollback.
 
-The `enhanced_terminal` setting toggles a per-session mode. Stored in the `settings` table; UI in `settings-pane.tsx`; resolution in `apps/server/src/routes/agents.ts:217-231` (`resolveTerminalSessionMode`).
+## Scrolling: tmux mouse mode + copy-mode
 
-Differences:
+How scroll actually works end-to-end:
 
-| Layer                                  | Legacy                            | Enhanced                                               |
-| -------------------------------------- | --------------------------------- | ------------------------------------------------------ |
-| Tmux `mouse` option                    | `on`                              | `off`                                                  |
-| Tmux `terminal-overrides`              | (untouched)                       | appends `xterm-256color:smcup@:rmcup@`                 |
-| `/terminal/history` backfill on attach | not requested                     | requested (≤ 400 lines, see `TERMINAL_BACKFILL_LINES`) |
-| Touch handler                          | dispatches synthetic wheel events | scrolls xterm buffer directly                          |
-| xterm `screenReaderMode` (touch)       | `true`                            | `false`                                                |
-| `<html data-terminal-mode>` attr       | `legacy`                          | `enhanced`                                             |
-| `terminal-touch-island` class on pane  | not applied                       | applied                                                |
+1. Mouse wheel (or synthesized wheel from touch — see below) lands on `.xterm-screen`.
+2. xterm.js sees the wheel event. tmux has previously sent `\x1b[?1006h\x1b[?1000h` (SGR mouse tracking enable) to xterm because `mouse on` is set, so xterm forwards the wheel as an SGR mouse event to tmux.
+3. tmux receives the mouse event, drops into copy-mode automatically (because `mouse on`), and scrolls its own scrollback buffer. The agent CLI inside the pane never sees the wheel events.
+4. The user sees tmux's scrollback content scroll past, the same way it would in a desktop terminal connected to the same tmux session.
 
-Everything else — the tmux session, the PTY, the WebSocket protocol, reconnect logic, the xterm instance, scrollback size — is **shared**. The two modes are not isolated runtimes; they're a set of branches stacked on a single shared pipeline.
-
-### Mode resolution gotchas
-
-- Once an agent's tmux session has been touched by enhanced mode, it stays enhanced server-side even after the user toggles the setting OFF. `resolveTerminalSessionMode` checks cache → detect-from-tmux-state → preferred, and detection wins over preferred. Workaround: kill the agent's tmux session and start fresh, or manually unset the override and `mouse on` it.
-- `configureTerminalSessionMode("legacy")` only sets `mouse on`. It does not remove the enhanced override from `terminal-overrides`. So even if you reach the legacy branch on an already-enhanced session, alt-screen stays disabled.
-- `terminalSessionModeCache` is per-process. A server restart clears it but detection re-runs immediately and re-confirms the stuck state from disk (tmux options).
-- The frontend reads the global setting via `useEnhancedTerminal()` and decides locally about backfill / touch handler / screen-reader mode. The backend resolves per-session. They can disagree, producing 409s on `/terminal/history` (frontend on, backend off) or silently-skipped backfills (frontend off, backend on).
-
-## The `smcup@:rmcup@` override (the deliberate hack)
-
-This is the load-bearing weird thing in enhanced mode. **Do not remove it without reading this section.** The previous-agent audit doc in dispatch media (`enhanced-terminal-isolation-audit.md`) recommends dropping it; that recommendation is wrong in context.
-
-### What it does
-
-`xterm-256color:smcup@:rmcup@` deletes the `smcup` and `rmcup` capabilities from tmux's view of the terminal. Those are the escape sequences that swap into and out of the alternate screen buffer — every full-screen TUI uses them (Codex, Claude CLI, vim, less, htop, fzf).
-
-With alt-screen disabled:
-
-- TUI sends `smcup` → tmux drops it silently → terminal stays on main screen
-- Every TUI redraw lands directly in main-screen + scrollback
-- Result: scrollback fills with the TUI's full incremental render history (collapsed→expanded animations, intermediate spinner states, every frame)
-- Looks "expanded and noisy" — the user sees stuff that was meant to be discarded on `rmcup`
-
-### Why we keep it anyway
-
-It's the **only mechanism** that gives users a working scroll experience on iPad and desktop in enhanced mode. The path:
-
-1. tmux mouse=off → tmux ignores wheel events
-2. Wheel events reach xterm
-3. With alt-screen _off_, xterm has main-screen scrollback to scroll into
-4. Touch (iPad) and mouse wheel (desktop) both scroll xterm's local scrollback successfully
-
-If we restore alt-screen (drop the override):
-
-1. xterm in alt-screen has empty main-screen scrollback (TUI never wrote there)
-2. Mouse wheel default behavior in alt-screen: xterm.js translates wheel → bare ↑/↓ arrow keys
-3. **Codex and Claude both bind ↑ to "edit previous message", ↓ to message navigation**
-4. So scrolling silently mangles the user's input field instead of scrolling
-
-The trade is: noisy scrollback (current) vs. completely broken scroll affordance + input mangling (without override). Current is the lesser evil.
-
-### Things that don't fix it
-
-We tested all of these. None work:
-
-- **`tmux refresh-client` after resize.** Forces tmux to re-emit a frame, but doesn't address xterm buffer state mismatches and doesn't help the wheel→arrow problem at all. Adds two `tmux` shell-outs per resize for no benefit.
-- **Custom xterm wheel handler sending Shift+↑/↓ (`\x1b[1;2A/B`).** Codex treats these the same as bare ↑/↓. Same input mangling.
-- **Custom xterm wheel handler sending PgUp/PgDn (`\x1b[5~`/`\x1b[6~`).** Codex doesn't scroll on these; instead enters some mode state that survives reattach (Codex's UI state lives in its tmux process, not in the browser). Likely also true of Claude.
-- **Custom xterm wheel handler sending SGR mouse wheel codes (`\x1b[<64;X;Y M`).** xterm.js already does this _automatically_ when an alt-screen app has enabled mouse tracking. Codex/Claude do not request mouse mode in their alt-screens, so xterm falls back to wheel→arrow translation.
-- **Wiring the iPad bottom-toolbar arrow buttons** — they send bare ↑/↓ which collides with Codex/Claude bindings same as wheel-to-arrow translation. Could potentially be repurposed but you're back to needing some app-level cooperation.
-
-### Realistic future paths
-
-If we ever want clean alt-screen + working scroll:
-
-1. **A dedicated "scroll mode" UI affordance** on iPad and desktop. Long-press / button to enter an overlay that scrolls. Bypasses the wheel/arrow conflict by being explicit UI, not key passthrough. Most viable path.
-2. **Codex / Claude opting into mouse tracking** in their alt-screens. Out of our control.
-3. **A tee mechanism** that captures alt-screen frames into a separate buffer the user can review. Significant new infra.
+For touch devices, the iPad doesn't natively send wheel events. The touch handler in `use-terminal.ts` synthesizes them: each finger drag emits `WheelEvent`s on `.xterm-screen` at 30px-per-tick granularity, and from there the path is identical to a desktop mouse wheel.
 
 ## Resize handling
 
@@ -113,9 +50,7 @@ In `apps/web/src/hooks/use-terminal.ts`, `requestFit` is a trailing-debounced (3
 3. When 300ms passes with no further size change, the timer fires:
    - Calls `fit.proposeDimensions()` (read-only — reads parent computed style)
    - If proposed cols/rows ≠ current, triggers a full RESYNC
-4. RESYNC = `detachTerminal()` + 150ms + `ensureTerminalConnected(true, true, agentId)` — same flow the manual RESYNC button uses (and same as page reload, in effect).
-
-A page reload mirrors RESYNC because it creates a new xterm with a clean buffer, then re-pulls the current viewport from tmux via `/terminal/history`. RESYNC does the same in-place.
+4. RESYNC = `detachTerminal()` + 150ms + `ensureTerminalConnected(true, true, agentId)` — same flow the manual RESYNC button uses (and same as page reload, in effect). It tears down the WebSocket and re-attaches with the new size in the URL, which spawns a fresh PTY running `tmux attach-session`. tmux emits a full screen state to the new client; xterm starts with a clean buffer.
 
 ### Why simpler approaches don't work
 
@@ -131,30 +66,40 @@ The 150ms detach + reconnect creates a brief disconnected/empty state that would
 - A `resyncing` flag in `useTerminal` flips `true` when auto-RESYNC fires, `false` when the new attach reaches `connected`. Threaded through to `TerminalPane` which renders a plain `bg-background` cover with asymmetric opacity transition (`75ms` snap-in to mask the flash, `300ms` fade-out for gentle reveal). Empty state and reconnect overlay are suppressed during this window.
 - `agents-view.tsx` falls back to `validatedSelectedAgentId` for `focusedAgentId` while `resyncing` is true, so `useMedia` keeps the same key and the media sidebar doesn't remount mid-resync.
 
-### Backfill size
-
-`TERMINAL_BACKFILL_LINES = 400` (was 1200). xterm scrollback is configured at 1000 lines, so requesting more than that throws content away on write. 400 is roughly 8 screens worth of agent output and matches what's typically useful.
-
-## Debug buttons
-
-The agents sidebar header (`SidebarShell`) has a `headerActions` slot. `agents-view.tsx` populates it with three small text buttons next to the DISPATCH logo:
-
-- **FIT** — `fitAddon.fit()` + `sendResize()`. Bypasses the 300ms debounce.
-- **RFSH** — `term.refresh(0, term.rows - 1)`. Repaints visible buffer rows. Only useful for stale-glyph artifacts; won't fix corrupted buffer state.
-- **RESYNC** — `detachTerminal()` + 150ms + `ensureTerminalConnected(true, true, connectedAgentId)`. The actual buffer-state fix.
-
-Each button flashes blue with `✓` for 400ms on click — important for iPad where there's no console to verify the click registered.
-
 ## Things to remember
 
 - **The server is innocent of buffer-state bugs.** It's a byte relay. If you're chasing a terminal corruption issue, look at xterm's reflow, the agent's redraw assumptions, or our auto-RESYNC plumbing — in that order.
 - **`term.refresh()` re-renders the buffer; it doesn't fix corrupt buffer.** Easy to confuse the two.
 - **`fit.fit()` reads `getComputedStyle()` of the parent** — during a CSS transition that returns the in-flight value, not the settled one. Always debounce.
 - **Resize = destructive.** Don't call `term.resize()` casually. Each call rewraps the buffer and leaves state behind.
-- **Codex and Claude both bind bare ↑/↓ to history navigation.** Any scroll-via-key approach has to avoid them.
-- **`smcup@:rmcup@` is load-bearing.** Removing it visibly cleans up scrollback but breaks the only working scroll affordance on iPad/desktop in enhanced mode.
-- **Tmux session state is sticky.** A user setting toggle doesn't reconfigure live sessions. Detection wins over preference.
+- **Codex and Claude both bind bare ↑/↓ to history navigation.** Any "scroll via fake key event" approach has to avoid them — and in practice, every modified-arrow / PgUp variant we tried also conflicts (see history below). Stick with tmux mouse-mode scroll.
+- **Tmux `mouse on` is per-session and we set it on every attach.** It's idempotent and cheap. New sessions inherit `off` from tmux defaults, so don't assume it's set.
 - **Don't restart the dev server during testing.** `dispatch-dev restart` and the MCP `repo_dev_restart` both tear down the postgres container and orphan agents. Backend uses `tsx watch`, so just save the file. (Memory: `feedback_dev_restart.md`.)
+
+## History — the enhanced terminal mode (removed)
+
+There used to be a per-user "enhanced terminal mode" setting (`enhanced_terminal` in the `settings` table). It opted into:
+
+- `tmux mouse off` + an appended `xterm-256color:smcup@:rmcup@` override to terminal-overrides
+- A `/terminal/history` REST backfill on attach
+- Different touch handlers and `screenReaderMode` on xterm
+- A `data-terminal-mode` attribute on `<html>` driving CSS overrides for iPad scroll behavior
+
+The `smcup@:rmcup@` override deliberately disabled tmux's alt-screen support so that full-screen TUIs (Codex, Claude, vim) wrote their incremental redraws into main-screen scrollback — giving xterm something to scroll through locally on iPad, where tmux mouse-mode-via-server-roundtrip felt sluggish.
+
+That trade was: noisy/incoherent scrollback (full TUI redraw history visible) vs. a more responsive iPad scroll. **It wasn't worth it.** The ripped-out feature was tested and reverted in favor of the simpler tmux-mouse-mode path documented above. Remaining settings table row (`enhanced_terminal`) is harmless dead data.
+
+Things we tried while attempting to keep alt-screen working _and_ get usable iPad scroll, all of which failed:
+
+- **Custom xterm wheel handler sending bare ↑/↓ keys** — xterm.js's default in alt-screen with no app mouse-mode. Codex/Claude bind these to history navigation; "scrolling" instead pulled previous messages into the input.
+- **Shift+↑/↓ (`\x1b[1;2A/B`)** — Codex treats these the same as bare ↑/↓.
+- **PgUp/PgDn (`\x1b[5~`/`\x1b[6~`)** — Codex doesn't scroll on these; instead enters some mode state that survives reattach.
+- **SGR mouse wheel codes (`\x1b[<64;X;Y M`)** — only works if the foreground app opted into mouse tracking. Codex/Claude do not.
+- **Server-side `tmux refresh-client` after resize** — addresses neither the buffer-state-mismatch problem nor the wheel-key conflict.
+
+If we ever want a clean alt-screen + working scroll story without going back to the override hack, the realistic path is **a dedicated UI scroll affordance** (e.g., long-press to enter a scroll overlay, or a toolbar mode toggle) — bypassing the wheel/key conflict by being explicit UI rather than passthrough. Otherwise tmux mouse-mode + copy-mode is the right answer.
+
+The previous-agent audit (`enhanced-terminal-isolation-audit.md` in dispatch media) recommended dropping the override as a cleanup. That recommendation was technically right but missed the design intent of the override; we eventually agreed and ripped the entire mode rather than just the override.
 
 ## Files of interest
 
@@ -163,8 +108,6 @@ Each button flashes blue with `✓` for 400ms on click — important for iPad wh
 | `apps/web/src/hooks/use-terminal.ts`            | xterm setup, resize/RESYNC, touch handlers, WS, debug actions         |
 | `apps/web/src/components/app/terminal-pane.tsx` | Pane + overlays (empty / inert / resyncing / reconnect / archive)     |
 | `apps/web/src/components/app/agents-view.tsx`   | `useTerminal` consumer, debug buttons, `focusedAgentId` derivation    |
-| `apps/web/src/components/app/sidebar-shell.tsx` | `headerActions` slot for debug buttons                                |
-| `apps/web/src/hooks/use-enhanced-terminal.ts`   | Frontend setting hook                                                 |
-| `apps/server/src/routes/agents.ts`              | WS terminal route, backfill endpoint, mode resolution + configuration |
-| `apps/server/src/terminal/tmux-terminal.ts`     | tmux command wrappers (out-of-band: `capture-pane`, bracketed paste)  |
+| `apps/server/src/routes/agents.ts`              | WS terminal route, `enableTmuxMouseMode`                              |
+| `apps/server/src/terminal/tmux-terminal.ts`     | tmux command wrappers (out-of-band: bracketed paste, session probing) |
 | `apps/server/src/shared/terminal/bun-pty.ts`    | PTY adapter around `Bun.Terminal`                                     |

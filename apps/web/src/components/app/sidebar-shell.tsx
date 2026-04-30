@@ -93,7 +93,6 @@ type SidebarShellProps = {
   closeButtonIcon?: "chevron" | "x";
   pulsingNavItem?: string | null;
   triggerNavAnimation?: (navItem: string) => void;
-  headerActions?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -104,7 +103,6 @@ export function SidebarShell({
   closeButtonIcon = "x",
   pulsingNavItem,
   triggerNavAnimation,
-  headerActions,
   children,
 }: SidebarShellProps): JSX.Element {
   const { iconColor } = useIconColor();
@@ -136,9 +134,6 @@ export function SidebarShell({
             ) : null}
           </div>
         </div>
-        {headerActions ? (
-          <div className="ml-2 flex items-center gap-1">{headerActions}</div>
-        ) : null}
         {onRequestClose ? (
           <div className="ml-auto">
             <Button

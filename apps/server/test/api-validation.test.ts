@@ -225,15 +225,6 @@ describe("POST /api/v1/agents/settings", () => {
     });
     expect(res.statusCode).toBe(400);
   });
-
-  it("rejects non-boolean enhancedTerminal", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/v1/agents/settings",
-      payload: { enhancedTerminal: "yes" },
-    });
-    expect(res.statusCode).toBe(400);
-  });
 });
 
 describe("POST /api/v1/notifications/settings", () => {
