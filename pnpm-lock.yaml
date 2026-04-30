@@ -131,6 +131,9 @@ importers:
       "@xterm/addon-fit":
         specifier: ^0.11.0
         version: 0.11.0
+      "@xterm/addon-unicode11":
+        specifier: ^0.9.0
+        version: 0.9.0
       "@xterm/xterm":
         specifier: ^6.0.0
         version: 6.0.0
@@ -3638,6 +3641,12 @@ packages:
     resolution:
       {
         integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==,
+      }
+
+  "@xterm/addon-unicode11@0.9.0":
+    resolution:
+      {
+        integrity: sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw==,
       }
 
   "@xterm/xterm@6.0.0":
@@ -11001,6 +11010,8 @@ snapshots:
       js-base64: 3.7.8
 
   "@xterm/addon-fit@0.11.0": {}
+
+  "@xterm/addon-unicode11@0.9.0": {}
 
   "@xterm/xterm@6.0.0": {}
 

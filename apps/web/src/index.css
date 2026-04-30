@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 :root {
+  --font-terminal:
+    "JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji",
+    "Noto Color Emoji", monospace;
   --background: 55 8% 6%;
   --foreground: 60 30% 96%;
   --card: 50 8% 9%;
@@ -378,7 +381,7 @@ body {
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family: "JetBrains Mono", Menlo, monospace;
+  font-family: var(--font-terminal);
 }
 
 /* Glass atmosphere — subtle radial gradients behind all content.
@@ -571,7 +574,7 @@ html[data-theme="matrix"] body::after {
 }
 
 .terminal-font {
-  font-family: "JetBrains Mono", Menlo, monospace;
+  font-family: var(--font-terminal);
 }
 
 html[data-theme="matrix"] .xterm {
