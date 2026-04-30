@@ -1,5 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  loadApp,
+  setAgentLatestEventViaAPI,
+} from "./helpers";
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -271,6 +276,45 @@ test.describe("Agent CRUD", () => {
     await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
 
     await expect(attachedCard.getByText("/tmp")).toBeVisible();
+    await expect(peekCard.getByText("/tmp")).toBeVisible();
+  });
+
+  test("manual expansion survives attached agent activity updates", async ({
+    page,
+    request,
+  }) => {
+    const attachedAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-attached-${Date.now()}`,
+    });
+    const peekAgent = await createAgentViaAPI(request, {
+      name: `e2e-agent-peek-${Date.now()}`,
+    });
+
+    await request.post(`/api/v1/agents/${attachedAgent.id}/start`, {
+      headers: AUTH_HEADER,
+    });
+
+    await loadApp(page);
+
+    const attachedCard = page.getByTestId(`agent-card-${attachedAgent.id}`);
+    const peekCard = page.getByTestId(`agent-card-${peekAgent.id}`);
+
+    await page.getByTestId(`agent-row-${attachedAgent.id}`).click();
+    await expect(attachedCard.getByText("/tmp")).toBeVisible({
+      timeout: 5_000,
+    });
+
+    await page.getByTestId(`agent-expand-toggle-${peekAgent.id}`).click();
+    await expect(peekCard.getByText("/tmp")).toBeVisible();
+
+    await setAgentLatestEventViaAPI(request, attachedAgent.id, {
+      type: "working",
+      message: "refreshing sidebar state",
+    });
+
+    await expect(
+      attachedCard.getByText("refreshing sidebar state")
+    ).toBeVisible({ timeout: 5_000 });
     await expect(peekCard.getByText("/tmp")).toBeVisible();
   });
 
