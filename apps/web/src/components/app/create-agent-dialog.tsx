@@ -45,7 +45,6 @@ import { Input } from "@/components/ui/input";
 import {
   type ClipboardSuggestion,
   clipboardReadSupported,
-  createClipboardSuggestionFromFile,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
   getClipboardSuggestion,
@@ -80,34 +79,6 @@ const STARTUP_FILE_ACCEPT =
 const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
 const CONTEXT_LINK_INPUT_ID = "create-agent-context-link-input";
 const CONTEXT_LINK_ERROR_ID = "create-agent-context-link-error";
-const ROUND_ICON_BUTTON_CLASS =
-  "h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground";
-
-function getClipboardSuggestionClasses(suggestion: ClipboardSuggestion): {
-  container: string;
-  title: string;
-} {
-  switch (suggestion.kind) {
-    case "url":
-      return {
-        container:
-          "border-status-done/35 bg-status-done/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-done)/0.08)]",
-        title: "text-status-done",
-      };
-    case "text":
-      return {
-        container:
-          "border-status-working/35 bg-status-working/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-working)/0.08)]",
-        title: "text-status-working",
-      };
-    default:
-      return {
-        container:
-          "border-status-waiting/35 bg-status-waiting/12 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_hsl(var(--status-waiting)/0.08)]",
-        title: "text-status-waiting",
-      };
-  }
-}
 
 function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;
@@ -422,8 +393,6 @@ function CreateAgentDialogContent({
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [linkDraft, setLinkDraft] = useState("");
-  const [clipboardSuggestion, setClipboardSuggestion] =
-    useState<ClipboardSuggestion | null>(null);
   const [checkingClipboard, setCheckingClipboard] = useState(false);
   const [canReadClipboard, setCanReadClipboard] = useState(false);
   const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
@@ -486,7 +455,6 @@ function CreateAgentDialogContent({
   useEffect(() => {
     if (step !== "context") {
       clipboardRequestIdRef.current += 1;
-      setClipboardSuggestion(null);
       setCheckingClipboard(false);
       setCanReadClipboard(false);
       setClipboardReadFeedback(null);
@@ -539,6 +507,38 @@ function CreateAgentDialogContent({
     });
   }, []);
 
+  const applyClipboardSuggestion = useCallback(
+    (suggestion: ClipboardSuggestion) => {
+      switch (suggestion.kind) {
+        case "image":
+        case "file":
+          appendStartupFiles([suggestion.file]);
+          break;
+        case "url":
+          setStartupLinks((current) =>
+            current.includes(suggestion.url)
+              ? current
+              : [...current, suggestion.url]
+          );
+          break;
+        case "text": {
+          const suggestionText = suggestion.text;
+          // Append when the user has typed real content; treat whitespace-only
+          // as empty so we don't leave leading blank lines for someone who
+          // just clicked into the textarea before reading the clipboard.
+          setInitialPrompt((current) =>
+            current.trim().length === 0
+              ? suggestionText
+              : `${current.trimEnd()}\n\n${suggestionText}`
+          );
+          requestAnimationFrame(() => promptTextareaRef.current?.focus());
+          break;
+        }
+      }
+    },
+    [appendStartupFiles]
+  );
+
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
       const target = event.target;
@@ -549,9 +549,7 @@ function CreateAgentDialogContent({
       const pastedFiles = getClipboardFilesFromEvent(event);
       if (pastedFiles.length > 0) {
         event.preventDefault();
-        setClipboardSuggestion(
-          createClipboardSuggestionFromFile(pastedFiles[0])
-        );
+        appendStartupFiles(pastedFiles);
         setClipboardReadFeedback(null);
         return;
       }
@@ -560,13 +558,17 @@ function CreateAgentDialogContent({
         event.clipboardData.getData("text/plain")
       );
 
-      if (textSuggestion?.kind === "url" && targetIsPrompt) {
+      // Plain text falls through to native paste so the prompt textarea
+      // gets the typed content. Only intercept URLs — the user almost
+      // always means "add this as a context link," not "paste this URL
+      // into the prompt as text."
+      if (textSuggestion?.kind === "url") {
         event.preventDefault();
-        setClipboardSuggestion(textSuggestion);
+        applyClipboardSuggestion(textSuggestion);
         setClipboardReadFeedback(null);
       }
     },
-    []
+    [appendStartupFiles, applyClipboardSuggestion]
   );
 
   const handleStartupDrop = useCallback(
@@ -619,43 +621,10 @@ function CreateAgentDialogContent({
 
   const enterContextStep = useCallback(() => {
     setStep("context");
-    setClipboardSuggestion(null);
     setCheckingClipboard(false);
     setCanReadClipboard(clipboardReadSupported());
     setClipboardReadFeedback(null);
   }, []);
-
-  const applyClipboardSuggestion = useCallback(
-    (suggestion: ClipboardSuggestion) => {
-      switch (suggestion.kind) {
-        case "image":
-        case "file":
-          appendStartupFiles([suggestion.file]);
-          break;
-        case "url":
-          setStartupLinks((current) =>
-            current.includes(suggestion.url)
-              ? current
-              : [...current, suggestion.url]
-          );
-          break;
-        case "text": {
-          const suggestionText = suggestion.text;
-          // Append when the user has typed real content; treat whitespace-only
-          // as empty so we don't leave leading blank lines for someone who
-          // just clicked into the textarea before reading the clipboard.
-          setInitialPrompt((current) =>
-            current.trim().length === 0
-              ? suggestionText
-              : `${current.trimEnd()}\n\n${suggestionText}`
-          );
-          requestAnimationFrame(() => promptTextareaRef.current?.focus());
-          break;
-        }
-      }
-    },
-    [appendStartupFiles]
-  );
 
   const handleCheckClipboard = useCallback(() => {
     setCheckingClipboard(true);
@@ -691,13 +660,6 @@ function CreateAgentDialogContent({
     setLinkDraft("");
     return true;
   }, [linkDraft]);
-
-  const handleUseClipboardSuggestion = useCallback(() => {
-    if (!clipboardSuggestion) return;
-    applyClipboardSuggestion(clipboardSuggestion);
-    setClipboardSuggestion(null);
-    setClipboardReadFeedback(null);
-  }, [applyClipboardSuggestion, clipboardSuggestion]);
 
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<"menu" | "link">("menu");
@@ -838,9 +800,6 @@ function CreateAgentDialogContent({
 
   const worktreeAvailable = cwdIsGitRepo !== false;
   const worktreeChecked = worktreeAvailable && createUseWorktree;
-  const clipboardSuggestionClasses = clipboardSuggestion
-    ? getClipboardSuggestionClasses(clipboardSuggestion)
-    : null;
 
   return (
     <DialogContent
@@ -1222,52 +1181,7 @@ function CreateAgentDialogContent({
               )}
             >
               <div className="space-y-3">
-                {clipboardSuggestion ? (
-                  <div
-                    className={cn(
-                      "space-y-3 rounded-lg border px-3 py-3",
-                      clipboardSuggestionClasses?.container
-                    )}
-                    data-testid="create-agent-context-clipboard-cta"
-                  >
-                    <div className="flex items-start gap-3">
-                      <p
-                        className={cn(
-                          "min-w-0 flex-1 text-sm leading-relaxed",
-                          clipboardSuggestionClasses?.title
-                        )}
-                      >
-                        {clipboardSuggestion.description}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn("mt-[-2px]", ROUND_ICON_BUTTON_CLASS)}
-                        onClick={() => setClipboardSuggestion(null)}
-                        data-testid="create-agent-context-clipboard-dismiss"
-                        aria-label="Dismiss clipboard suggestion"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="default"
-                      className="min-h-11 w-full justify-center px-3"
-                      onClick={handleUseClipboardSuggestion}
-                      data-testid="create-agent-context-clipboard-action"
-                    >
-                      {clipboardSuggestion.kind === "url" ? (
-                        <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                      ) : (
-                        <Upload className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {clipboardSuggestion.actionLabel}
-                    </Button>
-                  </div>
-                ) : null}
-                {!clipboardSuggestion && canReadClipboard ? (
+                {canReadClipboard ? (
                   <div
                     className="rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
                     data-testid="create-agent-context-clipboard-check"

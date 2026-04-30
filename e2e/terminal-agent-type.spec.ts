@@ -266,9 +266,6 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.locator('[title="https://example.com/docs/launch-context"]')
     ).toBeVisible();
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
-    ).not.toBeVisible();
   });
 
   test("create with context treats rich-text clipboard links as links, not files", async ({
@@ -307,8 +304,11 @@ test.describe("Terminal agent type", () => {
 
     await expect(page.getByTestId("create-agent-context-form")).toBeVisible();
     await expect(page.getByText("Create with context")).toBeVisible();
+    await expect(page.getByTestId("create-agent-initial-prompt")).toHaveValue(
+      ""
+    );
     await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
+      page.locator('[title="https://example.com/mounted-step-read"]')
     ).not.toBeVisible();
   });
 
@@ -359,9 +359,6 @@ test.describe("Terminal agent type", () => {
     await readButton.click();
     await expect(readButton).toBeVisible();
     await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
-    ).not.toBeVisible();
-    await expect(
       page.getByTestId("create-agent-context-clipboard-feedback")
     ).toContainText("Clipboard access was blocked.");
   });
@@ -380,7 +377,7 @@ test.describe("Terminal agent type", () => {
     ).not.toBeVisible();
   });
 
-  test("create with context intercepts pasted links in the prompt textarea", async ({
+  test("create with context auto-adds pasted URLs as link tiles in the prompt textarea", async ({
     page,
   }) => {
     await loadApp(page);
@@ -403,8 +400,8 @@ test.describe("Terminal agent type", () => {
 
     expect(defaultAllowed).toBe(false);
     await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
-    ).toContainText("Add copied link?");
+      page.locator('[title="https://example.com/pasted-link"]')
+    ).toBeVisible();
     await expect(prompt).toHaveValue("");
   });
 
@@ -430,9 +427,6 @@ test.describe("Terminal agent type", () => {
     });
 
     expect(defaultAllowed).toBe(true);
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
-    ).not.toBeVisible();
   });
 
   test("create with context does not intercept paste in the link input", async ({
@@ -460,38 +454,8 @@ test.describe("Terminal agent type", () => {
 
     expect(defaultAllowed).toBe(true);
     await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
+      page.locator('[title="https://example.com/keep-in-field"]')
     ).not.toBeVisible();
-  });
-
-  test("create with context lets the user dismiss a paste-based clipboard suggestion", async ({
-    page,
-  }) => {
-    await loadApp(page);
-
-    await page.getByTestId("create-agent-button").click();
-    await page.getByTestId("create-agent-with-context").click();
-
-    const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).not.toBeVisible();
-
-    const prompt = page.getByTestId("create-agent-initial-prompt");
-    await prompt.evaluate((node) => {
-      const data = new DataTransfer();
-      data.setData("text/plain", "https://example.com/dismiss-me");
-      node.dispatchEvent(
-        new ClipboardEvent("paste", {
-          bubbles: true,
-          cancelable: true,
-          clipboardData: data,
-        })
-      );
-    });
-    await expect(cta).toBeVisible();
-
-    await page.getByTestId("create-agent-context-clipboard-dismiss").click();
-
-    await expect(cta).not.toBeVisible();
   });
 
   test("create with context replaces whitespace-only Instructions when Read clipboard returns text", async ({
@@ -532,9 +496,6 @@ test.describe("Terminal agent type", () => {
       .click();
 
     await expect(page.getByText("clipboard-image.png")).toBeVisible();
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
-    ).not.toBeVisible();
   });
 
   test("create with context validates manual links before adding them", async ({
