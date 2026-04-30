@@ -57,11 +57,16 @@ export type MediaSidebarTab = "pins" | "media";
 export type MediaSidebarState = {
   isOpen: boolean;
   activeTab: MediaSidebarTab;
+  // When true (desktop only), the sidebar takes layout space and shrinks the
+  // terminal. When false, the sidebar floats over the terminal as a drawer
+  // that slides in/out without shifting layout. Default is false.
+  isPinned: boolean;
 };
 
 export const defaultMediaSidebarState: MediaSidebarState = {
   isOpen: false,
   activeTab: "pins",
+  isPinned: false,
 };
 
 export const inactiveMediaSidebarStateAtom = atom<MediaSidebarState>(
