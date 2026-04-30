@@ -25,7 +25,7 @@ const TERMINAL_FRESHNESS_MS =
   TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
-const TERMINAL_BACKFILL_LINES = 1_200;
+const TERMINAL_BACKFILL_LINES = 400;
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
@@ -100,6 +100,9 @@ export function useTerminal(args: {
   ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
+  runFit: () => void;
+  runRefresh: () => void;
+  resyncing: boolean;
 } {
   const {
     authState,
@@ -123,6 +126,10 @@ export function useTerminal(args: {
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState("Starting...");
+  // True while requestFit's auto-RESYNC is in flight. Lets the UI show a
+  // calm "Resizing…" overlay instead of the empty / reconnect overlays
+  // that the underlying detach → reattach transition would otherwise expose.
+  const [resyncing, setResyncing] = useState(false);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
@@ -138,7 +145,12 @@ export function useTerminal(args: {
   }, []);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const fitDebounceRef = useRef<number | null>(null);
   const ctrlPendingRef = useRef(false);
+  // Filled in via effect once detachTerminal/ensureTerminalConnected exist —
+  // lets requestFit trigger an auto-RESYNC without needing those defined
+  // earlier in the hook body.
+  const resyncOnResizeRef = useRef<() => void>(() => {});
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -174,6 +186,34 @@ export function useTerminal(args: {
     ws.send(
       JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
     );
+  }, []);
+
+  // Trailing-debounced size-change detector. ResizeObserver and CSS
+  // transitions can fire many size changes per visual settle; we wait 300ms
+  // for the host to stop moving, then ask the fit addon what cols/rows it
+  // would propose. If they differ from xterm's current dims, we full-RESYNC
+  // (tear down the WebSocket and re-attach with the new size in the URL).
+  //
+  // Why RESYNC instead of just calling fit()? xterm's destructive resize
+  // leaves stale state behind — cursor saves, scroll regions, app modes,
+  // scrollback rows wrapped at the old cols — that the agent's incremental
+  // redraws after SIGWINCH can't fully overwrite. Subsequent positioned
+  // writes start landing wrong as new bytes arrive. A reattach pulls a
+  // fresh viewport from tmux into a clean buffer, same as a page reload.
+  const requestFit = useCallback(() => {
+    if (fitDebounceRef.current !== null) {
+      window.clearTimeout(fitDebounceRef.current);
+    }
+    fitDebounceRef.current = window.setTimeout(() => {
+      fitDebounceRef.current = null;
+      const term = terminalRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      const proposed = fit.proposeDimensions();
+      if (!proposed) return;
+      if (proposed.cols === term.cols && proposed.rows === term.rows) return;
+      resyncOnResizeRef.current();
+    }, 300);
   }, []);
 
   const clearSocketHealth = useCallback(() => {
@@ -841,8 +881,7 @@ export function useTerminal(args: {
 
     const onResize = () => {
       if (deferMediaResizeRef.current) return;
-      fit.fit();
-      sendResize();
+      requestFit();
     };
 
     window.addEventListener("resize", onResize);
@@ -854,6 +893,10 @@ export function useTerminal(args: {
 
     return () => {
       invalidateAttachAttempt();
+      if (fitDebounceRef.current !== null) {
+        window.clearTimeout(fitDebounceRef.current);
+        fitDebounceRef.current = null;
+      }
       disposable.dispose();
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
@@ -880,7 +923,7 @@ export function useTerminal(args: {
     authState,
     enhancedTerminal,
     invalidateAttachAttempt,
-    sendResize,
+    requestFit,
     terminalHostElement,
   ]);
 
@@ -928,26 +971,22 @@ export function useTerminal(args: {
     };
   }, [clearReconnectTimer, ensureTerminalConnected, selectedAgentId]);
 
-  // Fit on layout change.
+  // Fit on layout change. The actual fit is debounced and reads the host's
+  // settled size, so we don't need a hand-tuned timer to "wait for" the CSS
+  // transition — ResizeObserver will keep poking requestFit until it stops.
   useEffect(() => {
     if (isMobile) return;
-    const fitNow = () => {
-      fitAddonRef.current?.fit();
-      sendResize();
-    };
-    fitNow();
-    const timer = window.setTimeout(fitNow, 340);
-    return () => window.clearTimeout(timer);
-  }, [isMobile, leftOpen, feedbackOpen, sendResize]);
+    requestFit();
+  }, [isMobile, leftOpen, feedbackOpen, requestFit]);
 
-  // Media sidebar width animates; wait until it settles before resizing the
-  // terminal so content doesn't reflow continuously during the slide.
+  // Media sidebar width animates; the deferMediaResize gate suppresses
+  // ResizeObserver fits during the slide, then this effect kicks one off
+  // once it settles.
   useEffect(() => {
     if (isMobile) return;
     if (deferMediaResize) return;
-    fitAddonRef.current?.fit();
-    sendResize();
-  }, [deferMediaResize, isMobile, mediaResizeSettleKey, sendResize]);
+    requestFit();
+  }, [deferMediaResize, isMobile, mediaResizeSettleKey, requestFit]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);
@@ -983,6 +1022,38 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
+  // Wire requestFit's auto-RESYNC trigger to the actual detach/reconnect
+  // pair now that they exist. Mirrors the manual RESYNC button flow.
+  useEffect(() => {
+    resyncOnResizeRef.current = () => {
+      const agentId = connectedAgentIdRef.current;
+      if (!agentId) return;
+      setResyncing(true);
+      detachTerminal();
+      window.setTimeout(() => {
+        void ensureTerminalConnected(true, true, agentId);
+      }, 150);
+    };
+  }, [detachTerminal, ensureTerminalConnected]);
+
+  // Clear the resyncing flag once the new attach lands.
+  useEffect(() => {
+    if (resyncing && connState === "connected") {
+      setResyncing(false);
+    }
+  }, [resyncing, connState]);
+
+  const runFit = useCallback(() => {
+    fitAddonRef.current?.fit();
+    sendResize();
+  }, [sendResize]);
+
+  const runRefresh = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term) return;
+    term.refresh(0, term.rows - 1);
+  }, []);
+
   return useMemo(
     () => ({
       connState,
@@ -997,6 +1068,9 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
+      runFit,
+      runRefresh,
+      resyncing,
     }),
     [
       connState,
@@ -1009,6 +1083,9 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
+      runFit,
+      runRefresh,
+      resyncing,
     ]
   );
 }

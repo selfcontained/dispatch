@@ -98,6 +98,37 @@ type AgentsViewProps = {
   onNavigateSection: (section: NavSection) => void;
 };
 
+function DebugTermButton({
+  label,
+  title,
+  onAction,
+}: {
+  label: string;
+  title: string;
+  onAction: () => void;
+}): JSX.Element {
+  const [flashing, setFlashing] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onAction();
+        setFlashing(true);
+        window.setTimeout(() => setFlashing(false), 400);
+      }}
+      title={title}
+      className={
+        "rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider transition-colors " +
+        (flashing
+          ? "bg-primary/30 text-primary"
+          : "text-muted-foreground hover:bg-muted/70 hover:text-foreground")
+      }
+    >
+      {flashing ? "✓" : label}
+    </button>
+  );
+}
+
 export function AgentsView({
   enabledAgentTypes,
   enabledIdes,
@@ -272,6 +303,9 @@ export function AgentsView({
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    runFit,
+    runRefresh,
+    resyncing,
   } = useTerminal({
     authState: "authenticated",
     agents,
@@ -297,8 +331,9 @@ export function AgentsView({
     resortAgents();
   }, [connectedAgentId, resortAgents]);
 
-  const focusedAgentId =
-    connState === "connected" || connState === "reconnecting"
+  const focusedAgentId = resyncing
+    ? validatedSelectedAgentId
+    : connState === "connected" || connState === "reconnecting"
       ? (connectedAgentId ?? validatedSelectedAgentId)
       : null;
   const focusedAgent = focusedAgentId
@@ -608,6 +643,32 @@ export function AgentsView({
             closeButtonIcon={isMobile ? "x" : "chevron"}
             pulsingNavItem={pulsingNavItem}
             triggerNavAnimation={triggerNavAnimation}
+            headerActions={
+              <>
+                <DebugTermButton
+                  label="fit"
+                  title="Force xterm fit()"
+                  onAction={runFit}
+                />
+                <DebugTermButton
+                  label="rfsh"
+                  title="Force xterm refresh()"
+                  onAction={runRefresh}
+                />
+                <DebugTermButton
+                  label="resync"
+                  title="Detach + clear + reattach (mimic page reload)"
+                  onAction={() => {
+                    const agentId = connectedAgentId;
+                    if (!agentId) return;
+                    detachTerminal();
+                    window.setTimeout(() => {
+                      void ensureTerminalConnected(true, true, agentId);
+                    }, 150);
+                  }}
+                />
+              </>
+            }
           >
             <AgentListContent
               agents={agents}
@@ -727,6 +788,7 @@ export function AgentsView({
                 terminalPlaceholderMessage={terminalPlaceholderMessage}
                 terminalHostRef={terminalHostRef}
                 enhancedTerminal={enhancedTerminal}
+                resyncing={resyncing}
                 archivePhase={
                   selectedAgent?.status === "archiving"
                     ? selectedAgent.archivePhase

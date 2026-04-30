@@ -14,6 +14,7 @@ type TerminalPaneProps = {
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
   enhancedTerminal: boolean;
+  resyncing: boolean;
 };
 
 export const TerminalPane = memo(function TerminalPane({
@@ -25,11 +26,12 @@ export const TerminalPane = memo(function TerminalPane({
   terminalHostRef,
   archivePhase,
   enhancedTerminal,
+  resyncing,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
   useEffect(() => {
-    if (connState !== "reconnecting") {
+    if (connState !== "reconnecting" || resyncing) {
       setShowReconnectOverlay(false);
       return;
     }
@@ -39,9 +41,10 @@ export const TerminalPane = memo(function TerminalPane({
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [connState]);
+  }, [connState, resyncing]);
 
-  const showEmptyState = connState === "disconnected" && !isAttached;
+  const showEmptyState =
+    connState === "disconnected" && !isAttached && !resyncing;
   const showInertState = terminalMode === "inert" && isAttached;
 
   return (
@@ -139,6 +142,15 @@ export const TerminalPane = memo(function TerminalPane({
           </div>
         </div>
       ) : null}
+
+      <div
+        data-testid="terminal-resyncing-state"
+        aria-hidden={!resyncing}
+        className={cn(
+          "pointer-events-none absolute inset-0 z-30 bg-background transition-opacity",
+          resyncing ? "opacity-100 duration-75" : "opacity-0 duration-300"
+        )}
+      />
     </div>
   );
 });
