@@ -44,7 +44,6 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   type ClipboardSuggestion,
-  clipboardReadSupported,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
   getClipboardSuggestion,
@@ -394,7 +393,6 @@ function CreateAgentDialogContent({
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [linkDraft, setLinkDraft] = useState("");
   const [checkingClipboard, setCheckingClipboard] = useState(false);
-  const [canReadClipboard, setCanReadClipboard] = useState(false);
   const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
     string | null
   >(null);
@@ -456,7 +454,6 @@ function CreateAgentDialogContent({
     if (step !== "context") {
       clipboardRequestIdRef.current += 1;
       setCheckingClipboard(false);
-      setCanReadClipboard(false);
       setClipboardReadFeedback(null);
       setDraggingFiles(false);
     }
@@ -622,7 +619,6 @@ function CreateAgentDialogContent({
   const enterContextStep = useCallback(() => {
     setStep("context");
     setCheckingClipboard(false);
-    setCanReadClipboard(clipboardReadSupported());
     setClipboardReadFeedback(null);
   }, []);
 
@@ -634,7 +630,6 @@ function CreateAgentDialogContent({
     void getClipboardSuggestion().then((result) => {
       if (clipboardRequestIdRef.current !== requestId) return;
       setCheckingClipboard(false);
-      setCanReadClipboard(result.canRead);
       if (result.suggestion) {
         applyClipboardSuggestion(result.suggestion);
         return;
@@ -642,7 +637,9 @@ function CreateAgentDialogContent({
       setClipboardReadFeedback(
         result.status === "blocked"
           ? "Clipboard access was blocked. Paste into Instructions instead."
-          : "Nothing readable found. Try pasting into Instructions instead."
+          : result.status === "unsupported"
+            ? "Clipboard access isn't available here. Paste into Instructions instead."
+            : "Nothing readable found. Try pasting into Instructions instead."
       );
     });
   }, [applyClipboardSuggestion]);
@@ -1181,38 +1178,36 @@ function CreateAgentDialogContent({
               )}
             >
               <div className="space-y-3">
-                {canReadClipboard ? (
-                  <div
-                    className="rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
-                    data-testid="create-agent-context-clipboard-check"
+                <div
+                  className="rounded-lg border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-3"
+                  data-testid="create-agent-context-clipboard-check"
+                >
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="min-h-11 w-full justify-center px-3"
+                    onClick={handleCheckClipboard}
+                    disabled={checkingClipboard}
+                    data-testid="create-agent-context-clipboard-check-action"
                   >
-                    <Button
-                      type="button"
-                      variant="default"
-                      className="min-h-11 w-full justify-center px-3"
-                      onClick={handleCheckClipboard}
-                      disabled={checkingClipboard}
-                      data-testid="create-agent-context-clipboard-check-action"
+                    {checkingClipboard ? (
+                      <ActivityBars size={16} className="mr-1.5" />
+                    ) : (
+                      <Clipboard className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Read clipboard
+                  </Button>
+                  {clipboardReadFeedback ? (
+                    <p
+                      className="mt-2 text-xs text-muted-foreground"
+                      role="status"
+                      aria-live="polite"
+                      data-testid="create-agent-context-clipboard-feedback"
                     >
-                      {checkingClipboard ? (
-                        <ActivityBars size={16} className="mr-1.5" />
-                      ) : (
-                        <Clipboard className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      Read clipboard
-                    </Button>
-                    {clipboardReadFeedback ? (
-                      <p
-                        className="mt-2 text-xs text-muted-foreground"
-                        role="status"
-                        aria-live="polite"
-                        data-testid="create-agent-context-clipboard-feedback"
-                      >
-                        {clipboardReadFeedback}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
+                      {clipboardReadFeedback}
+                    </p>
+                  ) : null}
+                </div>
 
                 <div className="space-y-1">
                   <label

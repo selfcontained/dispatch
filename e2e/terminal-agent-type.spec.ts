@@ -363,7 +363,7 @@ test.describe("Terminal agent type", () => {
     ).toContainText("Clipboard access was blocked.");
   });
 
-  test("create with context hides the read button when clipboard APIs are unavailable", async ({
+  test("create with context shows the read button even when clipboard APIs are unavailable", async ({
     page,
   }) => {
     await stubClipboard(page, { kind: "unsupported" });
@@ -372,9 +372,15 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
+    const readButton = page.getByTestId(
+      "create-agent-context-clipboard-check-action"
+    );
+    await expect(readButton).toBeVisible();
+
+    await readButton.click();
     await expect(
-      page.getByTestId("create-agent-context-clipboard-check")
-    ).not.toBeVisible();
+      page.getByTestId("create-agent-context-clipboard-feedback")
+    ).toContainText("Clipboard access isn't available here.");
   });
 
   test("create with context auto-adds pasted URLs as link tiles in the prompt textarea", async ({
