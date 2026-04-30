@@ -641,10 +641,11 @@ function CreateAgentDialogContent({
           break;
         case "text": {
           const suggestionText = suggestion.text;
-          // Always append rather than replace — preserve anything the user
-          // has already typed into Instructions.
+          // Append when the user has typed real content; treat whitespace-only
+          // as empty so we don't leave leading blank lines for someone who
+          // just clicked into the textarea before reading the clipboard.
           setInitialPrompt((current) =>
-            current.length === 0
+            current.trim().length === 0
               ? suggestionText
               : `${current.trimEnd()}\n\n${suggestionText}`
           );

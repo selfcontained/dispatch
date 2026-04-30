@@ -494,6 +494,27 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toBeVisible();
   });
 
+  test("create with context replaces whitespace-only Instructions when Read clipboard returns text", async ({
+    page,
+  }) => {
+    await stubClipboard(page, {
+      kind: "text",
+      text: "Real instructions from clipboard.",
+    });
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    await page.getByTestId("create-agent-with-context").click();
+
+    const prompt = page.getByTestId("create-agent-initial-prompt");
+    await prompt.fill("   \n\n  ");
+    await page
+      .getByTestId("create-agent-context-clipboard-check-action")
+      .click();
+
+    await expect(prompt).toHaveValue("Real instructions from clipboard.");
+  });
+
   test("create with context adds a clipboard image directly when Read clipboard is clicked", async ({
     page,
   }) => {
