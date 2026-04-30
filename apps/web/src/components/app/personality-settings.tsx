@@ -367,11 +367,6 @@ export function PersonalitySettings(): JSX.Element {
 
         {loading && personalities.length === 0 ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : personalities.length === 0 && !editing ? (
-          <p className="text-sm text-muted-foreground">
-            No personalities yet. Create one to apply a custom voice or
-            preferences to your agents.
-          </p>
         ) : (
           <ul className="flex flex-col gap-2" data-testid="personality-list">
             {personalities.map((personality) => {
