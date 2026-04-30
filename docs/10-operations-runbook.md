@@ -11,31 +11,58 @@ Dispatch runs as a **launchd LaunchAgent** (`com.dispatch.server`) — a macOS-n
 - Runs as the current user with full environment access
 - Cannot be accidentally stopped by agents working in the repo
 
-The server binary lives in a **separate checkout** at `~/.dispatch/server/` (independent from your working copy at `~/dev/apps/dispatch`). This means `git checkout`, deploys, and agent activity in the main repo never interfere with the running server.
+The server lives in a **separate checkout** at `~/.dispatch/server/` (independent from your working copy at `~/dev/apps/dispatch`). This means `git checkout`, deploys, and agent activity in the main repo never interfere with the running server.
+
+The server runs as a **compiled Bun binary** (`dist/bun/dispatch-<version>-bun-<platform>-<arch>`). `bin/dispatch-launchd-wrapper` selects the most recent matching binary for the host platform/arch and execs it. The host needs `bun` and `pnpm` only when building from source — not just to run the service.
 
 **Postgres** runs via Homebrew (`brew services start postgresql@17`, port 5432). Docker is available for isolated dev databases via `dispatch-dev`.
 
 **Server port**: 6767 (set via `DISPATCH_PORT` in `~/.dispatch/server/.env`).
 
+**Per-install state** lives outside the repo checkout in `~/.dispatch/`:
+
+- `release.json` — the currently deployed tag and `deployedAt` timestamp
+- `assisted-update.json` — in-progress assisted-update state (token, phase, checks, notes)
+- `applied-migrations.json` — install-update migration ids that have been applied locally (CRU-146)
+- `cache/release-<tag>.tar.gz` — cached pre-built release artifacts (override dir with `DISPATCH_RELEASE_CACHE_DIR`)
+- `logs/dispatch.log` — service stdout/stderr (rotated by the server, see Diagnostics)
+- `diagnostics/` — periodic tmux inventory + missing-session incident bundles
+
 ## Service Management
 
-```bash
-# Check service status
-launchctl list com.dispatch.server
+The simplest way to manage the running service is the `bin/dispatch-server` wrapper in the production checkout. It resolves the configured port from `~/.dispatch/server/.env`, runs a TLS-aware health check, and tails the log on failure:
 
-# View live logs
+```bash
+cd ~/.dispatch/server
+bin/dispatch-server status        # launchd state + health check JSON
+bin/dispatch-server start         # bootstrap (or kickstart if already loaded)
+bin/dispatch-server stop          # bootout
+bin/dispatch-server restart       # kickstart -k
+bin/dispatch-server logs          # tail -n 200 ~/.dispatch/logs/dispatch.log
+bin/dispatch-server logs -f       # follow
+bin/dispatch-server build         # pnpm install + pnpm run build:bun
+bin/dispatch-server update        # build + restart + health check
+```
+
+Equivalent raw `launchctl` commands for scripting:
+
+```bash
+# Service state
+launchctl print "gui/$(id -u)/com.dispatch.server"
+
+# Live logs
 tail -f ~/.dispatch/logs/dispatch.log
 
-# Stop the service
-launchctl unload ~/Library/LaunchAgents/com.dispatch.server.plist
+# Load (first-time after install) / unload
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.dispatch.server.plist
+launchctl bootout    "gui/$(id -u)/com.dispatch.server"
 
-# Start the service
-launchctl load ~/Library/LaunchAgents/com.dispatch.server.plist
-
-# Restart the service
-launchctl unload ~/Library/LaunchAgents/com.dispatch.server.plist
-launchctl load ~/Library/LaunchAgents/com.dispatch.server.plist
+# Restart in place (preserves the bootstrap; what `restart` and the release
+# flow use)
+launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 ```
+
+`launchctl load` / `unload` against the plist path also work and are still emitted by `bin/install-launchd` / `bin/uninstall-launchd`.
 
 ## Database
 
@@ -51,13 +78,16 @@ For development, `dispatch-dev up` creates an isolated Docker Postgres container
 
 ## Release Pipeline
 
-Releases are triggered from the Dispatch UI in **Settings → Releases** (release admin only). The server handles the job internally via `POST /api/v1/release`, which:
+Releases are triggered from the Dispatch UI in **Settings → Releases** (release admin only — `gh repo view --json viewerPermission` must be `ADMIN`). The server handles the job internally via `POST /api/v1/release`:
 
-1. Verifies `main` branch is clean and up-to-date with origin
-2. Triggers the `.github/workflows/release.yml` workflow via `gh` CLI
-3. Blocks until the workflow completes (`gh run watch` — zero token cost)
-4. On workflow success: captures the produced tag and starts the server's update flow for that tag
-5. On workflow failure: fetches failed-step logs and spawns a diagnosis agent inside Dispatch
+1. Verifies the GitHub CLI (`gh`) is available
+2. Resolves the upstream repo from the production checkout's `origin` remote
+3. Triggers the `.github/workflows/release.yml` workflow via `gh workflow run`
+4. Streams `gh run watch` for the spawned run id; phase moves through `preflight` → `triggering` → `watching`
+5. On workflow success: pulls the latest tag from the repo and reports `done`
+6. On workflow failure: sets phase to `failed` with the run URL in the error string
+
+The actual deploy of that new tag is a separate operator step (the UI offers an "Update to vX.Y.Z" button on the Releases section, which calls `POST /api/v1/release/update`).
 
 ```bash
 # Trigger a patch release from the API
@@ -68,10 +98,12 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
 
 The **release workflow** (GitHub Actions):
 
-- Runs type-check, lint, unit tests, and build (against an ephemeral Postgres container)
+- Runs `pnpm run ci` (format, type-check, lint, build, unit tests, e2e) against an ephemeral Postgres container
 - Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), and the lockfile
-- Commits, creates a git tag, pushes, and publishes a pre-release GitHub Release with a packed artifact (`dispatch-release.tar.gz`)
-- Outputs the tag for downstream use
+- Generates `release-notes/current.md` from GitHub's auto-generated notes
+- Commits the version bump and notes, creates a git tag, and pushes
+- Builds Bun binaries for each host platform/arch and packs them into `dispatch-release.tar.gz`
+- Publishes a **pre-release** GitHub Release with the tarball attached. Releases are promoted to non-prerelease (the "stable" channel) via `POST /api/v1/release/promote` once they soak.
 
 ## Update To A Tag
 
@@ -84,11 +116,13 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
 
 The server update flow operates on `~/.dispatch/server/` and:
 
-1. Records the current tag for rollback
-2. Fetches and checks out the target tag
-3. Installs deps, builds, restarts the managed service
-4. Polls `/api/v1/health` until the server responds (or times out)
-5. On failure: writes a detailed log to `~/.dispatch/logs/last-release-failure.log`, attempts automatic rollback to the previous tag
+1. **Gates the request.** If the target release has pending update-migrations (CRU-146) or its body declares `mode: required` in a `dispatch-update` block (and the install isn't already past `appliesFrom`), responds `409` with `ASSISTED_UPDATE_REQUIRED` — caller must use `/release/assisted/launch` instead, or pass `force: true` to override. Returns `503` `MIGRATION_EVALUATION_UNAVAILABLE` if the migration evaluator can't reach the tarball (transient — retry).
+2. **Fetches** tags from origin and verifies the target ref exists.
+3. **Deploys.** Tries the artifact-first path: downloads `dispatch-release.tar.gz` from the GitHub release into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates entries are not absolute / `..`-traversing, extracts into `~/.dispatch/server/`. If `gh` isn't available or the tarball can't be fetched, falls back to `git checkout <tag> && pnpm install --frozen-lockfile && pnpm run build:bun`.
+4. **Verifies the runtime binary** matches `dist/bun/dispatch-*-bun-<platform>-<arch>` and writes the new tag to `~/.dispatch/release.json`.
+5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
+
+If the update fails mid-flight (e.g. archive extraction error, missing binary), the job's phase is set to `failed` with the error in the SSE stream and the active job state. There is **no automatic rollback** in the standard flow — re-issue the update against the previous tag manually, or use the assisted-update flow which can drive rollback.
 
 ## Rollback
 
@@ -99,24 +133,67 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
   -d '{"tag":"v1.2.2"}'
 ```
 
-If an update fails mid-flight, the server attempts auto-rollback automatically. Check the failure log for details:
+Rollback is just an `update` to an older tag. The currently deployed tag is whatever was last written to `~/.dispatch/release.json`:
 
 ```bash
-cat ~/.dispatch/logs/last-release-failure.log
+cat ~/.dispatch/release.json
 ```
 
-The failure log includes: timestamp, failed step, rollback status, last 50 lines of the server log, and manual recovery commands.
+If the failed update went through the assisted-update flow, the launched agent can drive rollback explicitly (it has the bearer token and follows the recovery guidance in its initial prompt). The state lands in `~/.dispatch/assisted-update.json` with `phase: "rollback"` if it goes that route.
+
+## Assisted Update
+
+For releases that have pending install-update migrations (CRU-146) or carry an assisted-update block in the release body, updates run via a dedicated flow that spawns a full-access agent on the production checkout to perform the work step-by-step.
+
+```bash
+# Launch the assisted-update flow for a tag
+curl -X POST http://127.0.0.1:6767/api/v1/release/assisted/launch \
+  -H 'Content-Type: application/json' \
+  -d '{"tag":"v1.2.3"}'
+
+# Inspect persisted state
+curl -s http://127.0.0.1:6767/api/v1/release/assisted/state | jq
+
+# Clear stuck state
+curl -X DELETE http://127.0.0.1:6767/api/v1/release/assisted/state
+```
+
+What the launch endpoint does:
+
+- Picks the first enabled CLI agent type (`claude` / `codex` / `opencode`) — terminal-type agents can't drive assisted updates.
+- Snapshots pending update-migrations from `update-migrations/*.yaml` in the target tarball, or falls back to the `dispatch-update` block in the release body.
+- Creates an `assisted_update` agent rooted at `~/.dispatch/server/` with `fullAccess: true`, no worktree, and an initial prompt that includes recovery instructions plus a bearer token (`DISPATCH_RELEASE_UPDATE_TOKEN`).
+- Persists `~/.dispatch/assisted-update.json` with the token, target tag, snapshotted manifests, and the required-checks list.
+
+The agent reports progress by `POST /api/v1/release/assisted/phase` with its bearer token. The phase axis is:
+
+```
+inspect → prepare → apply → restarting → validate → done
+                                          ↓
+                          rollback / blocked / failed (terminal)
+```
+
+When the agent moves to `validate`, the server runs `runAndRecordChecks`, which evaluates the required checks listed in the manifests/metadata. The known check names (defined in `apps/server/src/release-metadata.ts`):
+
+- `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary exists after deploy
+- `service_entrypoint` — the launchd plist points at `bin/dispatch-launchd-wrapper`
+- `service_restarted` — the service has restarted since the deploy
+- `version_converged` — `/api/v1/health` reports the target tag
+- `health_endpoint` — the new process is serving HTTP/HTTPS
+
+When the agent succeeds, the server writes the manifest ids into `~/.dispatch/applied-migrations.json` so the gate stops firing for them on the next update.
+
+Authoring assisted-update metadata in release notes is documented in `release-notes/AUTHORING.md`. Migration manifests use the schema in `apps/server/src/update-migrations.ts`; existing examples live in `update-migrations/`.
 
 ## CI Pipeline
 
 Every PR to `main` triggers `.github/workflows/ci.yml`:
 
-- Format check (`pnpm run format`)
-- Type-check (`pnpm run check`)
-- Lint (`pnpm run lint:web`)
-- Build (`pnpm run build`)
-- Unit tests (`pnpm run test`)
-- E2E tests (`pnpm run test:e2e`)
+- Sets up `pnpm`, `bun`, `node`, and an ephemeral Postgres 17 container
+- Installs Playwright Chromium
+- Validates `release-notes/next-assisted-update.json` (when present) via `bin/embed-assisted-update.ts --check-only`
+- Runs `pnpm run ci`, which is `format && check && lint:web && build && test && test:e2e`
+- Builds Bun binaries (`pnpm run build:bun`) and smoke-tests the host-platform binary
 
 PRs must pass CI before merge.
 
@@ -134,13 +211,14 @@ bin/install-launchd --port 6767
 
 This script:
 
-1. Clones the repo to `~/.dispatch/server/`
-2. Copies `.env` (or `.env.example`) as `~/.dispatch/server/.env`
-3. Sets `DISPATCH_PORT` in the server `.env` if `--port` was specified
-4. Installs dependencies and builds
-5. Writes `~/Library/LaunchAgents/com.dispatch.server.plist` and loads it
+1. Clones the repo (`origin` of the current working copy) to `$DISPATCH_SERVER_DIR` (default `~/.dispatch/server/`)
+2. Copies `.env` (or `.env.example`) as `~/.dispatch/server/.env`, then writes the resolved `DISPATCH_PORT`
+3. Checks out the latest semver-tagged release in the server checkout
+4. **Deploys**: tries `gh release download <tag> dispatch-release.tar.gz` from `$DISPATCH_REPO` (default `selfcontained/dispatch`) and extracts the prebuilt `dist/bun/` binaries into the server checkout. Falls back to `pnpm install --frozen-lockfile && pnpm run build:bun` if `gh` isn't available, the artifact is missing, or no release tag exists.
+5. Seeds `~/.dispatch/release.json` so the install knows what tag it's running and update detection has a baseline
+6. Writes `~/Library/LaunchAgents/com.dispatch.server.plist` (with `RunAtLoad` + `KeepAlive`, pointing at `bin/dispatch-launchd-wrapper`) and loads it via `launchctl load`
 
-After installation, edit `~/.dispatch/server/.env` to set `DATABASE_URL` and any API keys.
+After installation, edit `~/.dispatch/server/.env` to set `DATABASE_URL` and any API keys, then `bin/dispatch-server restart` to pick the changes up.
 
 ## Uninstall
 
@@ -295,12 +373,16 @@ Known limits:
 
 ## File Locations
 
-| Path                                                       | Description                                      |
-| ---------------------------------------------------------- | ------------------------------------------------ |
-| `~/.dispatch/server/`                                      | Server checkout (deploy target)                  |
-| `~/.dispatch/server/.env`                                  | Server environment config                        |
-| `~/.dispatch/logs/dispatch.log`                            | Live server log                                  |
-| `~/.dispatch/logs/last-release-failure.log`                | Last deploy failure details                      |
-| `~/.dispatch/diagnostics/tmux-inventory.jsonl`             | Periodic tmux inventory snapshots from reconcile |
-| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions        |
-| `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition                       |
+| Path                                                       | Description                                                                 |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `~/.dispatch/server/`                                      | Server checkout (deploy target)                                             |
+| `~/.dispatch/server/.env`                                  | Server environment config                                                   |
+| `~/.dispatch/server/dist/bun/`                             | Compiled Bun binaries the wrapper execs                                     |
+| `~/.dispatch/release.json`                                 | Currently deployed tag + `deployedAt` timestamp                             |
+| `~/.dispatch/assisted-update.json`                         | In-progress assisted-update state (token, phase, checks, notes)             |
+| `~/.dispatch/applied-migrations.json`                      | Install-update migration ids that have been applied locally (CRU-146)       |
+| `~/.dispatch/cache/release-<tag>.tar.gz`                   | Cached pre-built release artifacts keyed by tag                             |
+| `~/.dispatch/logs/dispatch.log`                            | Live server log (rotated via copy-truncate at 10 MB; backups kept 14 days)  |
+| `~/.dispatch/diagnostics/tmux-inventory.jsonl`             | Periodic tmux inventory snapshots from reconcile (rotated at 10 MB; 7 days) |
+| `~/.dispatch/diagnostics/*-missing-session-<agentId>.json` | Incident bundle for missing tmux sessions (pruned after 7 days)             |
+| `~/Library/LaunchAgents/com.dispatch.server.plist`         | launchd service definition (points at `bin/dispatch-launchd-wrapper`)       |
