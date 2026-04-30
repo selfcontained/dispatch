@@ -625,6 +625,37 @@ function CreateAgentDialogContent({
     setClipboardReadFeedback(null);
   }, []);
 
+  const applyClipboardSuggestion = useCallback(
+    (suggestion: ClipboardSuggestion) => {
+      switch (suggestion.kind) {
+        case "image":
+        case "file":
+          appendStartupFiles([suggestion.file]);
+          break;
+        case "url":
+          setStartupLinks((current) =>
+            current.includes(suggestion.url)
+              ? current
+              : [...current, suggestion.url]
+          );
+          break;
+        case "text": {
+          const suggestionText = suggestion.text;
+          // Always append rather than replace — preserve anything the user
+          // has already typed into Instructions.
+          setInitialPrompt((current) =>
+            current.length === 0
+              ? suggestionText
+              : `${current.trimEnd()}\n\n${suggestionText}`
+          );
+          requestAnimationFrame(() => promptTextareaRef.current?.focus());
+          break;
+        }
+      }
+    },
+    [appendStartupFiles]
+  );
+
   const handleCheckClipboard = useCallback(() => {
     setCheckingClipboard(true);
     setClipboardReadFeedback(null);
@@ -635,8 +666,7 @@ function CreateAgentDialogContent({
       setCheckingClipboard(false);
       setCanReadClipboard(result.canRead);
       if (result.suggestion) {
-        setClipboardSuggestion(result.suggestion);
-        setClipboardReadFeedback(null);
+        applyClipboardSuggestion(result.suggestion);
         return;
       }
       setClipboardReadFeedback(
@@ -645,7 +675,7 @@ function CreateAgentDialogContent({
           : "Nothing readable found. Try pasting into Instructions instead."
       );
     });
-  }, []);
+  }, [applyClipboardSuggestion]);
 
   const trimmedLinkDraft = linkDraft.trim();
   const linkDraftIsValid =
@@ -663,33 +693,10 @@ function CreateAgentDialogContent({
 
   const handleUseClipboardSuggestion = useCallback(() => {
     if (!clipboardSuggestion) return;
-
-    switch (clipboardSuggestion.kind) {
-      case "image":
-      case "file":
-        appendStartupFiles([clipboardSuggestion.file]);
-        break;
-      case "url":
-        setStartupLinks((current) =>
-          current.includes(clipboardSuggestion.url)
-            ? current
-            : [...current, clipboardSuggestion.url]
-        );
-        break;
-      case "text": {
-        const suggestionText = clipboardSuggestion.text;
-        setInitialPrompt((current) => {
-          if (!current.trim()) return suggestionText;
-          return `${current.trimEnd()}\n\n${suggestionText}`;
-        });
-        requestAnimationFrame(() => promptTextareaRef.current?.focus());
-        break;
-      }
-    }
-
+    applyClipboardSuggestion(clipboardSuggestion);
     setClipboardSuggestion(null);
     setClipboardReadFeedback(null);
-  }, [appendStartupFiles, clipboardSuggestion]);
+  }, [applyClipboardSuggestion, clipboardSuggestion]);
 
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<"menu" | "link">("menu");
@@ -1513,18 +1520,6 @@ function CreateAgentDialogContent({
                       </Popover>
                     </div>
                   )}
-                  <div className="space-y-1">
-                    {startupFiles.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No files added yet.
-                      </p>
-                    ) : null}
-                    {startupLinks.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        No links added yet.
-                      </p>
-                    ) : null}
-                  </div>
                 </div>
               </div>
             </div>

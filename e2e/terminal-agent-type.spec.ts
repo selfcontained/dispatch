@@ -244,7 +244,7 @@ test.describe("Terminal agent type", () => {
     ).toBeVisible();
   });
 
-  test("create with context reads a copied link only from the explicit action", async ({
+  test("create with context adds a copied link directly when Read clipboard is clicked", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -257,24 +257,18 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     await expect(
-      page.getByTestId("create-agent-context-clipboard-cta")
+      page.locator('[title="https://example.com/docs/launch-context"]')
     ).not.toBeVisible();
     await page
       .getByTestId("create-agent-context-clipboard-check-action")
       .click();
 
-    const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Add copied link?");
-    await expect(
-      page.getByText("No links added yet.", { exact: true })
-    ).toBeVisible();
-
-    await page.getByTestId("create-agent-context-clipboard-action").click();
-
     await expect(
       page.locator('[title="https://example.com/docs/launch-context"]')
     ).toBeVisible();
-    await expect(cta).not.toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).not.toBeVisible();
   });
 
   test("create with context treats rich-text clipboard links as links, not files", async ({
@@ -293,9 +287,10 @@ test.describe("Terminal agent type", () => {
       .getByTestId("create-agent-context-clipboard-check-action")
       .click();
 
-    const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Add copied link?");
-    await expect(cta).not.toContainText("Clipboard file ready");
+    await expect(
+      page.locator('[title="https://example.com/rich-link"]')
+    ).toBeVisible();
+    await expect(page.getByText("clipboard-image")).not.toBeVisible();
   });
 
   test("create with context opens without auto-reading the clipboard", async ({
@@ -342,8 +337,9 @@ test.describe("Terminal agent type", () => {
     ).toContainText("Nothing readable found.");
     await readClipboard.click();
 
-    const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Add copied link?");
+    await expect(
+      page.locator('[title="https://example.com/retry-link"]')
+    ).toBeVisible();
   });
 
   test("create with context shows feedback when clipboard access is blocked", async ({
@@ -468,13 +464,9 @@ test.describe("Terminal agent type", () => {
     ).not.toBeVisible();
   });
 
-  test("create with context lets the user dismiss a clipboard suggestion", async ({
+  test("create with context lets the user dismiss a paste-based clipboard suggestion", async ({
     page,
   }) => {
-    await stubClipboard(page, {
-      kind: "text",
-      text: "https://example.com/dismiss-me",
-    });
     await loadApp(page);
 
     await page.getByTestId("create-agent-button").click();
@@ -482,9 +474,19 @@ test.describe("Terminal agent type", () => {
 
     const cta = page.getByTestId("create-agent-context-clipboard-cta");
     await expect(cta).not.toBeVisible();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+
+    const prompt = page.getByTestId("create-agent-initial-prompt");
+    await prompt.evaluate((node) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "https://example.com/dismiss-me");
+      node.dispatchEvent(
+        new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: data,
+        })
+      );
+    });
     await expect(cta).toBeVisible();
 
     await page.getByTestId("create-agent-context-clipboard-dismiss").click();
@@ -492,7 +494,7 @@ test.describe("Terminal agent type", () => {
     await expect(cta).not.toBeVisible();
   });
 
-  test("create with context reads a clipboard image only from the explicit action", async ({
+  test("create with context adds a clipboard image directly when Read clipboard is clicked", async ({
     page,
   }) => {
     await stubClipboard(page, {
@@ -508,16 +510,10 @@ test.describe("Terminal agent type", () => {
       .getByTestId("create-agent-context-clipboard-check-action")
       .click();
 
-    const cta = page.getByTestId("create-agent-context-clipboard-cta");
-    await expect(cta).toContainText("Add copied image?");
-    await expect(
-      page.getByText("No files added yet.", { exact: true })
-    ).toBeVisible();
-
-    await page.getByTestId("create-agent-context-clipboard-action").click();
-
     await expect(page.getByText("clipboard-image.png")).toBeVisible();
-    await expect(cta).not.toBeVisible();
+    await expect(
+      page.getByTestId("create-agent-context-clipboard-cta")
+    ).not.toBeVisible();
   });
 
   test("create with context validates manual links before adding them", async ({
