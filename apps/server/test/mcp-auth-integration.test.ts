@@ -389,7 +389,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain('"gitDiffCommand":null');
   });
 
-  it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {
+  it("exposes dispatch_event, rename, and the persona review/recheck flow on the job-scoped MCP route", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)
        VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`
@@ -432,5 +432,64 @@ describe("MCP auth integration", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("dispatch_event");
     expect(response.body).toContain("dispatch_rename_session");
+    expect(response.body).toContain("dispatch_list_media");
+    expect(response.body).toContain("list_personas");
+    expect(response.body).toContain("dispatch_launch_persona");
+    expect(response.body).toContain("dispatch_get_feedback");
+    expect(response.body).toContain("dispatch_resolve_feedback");
+    expect(response.body).toContain("dispatch_submit_resolution");
+    expect(response.body).toContain("dispatch_cancel_recheck");
+    expect(response.body).toContain("job_complete");
+    expect(response.body).toContain("job_log");
+  });
+
+  it("keeps the job MCP route usable after the run terminates, switching to agent tools", async () => {
+    await pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd, full_access)
+       VALUES ('agt_postrun', 'post-run-test', 'codex', 'running', '/tmp', false)`
+    );
+    await pool.query(
+      `INSERT INTO jobs (
+          id, directory, name, enabled, agent_type, use_worktree, full_access,
+          schedule, timeout_ms, needs_input_timeout_ms, auto_archive
+        )
+        VALUES (
+          'job_postrun', '/tmp', 'Post Run Job', true, 'codex', false, false,
+          null, 1800000, 1800000, false
+        )`
+    );
+    await pool.query(
+      `INSERT INTO job_runs (
+          id, job_id, status, started_at, status_updated_at, agent_id
+        )
+        VALUES (
+          'run_postrun', 'job_postrun', 'timed_out', NOW(), NOW(), 'agt_postrun'
+        )`
+    );
+
+    const authTokenResult = await pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const authToken = authTokenResult.rows[0]!.value;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/mcp/jobs/run_postrun/agt_postrun",
+      headers: {
+        authorization: `Bearer ${createJobMcpToken(authToken, "run_postrun", "agt_postrun")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("dispatch_event");
+    expect(response.body).toContain("dispatch_share");
+    expect(response.body).toContain("dispatch_launch_persona");
+    expect(response.body).not.toContain("job_complete");
+    expect(response.body).not.toContain("job_log");
+    expect(response.body).not.toContain("job_failed");
+    expect(response.body).not.toContain("job_needs_input");
   });
 });
