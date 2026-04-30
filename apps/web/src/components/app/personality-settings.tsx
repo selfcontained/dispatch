@@ -325,11 +325,9 @@ export function PersonalitySettings(): JSX.Element {
           Personalities
         </div>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Add a snippet of text that gets appended to every
-          Claude/Codex/OpenCode agent's system prompt at launch. Useful for
-          setting a voice or reminding agents of your preferences. Project rules
-          in CLAUDE.md and Dispatch's own startup rules still take precedence.
-          Not applied to review personas or scheduled job runs.
+          Add text to every Claude/Codex/OpenCode system prompt at launch. Use
+          it for voice or preferences. Project rules and Dispatch startup rules
+          still take precedence. Not used for review personas or scheduled jobs.
         </p>
       </div>
 
