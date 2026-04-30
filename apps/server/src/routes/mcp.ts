@@ -85,10 +85,10 @@ export async function registerMcpRoutes(
     }
 
     const run = await deps.jobService.getActiveRunForAgent(agentId);
-    if (!run || run.id !== runId || run.agentId !== agentId) {
+    if (run && run.id !== runId) {
       return reply
-        .code(404)
-        .send({ error: "Active job run not found for agent." });
+        .code(403)
+        .send({ error: "Token does not match the active job run." });
     }
 
     let repoRoot: string | null = null;
@@ -97,6 +97,34 @@ export async function registerMcpRoutes(
       repoRoot = await deps.resolveRepoRoot(agent.cwd);
       worktreeRoot = await deps.resolveWorktreeRoot(agent.cwd);
     } catch {}
+
+    const jobTools = run
+      ? {
+          complete: deps.mcpJobComplete,
+          failed: deps.mcpJobFailed,
+          needsInput: deps.mcpJobNeedsInput,
+          log: deps.mcpJobLog,
+          listAgents: async () => {
+            const agents = await deps.agentManager.listAgents();
+            return agents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              status: a.status,
+              cwd: a.cwd,
+            }));
+          },
+          listRecentPersonaReviews: (sinceDays: number) =>
+            deps.agentManager.listRecentPersonaReviews(sinceDays),
+          listRecentFeedback: (sinceDays: number) =>
+            deps.agentManager.listRecentFeedback(sinceDays),
+          getActivitySummary: (params: Record<string, unknown>) =>
+            deps.agentManager.getActivitySummary(params as never),
+          getAgentHistory: (params: Record<string, unknown>) =>
+            deps.agentManager.getAgentHistory(params as never),
+          getFeedbackSummary: (params: Record<string, unknown>) =>
+            deps.agentManager.getFeedbackSummary(params as never),
+        }
+      : undefined;
 
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
@@ -115,6 +143,7 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
+      submitFeedback: deps.mcpSubmitFeedback,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       listPersonas: deps.mcpListPersonas,
@@ -123,32 +152,20 @@ export async function registerMcpRoutes(
       resolveFeedback: deps.mcpResolveFeedback,
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
-      toolScope: "job",
-      jobTools: {
-        complete: deps.mcpJobComplete,
-        failed: deps.mcpJobFailed,
-        needsInput: deps.mcpJobNeedsInput,
-        log: deps.mcpJobLog,
-        listAgents: async () => {
-          const agents = await deps.agentManager.listAgents();
-          return agents.map((a) => ({
-            id: a.id,
-            name: a.name,
-            status: a.status,
-            cwd: a.cwd,
-          }));
-        },
-        listRecentPersonaReviews: (sinceDays: number) =>
-          deps.agentManager.listRecentPersonaReviews(sinceDays),
-        listRecentFeedback: (sinceDays: number) =>
-          deps.agentManager.listRecentFeedback(sinceDays),
-        getActivitySummary: (params: Record<string, unknown>) =>
-          deps.agentManager.getActivitySummary(params as never),
-        getAgentHistory: (params: Record<string, unknown>) =>
-          deps.agentManager.getAgentHistory(params as never),
-        getFeedbackSummary: (params: Record<string, unknown>) =>
-          deps.agentManager.getFeedbackSummary(params as never),
-      },
+      getActivitySummary: (params: Record<string, unknown>) =>
+        deps.agentManager.getActivitySummary(params as never) as Promise<
+          Record<string, unknown>
+        >,
+      getAgentHistory: (params: Record<string, unknown>) =>
+        deps.agentManager.getAgentHistory(params as never) as Promise<
+          Record<string, unknown>
+        >,
+      getFeedbackSummary: (params: Record<string, unknown>) =>
+        deps.agentManager.getFeedbackSummary(params as never) as Promise<
+          Record<string, unknown>
+        >,
+      toolScope: run ? "job" : "agent",
+      jobTools,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
