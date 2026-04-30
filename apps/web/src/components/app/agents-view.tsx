@@ -386,6 +386,13 @@ export function AgentsView({
     pendingAutoAttachAgentIdRef.current = routeAgentId ?? null;
   }, [routeAgentId]);
 
+  const selectedExpansionTarget = useMemo(() => {
+    if (!validatedSelectedAgentId) return null;
+    const selected = agents.find((a) => a.id === validatedSelectedAgentId);
+    return selected?.parentAgentId ?? validatedSelectedAgentId;
+  }, [agents, validatedSelectedAgentId]);
+  const prevSelectedExpansionTargetRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!routeAgentId) return;
     if (!agentsLoaded) return;
@@ -394,11 +401,18 @@ export function AgentsView({
   }, [agentsLoaded, navigate, routeAgentId, validatedSelectedAgentId]);
 
   useEffect(() => {
-    if (!validatedSelectedAgentId) return;
-    const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    const target = selected?.parentAgentId ?? validatedSelectedAgentId;
-    setExpandedAgentId((current) => (current === target ? current : target));
-  }, [agents, validatedSelectedAgentId]);
+    if (!selectedExpansionTarget) {
+      prevSelectedExpansionTargetRef.current = null;
+      return;
+    }
+    if (prevSelectedExpansionTargetRef.current === selectedExpansionTarget) {
+      return;
+    }
+    prevSelectedExpansionTargetRef.current = selectedExpansionTarget;
+    setExpandedAgentId((current) =>
+      current === selectedExpansionTarget ? current : selectedExpansionTarget
+    );
+  }, [selectedExpansionTarget]);
 
   useEffect(() => {
     if (!routeAgentId) return;
