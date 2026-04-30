@@ -41,25 +41,6 @@ export class TmuxTerminal {
     return result.stdout;
   }
 
-  async captureHistoryChunk(lines = 200, skipBottomLines = 0): Promise<string> {
-    const safeLines = Math.max(1, Math.trunc(lines));
-    const safeSkipBottomLines = Math.max(0, Math.trunc(skipBottomLines));
-    const startOffset = safeLines + safeSkipBottomLines;
-    const endOffset = safeSkipBottomLines === 0 ? 1 : safeSkipBottomLines + 1;
-    const result = await runCommand("tmux", [
-      "capture-pane",
-      "-p",
-      "-t",
-      this.sessionName,
-      "-S",
-      `-${startOffset}`,
-      "-E",
-      `-${endOffset}`,
-    ]);
-
-    return result.stdout;
-  }
-
   private findLastPasteMarker(paneText: string): string | null {
     const lines = paneText
       .split("\n")

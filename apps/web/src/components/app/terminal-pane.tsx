@@ -13,7 +13,7 @@ type TerminalPaneProps = {
   terminalPlaceholderMessage: string | null;
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
-  enhancedTerminal: boolean;
+  resyncing: boolean;
 };
 
 export const TerminalPane = memo(function TerminalPane({
@@ -24,12 +24,12 @@ export const TerminalPane = memo(function TerminalPane({
   terminalPlaceholderMessage,
   terminalHostRef,
   archivePhase,
-  enhancedTerminal,
+  resyncing,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
   useEffect(() => {
-    if (connState !== "reconnecting") {
+    if (connState !== "reconnecting" || resyncing) {
       setShowReconnectOverlay(false);
       return;
     }
@@ -39,18 +39,16 @@ export const TerminalPane = memo(function TerminalPane({
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [connState]);
+  }, [connState, resyncing]);
 
-  const showEmptyState = connState === "disconnected" && !isAttached;
+  const showEmptyState =
+    connState === "disconnected" && !isAttached && !resyncing;
   const showInertState = terminalMode === "inert" && isAttached;
 
   return (
     <div
       data-testid="terminal-pane"
-      className={cn(
-        "relative h-full min-h-0 overflow-hidden bg-background",
-        enhancedTerminal && "terminal-touch-island"
-      )}
+      className={cn("relative h-full min-h-0 overflow-hidden bg-background")}
     >
       {isAttached && connState === "connected" ? (
         <div data-testid="terminal-connected-state" className="sr-only">
@@ -139,6 +137,15 @@ export const TerminalPane = memo(function TerminalPane({
           </div>
         </div>
       ) : null}
+
+      <div
+        data-testid="terminal-resyncing-state"
+        aria-hidden={!resyncing}
+        className={cn(
+          "pointer-events-none absolute inset-0 z-30 bg-background transition-opacity",
+          resyncing ? "opacity-100 duration-75" : "opacity-0 duration-300"
+        )}
+      />
     </div>
   );
 });

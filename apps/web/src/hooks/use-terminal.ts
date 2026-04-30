@@ -25,20 +25,12 @@ const TERMINAL_FRESHNESS_MS =
   TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
-const TERMINAL_BACKFILL_LINES = 1_200;
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
   | { type: "output"; data: string }
   | { type: "error"; message: string }
   | { type: "exit"; exitCode?: number };
-
-type TerminalHistoryResponse = {
-  mode: "tmux";
-  data: string;
-  lines: number;
-  skipBottomLines: number;
-};
 
 function isTerminalSessionGone(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -69,10 +61,6 @@ function cleanCopiedText(text: string): string {
   return text;
 }
 
-function normalizeBackfill(text: string): string {
-  return text.replace(/\r?\n/g, "\r\n");
-}
-
 export function useTerminal(args: {
   authState: AuthState;
   agents: Agent[];
@@ -83,7 +71,6 @@ export function useTerminal(args: {
   deferMediaResize: boolean;
   mediaResizeSettleKey: number;
   feedbackOpen: boolean;
-  enhancedTerminal: boolean;
 }): {
   connState: ConnState;
   connectedAgentId: string | null;
@@ -100,6 +87,7 @@ export function useTerminal(args: {
   ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
+  resyncing: boolean;
 } {
   const {
     authState,
@@ -111,7 +99,6 @@ export function useTerminal(args: {
     deferMediaResize,
     mediaResizeSettleKey,
     feedbackOpen,
-    enhancedTerminal,
   } = args;
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
@@ -123,11 +110,13 @@ export function useTerminal(args: {
     string | null
   >(null);
   const [statusMessage, setStatusMessage] = useState("Starting...");
+  // True while requestFit's auto-RESYNC is in flight. Lets the UI show a
+  // calm "Resizing…" overlay instead of the empty / reconnect overlays
+  // that the underlying detach → reattach transition would otherwise expose.
+  const [resyncing, setResyncing] = useState(false);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
-  const enhancedTerminalRef = useRef(enhancedTerminal);
-  enhancedTerminalRef.current = enhancedTerminal;
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const [terminalHostElement, setTerminalHostElement] =
@@ -138,7 +127,12 @@ export function useTerminal(args: {
   }, []);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const fitDebounceRef = useRef<number | null>(null);
   const ctrlPendingRef = useRef(false);
+  // Filled in via effect once detachTerminal/ensureTerminalConnected exist —
+  // lets requestFit trigger an auto-RESYNC without needing those defined
+  // earlier in the hook body.
+  const resyncOnResizeRef = useRef<() => void>(() => {});
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -174,6 +168,34 @@ export function useTerminal(args: {
     ws.send(
       JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
     );
+  }, []);
+
+  // Trailing-debounced size-change detector. ResizeObserver and CSS
+  // transitions can fire many size changes per visual settle; we wait 300ms
+  // for the host to stop moving, then ask the fit addon what cols/rows it
+  // would propose. If they differ from xterm's current dims, we full-RESYNC
+  // (tear down the WebSocket and re-attach with the new size in the URL).
+  //
+  // Why RESYNC instead of just calling fit()? xterm's destructive resize
+  // leaves stale state behind — cursor saves, scroll regions, app modes,
+  // scrollback rows wrapped at the old cols — that the agent's incremental
+  // redraws after SIGWINCH can't fully overwrite. Subsequent positioned
+  // writes start landing wrong as new bytes arrive. A reattach pulls a
+  // fresh viewport from tmux into a clean buffer, same as a page reload.
+  const requestFit = useCallback(() => {
+    if (fitDebounceRef.current !== null) {
+      window.clearTimeout(fitDebounceRef.current);
+    }
+    fitDebounceRef.current = window.setTimeout(() => {
+      fitDebounceRef.current = null;
+      const term = terminalRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      const proposed = fit.proposeDimensions();
+      if (!proposed) return;
+      if (proposed.cols === term.cols && proposed.rows === term.rows) return;
+      resyncOnResizeRef.current();
+    }, 300);
   }, []);
 
   const clearSocketHealth = useCallback(() => {
@@ -463,21 +485,6 @@ export function useTerminal(args: {
           const term = terminalRef.current;
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
-          if (term && enhancedTerminalRef.current) {
-            try {
-              const history = await api<TerminalHistoryResponse>(
-                `/api/v1/agents/${agent.id}/terminal/history?lines=${TERMINAL_BACKFILL_LINES}&skipBottomLines=${rows}`
-              );
-              if (!isCurrentAttempt()) {
-                return;
-              }
-              if (history.data.trim().length > 0) {
-                term.write(normalizeBackfill(history.data));
-              }
-            } catch (error) {
-              console.warn("Terminal history backfill failed:", error);
-            }
-          }
           setTerminalMode("tmux");
           setTerminalPlaceholderMessage(null);
           const ws = new WebSocket(
@@ -654,7 +661,7 @@ export function useTerminal(args: {
       fontSize: 13,
       scrollback: 1000,
       macOptionClickForcesSelection: true,
-      screenReaderMode: isTouchDevice && !enhancedTerminal,
+      screenReaderMode: isTouchDevice,
       minimumContrastRatio: palette.minimumContrastRatio ?? 1,
       theme: palette,
     });
@@ -723,56 +730,41 @@ export function useTerminal(args: {
     host.addEventListener("paste", handlePaste, true);
 
     const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
-    const scrollableEl = host.querySelector(
-      ".xterm-scrollable-element"
-    ) as HTMLElement | null;
     let touchY = 0;
     let touchAccum = 0;
-    const TOUCH_LINE_PX = 24;
-    const LEGACY_SCROLL_SENSITIVITY_PX = 30;
+    const TOUCH_SCROLL_SENSITIVITY_PX = 30;
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
       touchY = e.touches[0].clientY;
       touchAccum = 0;
     };
+    // Translate one-finger touch drags into wheel events on xterm's screen
+    // element. With tmux mouse mode on, xterm forwards those as SGR mouse
+    // wheel codes to tmux, which scrolls its own scrollback in copy-mode.
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
-      if (!enhancedTerminalRef.current) {
-        if (!screenEl) return;
-        const currentY = e.touches[0].clientY;
-        const delta = touchY - currentY;
-        touchY = currentY;
-        touchAccum += delta;
-        while (Math.abs(touchAccum) >= LEGACY_SCROLL_SENSITIVITY_PX) {
-          const direction = touchAccum > 0 ? 1 : -1;
-          touchAccum -= direction * LEGACY_SCROLL_SENSITIVITY_PX;
-          screenEl.dispatchEvent(
-            new WheelEvent("wheel", {
-              deltaY: direction * 100,
-              deltaMode: 0,
-              bubbles: true,
-              cancelable: true,
-            })
-          );
-        }
-        return;
-      }
-      const active = term.buffer.active;
-      if (active.type !== "normal" || active.baseY <= 0) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!screenEl) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
       touchAccum += delta;
-      const wholeLines =
-        touchAccum > 0
-          ? Math.floor(touchAccum / TOUCH_LINE_PX)
-          : Math.ceil(touchAccum / TOUCH_LINE_PX);
-      if (wholeLines === 0) return;
-      touchAccum -= wholeLines * TOUCH_LINE_PX;
-      term.scrollLines(wholeLines);
+      while (Math.abs(touchAccum) >= TOUCH_SCROLL_SENSITIVITY_PX) {
+        const direction = touchAccum > 0 ? 1 : -1;
+        touchAccum -= direction * TOUCH_SCROLL_SENSITIVITY_PX;
+        screenEl.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: direction * 100,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      }
     };
+    // On touch devices, xterm's text-selection mousedown handler doesn't
+    // fire from a real touch tap. Re-dispatch with shift+alt set so xterm
+    // treats the tap as the start of a selection, which in turn focuses
+    // the screen so subsequent input events route correctly.
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
       if (dispatchingMouseDown) return;
@@ -802,21 +794,9 @@ export function useTerminal(args: {
     };
 
     host.addEventListener("touchstart", onTouchStart, { passive: true });
-    if (enhancedTerminal) {
-      host.addEventListener("touchmove", onTouchMove, { passive: false });
-      screenEl?.addEventListener("touchstart", onTouchStart, { passive: true });
-      screenEl?.addEventListener("touchmove", onTouchMove, { passive: false });
-      scrollableEl?.addEventListener("touchstart", onTouchStart, {
-        passive: true,
-      });
-      scrollableEl?.addEventListener("touchmove", onTouchMove, {
-        passive: false,
-      });
-    } else {
-      host.addEventListener("touchmove", onTouchMove, { passive: true });
-      if (screenEl) {
-        screenEl.addEventListener("mousedown", onMouseDown, true);
-      }
+    host.addEventListener("touchmove", onTouchMove, { passive: true });
+    if (screenEl) {
+      screenEl.addEventListener("mousedown", onMouseDown, true);
     }
 
     const disposable = term.onData((data) => {
@@ -841,8 +821,7 @@ export function useTerminal(args: {
 
     const onResize = () => {
       if (deferMediaResizeRef.current) return;
-      fit.fit();
-      sendResize();
+      requestFit();
     };
 
     window.addEventListener("resize", onResize);
@@ -854,16 +833,16 @@ export function useTerminal(args: {
 
     return () => {
       invalidateAttachAttempt();
+      if (fitDebounceRef.current !== null) {
+        window.clearTimeout(fitDebounceRef.current);
+        fitDebounceRef.current = null;
+      }
       disposable.dispose();
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
-      screenEl?.removeEventListener("touchstart", onTouchStart);
-      screenEl?.removeEventListener("touchmove", onTouchMove);
-      scrollableEl?.removeEventListener("touchstart", onTouchStart);
-      scrollableEl?.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
         screenEl.removeEventListener("mousedown", onMouseDown, true);
       }
@@ -876,13 +855,7 @@ export function useTerminal(args: {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [
-    authState,
-    enhancedTerminal,
-    invalidateAttachAttempt,
-    sendResize,
-    terminalHostElement,
-  ]);
+  }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {
@@ -928,26 +901,22 @@ export function useTerminal(args: {
     };
   }, [clearReconnectTimer, ensureTerminalConnected, selectedAgentId]);
 
-  // Fit on layout change.
+  // Fit on layout change. The actual fit is debounced and reads the host's
+  // settled size, so we don't need a hand-tuned timer to "wait for" the CSS
+  // transition — ResizeObserver will keep poking requestFit until it stops.
   useEffect(() => {
     if (isMobile) return;
-    const fitNow = () => {
-      fitAddonRef.current?.fit();
-      sendResize();
-    };
-    fitNow();
-    const timer = window.setTimeout(fitNow, 340);
-    return () => window.clearTimeout(timer);
-  }, [isMobile, leftOpen, feedbackOpen, sendResize]);
+    requestFit();
+  }, [isMobile, leftOpen, feedbackOpen, requestFit]);
 
-  // Media sidebar width animates; wait until it settles before resizing the
-  // terminal so content doesn't reflow continuously during the slide.
+  // Media sidebar width animates; the deferMediaResize gate suppresses
+  // ResizeObserver fits during the slide, then this effect kicks one off
+  // once it settles.
   useEffect(() => {
     if (isMobile) return;
     if (deferMediaResize) return;
-    fitAddonRef.current?.fit();
-    sendResize();
-  }, [deferMediaResize, isMobile, mediaResizeSettleKey, sendResize]);
+    requestFit();
+  }, [deferMediaResize, isMobile, mediaResizeSettleKey, requestFit]);
 
   // Update terminal palette and reconnect when theme changes.
   const prevThemeRef = useRef(theme);
@@ -983,6 +952,27 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
+  // Wire requestFit's auto-RESYNC trigger to the actual detach/reconnect
+  // pair now that they exist. Mirrors the manual RESYNC button flow.
+  useEffect(() => {
+    resyncOnResizeRef.current = () => {
+      const agentId = connectedAgentIdRef.current;
+      if (!agentId) return;
+      setResyncing(true);
+      detachTerminal();
+      window.setTimeout(() => {
+        void ensureTerminalConnected(true, true, agentId);
+      }, 150);
+    };
+  }, [detachTerminal, ensureTerminalConnected]);
+
+  // Clear the resyncing flag once the new attach lands.
+  useEffect(() => {
+    if (resyncing && connState === "connected") {
+      setResyncing(false);
+    }
+  }, [resyncing, connState]);
+
   return useMemo(
     () => ({
       connState,
@@ -997,6 +987,7 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
+      resyncing,
     }),
     [
       connState,
@@ -1009,6 +1000,7 @@ export function useTerminal(args: {
       detachTerminal,
       sendTerminalInput,
       setTerminalHostRef,
+      resyncing,
     ]
   );
 }

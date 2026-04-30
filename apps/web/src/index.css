@@ -529,48 +529,44 @@ html[data-theme="matrix"] body::after {
   background: transparent;
 }
 
-/* iPad PWA: prevent viewport jump when typing space in terminal.
-   The class is added by JS in main.tsx when navigator.standalone is true
-   on an iPad-class device. */
-html.ipad-pwa,
-html.ipad-pwa body {
-  position: fixed;
-  width: 100%;
-  overflow: clip;
-}
+/* iPad-class touch devices: lock the document to the viewport so touch-
+   scroll inside the terminal doesn't pull the whole page up and reveal
+   browser chrome. Skips phones (min-width gate) so they keep keyboard-
+   push behavior. Uses overflow: hidden (more reliably no-scroll on iOS
+   Safari than overflow: clip) plus explicit edge anchors. */
+@media (pointer: coarse) and (min-width: 768px) {
+  html,
+  body {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
 
-html.ipad-pwa #root {
-  touch-action: none;
-}
+  #root {
+    touch-action: none;
+  }
 
-html.ipad-pwa[data-terminal-mode="enhanced"]
-  [style*="overflow"]:not([style*="hidden"]),
-html.ipad-pwa[data-terminal-mode="enhanced"] .overflow-y-auto,
-html.ipad-pwa[data-terminal-mode="enhanced"] .overflow-auto,
-html.ipad-pwa[data-terminal-mode="enhanced"] .overflow-y-scroll,
-html.ipad-pwa[data-terminal-mode="enhanced"] .overflow-scroll,
-html.ipad-pwa[data-terminal-mode="enhanced"] .xterm-viewport {
-  touch-action: pan-y;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-html.ipad-pwa[data-terminal-mode="enhanced"] .terminal-touch-island,
-html.ipad-pwa[data-terminal-mode="enhanced"] .terminal-touch-island * {
-  overscroll-behavior: contain;
-}
-
-html.ipad-pwa[data-terminal-mode="enhanced"] .terminal-touch-island {
-  touch-action: pan-y;
+  /* Stop inner scroll containers from bubbling their elastic-bounce to the
+     locked body. Without this, dragging in the empty space below a short
+     scroll container (e.g. the agent list when only one agent is open)
+     pulls the whole document up via overscroll. */
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-y-scroll,
+  .overflow-scroll {
+    overscroll-behavior: contain;
+  }
 }
 
 @media (pointer: coarse) {
-  html[data-terminal-mode="legacy"] .xterm .xterm-accessibility {
+  .xterm .xterm-accessibility {
     pointer-events: auto !important;
-  }
-
-  html[data-terminal-mode="enhanced"] .terminal-touch-island .xterm-screen {
-    touch-action: none;
   }
 }
 

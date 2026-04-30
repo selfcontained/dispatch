@@ -43,7 +43,6 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import { useEnhancedTerminal } from "@/hooks/use-enhanced-terminal";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -120,7 +119,6 @@ export function AgentsView({
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
   >(null);
-  const { enhancedTerminal } = useEnhancedTerminal();
   const [sharedConnState, setSharedConnState] =
     useState<ConnState>("disconnected");
 
@@ -272,6 +270,7 @@ export function AgentsView({
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    resyncing,
   } = useTerminal({
     authState: "authenticated",
     agents,
@@ -282,7 +281,6 @@ export function AgentsView({
     deferMediaResize,
     mediaResizeSettleKey,
     feedbackOpen: !!feedbackDetail,
-    enhancedTerminal,
   });
 
   useEffect(() => {
@@ -297,8 +295,9 @@ export function AgentsView({
     resortAgents();
   }, [connectedAgentId, resortAgents]);
 
-  const focusedAgentId =
-    connState === "connected" || connState === "reconnecting"
+  const focusedAgentId = resyncing
+    ? validatedSelectedAgentId
+    : connState === "connected" || connState === "reconnecting"
       ? (connectedAgentId ?? validatedSelectedAgentId)
       : null;
   const focusedAgent = focusedAgentId
@@ -726,7 +725,7 @@ export function AgentsView({
                 terminalMode={terminalMode}
                 terminalPlaceholderMessage={terminalPlaceholderMessage}
                 terminalHostRef={terminalHostRef}
-                enhancedTerminal={enhancedTerminal}
+                resyncing={resyncing}
                 archivePhase={
                   selectedAgent?.status === "archiving"
                     ? selectedAgent.archivePhase

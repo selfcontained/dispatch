@@ -6,17 +6,40 @@ import { router } from "./router";
 import { initPWAUpdate } from "./lib/pwa-update";
 import "./index.css";
 
-// Detect iPad PWA (standalone mode on iPad-class device) and apply targeted
-// scroll-prevention styles.  iPad Safari in PWA mode jumps the viewport when
-// typing space in xterm's hidden textarea; the .ipad-pwa class gates the fix
-// so it doesn't affect phones where the keyboard must be able to push content.
-const isIPad =
-  navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent);
-const isStandalone =
-  "standalone" in navigator &&
-  (navigator as Record<string, unknown>).standalone === true;
-if (isIPad && isStandalone) {
-  document.documentElement.classList.add("ipad-pwa");
+// Document-to-viewport lock for iPad-class devices. CSS handles the bulk of
+// it (see index.css @media (pointer: coarse) and (min-width: 768px)), but
+// iOS Safari sometimes still lets a touch-drag in non-scrollable areas
+// shift the locked body. Preempt those touches: walk from touchstart up the
+// tree; if no ancestor is actually scrollable in the gesture direction,
+// preventDefault on touchmove so iOS does nothing.
+if (window.matchMedia("(pointer: coarse) and (min-width: 768px)").matches) {
+  let touchStartTarget: Element | null = null;
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      touchStartTarget = (e.target as Element | null) ?? null;
+    },
+    { passive: true }
+  );
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      let el: Element | null = touchStartTarget;
+      while (el && el !== document.body) {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        if (
+          (overflowY === "auto" || overflowY === "scroll") &&
+          el.scrollHeight > el.clientHeight
+        ) {
+          return; // touch is in a real scroll container — let it scroll
+        }
+        el = el.parentElement;
+      }
+      e.preventDefault();
+    },
+    { passive: false }
+  );
 }
 
 const queryClient = new QueryClient({

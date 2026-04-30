@@ -12,7 +12,6 @@ import {
 import { getSetting } from "../db/settings.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { spawn as spawnPty } from "../shared/terminal/bun-pty.js";
-import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -32,11 +31,6 @@ const AGENT_LATEST_EVENT_TYPES = [
 ] as const;
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-const TERMINAL_HISTORY_MAX_LINES = 2_000;
-const ENHANCED_TERMINAL_KEY = "enhanced_terminal";
-const ENHANCED_TERMINAL_OVERRIDE = "xterm-256color:smcup@:rmcup@";
-type TerminalSessionMode = "legacy" | "enhanced";
-
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 
 type AgentRouteDeps = {
@@ -127,107 +121,20 @@ export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  const terminalSessionModeCache = new Map<string, TerminalSessionMode>();
-
-  const isEnhancedTerminalEnabled = async (): Promise<boolean> =>
-    (await getSetting(deps.pool, ENHANCED_TERMINAL_KEY)) === "true";
-
-  const readTmuxOptionValues = async (
-    sessionName: string,
-    option: string
-  ): Promise<string[]> => {
-    const result = await runCommand(
-      "tmux",
-      ["show-options", "-t", sessionName, "-v", option],
-      { allowedExitCodes: [0, 1] }
-    );
-    return result.stdout
-      .split(/\r?\n/g)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-  };
-
-  const detectConfiguredTerminalMode = async (
-    sessionName: string
-  ): Promise<TerminalSessionMode | null> => {
-    const [mouseValues, overrideValues] = await Promise.all([
-      readTmuxOptionValues(sessionName, "mouse"),
-      readTmuxOptionValues(sessionName, "terminal-overrides"),
-    ]);
-    const mouse = mouseValues.at(-1) ?? null;
-    const hasEnhancedOverride = overrideValues.includes(
-      ENHANCED_TERMINAL_OVERRIDE
-    );
-
-    if (mouse === "off" && hasEnhancedOverride) {
-      return "enhanced";
-    }
-    if (mouse === "on" && !hasEnhancedOverride) {
-      return "legacy";
-    }
-    return null;
-  };
-
-  const configureTerminalSessionMode = async (
-    sessionName: string,
-    mode: TerminalSessionMode
-  ): Promise<TerminalSessionMode> => {
-    if (mode === "enhanced") {
-      const overrideValues = await readTmuxOptionValues(
-        sessionName,
-        "terminal-overrides"
-      );
-      if (!overrideValues.includes(ENHANCED_TERMINAL_OVERRIDE)) {
-        await runCommand(
-          "tmux",
-          [
-            "set-option",
-            "-t",
-            sessionName,
-            "-as",
-            "terminal-overrides",
-            ENHANCED_TERMINAL_OVERRIDE,
-          ],
-          {
-            allowedExitCodes: [0, 1],
-          }
-        );
-      }
-      await runCommand(
-        "tmux",
-        ["set-option", "-t", sessionName, "mouse", "off"],
-        {
-          allowedExitCodes: [0, 1],
-        }
-      );
-    } else {
+  // Ensure tmux's mouse mode is on so wheel/touch events drive tmux's
+  // copy-mode scrollback. tmux defaults to mouse=off on a fresh session;
+  // call once per attach. Best-effort: the agent works without it,
+  // scrolling just doesn't.
+  const enableTmuxMouseMode = async (sessionName: string): Promise<void> => {
+    try {
       await runCommand(
         "tmux",
         ["set-option", "-t", sessionName, "mouse", "on"],
-        {
-          allowedExitCodes: [0, 1],
-        }
+        { allowedExitCodes: [0, 1] }
       );
+    } catch {
+      // ignore — tmux may have raced with shutdown
     }
-
-    terminalSessionModeCache.set(sessionName, mode);
-    return mode;
-  };
-
-  const resolveTerminalSessionMode = async (
-    sessionName: string,
-    preferredMode: TerminalSessionMode
-  ): Promise<TerminalSessionMode> => {
-    const cachedMode = terminalSessionModeCache.get(sessionName);
-    if (cachedMode) return cachedMode;
-
-    const detectedMode = await detectConfiguredTerminalMode(sessionName);
-    if (detectedMode) {
-      terminalSessionModeCache.set(sessionName, detectedMode);
-      return detectedMode;
-    }
-
-    return configureTerminalSessionMode(sessionName, preferredMode);
   };
 
   app.get("/api/v1/agents", async () => {
@@ -955,56 +862,6 @@ export async function registerAgentRoutes(
     }
   });
 
-  app.get("/api/v1/agents/:id/terminal/history", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const query = request.query as {
-      lines?: string;
-      skipBottomLines?: string;
-    };
-    const id = params.id ?? "";
-
-    try {
-      const preferredMode = (await isEnhancedTerminalEnabled())
-        ? "enhanced"
-        : "legacy";
-
-      const access = await deps.agentManager.getTerminalAccess(id);
-      if (access.mode !== "tmux") {
-        return reply.code(409).send({ error: access.message });
-      }
-
-      const sessionMode = await resolveTerminalSessionMode(
-        access.sessionName,
-        preferredMode
-      );
-      if (sessionMode !== "enhanced") {
-        return reply
-          .code(409)
-          .send({ error: "Enhanced terminal mode is disabled." });
-      }
-
-      const lines = Math.min(
-        TERMINAL_HISTORY_MAX_LINES,
-        Math.max(1, Number.parseInt(query.lines ?? "1000", 10) || 1000)
-      );
-      const skipBottomLines = Math.max(
-        0,
-        Number.parseInt(query.skipBottomLines ?? "0", 10) || 0
-      );
-
-      const terminal = new TmuxTerminal(access.sessionName);
-      const data = await terminal.captureHistoryChunk(lines, skipBottomLines);
-      return {
-        mode: "tmux" as const,
-        data,
-        lines,
-        skipBottomLines,
-      };
-    } catch (error) {
-      return deps.handleAgentError(reply, error);
-    }
-  });
-
   app.get(
     "/api/v1/agents/:id/terminal/ws",
     { websocket: true },
@@ -1036,10 +893,7 @@ export async function registerAgentRoutes(
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
-        const preferredMode = (await isEnhancedTerminalEnabled())
-          ? "enhanced"
-          : "legacy";
-        await resolveTerminalSessionMode(tmuxSession, preferredMode);
+        await enableTmuxMouseMode(tmuxSession);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Terminal attach failed.";
