@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutGroup, motion } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,24 @@ export function PersonalitySettings(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState>(null);
   const [submitting, setSubmitting] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Stable identity for the form session — changes whenever the form
+  // mounts/transitions (open create, switch between editing different
+  // personalities). Drives the focus effect below.
+  const formSessionKey = !editing
+    ? null
+    : editing.mode === "create"
+      ? "create"
+      : `edit:${editing.id}`;
+
+  // Move focus into the name field when the form opens, so keyboard/AT
+  // users get a clear insertion point. Without this, the row→form swap
+  // drops focus to <body>.
+  useEffect(() => {
+    if (!formSessionKey) return;
+    nameInputRef.current?.focus();
+  }, [formSessionKey]);
 
   const refresh = useCallback(async () => {
     try {
@@ -171,6 +189,7 @@ export function PersonalitySettings(): JSX.Element {
           </label>
           <Input
             id="personality-name"
+            ref={nameInputRef}
             value={editing.form.name}
             maxLength={NAME_MAX}
             placeholder="e.g. Friendly, Pirate, Performance focused"
@@ -261,10 +280,10 @@ export function PersonalitySettings(): JSX.Element {
               ? `Deactivate ${personality.name}`
               : `Activate ${personality.name}`
           }
-          className="shrink-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-testid={`personality-toggle-${personality.id}`}
         >
-          <RadioIndicator selected={isActive} />
+          <RadioIndicator selected={isActive} className="mt-0" />
         </button>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-foreground">
