@@ -124,7 +124,13 @@ function signAndMaybeNotarizeMacosBinary(outfile) {
   const zipPath = path.join(tempDir, `${path.basename(outfile)}.zip`);
   try {
     run("ditto", ["-c", "-k", "--keepParent", outfile, zipPath]);
-    run("xcrun", ["notarytool", "submit", zipPath, ...notarySubmitArgs, "--wait"]);
+    run("xcrun", [
+      "notarytool",
+      "submit",
+      zipPath,
+      ...notarySubmitArgs,
+      "--wait",
+    ]);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
