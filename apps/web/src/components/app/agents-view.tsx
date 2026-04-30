@@ -591,7 +591,7 @@ export function AgentsView({
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
-      <div className="flex h-full min-h-0 min-w-0 overflow-hidden py-2">
+      <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <GlassSidebar
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {

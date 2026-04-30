@@ -458,6 +458,8 @@ export function MediaSidebarContent({
               variant="ghost"
               onClick={onTogglePin}
               title={pinned ? "Unpin sidebar" : "Pin sidebar"}
+              aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"}
+              aria-pressed={pinned ?? false}
               data-testid="toggle-media-sidebar-pin"
               data-pinned={pinned ? "true" : "false"}
               className="h-7 w-7"
@@ -564,37 +566,33 @@ export function MediaSidebar({
   }
 
   // Drawer mode: floats over the terminal, slides in/out without shifting
-  // layout. The wrapper is 0-width so the flex layout is unchanged; the inner
-  // panel is absolutely positioned at the wrapper's right edge and extends
-  // left over the terminal area.
+  // layout. The panel is positioned absolutely against the agents-view flex
+  // container (which sets `position: relative`), so it has a real hit-testable
+  // box at the right edge instead of being anchored inside a 0-width wrapper.
   return (
     <div
       data-testid="media-sidebar-wrapper"
       data-pinned="false"
-      className="relative h-full w-0 flex-none"
+      className={cn(
+        "absolute bottom-0 right-0 top-0 z-30 transition-transform ease-out",
+        !mediaOpen && "pointer-events-none"
+      )}
+      style={{
+        width: MEDIA_SIDEBAR_WIDTH_PX,
+        transform: mediaOpen
+          ? "translateX(0)"
+          : `translateX(${MEDIA_SIDEBAR_WIDTH_PX}px)`,
+        transitionDuration: `${MEDIA_SIDEBAR_TRANSITION_MS}ms`,
+      }}
     >
-      <div
-        className={cn(
-          "absolute bottom-0 right-0 top-0 z-30 transition-transform ease-out",
-          !mediaOpen && "pointer-events-none"
-        )}
-        style={{
-          width: MEDIA_SIDEBAR_WIDTH_PX,
-          transform: mediaOpen
-            ? "translateX(0)"
-            : `translateX(${MEDIA_SIDEBAR_WIDTH_PX}px)`,
-          transitionDuration: `${MEDIA_SIDEBAR_TRANSITION_MS}ms`,
-        }}
-      >
-        <MediaSidebarContent
-          {...props}
-          onRequestClose={() => setMediaOpen(false)}
-          closeButtonIcon="chevron"
-          pinned={pinned}
-          onTogglePin={onTogglePin}
-          className={cn("rounded-l-lg border-l shadow-2xl", glassPanel)}
-        />
-      </div>
+      <MediaSidebarContent
+        {...props}
+        onRequestClose={() => setMediaOpen(false)}
+        closeButtonIcon="chevron"
+        pinned={pinned}
+        onTogglePin={onTogglePin}
+        className={cn("rounded-l-lg border-l shadow-2xl", glassPanel)}
+      />
     </div>
   );
 }
