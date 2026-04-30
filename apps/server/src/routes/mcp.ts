@@ -114,6 +114,7 @@ export async function registerMcpRoutes(
       upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
+      listMedia: deps.mcpListMedia,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       listPersonas: deps.mcpListPersonas,

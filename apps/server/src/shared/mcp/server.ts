@@ -175,6 +175,7 @@ const JOB_TOOLS = new Set([
   "dispatch_notify",
   "dispatch_pin",
   "dispatch_share",
+  "dispatch_list_media",
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
