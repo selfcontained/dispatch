@@ -40,6 +40,8 @@ const entitlementsPath = path.join(
 );
 const shouldNotarizeMacos =
   process.env.DISPATCH_NOTARIZE_MACOS_BINARIES === "1";
+const notaryKeychainProfile = process.env.DISPATCH_NOTARY_KEYCHAIN_PROFILE;
+const notaryKeychainPath = process.env.DISPATCH_NOTARY_KEYCHAIN;
 
 if (shouldNotarizeMacos && !process.env.DISPATCH_CODESIGN_IDENTITY) {
   console.error(
@@ -66,13 +68,30 @@ function parseTargets(rawTargets) {
   return targets;
 }
 
-function validateNotaryEnv() {
+function getNotarySubmitArgs() {
+  if (notaryKeychainProfile) {
+    const args = ["--keychain-profile", notaryKeychainProfile];
+    if (notaryKeychainPath) {
+      args.push("--keychain", notaryKeychainPath);
+    }
+    return args;
+  }
+
   const requiredVars = ["APPLE_ID", "APPLE_NOTARY_PASSWORD", "APPLE_TEAM_ID"];
   const missingVars = requiredVars.filter((name) => !process.env[name]);
   if (missingVars.length > 0) {
     console.error(`Missing notarization env vars: ${missingVars.join(", ")}`);
     process.exit(1);
   }
+
+  return [
+    "--apple-id",
+    process.env.APPLE_ID,
+    "--team-id",
+    process.env.APPLE_TEAM_ID,
+    "--password",
+    process.env.APPLE_NOTARY_PASSWORD,
+  ];
 }
 
 function signAndMaybeNotarizeMacosBinary(outfile) {
@@ -100,23 +119,12 @@ function signAndMaybeNotarizeMacosBinary(outfile) {
 
   if (!shouldNotarizeMacos) return;
 
-  validateNotaryEnv();
+  const notarySubmitArgs = getNotarySubmitArgs();
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "dispatch-notary-"));
   const zipPath = path.join(tempDir, `${path.basename(outfile)}.zip`);
   try {
     run("ditto", ["-c", "-k", "--keepParent", outfile, zipPath]);
-    run("xcrun", [
-      "notarytool",
-      "submit",
-      zipPath,
-      "--apple-id",
-      process.env.APPLE_ID,
-      "--team-id",
-      process.env.APPLE_TEAM_ID,
-      "--password",
-      process.env.APPLE_NOTARY_PASSWORD,
-      "--wait",
-    ]);
+    run("xcrun", ["notarytool", "submit", zipPath, ...notarySubmitArgs, "--wait"]);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

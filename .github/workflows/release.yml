@@ -238,6 +238,19 @@ jobs:
             -k "$CERT_PASSWORD" \
             build.keychain
 
+      - name: Store notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool store-credentials dispatch-release-notary \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --keychain build.keychain
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -247,9 +260,8 @@ jobs:
           DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
           DISPATCH_MACOS_BUNDLE_ID: dev.bradharris.dispatch
           DISPATCH_NOTARIZE_MACOS_BINARIES: "1"
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DISPATCH_NOTARY_KEYCHAIN: build.keychain
+          DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz
