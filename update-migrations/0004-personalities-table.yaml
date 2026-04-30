@@ -1,0 +1,39 @@
+id: personalities-table
+title: Verify personalities table migration
+summary: >
+  Adds a `personalities` table for the new user-managed agent personalization
+  feature. The table is created automatically by the standard server migration
+  runner on boot of the new release. Route this update through assisted-update
+  so the operator can confirm the migration applied cleanly and the service is
+  healthy before the install records the new release tag.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the local health endpoint
+    returns status=ok, and release.json reports the target tag. Server boot
+    runs migrations idempotently and the personalities table is additive, so
+    any healthy install at the target tag has already taken the migration —
+    no operator action is required.
+
+instructions:
+  - Confirm the service has been restarted to the target release tag.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
+  - Confirm release.json under the install directory reports the target tag.
+  - Since alreadySatisfied is true on every healthy install at the target tag,
+    do not perform any change steps — proceed straight to the validate phase.
+    The framework re-runs the checks below server-side and marks the migration
+    applied.
+
+validation:
+  requiredChecks:
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If the new release does not return healthy, roll back to the previous
+    release tag using the normal release rollback path for this host. The
+    personalities table is additive — leaving it in place after rollback is
+    harmless and is safer than dropping it manually.
+  - Restart the service and confirm $DISPATCH_API_URL/api/v1/health returns
+    status=ok and release.json reports the prior tag.

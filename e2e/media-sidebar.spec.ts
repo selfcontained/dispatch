@@ -186,14 +186,27 @@ test.describe("Media sidebar", () => {
     const thumb = mediaSidebar.locator(".media-thumb-seen");
     await expect(thumb).toBeVisible({ timeout: 5_000 });
 
-    // Verify it persisted to the server.
-    const res = await request.get(`/api/v1/agents/${agent.id}/media`, {
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
-      },
-    });
-    const body = (await res.json()) as { files: Array<{ seen?: boolean }> };
-    expect(body.files[0].seen).toBe(true);
+    // Verify it persisted to the server. The client flips the cache
+    // optimistically and fires the POST async — under CI's slower clock the
+    // server may not have recorded the seen state by the time the DOM
+    // assertion above resolves, so poll instead of expecting instant
+    // convergence.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`/api/v1/agents/${agent.id}/media`, {
+            headers: {
+              Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+            },
+          });
+          const body = (await res.json()) as {
+            files: Array<{ seen?: boolean }>;
+          };
+          return body.files[0]?.seen === true;
+        },
+        { timeout: 5_000 }
+      )
+      .toBe(true);
   });
 
   test("preserves string pin whitespace and splits filename pins", async ({

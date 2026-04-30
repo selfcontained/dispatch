@@ -22,6 +22,7 @@ import {
   getUnmergedChanges,
   readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
+import { getActivePersonality } from "../db/personalities.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
 import {
@@ -466,6 +467,15 @@ export class AgentManager {
       try {
         await this.runtime.ensureNoExistingSession(tmuxSession);
 
+        // Personality applies only to regular agent launches. Skip for any
+        // specialized role: review personas, job runs, and assisted-update
+        // agents — those flows already drive their own prompts and an
+        // unrelated voice tweak risks destabilizing them.
+        const personality =
+          input.persona || input.jobRunId || role === "assisted_update"
+            ? null
+            : await getActivePersonality(this.pool);
+
         // Build the agent command that the setup script will exec into
         const agentCommand = buildAgentCommand(
           this.config,
@@ -483,7 +493,8 @@ export class AgentManager {
             jobRunId: input.jobRunId,
           }),
           !input.persona && !input.jobRunId && (input.autoReview ?? false),
-          startupPrompt
+          startupPrompt,
+          personality?.prompt ?? null
         );
         // Generate a setup script that handles worktree creation, env copy,
         // dep install, and then exec's into the agent CLI — all visible in the terminal.
@@ -646,6 +657,11 @@ export class AgentManager {
       // bash script. We do it once here so both runtimes are happy.)
       await mkdir(mediaDir, { recursive: true });
 
+      const personality =
+        agent.persona || agent.role === "assisted_update"
+          ? null
+          : await getActivePersonality(this.pool);
+
       const agentCommand = buildAgentCommand(
         this.config,
         agent.type,
@@ -658,7 +674,9 @@ export class AgentManager {
         shouldResume,
         undefined,
         shouldSuggestSessionRename(agent.name, id, { persona: agent.persona }),
-        !agent.persona && (agent.autoReview ?? false)
+        !agent.persona && (agent.autoReview ?? false),
+        undefined,
+        personality?.prompt ?? null
       );
 
       await this.runtime.launch({

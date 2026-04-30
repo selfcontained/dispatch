@@ -159,7 +159,8 @@ export function buildAgentCommand(
   jobRunId?: string,
   suggestSessionRename?: boolean,
   autoReview?: boolean,
-  initialPrompt?: string
+  initialPrompt?: string,
+  personalityPrompt?: string | null
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
   // Lean startup guidance shared by both agent types. Full behavioral specs live in
@@ -326,6 +327,9 @@ export function buildAgentCommand(
     // and isn't buried as an early user message. CLAUDE.md is also auto-loaded by
     // Claude Code and provides the full behavioral spec.
     const systemFlag = `--append-system-prompt ${shellEscape(launchGuidance)}`;
+    const personalityFlag = personalityPrompt
+      ? `--append-system-prompt ${shellEscape(personalityPrompt)}`
+      : "";
     // Session tracking: --resume continues an existing session, --session-id starts
     // a new one with a known ID for token attribution and future resume.
     const sessionFlag = cliSessionId
@@ -333,7 +337,9 @@ export function buildAgentCommand(
         ? `--resume ${shellEscape(cliSessionId)}`
         : `--session-id ${shellEscape(cliSessionId)}`
       : "";
-    const flags = [mcpFlag, systemFlag, sessionFlag].filter(Boolean).join(" ");
+    const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag]
+      .filter(Boolean)
+      .join(" ");
     // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
     const allArgs = initialPrompt ? [...args, initialPrompt] : args;
     if (allArgs.length === 0) {
@@ -347,6 +353,7 @@ export function buildAgentCommand(
     const promptParts = [
       launchGuidance,
       appendedSystemPrompt,
+      personalityPrompt || null,
       initialPrompt,
     ].filter(Boolean);
     const startupPrompt = promptParts.join("\n\n");
@@ -378,6 +385,7 @@ export function buildAgentCommand(
   const codexPromptParts = [
     launchGuidance,
     appendedSystemPrompt,
+    personalityPrompt || null,
     initialPrompt,
   ].filter(Boolean);
   const startupPrompt = codexPromptParts.join("\n\n");

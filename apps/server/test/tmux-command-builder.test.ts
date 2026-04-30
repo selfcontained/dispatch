@@ -402,6 +402,62 @@ describe("buildAgentCommand", () => {
     );
     expect(cmd).toContain("'begin work'");
   });
+
+  it("for claude with personalityPrompt, emits a second --append-system-prompt flag", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      undefined,
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      "talk like a 1920s newspaper editor"
+    );
+    const flagCount = (cmd.match(/--append-system-prompt/g) ?? []).length;
+    expect(flagCount).toBe(2);
+    expect(cmd).toContain("'talk like a 1920s newspaper editor'");
+  });
+
+  it("for claude without personalityPrompt, emits only one --append-system-prompt flag", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    const flagCount = (cmd.match(/--append-system-prompt/g) ?? []).length;
+    expect(flagCount).toBe(1);
+  });
+
+  it("for codex, personalityPrompt is folded into the startup prompt", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      undefined,
+      false,
+      undefined,
+      false,
+      false,
+      undefined,
+      "be terse"
+    );
+    expect(cmd).toContain("be terse");
+  });
 });
 
 describe("buildAgentCommand — host-env reads (process.env / process.platform)", () => {

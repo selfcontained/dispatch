@@ -14,6 +14,8 @@ import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
+import { PersonalitySettings } from "@/components/app/personality-settings";
+import { RadioIndicator } from "@/components/app/radio-indicator";
 import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
@@ -312,7 +314,7 @@ function WorktreeLocationSettings(): JSX.Element {
       <p className="mb-3 text-sm text-muted-foreground">
         Choose where git worktrees are created for new agents.
       </p>
-      <div className="grid gap-3">
+      <div className="grid gap-2">
         {options.map((opt) => (
           <button
             key={opt.value}
@@ -325,6 +327,7 @@ function WorktreeLocationSettings(): JSX.Element {
                 : "border-border hover:border-muted-foreground/30"
             )}
           >
+            <RadioIndicator selected={worktreeLocation === opt.value} />
             <div className="min-w-0">
               <div className="text-sm font-medium text-foreground">
                 {opt.label}
@@ -727,10 +730,13 @@ export function SettingsContent({
         )}
         {activeSection === "agents" && (
           <div className="flex flex-col">
-            <AgentTypeSettings
-              enabledAgentTypes={enabledAgentTypes}
-              onChange={onEnabledAgentTypesChange}
-            />
+            <PersonalitySettings />
+            <div className="border-t border-border">
+              <AgentTypeSettings
+                enabledAgentTypes={enabledAgentTypes}
+                onChange={onEnabledAgentTypesChange}
+              />
+            </div>
             <div className="border-t border-border">
               <IdeSettings
                 enabledIdes={enabledIdes}
