@@ -5,6 +5,8 @@ import {
   ExternalLink,
   FileText,
   MonitorPlay,
+  Pin,
+  PinOff,
   X,
   Image,
   File as FileIcon,
@@ -58,6 +60,8 @@ type MediaSidebarProps = MediaSidebarSharedProps & {
   setMediaOpen: (open: boolean) => void;
   activeTab: MediaSidebarTab;
   setActiveTab: (tab: MediaSidebarTab) => void;
+  pinned: boolean;
+  onTogglePin: () => void;
   onWidthTransitionEnd?: () => void;
 };
 
@@ -66,6 +70,8 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   setActiveTab: (tab: MediaSidebarTab) => void;
   onRequestClose?: () => void;
   closeButtonIcon?: "chevron" | "x";
+  pinned?: boolean;
+  onTogglePin?: () => void;
   className?: string;
 };
 
@@ -389,6 +395,8 @@ export function MediaSidebarContent({
   setActiveTab,
   onRequestClose,
   closeButtonIcon = "x",
+  pinned,
+  onTogglePin,
   className,
   unseenMediaCount,
   onUploadFile,
@@ -443,8 +451,27 @@ export function MediaSidebarContent({
             )}
           </button>
         </div>
-        {onRequestClose ? (
-          <div className="px-2">
+        <div className="flex items-center gap-1 px-2">
+          {onTogglePin ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onTogglePin}
+              title={pinned ? "Unpin sidebar" : "Pin sidebar"}
+              aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"}
+              aria-pressed={pinned ?? false}
+              data-testid="toggle-media-sidebar-pin"
+              data-pinned={pinned ? "true" : "false"}
+              className="h-7 w-7"
+            >
+              {pinned ? (
+                <PinOff className="h-4 w-4" />
+              ) : (
+                <Pin className="h-4 w-4" />
+              )}
+            </Button>
+          ) : null}
+          {onRequestClose ? (
             <Button
               size="icon"
               variant="ghost"
@@ -458,8 +485,8 @@ export function MediaSidebarContent({
                 <X className="h-4 w-4" />
               )}
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
@@ -499,30 +526,73 @@ export function MediaSidebarContent({
 export function MediaSidebar({
   mediaOpen,
   setMediaOpen,
+  pinned,
+  onTogglePin,
   onWidthTransitionEnd,
   ...props
 }: MediaSidebarProps): JSX.Element {
+  if (pinned) {
+    // Inline mode: takes layout space and shrinks the terminal.
+    return (
+      <div
+        data-testid="media-sidebar-wrapper"
+        data-pinned="true"
+        className="h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
+        style={{
+          width: mediaOpen ? MEDIA_SIDEBAR_WIDTH_PX : 0,
+          transitionDuration: `${MEDIA_SIDEBAR_TRANSITION_MS}ms`,
+        }}
+        onTransitionEnd={(event) => {
+          if (event.propertyName === "width") {
+            onWidthTransitionEnd?.();
+          }
+        }}
+      >
+        <div
+          className="h-full min-h-0"
+          style={{ width: MEDIA_SIDEBAR_WIDTH_PX }}
+        >
+          <MediaSidebarContent
+            {...props}
+            onRequestClose={() => setMediaOpen(false)}
+            closeButtonIcon="chevron"
+            pinned={pinned}
+            onTogglePin={onTogglePin}
+            className={cn("rounded-l-lg border-l", glassPanel)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Drawer mode: floats over the terminal, slides in/out without shifting
+  // layout. The panel is positioned absolutely against the agents-view flex
+  // container (which sets `position: relative`), so it has a real hit-testable
+  // box at the right edge instead of being anchored inside a 0-width wrapper.
   return (
     <div
-      className="h-full min-w-0 flex-none overflow-hidden transition-[width] ease-out"
+      data-testid="media-sidebar-wrapper"
+      data-pinned="false"
+      className={cn(
+        "absolute bottom-0 right-0 top-0 z-30 transition-transform ease-out",
+        !mediaOpen && "pointer-events-none"
+      )}
       style={{
-        width: mediaOpen ? MEDIA_SIDEBAR_WIDTH_PX : 0,
+        width: MEDIA_SIDEBAR_WIDTH_PX,
+        transform: mediaOpen
+          ? "translateX(0)"
+          : `translateX(${MEDIA_SIDEBAR_WIDTH_PX}px)`,
         transitionDuration: `${MEDIA_SIDEBAR_TRANSITION_MS}ms`,
       }}
-      onTransitionEnd={(event) => {
-        if (event.propertyName === "width") {
-          onWidthTransitionEnd?.();
-        }
-      }}
     >
-      <div className="h-full min-h-0" style={{ width: MEDIA_SIDEBAR_WIDTH_PX }}>
-        <MediaSidebarContent
-          {...props}
-          onRequestClose={() => setMediaOpen(false)}
-          closeButtonIcon="chevron"
-          className={cn("rounded-l-lg border-l", glassPanel)}
-        />
-      </div>
+      <MediaSidebarContent
+        {...props}
+        onRequestClose={() => setMediaOpen(false)}
+        closeButtonIcon="chevron"
+        pinned={pinned}
+        onTogglePin={onTogglePin}
+        className={cn("rounded-l-lg border-l shadow-2xl", glassPanel)}
+      />
     </div>
   );
 }

@@ -188,6 +188,10 @@ export function AgentsView({
     : desktopMediaSidebarState.isOpen;
   const mediaPanelOpen = mediaOpen;
   const mediaActiveTab = desktopMediaSidebarState.activeTab;
+  const mediaPinned = desktopMediaSidebarState.isPinned ?? false;
+  // Layout only shifts (and the terminal needs a refit) when the sidebar is
+  // open AND pinned. Drawer (unpinned) mode floats over the terminal.
+  const mediaShiftsLayout = !isMobile && mediaOpen && mediaPinned;
   const mediaResizeTimerRef = useRef<number | null>(null);
 
   const setMediaActiveTab = useCallback(
@@ -217,6 +221,13 @@ export function AgentsView({
     ]
   );
 
+  const toggleMediaPinned = useCallback(() => {
+    setDesktopMediaSidebarState((prev) => ({
+      ...prev,
+      isPinned: !(prev.isPinned ?? false),
+    }));
+  }, [setDesktopMediaSidebarState]);
+
   const finishMediaResizeSettle = useCallback(() => {
     if (mediaResizeTimerRef.current) {
       window.clearTimeout(mediaResizeTimerRef.current);
@@ -226,7 +237,7 @@ export function AgentsView({
     setMediaResizeSettleKey((current) => current + 1);
   }, []);
 
-  const prevDesktopMediaOpenRef = useRef(mediaOpen);
+  const prevMediaShiftsLayoutRef = useRef(mediaShiftsLayout);
   useEffect(() => {
     if (!agentsLoaded) return;
     reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
@@ -234,11 +245,11 @@ export function AgentsView({
 
   useEffect(() => {
     if (isMobile) {
-      prevDesktopMediaOpenRef.current = mediaOpen;
+      prevMediaShiftsLayoutRef.current = mediaShiftsLayout;
       return;
     }
-    if (prevDesktopMediaOpenRef.current === mediaOpen) return;
-    prevDesktopMediaOpenRef.current = mediaOpen;
+    if (prevMediaShiftsLayoutRef.current === mediaShiftsLayout) return;
+    prevMediaShiftsLayoutRef.current = mediaShiftsLayout;
     setDeferMediaResize(true);
     if (mediaResizeTimerRef.current) {
       window.clearTimeout(mediaResizeTimerRef.current);
@@ -247,7 +258,7 @@ export function AgentsView({
       finishMediaResizeSettle,
       MEDIA_SIDEBAR_SETTLE_FALLBACK_MS
     );
-  }, [finishMediaResizeSettle, isMobile, mediaOpen]);
+  }, [finishMediaResizeSettle, isMobile, mediaShiftsLayout]);
 
   useEffect(
     () => () => {
@@ -580,7 +591,7 @@ export function AgentsView({
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
-      <div className="flex h-full min-h-0 min-w-0 overflow-hidden py-2">
+      <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <GlassSidebar
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {
@@ -807,6 +818,8 @@ export function AgentsView({
             setMediaOpen={setMediaOpen}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
+            pinned={mediaPinned}
+            onTogglePin={toggleMediaPinned}
             onWidthTransitionEnd={finishMediaResizeSettle}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
