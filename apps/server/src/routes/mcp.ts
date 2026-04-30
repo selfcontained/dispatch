@@ -116,6 +116,12 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
+      listPersonas: deps.mcpListPersonas,
+      launchPersona: deps.mcpLaunchPersona,
+      getFeedback: deps.mcpGetFeedback,
+      resolveFeedback: deps.mcpResolveFeedback,
+      submitResolution: deps.mcpSubmitResolution,
+      cancelRecheck: deps.mcpCancelRecheck,
       toolScope: "job",
       jobTools: {
         complete: deps.mcpJobComplete,

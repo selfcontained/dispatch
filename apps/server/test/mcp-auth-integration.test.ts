@@ -389,7 +389,7 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain('"gitDiffCommand":null');
   });
 
-  it("exposes dispatch_event and dispatch_rename_session on the job-scoped MCP route", async () => {
+  it("exposes dispatch_event, rename, and the persona review/recheck flow on the job-scoped MCP route", async () => {
     await pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)
        VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`
@@ -432,5 +432,11 @@ describe("MCP auth integration", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("dispatch_event");
     expect(response.body).toContain("dispatch_rename_session");
+    expect(response.body).toContain("list_personas");
+    expect(response.body).toContain("dispatch_launch_persona");
+    expect(response.body).toContain("dispatch_get_feedback");
+    expect(response.body).toContain("dispatch_resolve_feedback");
+    expect(response.body).toContain("dispatch_submit_resolution");
+    expect(response.body).toContain("dispatch_cancel_recheck");
   });
 });
