@@ -4,4 +4,4 @@
 * Auto-apply Read clipboard, drop empty-state noise in Create-with-context by @selfcontained in https://github.com/selfcontained/dispatch/pull/467
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.27...v0.18.28
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.27...v0.18.29
