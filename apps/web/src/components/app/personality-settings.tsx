@@ -326,7 +326,7 @@ export function PersonalitySettings(): JSX.Element {
         </div>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Add text to every system prompt at launch. Use it for voice or
-          preferences. Not used for review personas or scheduled jobs.
+          preferences. Not used for review personas or jobs.
         </p>
       </div>
 
