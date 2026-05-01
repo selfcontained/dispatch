@@ -245,22 +245,24 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          KEYCHAIN_PATH="$HOME/Library/Keychains/build.keychain-db"
           xcrun notarytool store-credentials dispatch-release-notary \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_NOTARY_PASSWORD" \
-            --keychain build.keychain
+            --keychain "$KEYCHAIN_PATH"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build Bun binaries
-        run: pnpm run build:bun
+        run: |
+          export DISPATCH_NOTARY_KEYCHAIN="$HOME/Library/Keychains/build.keychain-db"
+          pnpm run build:bun
         env:
           DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
           DISPATCH_MACOS_BUNDLE_ID: dev.bradharris.dispatch
           DISPATCH_NOTARIZE_MACOS_BINARIES: "1"
-          DISPATCH_NOTARY_KEYCHAIN: build.keychain
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
