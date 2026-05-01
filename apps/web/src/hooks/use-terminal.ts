@@ -673,12 +673,18 @@ export function useTerminal(args: {
     resetTerminalSurface,
   ]);
 
-  const sendTerminalInput = useCallback((data: string) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: "input", data }));
-    terminalRef.current?.focus();
-  }, []);
+  const sendTerminalInput = useCallback(
+    (data: string) => {
+      if (terminalMode === "tmux" && optimisticallyDismissingCopyMode) {
+        return;
+      }
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "input", data }));
+      terminalRef.current?.focus();
+    },
+    [optimisticallyDismissingCopyMode, terminalMode]
+  );
 
   const exitCopyMode = useCallback(async () => {
     const agentId = connectedAgentIdRef.current;
