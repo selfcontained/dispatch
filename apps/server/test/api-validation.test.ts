@@ -267,6 +267,33 @@ describe("POST /api/v1/notifications/ack", () => {
   });
 });
 
+describe("POST /api/v1/agents/:id/terminal/interaction", () => {
+  it("rejects exit_copy_mode on the generic interaction route", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents",
+      payload: {
+        name: `unit-${Date.now()}`,
+        type: "terminal",
+        cwd: "/tmp",
+        useWorktree: false,
+      },
+    });
+    const agentId = createRes.json().agent.id as string;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/terminal/interaction`,
+      payload: { interaction: "exit_copy_mode" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      error: "interaction must be 'scroll'.",
+    });
+  });
+});
+
 describe("POST /api/v1/focus", () => {
   it("rejects empty-string agentId", async () => {
     const res = await app.inject({

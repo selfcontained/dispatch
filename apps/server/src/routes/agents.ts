@@ -88,7 +88,7 @@ function decodeClientMessage(
 ):
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
-  | { type: "interaction"; interaction: "scroll" | "exit_copy_mode" }
+  | { type: "interaction"; interaction: "scroll" }
   | null {
   try {
     const asString = typeof buffer === "string" ? buffer : buffer.toString();
@@ -113,11 +113,7 @@ function decodeClientMessage(
         rows: parsed.rows,
       };
     }
-    if (
-      parsed.type === "interaction" &&
-      (parsed.interaction === "scroll" ||
-        parsed.interaction === "exit_copy_mode")
-    ) {
+    if (parsed.type === "interaction" && parsed.interaction === "scroll") {
       return { type: "interaction", interaction: parsed.interaction };
     }
     return null;
@@ -932,13 +928,8 @@ export async function registerAgentRoutes(
       const body = request.body as { interaction?: unknown };
       const id = params.id ?? "";
 
-      if (
-        body?.interaction !== "scroll" &&
-        body?.interaction !== "exit_copy_mode"
-      ) {
-        return reply
-          .code(400)
-          .send({ error: "interaction must be 'scroll' or 'exit_copy_mode'." });
+      if (body?.interaction !== "scroll") {
+        return reply.code(400).send({ error: "interaction must be 'scroll'." });
       }
 
       try {

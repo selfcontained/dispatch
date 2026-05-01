@@ -141,4 +141,17 @@ describe("CopyModeObserverManager", () => {
     expect(events).toEqual(["copy", "exiting", "live"]);
     detachSecond();
   });
+
+  it("evicts no-viewer observers created by state reads", async () => {
+    const manager = new CopyModeObserverManager(() => {});
+
+    await manager.getState("agent-1", "session-1");
+    expect(getCopyModeStateMock).toHaveBeenCalledTimes(1);
+
+    getCopyModeStateMock.mockClear();
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    await manager.getState("agent-1", "session-1");
+    expect(getCopyModeStateMock).toHaveBeenCalledTimes(1);
+  });
 });

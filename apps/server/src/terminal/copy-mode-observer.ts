@@ -62,23 +62,7 @@ export class CopyModeObserverManager {
           clearTimeout(current.pollTimer);
           current.pollTimer = null;
         }
-        if (current.cleanupTimer) {
-          clearTimeout(current.cleanupTimer);
-        }
-        current.cleanupTimer = setTimeout(() => {
-          const latest = this.observers.get(sessionName);
-          if (!latest || latest.viewers.size > 0) {
-            return;
-          }
-          latest.cleanupTimer = null;
-          latest.boostedUntil = 0;
-          latest.exitPendingUntil = 0;
-          if (latest.pollTimer) {
-            clearTimeout(latest.pollTimer);
-            latest.pollTimer = null;
-          }
-          this.observers.delete(sessionName);
-        }, DETACH_GRACE_MS);
+        this.scheduleObserverCleanup(current);
       }
     };
   }
@@ -89,6 +73,7 @@ export class CopyModeObserverManager {
   ): Promise<TerminalUiState> {
     const observer = this.getOrCreateObserver(agentId, sessionName);
     await this.poll(observer);
+    this.scheduleObserverCleanup(observer);
     return observer.state;
   }
 
@@ -121,7 +106,10 @@ export class CopyModeObserverManager {
 
     if (observer.viewers.size > 0) {
       this.requestImmediatePoll(observer);
+      return;
     }
+
+    this.scheduleObserverCleanup(observer);
   }
 
   private getOrCreateObserver(
@@ -160,6 +148,31 @@ export class CopyModeObserverManager {
       observer.pollTimer = null;
     }
     void this.poll(observer);
+  }
+
+  private scheduleObserverCleanup(observer: SessionObserver): void {
+    if (observer.viewers.size > 0) {
+      return;
+    }
+
+    if (observer.cleanupTimer) {
+      clearTimeout(observer.cleanupTimer);
+    }
+
+    observer.cleanupTimer = setTimeout(() => {
+      const latest = this.observers.get(observer.sessionName);
+      if (!latest || latest.viewers.size > 0) {
+        return;
+      }
+      latest.cleanupTimer = null;
+      latest.boostedUntil = 0;
+      latest.exitPendingUntil = 0;
+      if (latest.pollTimer) {
+        clearTimeout(latest.pollTimer);
+        latest.pollTimer = null;
+      }
+      this.observers.delete(observer.sessionName);
+    }, DETACH_GRACE_MS);
   }
 
   private scheduleNextPoll(observer: SessionObserver): void {
