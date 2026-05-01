@@ -1136,63 +1136,97 @@ issues caused or worsened by this diff.`}</CodeBlock>
             <strong>Done</strong> to dismiss.
           </P>
           <P>
-            This path is unavailable for releases marked <Code>required</Code> —
-            the server returns a 409 with <Code>ASSISTED_UPDATE_REQUIRED</Code>{" "}
-            and the UI swaps in the assisted-update gate card.
+            Releases that ship pending migrations or declare <Code>mode</Code> ={" "}
+            <Code>required</Code> gate this path: the server returns a 409 with{" "}
+            <Code>ASSISTED_UPDATE_REQUIRED</Code>, and the agent-assisted button
+            moves into the primary slot of the split control. You can still
+            override from the dropdown — the standard menu item becomes{" "}
+            <strong>Update to vX.Y.Z…</strong> and opens a confirmation dialog
+            that posts <Code>force: true</Code>. Use only when you understand
+            what the gate was protecting.
           </P>
         </Section>
 
         <Section>
-          <H3>Assisted update</H3>
+          <H3>Agent-assisted update</H3>
           <P>
-            <strong>Assisted update</strong> launches a full-access CLI agent on
-            the production checkout and redirects you into its terminal. The
-            agent runs as the special <Code>assisted_update</Code> role (its
-            sidebar card carries a blue <strong>Update</strong> badge), holds a
-            one-time token that lets it call the update endpoint
+            <strong>Agent-assisted update</strong> launches a full-access CLI
+            agent on the production checkout and redirects you into its
+            terminal. The agent runs as the special <Code>assisted_update</Code>{" "}
+            role (its sidebar card carries a blue <strong>Update</strong>{" "}
+            badge), holds a one-time token that lets it call the update endpoint
             non-interactively, and is instructed to restore service first if the
             restart goes wrong. Only one assisted-update agent can be active at
             a time.
           </P>
           <P>
-            Releases can attach structured metadata that drives a richer
-            experience. The release-notes body includes a{" "}
-            <Code>dispatch-update</Code> JSON block declaring a{" "}
-            <Code>mode</Code> (<Code>normal</Code>, <Code>recommended</Code>, or{" "}
-            <Code>required</Code>), a title and summary, optional instructions
-            and rollback guidance, and a list of <Code>requiredChecks</Code>.
-            The mode controls how Updates renders the next-step buttons:
+            Three independent signals can promote this path to primary, and any
+            one of them is enough:
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
-              <strong>normal / no metadata</strong> — both{" "}
-              <strong>Update to vX.Y.Z</strong> and the secondary{" "}
-              <strong>Assisted update</strong> button are available. Releases
+              <strong>Pending migrations.</strong> A release can ship one or
+              more <Code>update-migrations/*.yaml</Code> manifests describing
+              complex install-side steps. <Code>/release/info</Code> evaluates
+              them against this install's <Code>applied-migrations.json</Code>;
+              any that haven't run yet appear in the response as{" "}
+              <Code>pendingMigrations</Code> and render as a stacked gate card
+              listing each step's id, title, and summary.
+            </li>
+            <li>
+              <strong>Release-body metadata.</strong> The release notes can
+              carry a <Code>dispatch-update</Code> JSON block declaring a{" "}
+              <Code>mode</Code> (<Code>normal</Code>, <Code>recommended</Code>,
+              or <Code>required</Code>), a title and summary, optional
+              instructions and rollback guidance, and a list of{" "}
+              <Code>requiredChecks</Code>. An optional <Code>appliesFrom</Code>{" "}
+              semver narrows <Code>required</Code> to installs at or above that
+              version.
+            </li>
+            <li>
+              <strong>Evaluator failure.</strong> If the server can't evaluate
+              the migration manifests (network blip, malformed YAML),{" "}
+              <Code>/release/info</Code> returns <Code>migrationsError</Code>{" "}
+              and the UI surfaces an amber warning. Standard update stays
+              available, but assisted is the safer choice.
+            </li>
+          </ul>
+          <P>
+            The action lives in a single split button whose primary slot flips
+            based on what the server reports:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>normal / no metadata + no migrations</strong> — primary is{" "}
+              <strong>Update to vX.Y.Z</strong>, with{" "}
+              <strong>Agent-assisted update</strong> in the dropdown. Releases
               without a metadata block fall back to a legacy recovery skeleton
               prompt.
             </li>
             <li>
-              <strong>recommended</strong> — the gate card is shown alongside
-              the standard buttons, so an operator can read the release's
-              instructions and required checks before choosing the assisted
-              flow.
+              <strong>recommended</strong> — the metadata gate card is shown.
+              Primary flips to <strong>Agent-assisted update</strong>;{" "}
+              <strong>Update to vX.Y.Z</strong> stays one click away in the
+              dropdown with no confirmation.
             </li>
             <li>
-              <strong>required</strong> — only the gate card is shown. The
-              one-click button is hidden because the server would reject it. An
-              optional <Code>appliesFrom</Code> semver narrows the requirement
-              to installs at or above that version.
+              <strong>required / pending migrations</strong> — gate cards are
+              shown and primary stays on <strong>Agent-assisted update</strong>.
+              The standard menu item becomes <strong>Update to vX.Y.Z…</strong>{" "}
+              and routes through the force-override dialog.
             </li>
           </ul>
           <P>
-            When metadata is present, the takeover view tracks phases the agent
-            reports back: <Code>inspect</Code> → <Code>prepare</Code> →{" "}
-            <Code>apply</Code> → <Code>restarting</Code> → <Code>validate</Code>{" "}
-            → <Code>done</Code>. Per-phase notes from the agent and the
-            structured results of each required check (re-run server-side after{" "}
-            <Code>validate</Code>) appear in the left column.{" "}
-            <Code>blocked</Code> means a required check failed;{" "}
-            <Code>rollback</Code> means the agent reverted to a healthy tag.
+            Once an assisted run is in flight, the takeover view tracks phases
+            the agent reports back: <Code>inspect</Code> → <Code>prepare</Code>{" "}
+            → <Code>apply</Code> → <Code>restarting</Code> →{" "}
+            <Code>validate</Code> → <Code>done</Code>. Per-phase notes from the
+            agent and the structured results of each required check (re-run
+            server-side after <Code>validate</Code>) appear in the left column.
+            Terminal failure states: <Code>blocked</Code> (a required check
+            failed), <Code>rollback</Code> (the agent reverted to a healthy
+            tag), and <Code>failed</Code> (the run aborted before reaching{" "}
+            <Code>done</Code>).
           </P>
         </Section>
 
