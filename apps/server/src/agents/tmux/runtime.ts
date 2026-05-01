@@ -48,6 +48,7 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
       const wrappedCommand = await prepareLaunch(input);
 
       await runCommand("tmux", [
+        "-u",
         "new-session",
         "-d",
         "-s",

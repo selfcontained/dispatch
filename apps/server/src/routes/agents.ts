@@ -906,7 +906,7 @@ export async function registerAgentRoutes(
       const rows = Number(query.rows ?? 42);
       const ptyProcess = spawnPty(
         "tmux",
-        ["attach-session", "-t", tmuxSession],
+        ["-u", "attach-session", "-t", tmuxSession],
         {
           name: "xterm-256color",
           cols: Number.isFinite(cols) ? cols : 140,

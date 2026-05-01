@@ -408,7 +408,7 @@ describe("TmuxRuntime — launch (setup-script payload)", () => {
     // tmux new-session ran with the wrapped `bash <path>` as the command
     const newSessionCall = vi
       .mocked(runCommand)
-      .mock.calls.find(([, a]) => a[0] === "new-session");
+      .mock.calls.find(([, a]) => a.includes("new-session"));
     expect(newSessionCall?.[1]).toContain("dispatch_agt_xyz_runtime_test");
     expect(newSessionCall?.[1]).toContain("/projects/foo");
     const wrappedCommand = newSessionCall?.[1]?.[
@@ -464,7 +464,7 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
 
     const newSessionCall = vi
       .mocked(runCommand)
-      .mock.calls.find(([, a]) => a[0] === "new-session");
+      .mock.calls.find(([, a]) => a.includes("new-session"));
     const wrappedCommand = newSessionCall?.[1]?.[
       newSessionCall[1].length - 1
     ] as string;
@@ -502,7 +502,7 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
 
     const newSessionCall = vi
       .mocked(runCommand)
-      .mock.calls.find(([, a]) => a[0] === "new-session");
+      .mock.calls.find(([, a]) => a.includes("new-session"));
     const wrappedCommand = newSessionCall?.[1]?.[
       newSessionCall[1].length - 1
     ] as string;

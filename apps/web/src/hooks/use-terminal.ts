@@ -10,6 +10,7 @@ import {
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import {
   type Agent,
   type AuthState,
@@ -25,6 +26,15 @@ const TERMINAL_FRESHNESS_MS =
   TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
 const RESUME_RECONNECT_DEDUPE_MS = 150;
 const SOCKET_PROBE_TIMEOUT_MS = 1_500;
+
+function getTerminalFontFamily(): string {
+  const fontFamily = getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-terminal")
+    .trim();
+  return fontFamily.length > 0
+    ? fontFamily
+    : '"JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
+}
 
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
@@ -655,9 +665,10 @@ export function useTerminal(args: {
     const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
     const palette = getTerminalPalette(themeRef.current);
     const term = new XTerm({
+      allowProposedApi: true,
       convertEol: false,
       cursorBlink: true,
-      fontFamily: "JetBrains Mono, Menlo, monospace",
+      fontFamily: getTerminalFontFamily(),
       fontSize: 13,
       scrollback: 1000,
       macOptionClickForcesSelection: true,
@@ -667,9 +678,12 @@ export function useTerminal(args: {
     });
 
     const fit = new FitAddon();
+    const unicode11 = new Unicode11Addon();
 
     terminalRef.current = term;
     fitAddonRef.current = fit;
+    term.loadAddon(unicode11);
+    term.unicode.activeVersion = "11";
     term.loadAddon(fit);
     try {
       term.loadAddon(new ClipboardAddon());
