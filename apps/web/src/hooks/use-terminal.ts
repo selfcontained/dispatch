@@ -142,6 +142,7 @@ export function useTerminal(args: {
     setTerminalHostElement(node);
   }, []);
   const terminalRef = useRef<XTerm | null>(null);
+  const suppressTerminalInputRef = useRef(false);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const fitDebounceRef = useRef<number | null>(null);
   const ctrlPendingRef = useRef(false);
@@ -176,6 +177,8 @@ export function useTerminal(args: {
   agentsRef.current = agents;
   const deferMediaResizeRef = useRef(deferMediaResize);
   deferMediaResizeRef.current = deferMediaResize;
+  suppressTerminalInputRef.current =
+    terminalMode === "tmux" && optimisticallyDismissingCopyMode;
 
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
@@ -673,18 +676,15 @@ export function useTerminal(args: {
     resetTerminalSurface,
   ]);
 
-  const sendTerminalInput = useCallback(
-    (data: string) => {
-      if (terminalMode === "tmux" && optimisticallyDismissingCopyMode) {
-        return;
-      }
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: "input", data }));
-      terminalRef.current?.focus();
-    },
-    [optimisticallyDismissingCopyMode, terminalMode]
-  );
+  const sendTerminalInput = useCallback((data: string) => {
+    if (suppressTerminalInputRef.current) {
+      return;
+    }
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "input", data }));
+    terminalRef.current?.focus();
+  }, []);
 
   const exitCopyMode = useCallback(async () => {
     const agentId = connectedAgentIdRef.current;
@@ -774,7 +774,11 @@ export function useTerminal(args: {
         .then((res) => {
           if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
           const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
+          if (
+            ws &&
+            ws.readyState === WebSocket.OPEN &&
+            !suppressTerminalInputRef.current
+          ) {
             ws.send(JSON.stringify({ type: "input", data: "\x16" }));
           }
         })
@@ -866,6 +870,7 @@ export function useTerminal(args: {
     }
 
     const disposable = term.onData((data) => {
+      if (suppressTerminalInputRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (ctrlPendingRef.current && data.length === 1) {
