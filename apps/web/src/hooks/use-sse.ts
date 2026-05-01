@@ -4,6 +4,7 @@ import {
   type Agent,
   type AuthState,
   type MediaFile,
+  type TerminalUiState,
 } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
@@ -12,6 +13,11 @@ import { showWebNotification } from "@/lib/web-notifications";
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
+  | {
+      type: "agent.terminal_state_changed";
+      agentId: string;
+      terminalState: TerminalUiState;
+    }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] }
@@ -74,6 +80,14 @@ export function useSSE(authState: AuthState): void {
             next[index] = payload.agent;
             return sortAgentsByCreatedAtDesc(next);
           });
+          return;
+        }
+
+        if (payload.type === "agent.terminal_state_changed") {
+          queryClient.setQueryData<TerminalUiState>(
+            ["terminal-state", payload.agentId],
+            payload.terminalState
+          );
           return;
         }
 

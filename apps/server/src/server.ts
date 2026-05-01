@@ -84,6 +84,7 @@ import {
 } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
+import { CopyModeObserverManager } from "./terminal/copy-mode-observer.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
@@ -149,6 +150,9 @@ const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const terminalTokenStore = new TerminalTokenStore(60_000);
+const copyModeObserverManager = new CopyModeObserverManager((event) =>
+  uiEventBroker.publish(event as UiEvent)
+);
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
 
@@ -535,6 +539,7 @@ async function registerRoutes() {
     issueTerminalToken: (agentId) => terminalTokenStore.issue(agentId),
     consumeTerminalToken: (agentId, token) =>
       terminalTokenStore.consume(agentId, token),
+    copyModeObserverManager,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>

@@ -1,8 +1,14 @@
 import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
+import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
 
 export type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
+  | {
+      type: "agent.terminal_state_changed";
+      agentId: string;
+      terminalState: TerminalUiState;
+    }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] }

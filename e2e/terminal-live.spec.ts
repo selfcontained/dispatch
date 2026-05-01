@@ -357,7 +357,9 @@ test.describe("Terminal live connection", () => {
 
     const clickStartedAt = Date.now();
     await banner.click();
-    await expect(banner).toBeHidden({ timeout: 150 });
+    await expect(banner).toContainText("Returning to live terminal…", {
+      timeout: 300,
+    });
     expect(Date.now() - clickStartedAt).toBeLessThan(250);
     await page.keyboard.type("xyz");
     await page.waitForTimeout(150);
@@ -373,6 +375,7 @@ test.describe("Terminal live connection", () => {
     expect(releaseExitRoute).not.toBeNull();
     releaseExitRoute?.();
     await waitForTmuxCopyMode(tmuxSession, false);
+    await expect(banner).toBeHidden({ timeout: 1_000 });
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect
       .poll(async () =>

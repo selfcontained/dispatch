@@ -275,6 +275,7 @@ export function AgentsView({
     terminalMode,
     terminalPlaceholderMessage,
     inCopyMode,
+    copyMode,
     statusMessage,
     terminalHostRef,
     ctrlPendingRef,
@@ -738,6 +739,7 @@ export function AgentsView({
                 terminalMode={terminalMode}
                 terminalPlaceholderMessage={terminalPlaceholderMessage}
                 inCopyMode={inCopyMode}
+                copyMode={copyMode}
                 exitCopyMode={() => {
                   void exitCopyMode();
                 }}

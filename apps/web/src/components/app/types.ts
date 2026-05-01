@@ -107,3 +107,10 @@ export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";
 export type AgentVisualState = "stopped" | "idle" | "active";
 export type AuthState = "loading" | "needs-login" | "authenticated" | "error";
+
+export type TerminalCopyMode = "live" | "copy" | "exiting";
+
+export type TerminalUiState = {
+  copyMode: TerminalCopyMode;
+  lastObservedAt: number;
+};

@@ -1,7 +1,11 @@
 import { memo, type RefCallback, useEffect, useState } from "react";
 import { Archive, TerminalSquare } from "lucide-react";
 
-import { type Agent, type ConnState } from "@/components/app/types";
+import {
+  type Agent,
+  type ConnState,
+  type TerminalCopyMode,
+} from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +16,7 @@ type TerminalPaneProps = {
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
   inCopyMode: boolean;
+  copyMode: TerminalCopyMode | "unknown";
   exitCopyMode: () => void;
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
@@ -25,6 +30,7 @@ export const TerminalPane = memo(function TerminalPane({
   terminalMode,
   terminalPlaceholderMessage,
   inCopyMode,
+  copyMode,
   exitCopyMode,
   terminalHostRef,
   archivePhase,
@@ -156,6 +162,7 @@ export const TerminalPane = memo(function TerminalPane({
             event.preventDefault();
           }}
           onClick={exitCopyMode}
+          disabled={copyMode === "exiting"}
         >
           <div
             aria-hidden="true"
@@ -167,15 +174,19 @@ export const TerminalPane = memo(function TerminalPane({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold">
-                Viewing scrollback. Typed input is paused.
+                {copyMode === "exiting"
+                  ? "Returning to live terminal…"
+                  : "Viewing scrollback. Typed input is paused."}
               </p>
               <p className="text-xs text-muted-foreground">
-                Press Esc to exit scrollback
+                {copyMode === "exiting"
+                  ? "Waiting for tmux to confirm live mode"
+                  : "Click to return to the live prompt"}
               </p>
             </div>
           </div>
           <span className="shrink-0 rounded-md border border-white/10 bg-background/70 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            Return to live
+            {copyMode === "exiting" ? "Returning…" : "Return to live"}
           </span>
         </button>
       ) : null}

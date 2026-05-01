@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
@@ -12,6 +13,10 @@ import {
 import { getSetting } from "../db/settings.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { spawn as spawnPty } from "../shared/terminal/bun-pty.js";
+import {
+  type CopyModeObserverManager,
+  type TerminalUiState,
+} from "../terminal/copy-mode-observer.js";
 import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import {
   type CreateAgentBody,
@@ -63,6 +68,7 @@ type AgentRouteDeps = {
   ) => () => void;
   issueTerminalToken: (agentId: string) => string;
   consumeTerminalToken: (agentId: string, token: string) => boolean;
+  copyModeObserverManager: CopyModeObserverManager;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
@@ -82,6 +88,7 @@ function decodeClientMessage(
 ):
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
+  | { type: "interaction"; interaction: "scroll" | "exit_copy_mode" }
   | null {
   try {
     const asString = typeof buffer === "string" ? buffer : buffer.toString();
@@ -90,6 +97,7 @@ function decodeClientMessage(
       data?: unknown;
       cols?: unknown;
       rows?: unknown;
+      interaction?: unknown;
     };
     if (parsed.type === "input" && typeof parsed.data === "string") {
       return { type: "input", data: parsed.data };
@@ -104,6 +112,13 @@ function decodeClientMessage(
         cols: parsed.cols,
         rows: parsed.rows,
       };
+    }
+    if (
+      parsed.type === "interaction" &&
+      (parsed.interaction === "scroll" ||
+        parsed.interaction === "exit_copy_mode")
+    ) {
+      return { type: "interaction", interaction: parsed.interaction };
     }
     return null;
   } catch {
@@ -137,8 +152,6 @@ export async function registerAgentRoutes(
       // ignore — tmux may have raced with shutdown
     }
   };
-
-  const TMUX_CLIENT_TTY_MARKER = "__DISPATCH_TMUX_CLIENT_TTY__";
 
   app.get("/api/v1/agents", async () => {
     const agents = await deps.agentManager.listAgents();
@@ -877,8 +890,68 @@ export async function registerAgentRoutes(
           return reply.code(409).send({ error: access.message });
         }
 
+        deps.copyModeObserverManager.noteInteraction(
+          id,
+          access.sessionName,
+          "exit_copy_mode"
+        );
         const terminal = new TmuxTerminal(access.sessionName);
         await terminal.exitCopyMode();
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
+  app.get("/api/v1/agents/:id/terminal/state", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    try {
+      const access = await deps.agentManager.getTerminalAccess(id);
+      if (access.mode !== "tmux") {
+        return reply.code(409).send({ error: access.message });
+      }
+
+      return {
+        terminalState: await deps.copyModeObserverManager.getState(
+          id,
+          access.sessionName
+        ),
+      };
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
+  app.post(
+    "/api/v1/agents/:id/terminal/interaction",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const body = request.body as { interaction?: unknown };
+      const id = params.id ?? "";
+
+      if (
+        body?.interaction !== "scroll" &&
+        body?.interaction !== "exit_copy_mode"
+      ) {
+        return reply
+          .code(400)
+          .send({ error: "interaction must be 'scroll' or 'exit_copy_mode'." });
+      }
+
+      try {
+        const access = await deps.agentManager.getTerminalAccess(id);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        deps.copyModeObserverManager.noteInteraction(
+          id,
+          access.sessionName,
+          body.interaction
+        );
         return reply.code(204).send();
       } catch (error) {
         return deps.handleAgentError(reply, error);
@@ -925,15 +998,18 @@ export async function registerAgentRoutes(
         socket.close(1011, "attach failed");
         return;
       }
-
-      const tmuxTerminal = new TmuxTerminal(tmuxSession);
+      const detachCopyModeViewer = deps.copyModeObserverManager.attachViewer(
+        agentId,
+        tmuxSession,
+        randomUUID()
+      );
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
       const ptyProcess = spawnPty(
         "sh",
         [
           "-lc",
-          `printf '${TMUX_CLIENT_TTY_MARKER}%s\n' "$(tty)"; exec tmux attach-session -t "$1"`,
+          `exec tmux attach-session -t "$1"`,
           "dispatch-terminal",
           tmuxSession,
         ],
@@ -949,44 +1025,8 @@ export async function registerAgentRoutes(
           socket.send(JSON.stringify(payload));
         }
       };
-
-      let tmuxClientTarget: string | null = null;
-      let ttyProbeResolved = false;
-      let ttyProbeBuffer = "";
       ptyProcess.onData((data) => {
-        if (ttyProbeResolved) {
-          sendJson({ type: "output", data });
-          return;
-        }
-
-        ttyProbeBuffer += data;
-        const markerLineEnd = ttyProbeBuffer.indexOf("\n");
-        if (markerLineEnd === -1) {
-          return;
-        }
-
-        const firstLine = ttyProbeBuffer
-          .slice(0, markerLineEnd)
-          .replace(/\r$/, "");
-        const remainder = ttyProbeBuffer.slice(markerLineEnd + 1);
-        ttyProbeResolved = true;
-        ttyProbeBuffer = "";
-
-        if (firstLine.startsWith(TMUX_CLIENT_TTY_MARKER)) {
-          const ttyMatch = firstLine
-            .slice(TMUX_CLIENT_TTY_MARKER.length)
-            .match(/\/dev\/[^\s]+/);
-          const tty = ttyMatch?.[0]?.trim() ?? "";
-          if (tty.length > 0) {
-            tmuxClientTarget = tty;
-          }
-        } else {
-          sendJson({ type: "output", data: firstLine });
-        }
-
-        if (remainder) {
-          sendJson({ type: "output", data: remainder });
-        }
+        sendJson({ type: "output", data });
       });
 
       ptyProcess.onExit((event) => {
@@ -997,21 +1037,6 @@ export async function registerAgentRoutes(
       const heartbeatTimer = setInterval(() => {
         sendJson({ type: "heartbeat", ts: Date.now() });
       }, 20_000);
-      let lastTmuxStateKey: string | null = null;
-      const publishTmuxState = async (): Promise<void> => {
-        const target = tmuxClientTarget ?? tmuxTerminal.sessionTarget();
-        const state = await tmuxTerminal.getCopyModeState(target);
-        const nextKey = `${state.inCopyMode}:${state.scrollPosition ?? ""}`;
-        if (nextKey === lastTmuxStateKey) {
-          return;
-        }
-        lastTmuxStateKey = nextKey;
-        sendJson({ type: "tmux_state", ...state });
-      };
-      await publishTmuxState();
-      const tmuxStatePollTimer = setInterval(() => {
-        void publishTmuxState();
-      }, 250);
 
       socket.on("message", (buffer) => {
         const message = decodeClientMessage(buffer);
@@ -1032,12 +1057,21 @@ export async function registerAgentRoutes(
           if (message.cols > 0 && message.rows > 0) {
             ptyProcess.resize(message.cols, message.rows);
           }
+          return;
+        }
+
+        if (message.type === "interaction") {
+          deps.copyModeObserverManager.noteInteraction(
+            agentId,
+            tmuxSession,
+            message.interaction
+          );
         }
       });
 
       socket.on("close", () => {
         clearInterval(heartbeatTimer);
-        clearInterval(tmuxStatePollTimer);
+        detachCopyModeViewer();
         try {
           ptyProcess.kill();
         } catch {}
