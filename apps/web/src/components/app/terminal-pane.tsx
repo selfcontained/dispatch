@@ -11,6 +11,8 @@ type TerminalPaneProps = {
   statusMessage: string;
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
+  inCopyMode: boolean;
+  exitCopyMode: () => void;
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
   resyncing: boolean;
@@ -22,6 +24,8 @@ export const TerminalPane = memo(function TerminalPane({
   statusMessage,
   terminalMode,
   terminalPlaceholderMessage,
+  inCopyMode,
+  exitCopyMode,
   terminalHostRef,
   archivePhase,
   resyncing,
@@ -44,6 +48,11 @@ export const TerminalPane = memo(function TerminalPane({
   const showEmptyState =
     connState === "disconnected" && !isAttached && !resyncing;
   const showInertState = terminalMode === "inert" && isAttached;
+  const showCopyModeBanner =
+    isAttached &&
+    connState === "connected" &&
+    terminalMode === "tmux" &&
+    inCopyMode;
 
   return (
     <div
@@ -136,6 +145,39 @@ export const TerminalPane = memo(function TerminalPane({
             <span>{statusMessage}</span>
           </div>
         </div>
+      ) : null}
+
+      {showCopyModeBanner ? (
+        <button
+          type="button"
+          data-testid="terminal-copy-mode-banner"
+          className="absolute inset-x-3 bottom-3 z-40 flex items-center justify-between gap-4 overflow-hidden rounded-xl border border-border/80 bg-[hsl(var(--surface)/0.94)] px-4 py-3 text-left text-foreground shadow-[0_18px_40px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl transition hover:bg-[hsl(var(--surface)/0.98)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          onClick={exitCopyMode}
+        >
+          <div
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-primary to-chart-2"
+          />
+          <div className="flex min-w-0 items-start gap-3 pl-1">
+            <div className="mt-0.5 rounded-md border border-white/10 bg-white/5 p-1.5 text-primary">
+              <TerminalSquare className="h-3.5 w-3.5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                Viewing scrollback. Typed input is paused.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Press Esc to exit scrollback
+              </p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-md border border-white/10 bg-background/70 px-3 py-1.5 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+            Return to live
+          </span>
+        </button>
       ) : null}
 
       <div

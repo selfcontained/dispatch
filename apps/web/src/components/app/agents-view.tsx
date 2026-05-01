@@ -274,6 +274,7 @@ export function AgentsView({
     connectedAgentId,
     terminalMode,
     terminalPlaceholderMessage,
+    inCopyMode,
     statusMessage,
     terminalHostRef,
     ctrlPendingRef,
@@ -281,6 +282,7 @@ export function AgentsView({
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    exitCopyMode,
     resyncing,
   } = useTerminal({
     authState: "authenticated",
@@ -735,6 +737,10 @@ export function AgentsView({
                 statusMessage={statusMessage}
                 terminalMode={terminalMode}
                 terminalPlaceholderMessage={terminalPlaceholderMessage}
+                inCopyMode={inCopyMode}
+                exitCopyMode={() => {
+                  void exitCopyMode();
+                }}
                 terminalHostRef={terminalHostRef}
                 resyncing={resyncing}
                 archivePhase={

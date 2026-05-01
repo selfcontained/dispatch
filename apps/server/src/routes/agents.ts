@@ -12,6 +12,7 @@ import {
 import { getSetting } from "../db/settings.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { spawn as spawnPty } from "../shared/terminal/bun-pty.js";
+import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -136,6 +137,8 @@ export async function registerAgentRoutes(
       // ignore — tmux may have raced with shutdown
     }
   };
+
+  const TMUX_CLIENT_TTY_MARKER = "__DISPATCH_TMUX_CLIENT_TTY__";
 
   app.get("/api/v1/agents", async () => {
     const agents = await deps.agentManager.listAgents();
@@ -862,6 +865,27 @@ export async function registerAgentRoutes(
     }
   });
 
+  app.post(
+    "/api/v1/agents/:id/terminal/copy-mode/exit",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const id = params.id ?? "";
+
+      try {
+        const access = await deps.agentManager.getTerminalAccess(id);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        const terminal = new TmuxTerminal(access.sessionName);
+        await terminal.exitCopyMode();
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
   app.get(
     "/api/v1/agents/:id/terminal/ws",
     { websocket: true },
@@ -902,11 +926,17 @@ export async function registerAgentRoutes(
         return;
       }
 
+      const tmuxTerminal = new TmuxTerminal(tmuxSession);
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
       const ptyProcess = spawnPty(
-        "tmux",
-        ["attach-session", "-t", tmuxSession],
+        "sh",
+        [
+          "-lc",
+          `printf '${TMUX_CLIENT_TTY_MARKER}%s\n' "$(tty)"; exec tmux attach-session -t "$1"`,
+          "dispatch-terminal",
+          tmuxSession,
+        ],
         {
           name: "xterm-256color",
           cols: Number.isFinite(cols) ? cols : 140,
@@ -920,8 +950,43 @@ export async function registerAgentRoutes(
         }
       };
 
+      let tmuxClientTarget: string | null = null;
+      let ttyProbeResolved = false;
+      let ttyProbeBuffer = "";
       ptyProcess.onData((data) => {
-        sendJson({ type: "output", data });
+        if (ttyProbeResolved) {
+          sendJson({ type: "output", data });
+          return;
+        }
+
+        ttyProbeBuffer += data;
+        const markerLineEnd = ttyProbeBuffer.indexOf("\n");
+        if (markerLineEnd === -1) {
+          return;
+        }
+
+        const firstLine = ttyProbeBuffer
+          .slice(0, markerLineEnd)
+          .replace(/\r$/, "");
+        const remainder = ttyProbeBuffer.slice(markerLineEnd + 1);
+        ttyProbeResolved = true;
+        ttyProbeBuffer = "";
+
+        if (firstLine.startsWith(TMUX_CLIENT_TTY_MARKER)) {
+          const ttyMatch = firstLine
+            .slice(TMUX_CLIENT_TTY_MARKER.length)
+            .match(/\/dev\/[^\s]+/);
+          const tty = ttyMatch?.[0]?.trim() ?? "";
+          if (tty.length > 0) {
+            tmuxClientTarget = tty;
+          }
+        } else {
+          sendJson({ type: "output", data: firstLine });
+        }
+
+        if (remainder) {
+          sendJson({ type: "output", data: remainder });
+        }
       });
 
       ptyProcess.onExit((event) => {
@@ -932,6 +997,21 @@ export async function registerAgentRoutes(
       const heartbeatTimer = setInterval(() => {
         sendJson({ type: "heartbeat", ts: Date.now() });
       }, 20_000);
+      let lastTmuxStateKey: string | null = null;
+      const publishTmuxState = async (): Promise<void> => {
+        const target = tmuxClientTarget ?? tmuxTerminal.sessionTarget();
+        const state = await tmuxTerminal.getCopyModeState(target);
+        const nextKey = `${state.inCopyMode}:${state.scrollPosition ?? ""}`;
+        if (nextKey === lastTmuxStateKey) {
+          return;
+        }
+        lastTmuxStateKey = nextKey;
+        sendJson({ type: "tmux_state", ...state });
+      };
+      await publishTmuxState();
+      const tmuxStatePollTimer = setInterval(() => {
+        void publishTmuxState();
+      }, 250);
 
       socket.on("message", (buffer) => {
         const message = decodeClientMessage(buffer);
@@ -957,6 +1037,7 @@ export async function registerAgentRoutes(
 
       socket.on("close", () => {
         clearInterval(heartbeatTimer);
+        clearInterval(tmuxStatePollTimer);
         try {
           ptyProcess.kill();
         } catch {}

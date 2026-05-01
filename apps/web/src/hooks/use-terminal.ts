@@ -29,6 +29,11 @@ const SOCKET_PROBE_TIMEOUT_MS = 1_500;
 type TerminalSocketMessage =
   | { type: "heartbeat"; ts: number }
   | { type: "output"; data: string }
+  | {
+      type: "tmux_state";
+      inCopyMode: boolean;
+      scrollPosition: number | null;
+    }
   | { type: "error"; message: string }
   | { type: "exit"; exitCode?: number };
 
@@ -76,6 +81,8 @@ export function useTerminal(args: {
   connectedAgentId: string | null;
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
+  inCopyMode: boolean;
+  scrollPosition: number | null;
   statusMessage: string;
   terminalHostRef: RefCallback<HTMLDivElement>;
   ctrlPendingRef: MutableRefObject<boolean>;
@@ -87,6 +94,7 @@ export function useTerminal(args: {
   ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
+  exitCopyMode: () => Promise<void>;
   resyncing: boolean;
 } {
   const {
@@ -109,6 +117,14 @@ export function useTerminal(args: {
   const [terminalPlaceholderMessage, setTerminalPlaceholderMessage] = useState<
     string | null
   >(null);
+  const [tmuxCopyModeState, setTmuxCopyModeState] = useState({
+    inCopyMode: false,
+    scrollPosition: null as number | null,
+  });
+  const [
+    optimisticallyDismissingCopyMode,
+    setOptimisticallyDismissingCopyMode,
+  ] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Starting...");
   // True while requestFit's auto-RESYNC is in flight. Lets the UI show a
   // calm "Resizing…" overlay instead of the empty / reconnect overlays
@@ -207,6 +223,11 @@ export function useTerminal(args: {
       lastErrorMessage: null,
       sessionGone: false,
     };
+  }, []);
+
+  const resetTmuxCopyModeState = useCallback(() => {
+    setTmuxCopyModeState({ inCopyMode: false, scrollPosition: null });
+    setOptimisticallyDismissingCopyMode(false);
   }, []);
 
   const markSocketHealthy = useCallback(
@@ -327,6 +348,7 @@ export function useTerminal(args: {
   const closeSocket = useCallback(
     (announce = true) => {
       closeSocketTransport();
+      resetTmuxCopyModeState();
       setConnectedAgentId(null);
       setTerminalMode(null);
       setTerminalPlaceholderMessage(null);
@@ -336,7 +358,7 @@ export function useTerminal(args: {
         setConnState("disconnected");
       }
     },
-    [closeSocketTransport]
+    [closeSocketTransport, resetTmuxCopyModeState]
   );
 
   const ensureTerminalConnected = useCallback(
@@ -476,6 +498,7 @@ export function useTerminal(args: {
           }
 
           if (terminalSession.mode === "inert") {
+            resetTmuxCopyModeState();
             restoreConnectedState(agent, "inert", terminalSession.message);
             return;
           }
@@ -520,6 +543,20 @@ export function useTerminal(args: {
             if (payload.type === "output") {
               markSocketHealthy("output");
               terminalRef.current?.write(payload.data);
+              return;
+            }
+
+            if (payload.type === "tmux_state") {
+              setTmuxCopyModeState({
+                inCopyMode: payload.inCopyMode,
+                scrollPosition: payload.scrollPosition,
+              });
+              setOptimisticallyDismissingCopyMode((current) => {
+                if (!current) {
+                  return current;
+                }
+                return false;
+              });
               return;
             }
 
@@ -613,6 +650,7 @@ export function useTerminal(args: {
       markSocketHealthy,
       noteTerminalError,
       probeSocket,
+      resetTmuxCopyModeState,
       resetTerminalSurface,
       restoreConnectedState,
       selectedAgentId,
@@ -641,6 +679,28 @@ export function useTerminal(args: {
     ws.send(JSON.stringify({ type: "input", data }));
     terminalRef.current?.focus();
   }, []);
+
+  const exitCopyMode = useCallback(async () => {
+    const agentId = connectedAgentIdRef.current;
+    if (!agentId || terminalMode !== "tmux") {
+      return;
+    }
+
+    setOptimisticallyDismissingCopyMode(true);
+    terminalRef.current?.focus();
+    requestAnimationFrame(() => {
+      terminalRef.current?.focus();
+    });
+    try {
+      await api<null>(`/api/v1/agents/${agentId}/terminal/copy-mode/exit`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      setOptimisticallyDismissingCopyMode(false);
+      throw error;
+    }
+  }, [terminalMode]);
 
   // Keep a ref so the xterm init effect can read the current theme without
   // depending on it (we don't want to re-create the terminal on theme change).
@@ -979,6 +1039,9 @@ export function useTerminal(args: {
       connectedAgentId,
       terminalMode,
       terminalPlaceholderMessage,
+      inCopyMode:
+        tmuxCopyModeState.inCopyMode && !optimisticallyDismissingCopyMode,
+      scrollPosition: tmuxCopyModeState.scrollPosition,
       statusMessage,
       terminalHostRef: setTerminalHostRef,
       ctrlPendingRef,
@@ -986,6 +1049,7 @@ export function useTerminal(args: {
       ensureTerminalConnected,
       detachTerminal,
       sendTerminalInput,
+      exitCopyMode,
       setTerminalHostRef,
       resyncing,
     }),
@@ -994,11 +1058,14 @@ export function useTerminal(args: {
       connectedAgentId,
       terminalMode,
       terminalPlaceholderMessage,
+      tmuxCopyModeState,
+      optimisticallyDismissingCopyMode,
       statusMessage,
       focusTerminal,
       ensureTerminalConnected,
       detachTerminal,
       sendTerminalInput,
+      exitCopyMode,
       setTerminalHostRef,
       resyncing,
     ]

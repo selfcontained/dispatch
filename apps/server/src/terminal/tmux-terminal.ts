@@ -6,12 +6,17 @@ import { runCommand } from "../shared/lib/run-command.js";
 export class TmuxTerminal {
   private static readonly SUBMIT_SETTLE_MS = 150;
   private static readonly RETRY_SUBMIT_BYTES = 4 * 1024;
+  private static readonly COPY_MODE_STATE_DELIMITER = ":::";
   private static readonly PASTED_TEXT_LINE =
     /^\[Pasted text #[0-9]+(?: \+[0-9]+ lines)?\]$/i;
   private readonly sessionName: string;
 
   constructor(sessionName: string) {
     this.sessionName = sessionName;
+  }
+
+  sessionTarget(): string {
+    return this.sessionName;
   }
 
   async hasSession(): Promise<boolean> {
@@ -39,6 +44,117 @@ export class TmuxTerminal {
     ]);
 
     return result.stdout;
+  }
+
+  async getCopyModeState(): Promise<{
+    inCopyMode: boolean;
+    scrollPosition: number | null;
+  }>;
+  async getCopyModeState(target: string): Promise<{
+    inCopyMode: boolean;
+    scrollPosition: number | null;
+  }>;
+  async getCopyModeState(target = this.sessionName): Promise<{
+    inCopyMode: boolean;
+    scrollPosition: number | null;
+  }> {
+    try {
+      const result = await runCommand(
+        "tmux",
+        [
+          "display-message",
+          "-p",
+          "-t",
+          target,
+          `#{pane_in_mode}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{scroll_position}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_key_table}`,
+        ],
+        { allowedExitCodes: [0, 1] }
+      );
+
+      if (result.exitCode !== 0) {
+        return { inCopyMode: false, scrollPosition: null };
+      }
+
+      return TmuxTerminal.parseCopyModeStateOutput(result.stdout);
+    } catch {
+      return { inCopyMode: false, scrollPosition: null };
+    }
+  }
+
+  static parseCopyModeStateOutput(stdout: string): {
+    inCopyMode: boolean;
+    scrollPosition: number | null;
+  } {
+    const normalized = stdout.trim();
+    const [paneInModeRaw = "0", scrollPositionRaw = ""] = normalized.split(
+      TmuxTerminal.COPY_MODE_STATE_DELIMITER,
+      3
+    );
+    const scrollPositionValue = scrollPositionRaw.trim();
+    const parsedScrollPosition =
+      scrollPositionValue.length > 0
+        ? Number.parseInt(scrollPositionValue, 10)
+        : Number.NaN;
+
+    return {
+      inCopyMode: paneInModeRaw.trim() === "1",
+      scrollPosition: Number.isFinite(parsedScrollPosition)
+        ? parsedScrollPosition
+        : null,
+    };
+  }
+
+  async listClients(): Promise<
+    Array<{
+      tty: string;
+      createdAt: number | null;
+      activityAt: number | null;
+    }>
+  > {
+    try {
+      const result = await runCommand(
+        "tmux",
+        [
+          "list-clients",
+          "-t",
+          this.sessionName,
+          "-F",
+          `#{client_tty}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_created}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_activity}`,
+        ],
+        { allowedExitCodes: [0, 1] }
+      );
+
+      if (result.exitCode !== 0) {
+        return [];
+      }
+
+      return result.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          const [tty = "", createdAtRaw = "", activityAtRaw = ""] = line.split(
+            TmuxTerminal.COPY_MODE_STATE_DELIMITER,
+            3
+          );
+          const createdAt = Number.parseInt(createdAtRaw, 10);
+          const activityAt = Number.parseInt(activityAtRaw, 10);
+          return {
+            tty,
+            createdAt: Number.isFinite(createdAt) ? createdAt : null,
+            activityAt: Number.isFinite(activityAt) ? activityAt : null,
+          };
+        })
+        .filter((client) => client.tty.length > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  async exitCopyMode(): Promise<void> {
+    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
+      allowedExitCodes: [0, 1],
+    });
   }
 
   private findLastPasteMarker(paneText: string): string | null {
@@ -89,9 +205,7 @@ export class TmuxTerminal {
     // If the pane is in tmux copy mode, paste-buffer + Enter does not reach
     // the program until copy mode is cancelled. Exit it first so injections
     // land on the live prompt.
-    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
-      allowedExitCodes: [0, 1],
-    }).catch(() => undefined);
+    await this.exitCopyMode().catch(() => undefined);
     await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
     try {
       await runCommand("tmux", [
