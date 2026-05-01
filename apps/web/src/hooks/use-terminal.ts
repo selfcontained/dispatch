@@ -134,7 +134,6 @@ export function useTerminal(args: {
     setTerminalHostElement(node);
   }, []);
   const terminalRef = useRef<XTerm | null>(null);
-  const suppressTerminalInputRef = useRef(false);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const fitDebounceRef = useRef<number | null>(null);
   const ctrlPendingRef = useRef(false);
@@ -200,8 +199,6 @@ export function useTerminal(args: {
       ? "exiting"
       : serverCopyMode;
   copyModeRef.current = copyMode;
-  suppressTerminalInputRef.current =
-    terminalMode === "tmux" && (copyMode === "copy" || copyMode === "exiting");
 
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
@@ -690,9 +687,6 @@ export function useTerminal(args: {
   ]);
 
   const sendTerminalInput = useCallback((data: string) => {
-    if (suppressTerminalInputRef.current) {
-      return;
-    }
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: "input", data }));
@@ -812,11 +806,7 @@ export function useTerminal(args: {
         .then((res) => {
           if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
           const ws = wsRef.current;
-          if (
-            ws &&
-            ws.readyState === WebSocket.OPEN &&
-            !suppressTerminalInputRef.current
-          ) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "input", data: "\x16" }));
           }
         })
@@ -914,7 +904,6 @@ export function useTerminal(args: {
         void exitCopyModeRef.current();
         return;
       }
-      if (suppressTerminalInputRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (ctrlPendingRef.current && data.length === 1) {
