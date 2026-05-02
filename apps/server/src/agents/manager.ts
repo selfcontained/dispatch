@@ -176,6 +176,16 @@ type StopAgentInput = {
   force?: boolean;
 };
 
+/**
+ * Subset of `DiffStatsRefresher` the manager calls into. Defined as a
+ * narrow interface so the manager doesn't import the refresher class
+ * directly — keeps the refresher's wiring at the server-composition level.
+ */
+export type DiffStatsRefresherHandle = {
+  signal: (agentId: string) => Promise<void>;
+  clear: (agentId: string) => void;
+};
+
 export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
@@ -184,6 +194,7 @@ export class AgentManager {
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
+  private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -208,6 +219,15 @@ export class AgentManager {
   /** Register a callback invoked after every upsertLatestEvent. */
   onLatestEvent(listener: AgentEventListener): void {
     this.eventBus.subscribe(listener);
+  }
+
+  /**
+   * Inject the diff-stats refresher singleton. Wired post-construction so
+   * the manager and refresher can each take a reference to the other
+   * without a circular constructor dance.
+   */
+  attachDiffStatsRefresher(refresher: DiffStatsRefresherHandle): void {
+    this.diffStatsRefresher = refresher;
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -980,6 +1000,7 @@ export class AgentManager {
         [id]
       );
       durations.db = Date.now() - tDb;
+      this.diffStatsRefresher?.clear(id);
 
       // Cascade: archive child agents (persona agents spawned by this parent)
       const tCascade = Date.now();
@@ -1080,6 +1101,7 @@ export class AgentManager {
       [id]
     );
     durations.db = Date.now() - tDb;
+    this.diffStatsRefresher?.clear(id);
 
     // Cascade to any children (recursive to handle multi-level nesting)
     const children = await this.pool.query<{ id: string }>(
@@ -1136,6 +1158,10 @@ export class AgentManager {
       throw new AgentError("Agent not found.", 404);
     }
     this.eventBus.publish(agent);
+    // Fire-and-forget: refresher swallows its own errors, throttles bursts,
+    // and dedupes concurrent signals. We just nudge it on every status
+    // transition so the diff badge tracks scope as work lands.
+    void this.diffStatsRefresher?.signal(id);
     return agent;
   }
 

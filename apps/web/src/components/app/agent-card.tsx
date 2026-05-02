@@ -17,6 +17,8 @@ import {
 
 import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { DiffStatBadge } from "@/components/app/diff-stat-badge";
+import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import {
   latestEventLabel,
   latestEventColor,
@@ -156,6 +158,10 @@ export function AgentCard({
   const isAssistedUpdateAgent = agent.role === "assisted_update";
   const isTerminalAgent = agent.type === "terminal";
   const sidebarBaseBranch = agent.baseBranch ?? "main";
+  const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
+    agent.id,
+    isExpanded && Boolean(agent.worktreePath)
+  );
 
   return (
     <React.Fragment>
@@ -391,7 +397,14 @@ export function AgentCard({
             >
               <div className="flex flex-col gap-3 px-0 pb-0.5 pt-0.5">
                 <div className="space-y-1.5">
-                  <div className="space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
+                  <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
+                    <div className="absolute right-3 top-3">
+                      <DiffStatBadge
+                        diffStats={diffStats}
+                        latestEventAt={agent.latestEvent?.updatedAt ?? null}
+                        onRefresh={refreshDiffStats}
+                      />
+                    </div>
                     {agent.gitContext?.isWorktree ? (
                       <>
                         <CompactMetaRow

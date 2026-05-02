@@ -139,6 +139,7 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -151,6 +152,19 @@ const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();
+const diffStatsRefresher = new DiffStatsRefresher({
+  getAgent: async (id) => {
+    const agent = await agentManager.getAgent(id);
+    if (!agent) return null;
+    return {
+      worktreePath: agent.worktreePath,
+      baseBranch: agent.baseBranch,
+    };
+  },
+  publishEvent: (event) => uiEventBroker.publish(event),
+  logger: app.log,
+});
+agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const copyModeObserverManager = new CopyModeObserverManager((event) =>
   uiEventBroker.publish(event as UiEvent)
@@ -544,6 +558,7 @@ async function registerRoutes() {
       terminalTokenStore.consume(agentId, token),
     copyModeObserverManager,
     copyModeAssistManager,
+    diffStatsRefresher,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>
