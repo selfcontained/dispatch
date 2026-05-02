@@ -34,7 +34,7 @@ function withCommands(
   baseRef: string,
   handlers: Record<CommandKey, CommandHandler>
 ) {
-  const baseCheckKey = `-C ${worktreePath} rev-parse --verify --quiet -- ${baseRef}`;
+  const baseCheckKey = `-C ${worktreePath} rev-parse --verify --quiet ${baseRef}`;
   const mergeBaseKey = `-C ${worktreePath} merge-base HEAD ${baseRef}`;
   const trackedKey = `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`;
   const untrackedKey = `-C ${worktreePath} ls-files --others --exclude-standard`;
@@ -205,17 +205,13 @@ describe("getDiffStats", () => {
     const worktreePath = tempRoot;
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       const key = args.join(" ");
-      if (
-        key === `-C ${worktreePath} rev-parse --verify --quiet -- feature-x`
-      ) {
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet feature-x`) {
         return fail("");
       }
       if (key === `-C ${worktreePath} rev-parse --abbrev-ref @{upstream}`) {
         return { exitCode: 128, stdout: "", stderr: "no upstream" };
       }
-      if (
-        key === `-C ${worktreePath} rev-parse --verify --quiet -- origin/main`
-      ) {
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet origin/main`) {
         return ok("origin/main");
       }
       if (key === `-C ${worktreePath} merge-base HEAD origin/main`) {
@@ -260,38 +256,6 @@ describe("getDiffStats", () => {
     expect(result).toBeNull();
     for (const args of seen) {
       expect(args).not.toContain("--all");
-    }
-  });
-
-  it("invokes rev-parse with `--` so refs cannot be reinterpreted as flags", async () => {
-    const seenArgs: string[][] = [];
-    const runCommand = vi.fn(async (_command: string, args: string[]) => {
-      seenArgs.push(args);
-      const key = args.join(" ");
-      if (key === `-C ${tempRoot} rev-parse --verify --quiet -- main`) {
-        return ok("main");
-      }
-      if (key === `-C ${tempRoot} merge-base HEAD main`) {
-        return ok(MERGE_BASE_SHA);
-      }
-      if (key === `-C ${tempRoot} diff ${MERGE_BASE_SHA} --numstat`) {
-        return ok("");
-      }
-      if (key === `-C ${tempRoot} ls-files --others --exclude-standard`) {
-        return ok("");
-      }
-      return fail("");
-    });
-
-    await getDiffStats(tempRoot, "main", { runCommand });
-
-    const revParseCalls = seenArgs.filter(
-      (args) => args.includes("rev-parse") && args.includes("--verify")
-    );
-    expect(revParseCalls.length).toBeGreaterThan(0);
-    for (const args of revParseCalls) {
-      const refIndex = args.indexOf("--quiet") + 1;
-      expect(args[refIndex]).toBe("--");
     }
   });
 

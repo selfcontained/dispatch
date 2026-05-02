@@ -78,13 +78,16 @@ async function refExists(
   worktreePath: string,
   ref: string
 ): Promise<string | null> {
+  // The `isSafeRef` guard at every entry point keeps `-`-prefixed values
+  // from reaching git as flags. We tried adding a `--` end-of-options
+  // separator here as defense in depth, but `git rev-parse --verify`
+  // refuses to resolve refs that follow `--` — so the safety check is
+  // load-bearing on its own.
   if (!isSafeRef(ref)) return null;
   try {
     const result = await run(
       "git",
-      // `--` ends git's option parsing so the ref argument can't be
-      // interpreted as a flag even if the safety check above is bypassed.
-      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", "--", ref],
+      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
     return result.exitCode === 0 && result.stdout.trim() ? ref : null;

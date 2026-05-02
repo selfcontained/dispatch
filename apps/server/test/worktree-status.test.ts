@@ -115,15 +115,7 @@ describe("getUnmergedChanges", () => {
       { match: ["-C", "/wt", "fetch"], result: ok() },
       // origin/main resolves
       {
-        match: [
-          "-C",
-          "/wt",
-          "rev-parse",
-          "--verify",
-          "--quiet",
-          "--",
-          "origin/main",
-        ],
+        match: ["-C", "/wt", "rev-parse", "--verify", "--quiet", "origin/main"],
         result: ok("origin/main"),
       },
       // merge-tree returns the same hash as the base tree → already merged
@@ -146,15 +138,7 @@ describe("getUnmergedChanges", () => {
       { match: ["-C", "/wt", "rev-parse", "--abbrev-ref"], result: fail() },
       { match: ["-C", "/wt", "fetch"], result: ok() },
       {
-        match: [
-          "-C",
-          "/wt",
-          "rev-parse",
-          "--verify",
-          "--quiet",
-          "--",
-          "origin/main",
-        ],
+        match: ["-C", "/wt", "rev-parse", "--verify", "--quiet", "origin/main"],
         result: ok("origin/main"),
       },
       {
@@ -190,7 +174,6 @@ describe("getUnmergedChanges", () => {
           "rev-parse",
           "--verify",
           "--quiet",
-          "--",
           "origin/feature-x",
         ],
         result: ok("origin/feature-x"),
