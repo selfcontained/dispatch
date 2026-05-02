@@ -110,8 +110,12 @@ export function TerminalCopyModeBanner({
               aria-hidden
             />
             <span className="px-1 text-foreground/40 md:px-2">·</span>
-            <span className="md:hidden">tap</span>
-            <span className="hidden md:inline">click</span>
+            {/* Switch verb based on the user's actual primary input mode
+                (touch vs. mouse) instead of viewport width — so it stays
+                correct on iPads in landscape, touch-enabled laptops, and
+                narrow desktop split views. */}
+            <span className="[@media(pointer:fine)]:hidden">tap</span>
+            <span className="hidden [@media(pointer:fine)]:inline">click</span>
             <span className="px-1 text-foreground/40 md:px-2">·</span>
           </span>
         </p>
@@ -123,12 +127,15 @@ export function TerminalCopyModeBanner({
         </kbd>
       </span>
 
-      {/* Exiting message overlays the same width as the active layout. */}
+      {/* Exiting message overlays the same width as the active layout.
+          aria-hidden when not exiting so screen readers don't announce
+          this string alongside the active "Input paused …" copy. */}
       <span
         className={cn(
           "pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-medium tracking-tight transition-opacity",
           exiting ? "opacity-100" : "opacity-0"
         )}
+        aria-hidden={!exiting}
         aria-live="polite"
       >
         Returning to live…
