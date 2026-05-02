@@ -796,16 +796,12 @@ export async function registerAgentRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    // No worktree → no diff to compute. Return null so the client renders
-    // nothing rather than hanging waiting for a value that never arrives.
-    if (!agent.worktreePath) {
-      return { diffStats: null };
-    }
-
     // Side effect: nudge the refresher so the in-memory cache catches up
     // even if the client reached this endpoint before the next status
-    // event fires. The refresher's freshness window absorbs duplicate
-    // signals from multiple tabs hitting this route at once.
+    // event fires. The refresher uses worktreePath ?? cwd internally and
+    // returns null for paths that aren't inside a git repo, so any agent
+    // is safe to query — the freshness window absorbs duplicate signals
+    // from multiple tabs hitting this route at once.
     void deps.diffStatsRefresher.signal(id);
 
     return { diffStats: deps.diffStatsRefresher.getStats(id) };

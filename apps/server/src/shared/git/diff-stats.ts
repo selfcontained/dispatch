@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { resolveBaseRef } from "./base-ref.js";
@@ -120,7 +120,11 @@ async function countUntrackedLines(
 ): Promise<number> {
   const fullPath = path.join(worktreePath, filePath);
   try {
-    const info = await stat(fullPath);
+    // `lstat` does NOT follow symlinks. Untracked symlinks pointing outside
+    // the worktree would otherwise let the badge act as a small file-content
+    // oracle for arbitrary paths the server can read. Skip them entirely —
+    // they still count as 1 file via the seenFiles set above.
+    const info = await lstat(fullPath);
     if (!info.isFile()) return 0;
     if (info.size === 0) return 0;
     if (info.size > UNTRACKED_LINE_COUNT_MAX_BYTES) return 0;

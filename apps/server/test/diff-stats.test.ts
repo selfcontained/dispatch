@@ -34,7 +34,7 @@ function withCommands(
   baseRef: string,
   handlers: Record<CommandKey, CommandHandler>
 ) {
-  const baseCheckKey = `-C ${worktreePath} rev-parse --verify --quiet ${baseRef}`;
+  const baseCheckKey = `-C ${worktreePath} rev-parse --verify --quiet -- ${baseRef}`;
   const mergeBaseKey = `-C ${worktreePath} merge-base HEAD ${baseRef}`;
   const trackedKey = `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`;
   const untrackedKey = `-C ${worktreePath} ls-files --others --exclude-standard`;
@@ -205,13 +205,17 @@ describe("getDiffStats", () => {
     const worktreePath = tempRoot;
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       const key = args.join(" ");
-      if (key === `-C ${worktreePath} rev-parse --verify --quiet feature-x`) {
+      if (
+        key === `-C ${worktreePath} rev-parse --verify --quiet -- feature-x`
+      ) {
         return fail("");
       }
       if (key === `-C ${worktreePath} rev-parse --abbrev-ref @{upstream}`) {
         return { exitCode: 128, stdout: "", stderr: "no upstream" };
       }
-      if (key === `-C ${worktreePath} rev-parse --verify --quiet origin/main`) {
+      if (
+        key === `-C ${worktreePath} rev-parse --verify --quiet -- origin/main`
+      ) {
         return ok("origin/main");
       }
       if (key === `-C ${worktreePath} merge-base HEAD origin/main`) {
@@ -239,5 +243,74 @@ describe("getDiffStats", () => {
 
     const result = await getDiffStats(tempRoot, "main", { runCommand });
     expect(result).toBeNull();
+  });
+
+  it("rejects refs that start with `-` so a crafted base branch can't be parsed as a git option", async () => {
+    // Defense: even if a `-`-prefixed ref reached this layer, resolveBaseRef
+    // must refuse it BEFORE shelling out. Verify by asserting we never see
+    // the bad ref in any git argv.
+    const seen: string[][] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      seen.push(args);
+      // Make every fallback fail so we end up returning null overall.
+      return fail("");
+    });
+
+    const result = await getDiffStats(tempRoot, "--all", { runCommand });
+    expect(result).toBeNull();
+    for (const args of seen) {
+      expect(args).not.toContain("--all");
+    }
+  });
+
+  it("invokes rev-parse with `--` so refs cannot be reinterpreted as flags", async () => {
+    const seenArgs: string[][] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      seenArgs.push(args);
+      const key = args.join(" ");
+      if (key === `-C ${tempRoot} rev-parse --verify --quiet -- main`) {
+        return ok("main");
+      }
+      if (key === `-C ${tempRoot} merge-base HEAD main`) {
+        return ok(MERGE_BASE_SHA);
+      }
+      if (key === `-C ${tempRoot} diff ${MERGE_BASE_SHA} --numstat`) {
+        return ok("");
+      }
+      if (key === `-C ${tempRoot} ls-files --others --exclude-standard`) {
+        return ok("");
+      }
+      return fail("");
+    });
+
+    await getDiffStats(tempRoot, "main", { runCommand });
+
+    const revParseCalls = seenArgs.filter(
+      (args) => args.includes("rev-parse") && args.includes("--verify")
+    );
+    expect(revParseCalls.length).toBeGreaterThan(0);
+    for (const args of revParseCalls) {
+      const refIndex = args.indexOf("--quiet") + 1;
+      expect(args[refIndex]).toBe("--");
+    }
+  });
+
+  it("does not follow symlinks for untracked-file line counting", async () => {
+    // A symlinked untracked file would otherwise let the badge act as a
+    // tiny content oracle for files outside the worktree. Confirm the
+    // symlink contributes 1 file but 0 lines.
+    const { symlink } = await import("node:fs/promises");
+    const worktreePath = tempRoot;
+    const target = path.join(os.tmpdir(), "outside-the-worktree.txt");
+    await writeFile(target, "secret line 1\nsecret line 2\n");
+    await symlink(target, path.join(worktreePath, "link.txt"));
+
+    const runCommand = withCommands(worktreePath, "main", {
+      [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
+        ok("link.txt"),
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toMatchObject({ added: 0, deleted: 0, files: 1 });
   });
 });

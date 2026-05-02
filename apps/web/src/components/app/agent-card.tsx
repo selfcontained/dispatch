@@ -160,7 +160,7 @@ export function AgentCard({
   const sidebarBaseBranch = agent.baseBranch ?? "main";
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
-    isExpanded && Boolean(agent.worktreePath)
+    isExpanded
   );
 
   return (

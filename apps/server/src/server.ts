@@ -158,6 +158,7 @@ const diffStatsRefresher = new DiffStatsRefresher({
     if (!agent) return null;
     return {
       worktreePath: agent.worktreePath,
+      cwd: agent.cwd,
       baseBranch: agent.baseBranch,
     };
   },

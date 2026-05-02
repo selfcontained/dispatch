@@ -34,8 +34,11 @@ export async function resolveBaseRef(
   const run = options.runCommand ?? runCommand;
 
   if (preferred && preferred.trim()) {
-    const found = await refExists(run, worktreePath, preferred.trim());
-    if (found) return found;
+    const candidate = preferred.trim();
+    if (isSafeRef(candidate)) {
+      const found = await refExists(run, worktreePath, candidate);
+      if (found) return found;
+    }
   }
 
   try {
@@ -46,7 +49,7 @@ export async function resolveBaseRef(
     );
     if (upstream.exitCode === 0) {
       const trimmed = upstream.stdout.trim();
-      if (trimmed) {
+      if (trimmed && isSafeRef(trimmed)) {
         const found = await refExists(run, worktreePath, trimmed);
         if (found) return found;
       }
@@ -61,15 +64,27 @@ export async function resolveBaseRef(
   );
 }
 
+/**
+ * Reject ref strings that could be mistaken for git options. We rely on
+ * this guard plus the explicit `--` separator at the call site so a
+ * crafted base-branch value (e.g. `--all`) can't reach git as a flag.
+ */
+function isSafeRef(ref: string): boolean {
+  return ref.length > 0 && !ref.startsWith("-");
+}
+
 async function refExists(
   run: CommandRunner,
   worktreePath: string,
   ref: string
 ): Promise<string | null> {
+  if (!isSafeRef(ref)) return null;
   try {
     const result = await run(
       "git",
-      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
+      // `--` ends git's option parsing so the ref argument can't be
+      // interpreted as a flag even if the safety check above is bypassed.
+      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", "--", ref],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
     return result.exitCode === 0 && result.stdout.trim() ? ref : null;

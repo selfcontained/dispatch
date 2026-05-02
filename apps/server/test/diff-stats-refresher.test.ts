@@ -25,7 +25,7 @@ afterEach(() => {
 describe("DiffStatsRefresher", () => {
   it("publishes a change event when stats first arrive", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const events: DiffStatsChangedEvent[] = [];
     const compute = vi.fn(
@@ -62,7 +62,7 @@ describe("DiffStatsRefresher", () => {
 
   it("treats a second signal within the freshness window as a no-op", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const compute = vi.fn(
       async (): Promise<DiffStats> => ({
@@ -88,7 +88,7 @@ describe("DiffStatsRefresher", () => {
 
   it("recomputes after the freshness window has passed", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const compute = vi.fn(
       async (): Promise<DiffStats> => ({
@@ -114,7 +114,7 @@ describe("DiffStatsRefresher", () => {
 
   it("does not republish when stats are unchanged", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const events: DiffStatsChangedEvent[] = [];
     const compute = vi.fn(
@@ -141,7 +141,7 @@ describe("DiffStatsRefresher", () => {
 
   it("publishes again when stats actually change", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const events: DiffStatsChangedEvent[] = [];
     let call = 0;
@@ -171,7 +171,7 @@ describe("DiffStatsRefresher", () => {
 
   it("dedupes simultaneous signals via the in-flight promise", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     let resolveCompute: ((value: DiffStats) => void) | null = null;
     const compute = vi.fn(
@@ -208,7 +208,7 @@ describe("DiffStatsRefresher", () => {
 
   it("publishes null and clears state when worktreePath is missing", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const events: DiffStatsChangedEvent[] = [];
     const compute = vi.fn(
@@ -229,7 +229,7 @@ describe("DiffStatsRefresher", () => {
     await refresher.signal("a1");
     expect(events).toHaveLength(1);
 
-    agents.set("a1", { worktreePath: null, baseBranch: null });
+    agents.set("a1", { worktreePath: null, cwd: null, baseBranch: null });
     vi.setSystemTime(new Date("2026-05-02T00:00:02Z"));
     await refresher.signal("a1");
 
@@ -240,7 +240,7 @@ describe("DiffStatsRefresher", () => {
 
   it("clear() drops the cached value and re-allows immediate signals", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const compute = vi.fn(
       async (): Promise<DiffStats> => ({
@@ -267,13 +267,60 @@ describe("DiffStatsRefresher", () => {
     expect(compute).toHaveBeenCalledTimes(2);
   });
 
+  it("falls back to agent.cwd when worktreePath is null", async () => {
+    // Agents created with useWorktree=false have no dispatch-managed
+    // worktreePath, but their cwd may still be inside a git repo —
+    // compute against that path so any git working tree gets stats.
+    const agents = setupAgents([
+      ["a1", { worktreePath: null, cwd: "/some/repo", baseBranch: "main" }],
+    ]);
+    const compute = vi.fn(
+      async (): Promise<DiffStats> => ({
+        added: 7,
+        deleted: 0,
+        files: 1,
+        computedAt: Date.now(),
+      })
+    );
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: () => {},
+      computeDiffStats: compute,
+    });
+
+    await refresher.signal("a1");
+    expect(compute).toHaveBeenCalledWith("/some/repo", "main");
+  });
+
+  it("publishes null when both worktreePath and cwd are missing", async () => {
+    const agents = setupAgents([
+      ["a1", { worktreePath: null, cwd: null, baseBranch: null }],
+    ]);
+    const compute = vi.fn();
+    const events: DiffStatsChangedEvent[] = [];
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: (event) => events.push(event),
+      computeDiffStats: compute,
+    });
+
+    await refresher.signal("a1");
+    expect(compute).not.toHaveBeenCalled();
+    // Cache primes to null on the first signal but no event fires for the
+    // null→null transition; verify state directly.
+    expect(refresher.getStats("a1")).toBeNull();
+  });
+
   it("passes agent.baseBranch through to the compute callback", async () => {
     // The refresher no longer applies its own base-ref fallback — that
     // policy lives in the shared resolver inside getDiffStats. Confirm
     // we forward agent.baseBranch (including null) verbatim.
     const agents = setupAgents([
-      ["with-base", { worktreePath: "/tmp/wt", baseBranch: "trunk" }],
-      ["no-base", { worktreePath: "/tmp/wt", baseBranch: null }],
+      [
+        "with-base",
+        { worktreePath: "/tmp/wt", cwd: null, baseBranch: "trunk" },
+      ],
+      ["no-base", { worktreePath: "/tmp/wt", cwd: null, baseBranch: null }],
     ]);
     const compute = vi.fn(
       async (): Promise<DiffStats> => ({
@@ -298,7 +345,7 @@ describe("DiffStatsRefresher", () => {
 
   it("swallows compute errors and leaves the cache unchanged", async () => {
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: "main" }],
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
     ]);
     const events: DiffStatsChangedEvent[] = [];
     const initial: DiffStats = {

@@ -82,7 +82,7 @@ export function DiffStatBadge({
           )}
           aria-label="Refresh diff stats"
         >
-          <span className="text-status-done">
+          <span className="text-status-working">
             +{formatCount(diffStats.added)}
           </span>
           <span className="text-status-blocked">

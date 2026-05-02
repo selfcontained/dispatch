@@ -5,6 +5,7 @@ import {
 
 export type DiffStatsAgent = {
   worktreePath: string | null;
+  cwd: string | null;
   baseBranch: string | null;
 };
 
@@ -108,15 +109,20 @@ export class DiffStatsRefresher {
     let nextStats: DiffStats | null = null;
     try {
       const agent = await this.getAgent(agentId);
-      if (!agent || !agent.worktreePath) {
+      // Prefer the dispatch-managed worktreePath (set on `useWorktree=true`
+      // creates), but fall back to the agent's cwd so any agent pointed at
+      // a git working tree gets stats. `getDiffStats` returns null when
+      // the path isn't inside a repo, so this is safe.
+      const path = agent?.worktreePath ?? agent?.cwd ?? null;
+      if (!path) {
         nextStats = null;
       } else {
         // Pass `agent.baseBranch` straight through — `getDiffStats` runs
         // it through the shared `resolveBaseRef` chain, so we don't bake a
         // second fallback policy in here.
         nextStats = await this.computeDiffStats(
-          agent.worktreePath,
-          agent.baseBranch
+          path,
+          agent?.baseBranch ?? null
         );
       }
     } catch (err) {
