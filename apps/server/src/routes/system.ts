@@ -6,6 +6,11 @@ import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
+import {
+  COPY_MODE_ASSIST_ENABLED_KEY,
+  getCopyModeAssistEnabled,
+  parseBooleanSetting,
+} from "../copy-mode-assist-settings.js";
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
 import { JobService } from "../jobs/service.js";
 import {
@@ -23,17 +28,7 @@ import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
-const COPY_MODE_ASSIST_ENABLED_KEY = "copy_mode_assist_enabled";
 const VALID_WORKTREE_LOCATIONS = ["sibling", "nested"] as const;
-
-function parseBooleanSetting(
-  value: string | null,
-  defaultValue: boolean
-): boolean {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return defaultValue;
-}
 
 function resolveTildePath(raw: string): string {
   if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
@@ -87,7 +82,9 @@ type SystemRouteDeps = {
   percentile: (sortedValues: number[], quantile: number) => number | null;
   toIso: (epochMs: number | null) => string | null;
   publishUiEvent: (event: unknown) => void;
-  onCopyModeAssistDisabled: () => Promise<void>;
+  copyModeAssistManager: {
+    disableAll: () => Promise<void>;
+  };
 };
 
 export async function registerSystemRoutes(
@@ -328,10 +325,7 @@ export async function registerSystemRoutes(
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
-    const copyModeAssistEnabled = parseBooleanSetting(
-      await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
-      false
-    );
+    const copyModeAssistEnabled = await getCopyModeAssistEnabled(deps.pool);
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
@@ -404,12 +398,9 @@ export async function registerSystemRoutes(
         COPY_MODE_ASSIST_ENABLED_KEY,
         String(body.copyModeAssistEnabled)
       );
-      deps.publishUiEvent({
-        type: "app.settings_changed",
-        setting: "copyModeAssistEnabled",
-      });
+      deps.publishUiEvent({ type: "agents.settings_changed" });
       if (previousValue && !body.copyModeAssistEnabled) {
-        await deps.onCopyModeAssistDisabled();
+        await deps.copyModeAssistManager.disableAll();
       }
     }
 
@@ -419,10 +410,7 @@ export async function registerSystemRoutes(
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
-    const copyModeAssistEnabled = parseBooleanSetting(
-      await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
-      false
-    );
+    const copyModeAssistEnabled = await getCopyModeAssistEnabled(deps.pool);
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),

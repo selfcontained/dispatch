@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownToLine,
   Bell,
@@ -24,6 +24,10 @@ import { ServiceStatus } from "@/components/app/service-status";
 import { type ServiceState } from "@/components/app/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
+import {
+  AGENT_SETTINGS_QUERY_KEY,
+  useAgentSettings,
+} from "@/hooks/use-agent-settings";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
@@ -209,58 +213,58 @@ type WorktreeLocation = "sibling" | "nested";
 
 function CopyModeAssistSettings(): JSX.Element {
   const queryClient = useQueryClient();
-  const [enabled, setEnabled] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const {
+    data: agentSettings,
+    error: queryError,
+    isLoading,
+  } = useAgentSettings();
 
-  useEffect(() => {
-    let cancelled = false;
-    void api<{ copyModeAssistEnabled: boolean }>("/api/v1/agents/settings")
-      .then((data) => {
-        if (cancelled) return;
-        setEnabled(data.copyModeAssistEnabled);
-        setError("");
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load copy mode setting."
+  const mutation = useMutation({
+    mutationFn: (nextEnabled: boolean) =>
+      api<{ copyModeAssistEnabled: boolean }>("/api/v1/agents/settings", {
+        method: "POST",
+        body: JSON.stringify({ copyModeAssistEnabled: nextEnabled }),
+      }),
+    onMutate: async (nextEnabled) => {
+      await queryClient.cancelQueries({ queryKey: AGENT_SETTINGS_QUERY_KEY });
+      const previousSettings = queryClient.getQueryData(
+        AGENT_SETTINGS_QUERY_KEY
+      );
+      queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, (current) => ({
+        ...(typeof current === "object" && current ? current : {}),
+        copyModeAssistEnabled: nextEnabled,
+      }));
+      return { previousSettings };
+    },
+    onError: (_error, _nextEnabled, context) => {
+      if (context?.previousSettings !== undefined) {
+        queryClient.setQueryData(
+          AGENT_SETTINGS_QUERY_KEY,
+          context.previousSettings
         );
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: AGENT_SETTINGS_QUERY_KEY,
       });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    },
+  });
+
+  const enabled = agentSettings?.copyModeAssistEnabled ?? false;
+  const saving = mutation.isPending;
+  const errorMessage =
+    mutation.error instanceof Error
+      ? mutation.error.message
+      : queryError instanceof Error
+        ? queryError.message
+        : "";
 
   const handleChange = useCallback(
     async (nextEnabled: boolean) => {
-      const previous = enabled;
-      setEnabled(nextEnabled);
-      setSaving(true);
-      setError("");
-      try {
-        await api<{ copyModeAssistEnabled: boolean }>(
-          "/api/v1/agents/settings",
-          {
-            method: "POST",
-            body: JSON.stringify({ copyModeAssistEnabled: nextEnabled }),
-          }
-        );
-        await queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
-      } catch (err) {
-        setEnabled(previous);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save copy mode setting."
-        );
-      } finally {
-        setSaving(false);
-      }
+      await mutation.mutateAsync(nextEnabled);
     },
-    [enabled, queryClient]
+    [mutation]
   );
 
   return (
@@ -276,13 +280,13 @@ function CopyModeAssistSettings(): JSX.Element {
       <label
         className={cn(
           "flex max-w-xl cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50",
-          saving && "pointer-events-none opacity-60"
+          (saving || isLoading) && "pointer-events-none opacity-60"
         )}
       >
         <Checkbox
           checked={enabled}
           onCheckedChange={(value) => void handleChange(value === true)}
-          disabled={saving}
+          disabled={saving || isLoading}
           data-testid="copy-mode-assist-toggle"
         />
         <div className="min-w-0">
@@ -295,7 +299,9 @@ function CopyModeAssistSettings(): JSX.Element {
           </div>
         </div>
       </label>
-      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+      {errorMessage ? (
+        <p className="mt-2 text-xs text-destructive">{errorMessage}</p>
+      ) : null}
     </div>
   );
 }

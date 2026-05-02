@@ -18,6 +18,7 @@ import {
   type TerminalCopyMode,
   type TerminalUiState,
 } from "@/components/app/types";
+import { useAgentSettings } from "@/hooks/use-agent-settings";
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
@@ -34,10 +35,6 @@ type TerminalSocketMessage =
   | { type: "output"; data: string }
   | { type: "error"; message: string }
   | { type: "exit"; exitCode?: number };
-
-type AgentSettingsResponse = {
-  copyModeAssistEnabled: boolean;
-};
 
 function isTerminalSessionGone(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -177,13 +174,10 @@ export function useTerminal(args: {
   deferMediaResizeRef.current = deferMediaResize;
   const lastInteractionHintAtRef = useRef(0);
 
-  const { data: agentSettings } = useQuery<AgentSettingsResponse>({
-    queryKey: ["agents-settings"],
-    queryFn: () => api<AgentSettingsResponse>("/api/v1/agents/settings"),
-    refetchOnWindowFocus: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  const { data: agentSettings } = useAgentSettings();
   const copyModeAssistEnabled = agentSettings?.copyModeAssistEnabled ?? false;
+  const copyModeAssistEnabledRef = useRef(copyModeAssistEnabled);
+  copyModeAssistEnabledRef.current = copyModeAssistEnabled;
 
   const { data: terminalState } = useQuery<TerminalUiState>({
     queryKey: ["terminal-state", connectedAgentId],
@@ -710,7 +704,11 @@ export function useTerminal(args: {
 
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;
-    if (!copyModeAssistEnabled || !agentId || terminalMode !== "tmux") {
+    if (
+      !copyModeAssistEnabledRef.current ||
+      !agentId ||
+      terminalMode !== "tmux"
+    ) {
       return;
     }
     const now = Date.now();
@@ -729,7 +727,7 @@ export function useTerminal(args: {
       method: "POST",
       body: JSON.stringify({ interaction: "scroll" }),
     }).catch(() => {});
-  }, [copyModeAssistEnabled, terminalMode]);
+  }, [terminalMode]);
 
   const exitCopyMode = useCallback(async () => {
     const agentId = connectedAgentIdRef.current;
@@ -853,6 +851,7 @@ export function useTerminal(args: {
     const TOUCH_SCROLL_SENSITIVITY_PX = 30;
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
+      if (!copyModeAssistEnabledRef.current) return;
       touchY = e.touches[0].clientY;
       touchAccum = 0;
     };
@@ -861,6 +860,7 @@ export function useTerminal(args: {
     // wheel codes to tmux, which scrolls its own scrollback in copy-mode.
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
+      if (!copyModeAssistEnabledRef.current) return;
       if (!screenEl) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
@@ -911,12 +911,10 @@ export function useTerminal(args: {
       dispatchingMouseDown = false;
     };
 
-    if (copyModeAssistEnabled) {
-      host.addEventListener("touchstart", onTouchStart, { passive: true });
-      host.addEventListener("touchmove", onTouchMove, { passive: true });
-    }
+    host.addEventListener("touchstart", onTouchStart, { passive: true });
+    host.addEventListener("touchmove", onTouchMove, { passive: true });
     const onWheel = () => noteScrollInteractionRef.current();
-    if (screenEl && copyModeAssistEnabled) {
+    if (screenEl) {
       screenEl.addEventListener("mousedown", onMouseDown, true);
       screenEl.addEventListener("wheel", onWheel, { passive: true });
     }
@@ -967,11 +965,9 @@ export function useTerminal(args: {
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
-      if (copyModeAssistEnabled) {
-        host.removeEventListener("touchstart", onTouchStart);
-        host.removeEventListener("touchmove", onTouchMove);
-      }
-      if (screenEl && copyModeAssistEnabled) {
+      host.removeEventListener("touchstart", onTouchStart);
+      host.removeEventListener("touchmove", onTouchMove);
+      if (screenEl) {
         screenEl.removeEventListener("mousedown", onMouseDown, true);
         screenEl.removeEventListener("wheel", onWheel);
       }
@@ -984,13 +980,7 @@ export function useTerminal(args: {
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [
-    authState,
-    copyModeAssistEnabled,
-    invalidateAttachAttempt,
-    requestFit,
-    terminalHostElement,
-  ]);
+  }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
   // Reconnect on visibility/focus.
   useEffect(() => {

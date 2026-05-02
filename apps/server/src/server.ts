@@ -85,6 +85,7 @@ import {
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { CopyModeObserverManager } from "./terminal/copy-mode-observer.js";
+import { CopyModeAssistManager } from "./terminal/copy-mode-assist-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
@@ -149,18 +150,14 @@ const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
+const uiEventBroker = new UiEventBroker();
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const copyModeObserverManager = new CopyModeObserverManager((event) =>
   uiEventBroker.publish(event as UiEvent)
 );
-let onCopyModeAssistDisabled = async () => {};
-const registerCopyModeAssistDisableHandler = (handler: () => Promise<void>) => {
-  onCopyModeAssistDisabled = handler;
-};
+const copyModeAssistManager = new CopyModeAssistManager();
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
-
-const uiEventBroker = new UiEventBroker();
 const streamManager = new StreamManager(
   (agentId, event) => {
     uiEventBroker.publish(
@@ -460,7 +457,7 @@ async function registerRoutes() {
     percentile,
     toIso,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-    onCopyModeAssistDisabled: () => onCopyModeAssistDisabled(),
+    copyModeAssistManager,
   });
 
   await registerActivityRoutes(app, {
@@ -546,7 +543,7 @@ async function registerRoutes() {
     consumeTerminalToken: (agentId, token) =>
       terminalTokenStore.consume(agentId, token),
     copyModeObserverManager,
-    registerCopyModeAssistDisableHandler,
+    copyModeAssistManager,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>

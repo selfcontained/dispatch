@@ -6,13 +6,14 @@ import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { getCopyModeAssistEnabled } from "../copy-mode-assist-settings.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { getSetting } from "../db/settings.js";
-import { runCommand } from "../shared/lib/run-command.js";
 import { spawn as spawnPty } from "../shared/terminal/bun-pty.js";
+import { CopyModeAssistManager } from "../terminal/copy-mode-assist-manager.js";
 import {
   type CopyModeObserverManager,
   type TerminalUiState,
@@ -28,7 +29,6 @@ import {
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
 const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
-const COPY_MODE_ASSIST_ENABLED_KEY = "copy_mode_assist_enabled";
 const COPY_MODE_ASSIST_DISABLED_ERROR = "Copy mode assist is disabled.";
 const AGENT_LATEST_EVENT_TYPES = [
   "working",
@@ -71,7 +71,7 @@ type AgentRouteDeps = {
   issueTerminalToken: (agentId: string) => string;
   consumeTerminalToken: (agentId: string, token: string) => boolean;
   copyModeObserverManager: CopyModeObserverManager;
-  registerCopyModeAssistDisableHandler: (handler: () => Promise<void>) => void;
+  copyModeAssistManager: CopyModeAssistManager;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
@@ -136,104 +136,9 @@ export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  const activeAssistSessions = new Map<
-    string,
-    {
-      sessionName: string;
-      originalMouseMode: "on" | "off" | null;
-      connections: Set<string>;
-    }
-  >();
-  const activeAssistConnections = new Map<
-    string,
-    {
-      sessionName: string;
-      deactivate: () => void;
-    }
-  >();
-
-  // Ensure tmux's mouse mode is on so wheel/touch events drive tmux's
-  // copy-mode scrollback. tmux defaults to mouse=off on a fresh session;
-  // call once per attach. Best-effort: the agent works without it,
-  // scrolling just doesn't.
-  const enableTmuxMouseMode = async (
-    sessionName: string
-  ): Promise<"on" | "off" | null> => {
-    const terminal = new TmuxTerminal(sessionName);
-    const originalMode = await terminal.getMouseMode();
-    try {
-      await terminal.setMouseMode("on");
-    } catch {
-      // ignore — tmux may have raced with shutdown
-    }
-    return originalMode;
-  };
-
-  const restoreTmuxMouseMode = async (
-    sessionName: string,
-    originalMode: "on" | "off" | null
-  ): Promise<void> => {
-    try {
-      const terminal = new TmuxTerminal(sessionName);
-      await terminal.setMouseMode(originalMode ?? "off");
-    } catch {
-      // ignore — tmux may have raced with shutdown
-    }
-  };
-
-  const registerAssistConnection = (
-    connectionId: string,
-    sessionName: string,
-    originalMouseMode: "on" | "off" | null,
-    deactivate: () => void
-  ): void => {
-    const session = activeAssistSessions.get(sessionName) ?? {
-      sessionName,
-      originalMouseMode,
-      connections: new Set<string>(),
-    };
-    if (!activeAssistSessions.has(sessionName)) {
-      activeAssistSessions.set(sessionName, session);
-    }
-    session.connections.add(connectionId);
-    activeAssistConnections.set(connectionId, {
-      sessionName,
-      deactivate,
-    });
-  };
-
-  const unregisterAssistConnection = async (
-    connectionId: string
-  ): Promise<void> => {
-    const connection = activeAssistConnections.get(connectionId);
-    if (!connection) {
-      return;
-    }
-    activeAssistConnections.delete(connectionId);
-    connection.deactivate();
-    const session = activeAssistSessions.get(connection.sessionName);
-    if (!session) {
-      return;
-    }
-    session.connections.delete(connectionId);
-    if (session.connections.size > 0) {
-      return;
-    }
-    activeAssistSessions.delete(connection.sessionName);
-    await restoreTmuxMouseMode(session.sessionName, session.originalMouseMode);
-  };
-
   const isCopyModeAssistEnabled = async (): Promise<boolean> => {
-    const raw = await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY);
-    return raw === "true";
+    return getCopyModeAssistEnabled(deps.pool);
   };
-
-  deps.registerCopyModeAssistDisableHandler(async () => {
-    const connectionIds = [...activeAssistConnections.keys()];
-    await Promise.all(
-      connectionIds.map((id) => unregisterAssistConnection(id))
-    );
-  });
 
   app.get("/api/v1/agents", async () => {
     const agents = await deps.agentManager.listAgents();
@@ -1074,33 +979,29 @@ export async function registerAgentRoutes(
       }
 
       let tmuxSession: string;
-      let copyModeAssistEnabled = false;
-      let assistConnectionId: string | null = null;
+      const assistState = {
+        activeRef: { current: false },
+        connectionId: null as string | null,
+      };
       try {
         const access = await deps.agentManager.getTerminalAccess(agentId);
         if (access.mode !== "tmux") {
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
-        copyModeAssistEnabled = await isCopyModeAssistEnabled();
-        if (copyModeAssistEnabled) {
-          assistConnectionId = randomUUID();
-          const originalMouseMode = await enableTmuxMouseMode(tmuxSession);
+        if (await isCopyModeAssistEnabled()) {
           const detachCopyModeViewer =
             deps.copyModeObserverManager.attachViewer(
               agentId,
               tmuxSession,
               randomUUID()
             );
-          registerAssistConnection(
-            assistConnectionId,
+          const assistConnection = await deps.copyModeAssistManager.attach(
             tmuxSession,
-            originalMouseMode,
-            () => {
-              copyModeAssistEnabled = false;
-              detachCopyModeViewer();
-            }
+            detachCopyModeViewer
           );
+          assistState.activeRef = assistConnection.activeRef;
+          assistState.connectionId = assistConnection.connectionId;
         }
       } catch (error) {
         const message =
@@ -1167,7 +1068,7 @@ export async function registerAgentRoutes(
         }
 
         if (message.type === "interaction") {
-          if (copyModeAssistEnabled) {
+          if (assistState.activeRef.current) {
             deps.copyModeObserverManager.noteInteraction(
               agentId,
               tmuxSession,
@@ -1179,8 +1080,8 @@ export async function registerAgentRoutes(
 
       socket.on("close", () => {
         clearInterval(heartbeatTimer);
-        if (assistConnectionId) {
-          void unregisterAssistConnection(assistConnectionId);
+        if (assistState.connectionId) {
+          void deps.copyModeAssistManager.detach(assistState.connectionId);
         }
         try {
           ptyProcess.kill();

@@ -13,7 +13,7 @@ import { showWebNotification } from "@/lib/web-notifications";
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
-  | { type: "app.settings_changed"; setting: string }
+  | { type: "agents.settings_changed" }
   | {
       type: "agent.terminal_state_changed";
       agentId: string;
@@ -84,7 +84,7 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
-        if (payload.type === "app.settings_changed") {
+        if (payload.type === "agents.settings_changed") {
           void queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
           return;
         }
