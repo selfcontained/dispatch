@@ -15,10 +15,6 @@ export class TmuxTerminal {
     this.sessionName = sessionName;
   }
 
-  sessionTarget(): string {
-    return this.sessionName;
-  }
-
   async hasSession(): Promise<boolean> {
     const result = await runCommand(
       "tmux",
@@ -48,106 +44,23 @@ export class TmuxTerminal {
 
   async getCopyModeState(): Promise<{
     inCopyMode: boolean;
-    scrollPosition: number | null;
-  }>;
-  async getCopyModeState(target: string): Promise<{
-    inCopyMode: boolean;
-    scrollPosition: number | null;
-  }>;
-  async getCopyModeState(target = this.sessionName): Promise<{
-    inCopyMode: boolean;
-    scrollPosition: number | null;
   }> {
     try {
       const result = await runCommand(
         "tmux",
-        [
-          "display-message",
-          "-p",
-          "-t",
-          target,
-          `#{pane_in_mode}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{scroll_position}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_key_table}`,
-        ],
+        ["display-message", "-p", "-t", this.sessionName, "#{pane_in_mode}"],
         { allowedExitCodes: [0, 1] }
       );
 
       if (result.exitCode !== 0) {
-        return { inCopyMode: false, scrollPosition: null };
+        return { inCopyMode: false };
       }
 
-      return TmuxTerminal.parseCopyModeStateOutput(result.stdout);
+      return {
+        inCopyMode: result.stdout.trim() === "1",
+      };
     } catch {
-      return { inCopyMode: false, scrollPosition: null };
-    }
-  }
-
-  static parseCopyModeStateOutput(stdout: string): {
-    inCopyMode: boolean;
-    scrollPosition: number | null;
-  } {
-    const normalized = stdout.trim();
-    const [paneInModeRaw = "0", scrollPositionRaw = ""] = normalized.split(
-      TmuxTerminal.COPY_MODE_STATE_DELIMITER,
-      3
-    );
-    const scrollPositionValue = scrollPositionRaw.trim();
-    const parsedScrollPosition =
-      scrollPositionValue.length > 0
-        ? Number.parseInt(scrollPositionValue, 10)
-        : Number.NaN;
-
-    return {
-      inCopyMode: paneInModeRaw.trim() === "1",
-      scrollPosition: Number.isFinite(parsedScrollPosition)
-        ? parsedScrollPosition
-        : null,
-    };
-  }
-
-  async listClients(): Promise<
-    Array<{
-      tty: string;
-      createdAt: number | null;
-      activityAt: number | null;
-    }>
-  > {
-    try {
-      const result = await runCommand(
-        "tmux",
-        [
-          "list-clients",
-          "-t",
-          this.sessionName,
-          "-F",
-          `#{client_tty}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_created}${TmuxTerminal.COPY_MODE_STATE_DELIMITER}#{client_activity}`,
-        ],
-        { allowedExitCodes: [0, 1] }
-      );
-
-      if (result.exitCode !== 0) {
-        return [];
-      }
-
-      return result.stdout
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .map((line) => {
-          const [tty = "", createdAtRaw = "", activityAtRaw = ""] = line.split(
-            TmuxTerminal.COPY_MODE_STATE_DELIMITER,
-            3
-          );
-          const createdAt = Number.parseInt(createdAtRaw, 10);
-          const activityAt = Number.parseInt(activityAtRaw, 10);
-          return {
-            tty,
-            createdAt: Number.isFinite(createdAt) ? createdAt : null,
-            activityAt: Number.isFinite(activityAt) ? activityAt : null,
-          };
-        })
-        .filter((client) => client.tty.length > 0);
-    } catch {
-      return [];
+      return { inCopyMode: false };
     }
   }
 

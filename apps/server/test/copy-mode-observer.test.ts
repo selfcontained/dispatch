@@ -1,9 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const getCopyModeStateMock =
-  vi.fn<
-    () => Promise<{ inCopyMode: boolean; scrollPosition: number | null }>
-  >();
+const getCopyModeStateMock = vi.fn<() => Promise<{ inCopyMode: boolean }>>();
 
 vi.mock("../src/terminal/tmux-terminal.js", () => ({
   TmuxTerminal: class {
@@ -23,7 +20,6 @@ beforeEach(() => {
   getCopyModeStateMock.mockReset();
   getCopyModeStateMock.mockResolvedValue({
     inCopyMode: false,
-    scrollPosition: null,
   });
 });
 
@@ -66,7 +62,6 @@ describe("CopyModeObserverManager", () => {
     let inCopyMode = true;
     getCopyModeStateMock.mockImplementation(async () => ({
       inCopyMode,
-      scrollPosition: null,
     }));
 
     const events: string[] = [];
@@ -106,7 +101,6 @@ describe("CopyModeObserverManager", () => {
     let inCopyMode = true;
     getCopyModeStateMock.mockImplementation(async () => ({
       inCopyMode,
-      scrollPosition: null,
     }));
 
     const events: string[] = [];
