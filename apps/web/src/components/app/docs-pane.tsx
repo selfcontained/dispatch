@@ -369,6 +369,15 @@ const SECTIONS: SectionDef[] = [
               fixed or ignored
             </li>
             <li>
+              <Code>dispatch_submit_resolution</Code> — close out round 1 of a
+              persona review with a summary; the reviewer's round-2 diff is
+              taken from the current HEAD
+            </li>
+            <li>
+              <Code>dispatch_cancel_recheck</Code> — abort a pending recheck so
+              the reviewer exits cleanly
+            </li>
+            <li>
               <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
               <Code>get_feedback_summary</Code> — analytics queries over recent
               Dispatch activity
@@ -438,7 +447,7 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <H3>Creating a job</H3>
           <P>
             Open the <strong>Jobs</strong> page from the sidebar and click{" "}
-            <strong>Add job</strong>. Fill in the form:
+            <strong>Add job</strong>. The basic fields are:
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
@@ -449,21 +458,38 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Working directory</strong> — repo the job runs against.
             </li>
             <li>
-              <strong>Prompt</strong> — the instructions sent as the agent's
-              first message. Required before a run can start.
-            </li>
-            <li>
-              <strong>Schedule</strong> — a 5-field cron expression (e.g.{" "}
+              <strong>Cron schedule</strong> — a 5-field cron expression (e.g.{" "}
               <Code>{"*/30 * * * *"}</Code>). Leave blank for an on-demand job
-              that only runs when you click <strong>Run now</strong>.
+              that only runs when you click <strong>Run now</strong>. When a
+              schedule is set, an <strong>Enabled</strong> switch appears so you
+              can save the schedule without firing it yet.
             </li>
             <li>
               <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-              <Code>codex</Code>, or <Code>opencode</Code>.
+              <Code>codex</Code>, or <Code>opencode</Code>. Terminal-type agents
+              can't run jobs.
             </li>
             <li>
-              <strong>Full access</strong> — launches the CLI in its most
-              permissive mode so the agent can run commands without prompts.
+              <strong>Prompt</strong> — the instructions sent as the agent's
+              first message. Dispatch prepends a short preamble that names the
+              job, includes the run ID, and reminds the agent to drive the run
+              to a terminal state. Required before a run can start.
+            </li>
+          </ul>
+          <P>
+            Open <strong>Advanced settings</strong> for the rest:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Run timeout, minutes</strong> — how long an active run (
+              <Code>started</Code> / <Code>running</Code>) can stay open before
+              the scheduler force-stops it as <Code>timed_out</Code>. Defaults
+              to 30 minutes.
+            </li>
+            <li>
+              <strong>Wait for input, minutes</strong> — how long a run can sit
+              in <Code>needs_input</Code> before being marked{" "}
+              <Code>timed_out</Code>. Defaults to 24 hours.
             </li>
             <li>
               <strong>Use worktree</strong> — create a fresh git worktree for
@@ -471,15 +497,13 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               branches from and optionally a custom branch name.
             </li>
             <li>
+              <strong>Full access</strong> — launches the CLI in its most
+              permissive mode so the agent can run commands without prompts.
+            </li>
+            <li>
               <strong>Keep agent after run completes</strong> — by default the
               agent is auto-archived once a run reaches a terminal state. Check
               this to leave the agent (and its worktree) around for inspection.
-            </li>
-            <li>
-              <strong>Enable on schedule</strong> — when checked, the cron
-              schedule starts firing immediately after save. On-demand jobs can
-              stay disabled and still be triggered with <strong>Run now</strong>
-              .
             </li>
           </ul>
         </Section>
@@ -516,17 +540,90 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <Code>job_needs_input</Code> — pause the run and surface a
-              question in the UI; the job stays in <Code>needs_input</Code>{" "}
-              until someone resumes it (subject to a separate needs-input
-              timeout).
+              question in the UI; the run stays in <Code>needs_input</Code>{" "}
+              until someone resumes it or it hits the wait-for-input timeout.
             </li>
           </ul>
           <P>
             Run statuses are <Code>started</Code>, <Code>running</Code>,{" "}
             <Code>needs_input</Code>, <Code>completed</Code>,{" "}
             <Code>failed</Code>, <Code>timed_out</Code>, and{" "}
-            <Code>crashed</Code>. A run that exceeds its timeout without
-            reaching a terminal tool is marked <Code>timed_out</Code>.
+            <Code>crashed</Code>. A run that exceeds its run timeout without
+            reaching a terminal tool is force-stopped as <Code>timed_out</Code>.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Tools available to job agents</H3>
+          <P>
+            On top of the lifecycle tools, job agents see a tailored slice of
+            Dispatch's built-in MCP toolkit. These are stable across runs, so a
+            recurring job's prompt can lean on them.
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
+              <Code>dispatch_pin</Code>, <Code>dispatch_share</Code>,{" "}
+              <Code>dispatch_list_media</Code>,{" "}
+              <Code>dispatch_rename_session</Code>, and{" "}
+              <Code>dispatch_notify</Code> all behave the same as for standard
+              agents. Renaming the session is handy when the job's prompt is
+              generic but each run has a more specific topic.
+            </li>
+            <li>
+              <strong>Pull requests</strong> — <Code>create_pr</Code> opens a PR
+              from the current branch and <Code>get_pr_status</Code> polls CI.
+              Useful for jobs that ship a routine change (cleanup PRs, dep
+              bumps, doc audits).
+            </li>
+            <li>
+              <strong>Discovery</strong> — <Code>list_agents</Code>,{" "}
+              <Code>list_personas</Code>,{" "}
+              <Code>list_recent_persona_reviews</Code>,{" "}
+              <Code>list_recent_feedback</Code>,{" "}
+              <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
+              and <Code>get_feedback_summary</Code> let a job sweep over recent
+              activity — for example, a triage job that reads what's been
+              happening and posts a summary.
+            </li>
+            <li>
+              <strong>Round-trip review</strong> —{" "}
+              <Code>dispatch_launch_persona</Code>,{" "}
+              <Code>dispatch_get_feedback</Code>,{" "}
+              <Code>dispatch_resolve_feedback</Code>,{" "}
+              <Code>dispatch_submit_resolution</Code>, and{" "}
+              <Code>dispatch_cancel_recheck</Code>. See below.
+            </li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>Auto-review with personas</H3>
+          <P>
+            Because job agents can launch personas and act on their findings, a
+            recurring job can self-review its own work without a human in the
+            loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
+            <Code>dispatch_launch_persona</Code> (pass{" "}
+            <Code>allowRecheck: true</Code> for a round-2 pass), read findings
+            with <Code>dispatch_get_feedback</Code>, fix and commit them, then{" "}
+            <Code>dispatch_submit_resolution</Code> — the reviewer rechecks
+            against the new HEAD and emits a final verdict. The mechanics are
+            documented under <strong>Reviewers → Round-trip reviews</strong> and
+            apply unchanged to job agents.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>State across runs</H3>
+          <P>
+            Recurring jobs often need to pass context from one run to the next
+            without re-inventorying the repo every time. The convention is a
+            small markdown handoff file at{" "}
+            <Code>.dispatch/job-state/{"<job>"}.md</Code> that the prompt tells
+            the agent to read at the start of a run and overwrite at the end.
+            It's not a server feature — just a pattern that keeps the work
+            focused. Treat it as a note to the next run, not an append-only log;
+            prune what's no longer relevant.
           </P>
         </Section>
 
