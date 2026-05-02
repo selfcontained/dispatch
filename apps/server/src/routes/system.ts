@@ -23,7 +23,17 @@ import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
+const COPY_MODE_ASSIST_ENABLED_KEY = "copy_mode_assist_enabled";
 const VALID_WORKTREE_LOCATIONS = ["sibling", "nested"] as const;
+
+function parseBooleanSetting(
+  value: string | null,
+  defaultValue: boolean
+): boolean {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return defaultValue;
+}
 
 function resolveTildePath(raw: string): string {
   if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
@@ -76,6 +86,8 @@ type SystemRouteDeps = {
   gitContextRefreshConcurrency: number;
   percentile: (sortedValues: number[], quantile: number) => number | null;
   toIso: (epochMs: number | null) => string | null;
+  publishUiEvent: (event: unknown) => void;
+  onCopyModeAssistDisabled: () => Promise<void>;
 };
 
 export async function registerSystemRoutes(
@@ -316,10 +328,15 @@ export async function registerSystemRoutes(
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
+    const copyModeAssistEnabled = parseBooleanSetting(
+      await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
+      false
+    );
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
+      copyModeAssistEnabled,
     };
   });
 
@@ -328,6 +345,7 @@ export async function registerSystemRoutes(
       worktreeLocation?: unknown;
       iconColor?: unknown;
       instanceName?: unknown;
+      copyModeAssistEnabled?: unknown;
     };
 
     if (body.worktreeLocation !== undefined) {
@@ -371,16 +389,45 @@ export async function registerSystemRoutes(
       }
     }
 
+    if (body.copyModeAssistEnabled !== undefined) {
+      if (typeof body.copyModeAssistEnabled !== "boolean") {
+        return reply.code(400).send({
+          error: "copyModeAssistEnabled must be a boolean.",
+        });
+      }
+      const previousValue = parseBooleanSetting(
+        await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
+        false
+      );
+      await setSetting(
+        deps.pool,
+        COPY_MODE_ASSIST_ENABLED_KEY,
+        String(body.copyModeAssistEnabled)
+      );
+      deps.publishUiEvent({
+        type: "app.settings_changed",
+        setting: "copyModeAssistEnabled",
+      });
+      if (previousValue && !body.copyModeAssistEnabled) {
+        await deps.onCopyModeAssistDisabled();
+      }
+    }
+
     const raw = await getSetting(deps.pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as readonly string[]).includes(raw)
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
+    const copyModeAssistEnabled = parseBooleanSetting(
+      await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
+      false
+    );
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
+      copyModeAssistEnabled,
     };
   });
 

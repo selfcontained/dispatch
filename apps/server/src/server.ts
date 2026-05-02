@@ -153,6 +153,10 @@ const terminalTokenStore = new TerminalTokenStore(60_000);
 const copyModeObserverManager = new CopyModeObserverManager((event) =>
   uiEventBroker.publish(event as UiEvent)
 );
+let onCopyModeAssistDisabled = async () => {};
+const registerCopyModeAssistDisableHandler = (handler: () => Promise<void>) => {
+  onCopyModeAssistDisabled = handler;
+};
 const jobService = new JobService(pool, agentManager, app.log, config);
 const jobNotifier = new JobNotifier(pool, app.log);
 
@@ -455,6 +459,8 @@ async function registerRoutes() {
     gitContextRefreshConcurrency: GIT_CONTEXT_REFRESH_CONCURRENCY,
     percentile,
     toIso,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    onCopyModeAssistDisabled: () => onCopyModeAssistDisabled(),
   });
 
   await registerActivityRoutes(app, {
@@ -540,6 +546,7 @@ async function registerRoutes() {
     consumeTerminalToken: (agentId, token) =>
       terminalTokenStore.consume(agentId, token),
     copyModeObserverManager,
+    registerCopyModeAssistDisableHandler,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
     onArchiveError: (agentId, error) =>

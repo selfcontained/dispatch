@@ -157,6 +157,31 @@ export class TmuxTerminal {
     });
   }
 
+  async getMouseMode(): Promise<"on" | "off" | null> {
+    try {
+      const result = await runCommand(
+        "tmux",
+        ["show-options", "-qv", "-t", this.sessionName, "mouse"],
+        { allowedExitCodes: [0, 1] }
+      );
+      const value = result.stdout.trim();
+      if (value === "on" || value === "off") {
+        return value;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setMouseMode(mode: "on" | "off"): Promise<void> {
+    await runCommand(
+      "tmux",
+      ["set-option", "-t", this.sessionName, "mouse", mode],
+      { allowedExitCodes: [0, 1] }
+    );
+  }
+
   private findLastPasteMarker(paneText: string): string | null {
     const lines = paneText
       .split("\n")
