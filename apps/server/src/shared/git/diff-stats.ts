@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { resolveBaseRef } from "./base-ref.js";
 import { runCommand, type RunCommandResult } from "../lib/run-command.js";
 
 export type DiffStats = {
@@ -27,37 +28,45 @@ export type GetDiffStatsOptions = {
 
 /**
  * Compute a GitHub-PR-style summary of the diff between an agent's worktree
- * and its base branch — committed changes (merge-base..HEAD), uncommitted
- * changes (staged + unstaged vs HEAD), and untracked new files.
+ * and its base branch.
  *
- * Returns `null` when the base ref can't be resolved or git fails outright.
- * Returns zeros when the worktree is genuinely clean. Binary files (and
- * untracked files larger than 1MB) contribute to the file count but not to
- * the line counts — same convention GitHub uses.
+ * Strategy: resolve the base ref (with the same fallback chain the rest of
+ * the agent flow uses), find the merge-base with HEAD, then take a single
+ * `git diff <merge-base> --numstat`. That single diff captures committed,
+ * staged, and unstaged tracked-file changes as one net result, so a file
+ * edited in commits AND in the working tree contributes its true combined
+ * line count rather than the committed-only slice. Untracked new files are
+ * layered on top by counting their lines directly.
+ *
+ * Returns `null` when no base ref resolves or git fails outright. Returns
+ * zeros when the worktree is genuinely clean. Binary files (and untracked
+ * files larger than 1MB) contribute to the file count but not to the line
+ * counts — same convention GitHub uses.
  */
 export async function getDiffStats(
   worktreePath: string,
-  baseRef: string,
+  baseRef: string | null,
   options: GetDiffStatsOptions = {}
 ): Promise<DiffStats | null> {
   const run = options.runCommand ?? runCommand;
   try {
-    const baseCheck = await run(
+    const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
+      runCommand: run,
+    });
+    if (!resolvedBase) return null;
+
+    const mergeBase = await run(
       "git",
-      ["-C", worktreePath, "rev-parse", "--verify", "--quiet", baseRef],
+      ["-C", worktreePath, "merge-base", "HEAD", resolvedBase],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
-    if (baseCheck.exitCode !== 0 || !baseCheck.stdout.trim()) {
+    if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
       return null;
     }
+    const mergeBaseSha = mergeBase.stdout.trim();
 
-    const [committed, uncommitted, untracked] = await Promise.all([
-      run(
-        "git",
-        ["-C", worktreePath, "diff", `${baseRef}...HEAD`, "--numstat"],
-        { allowedExitCodes: [0], timeoutMs: GIT_TIMEOUT_MS }
-      ),
-      run("git", ["-C", worktreePath, "diff", "HEAD", "--numstat"], {
+    const [tracked, untracked] = await Promise.all([
+      run("git", ["-C", worktreePath, "diff", mergeBaseSha, "--numstat"], {
         allowedExitCodes: [0],
         timeoutMs: GIT_TIMEOUT_MS,
       }),
@@ -72,20 +81,18 @@ export async function getDiffStats(
     let deleted = 0;
     const seenFiles = new Set<string>();
 
-    for (const result of [committed, uncommitted]) {
-      for (const line of result.stdout.split("\n")) {
-        if (!line) continue;
-        const parts = line.split("\t");
-        if (parts.length < 3) continue;
-        const [a, d, ...rest] = parts;
-        const filePath = rest.join("\t");
-        if (!filePath) continue;
-        if (seenFiles.has(filePath)) continue;
-        seenFiles.add(filePath);
-        if (a === "-" && d === "-") continue;
-        added += Number.parseInt(a, 10) || 0;
-        deleted += Number.parseInt(d, 10) || 0;
-      }
+    for (const line of tracked.stdout.split("\n")) {
+      if (!line) continue;
+      const parts = line.split("\t");
+      if (parts.length < 3) continue;
+      const [a, d, ...rest] = parts;
+      const filePath = rest.join("\t");
+      if (!filePath) continue;
+      if (seenFiles.has(filePath)) continue;
+      seenFiles.add(filePath);
+      if (a === "-" && d === "-") continue;
+      added += Number.parseInt(a, 10) || 0;
+      deleted += Number.parseInt(d, 10) || 0;
     }
 
     for (const filePath of untracked.stdout.split("\n")) {

@@ -10,24 +10,39 @@ import { getDiffStats } from "../src/shared/git/diff-stats.js";
 type CommandKey = string;
 type CommandHandler = () => RunCommandResult;
 
+const MERGE_BASE_SHA = "abcd1234";
+
 function ok(stdout = ""): RunCommandResult {
   return { exitCode: 0, stdout, stderr: "" };
 }
 
+function fail(stdout = ""): RunCommandResult {
+  return { exitCode: 1, stdout, stderr: "" };
+}
+
+/**
+ * Build a runCommand mock that satisfies the standard sequence:
+ *   1. resolveBaseRef → `git rev-parse --verify --quiet <baseRef>` (success)
+ *   2. `git merge-base HEAD <baseRef>` → MERGE_BASE_SHA
+ *   3. `git diff <merge-base> --numstat`
+ *   4. `git ls-files --others --exclude-standard`
+ *
+ * Callers can override any of those keys via `handlers`.
+ */
 function withCommands(
   worktreePath: string,
   baseRef: string,
   handlers: Record<CommandKey, CommandHandler>
 ) {
   const baseCheckKey = `-C ${worktreePath} rev-parse --verify --quiet ${baseRef}`;
-  const committedKey = `-C ${worktreePath} diff ${baseRef}...HEAD --numstat`;
-  const uncommittedKey = `-C ${worktreePath} diff HEAD --numstat`;
+  const mergeBaseKey = `-C ${worktreePath} merge-base HEAD ${baseRef}`;
+  const trackedKey = `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`;
   const untrackedKey = `-C ${worktreePath} ls-files --others --exclude-standard`;
 
   const merged: Record<CommandKey, CommandHandler> = {
-    [baseCheckKey]: () => ok("abc123"),
-    [committedKey]: () => ok(""),
-    [uncommittedKey]: () => ok(""),
+    [baseCheckKey]: () => ok(baseRef),
+    [mergeBaseKey]: () => ok(MERGE_BASE_SHA),
+    [trackedKey]: () => ok(""),
     [untrackedKey]: () => ok(""),
     ...handlers,
   };
@@ -53,12 +68,15 @@ describe("getDiffStats", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("returns null when base ref can't be resolved", async () => {
+  it("returns null when no base ref resolves through the fallback chain", async () => {
     const worktreePath = tempRoot;
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       const key = args.join(" ");
-      if (key === `-C ${worktreePath} rev-parse --verify --quiet main`) {
-        return { exitCode: 1, stdout: "", stderr: "" };
+      if (
+        key.includes("rev-parse --verify --quiet") ||
+        key.includes("rev-parse --abbrev-ref @{upstream}")
+      ) {
+        return fail("");
       }
       throw new Error(`Unexpected command: ${key}`);
     });
@@ -67,10 +85,20 @@ describe("getDiffStats", () => {
     expect(result).toBeNull();
   });
 
-  it("counts committed-only changes", async () => {
+  it("returns null when merge-base can't be computed", async () => {
     const worktreePath = tempRoot;
     const runCommand = withCommands(worktreePath, "main", {
-      [`-C ${worktreePath} diff main...HEAD --numstat`]: () =>
+      [`-C ${worktreePath} merge-base HEAD main`]: () => fail(""),
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toBeNull();
+  });
+
+  it("counts a single tracked diff (committed-only scenario)", async () => {
+    const worktreePath = tempRoot;
+    const runCommand = withCommands(worktreePath, "main", {
+      [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
         ok("10\t2\tsrc/foo.ts\n5\t0\tsrc/bar.ts"),
     });
 
@@ -78,14 +106,19 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 15, deleted: 2, files: 2 });
   });
 
-  it("counts uncommitted-only changes", async () => {
+  it("captures committed AND uncommitted edits to the same file as one net diff", async () => {
+    // Regression: the previous two-stream approach deduped by path and
+    // dropped the uncommitted slice when a file appeared in both. With a
+    // single `git diff <merge-base> --numstat`, git reports the net diff
+    // for the file in one row — so the badge tracks the true current state.
     const worktreePath = tempRoot;
     const runCommand = withCommands(worktreePath, "main", {
-      [`-C ${worktreePath} diff HEAD --numstat`]: () => ok("3\t1\tsrc/baz.ts"),
+      [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+        ok("13\t2\tsrc/foo.ts"),
     });
 
     const result = await getDiffStats(worktreePath, "main", { runCommand });
-    expect(result).toMatchObject({ added: 3, deleted: 1, files: 1 });
+    expect(result).toMatchObject({ added: 13, deleted: 2, files: 1 });
   });
 
   it("counts untracked files (line counts of new files, capped by binary detection)", async () => {
@@ -107,43 +140,15 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 3, deleted: 0, files: 2 });
   });
 
-  it("treats binary committed files as 1 file with 0 lines", async () => {
+  it("treats binary tracked files as 1 file with 0 lines", async () => {
     const worktreePath = tempRoot;
     const runCommand = withCommands(worktreePath, "main", {
-      [`-C ${worktreePath} diff main...HEAD --numstat`]: () =>
+      [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
         ok("-\t-\tassets/logo.png\n4\t1\tsrc/foo.ts"),
     });
 
     const result = await getDiffStats(worktreePath, "main", { runCommand });
     expect(result).toMatchObject({ added: 4, deleted: 1, files: 2 });
-  });
-
-  it("dedupes a file that appears in both committed and uncommitted diffs", async () => {
-    const worktreePath = tempRoot;
-    const runCommand = withCommands(worktreePath, "main", {
-      [`-C ${worktreePath} diff main...HEAD --numstat`]: () =>
-        ok("10\t2\tsrc/foo.ts"),
-      [`-C ${worktreePath} diff HEAD --numstat`]: () => ok("3\t0\tsrc/foo.ts"),
-    });
-
-    const result = await getDiffStats(worktreePath, "main", { runCommand });
-    expect(result).toMatchObject({ added: 10, deleted: 2, files: 1 });
-  });
-
-  it("mixed committed + uncommitted + untracked", async () => {
-    const worktreePath = tempRoot;
-    await writeFile(path.join(worktreePath, "new.ts"), "x\ny\n");
-
-    const runCommand = withCommands(worktreePath, "main", {
-      [`-C ${worktreePath} diff main...HEAD --numstat`]: () =>
-        ok("10\t2\tsrc/foo.ts"),
-      [`-C ${worktreePath} diff HEAD --numstat`]: () => ok("4\t1\tsrc/bar.ts"),
-      [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
-        ok("new.ts"),
-    });
-
-    const result = await getDiffStats(worktreePath, "main", { runCommand });
-    expect(result).toMatchObject({ added: 16, deleted: 3, files: 3 });
   });
 
   it("returns zeros when there are no changes", async () => {
@@ -179,6 +184,52 @@ describe("getDiffStats", () => {
 
     const result = await getDiffStats(worktreePath, "main", { runCommand });
     expect(result).toMatchObject({ added: 0, deleted: 0, files: 1 });
+  });
+
+  it("includes both tracked and untracked files in the file count", async () => {
+    const worktreePath = tempRoot;
+    await writeFile(path.join(worktreePath, "new.ts"), "x\ny\n");
+
+    const runCommand = withCommands(worktreePath, "main", {
+      [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+        ok("10\t2\tsrc/foo.ts\n4\t1\tsrc/bar.ts"),
+      [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
+        ok("new.ts"),
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toMatchObject({ added: 16, deleted: 3, files: 3 });
+  });
+
+  it("falls back to origin/main when the requested baseRef does not resolve", async () => {
+    const worktreePath = tempRoot;
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet feature-x`) {
+        return fail("");
+      }
+      if (key === `-C ${worktreePath} rev-parse --abbrev-ref @{upstream}`) {
+        return { exitCode: 128, stdout: "", stderr: "no upstream" };
+      }
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet origin/main`) {
+        return ok("origin/main");
+      }
+      if (key === `-C ${worktreePath} merge-base HEAD origin/main`) {
+        return ok(MERGE_BASE_SHA);
+      }
+      if (key === `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`) {
+        return ok("3\t1\tsrc/foo.ts");
+      }
+      if (key === `-C ${worktreePath} ls-files --others --exclude-standard`) {
+        return ok("");
+      }
+      throw new Error(`Unexpected command: ${key}`);
+    });
+
+    const result = await getDiffStats(worktreePath, "feature-x", {
+      runCommand,
+    });
+    expect(result).toMatchObject({ added: 3, deleted: 1, files: 1 });
   });
 
   it("returns null when git fails outright", async () => {

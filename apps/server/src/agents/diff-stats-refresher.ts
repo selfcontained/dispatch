@@ -16,7 +16,7 @@ export type DiffStatsChangedEvent = {
 
 type ComputeDiffStats = (
   worktreePath: string,
-  baseRef: string
+  baseRef: string | null
 ) => Promise<DiffStats | null>;
 
 type WarnLogger = {
@@ -28,7 +28,6 @@ export type DiffStatsRefresherOptions = {
   publishEvent: (event: DiffStatsChangedEvent) => void;
   computeDiffStats?: ComputeDiffStats;
   freshnessMs?: number;
-  defaultBaseRef?: string;
   logger?: WarnLogger;
 };
 
@@ -54,7 +53,6 @@ export class DiffStatsRefresher {
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
   private readonly computeDiffStats: ComputeDiffStats;
   private readonly freshnessMs: number;
-  private readonly defaultBaseRef: string;
   private readonly logger: WarnLogger | null;
 
   constructor(options: DiffStatsRefresherOptions) {
@@ -62,7 +60,6 @@ export class DiffStatsRefresher {
     this.publishEvent = options.publishEvent;
     this.computeDiffStats = options.computeDiffStats ?? defaultGetDiffStats;
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS;
-    this.defaultBaseRef = options.defaultBaseRef ?? "main";
     this.logger = options.logger ?? null;
   }
 
@@ -114,11 +111,13 @@ export class DiffStatsRefresher {
       if (!agent || !agent.worktreePath) {
         nextStats = null;
       } else {
-        const baseRef =
-          agent.baseBranch && agent.baseBranch.trim()
-            ? agent.baseBranch
-            : this.defaultBaseRef;
-        nextStats = await this.computeDiffStats(agent.worktreePath, baseRef);
+        // Pass `agent.baseBranch` straight through — `getDiffStats` runs
+        // it through the shared `resolveBaseRef` chain, so we don't bake a
+        // second fallback policy in here.
+        nextStats = await this.computeDiffStats(
+          agent.worktreePath,
+          agent.baseBranch
+        );
       }
     } catch (err) {
       this.logger?.warn(

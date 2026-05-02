@@ -267,12 +267,16 @@ describe("DiffStatsRefresher", () => {
     expect(compute).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to the configured default base ref when agent.baseBranch is null", async () => {
+  it("passes agent.baseBranch through to the compute callback", async () => {
+    // The refresher no longer applies its own base-ref fallback — that
+    // policy lives in the shared resolver inside getDiffStats. Confirm
+    // we forward agent.baseBranch (including null) verbatim.
     const agents = setupAgents([
-      ["a1", { worktreePath: "/tmp/wt", baseBranch: null }],
+      ["with-base", { worktreePath: "/tmp/wt", baseBranch: "trunk" }],
+      ["no-base", { worktreePath: "/tmp/wt", baseBranch: null }],
     ]);
     const compute = vi.fn(
-      async (_path: string, baseRef: string): Promise<DiffStats> => ({
+      async (): Promise<DiffStats> => ({
         added: 0,
         deleted: 0,
         files: 0,
@@ -283,11 +287,13 @@ describe("DiffStatsRefresher", () => {
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: () => {},
       computeDiffStats: compute,
-      defaultBaseRef: "trunk",
     });
 
-    await refresher.signal("a1");
+    await refresher.signal("with-base");
     expect(compute).toHaveBeenCalledWith("/tmp/wt", "trunk");
+
+    await refresher.signal("no-base");
+    expect(compute).toHaveBeenCalledWith("/tmp/wt", null);
   });
 
   it("swallows compute errors and leaves the cache unchanged", async () => {
