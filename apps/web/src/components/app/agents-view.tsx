@@ -19,6 +19,7 @@ import {
   MediaSidebarContent,
   MEDIA_SIDEBAR_SETTLE_FALLBACK_MS,
 } from "@/components/app/media-sidebar";
+import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
@@ -274,6 +275,7 @@ export function AgentsView({
     connectedAgentId,
     terminalMode,
     terminalPlaceholderMessage,
+    copyMode,
     statusMessage,
     terminalHostRef,
     ctrlPendingRef,
@@ -281,6 +283,7 @@ export function AgentsView({
     ensureTerminalConnected,
     detachTerminal,
     sendTerminalInput,
+    exitCopyMode,
     resyncing,
   } = useTerminal({
     authState: "authenticated",
@@ -694,69 +697,82 @@ export function AgentsView({
               }
             }}
           >
-            {!leftPanelOpen ? (
-              <div className="pointer-events-none absolute left-3 top-3 z-10">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="pointer-events-auto"
-                  onClick={() => handleSetLeftPanelOpen(true)}
-                  title="Open sidebar"
-                >
-                  <PanelRightOpen className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : null}
-
-            <div className="relative min-h-0 min-w-0 pb-14 pt-14">
-              {focusedAgent?.name ? (
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
-                  <div
-                    data-testid="current-session-name"
-                    className="max-w-full truncate text-center text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground"
-                  >
-                    {focusedAgent.name}
-                  </div>
-                </div>
-              ) : null}
-              {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
-                <div className="pointer-events-none absolute right-3 top-3 z-10">
+            <div className="relative h-full min-h-0 min-w-0">
+              {!leftPanelOpen ? (
+                <div className="pointer-events-none absolute left-3 top-3 z-10">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="pointer-events-auto relative"
-                    onClick={() => setMediaOpen(true)}
-                    title="Open media sidebar"
-                    data-testid="toggle-media-sidebar"
+                    className="pointer-events-auto"
+                    onClick={() => handleSetLeftPanelOpen(true)}
+                    title="Open sidebar"
                   >
-                    <PanelLeftOpen className="h-4 w-4" />
-                    {unseenMediaCount > 0 ? (
-                      <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                        {unseenMediaCount}
-                      </span>
-                    ) : null}
+                    <PanelRightOpen className="h-4 w-4" />
                   </Button>
                 </div>
               ) : null}
-              {connState === "reconnecting" ? (
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden">
-                  <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
+              <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
+                {focusedAgent?.name ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
+                    <div
+                      data-testid="current-session-name"
+                      className="max-w-full truncate text-center text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground"
+                    >
+                      {focusedAgent.name}
+                    </div>
+                  </div>
+                ) : null}
+                {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
+                  <div className="pointer-events-none absolute right-3 top-3 z-10">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="pointer-events-auto relative"
+                      onClick={() => setMediaOpen(true)}
+                      title="Open media sidebar"
+                      data-testid="toggle-media-sidebar"
+                    >
+                      <PanelLeftOpen className="h-4 w-4" />
+                      {unseenMediaCount > 0 ? (
+                        <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                          {unseenMediaCount}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </div>
+                ) : null}
+                {connState === "reconnecting" ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden">
+                    <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
+                  </div>
+                ) : null}
+                <TerminalPane
+                  isAttached={isAttached}
+                  connState={connState}
+                  statusMessage={statusMessage}
+                  terminalMode={terminalMode}
+                  terminalPlaceholderMessage={terminalPlaceholderMessage}
+                  terminalHostRef={terminalHostRef}
+                  resyncing={resyncing}
+                  archivePhase={
+                    selectedAgent?.status === "archiving"
+                      ? selectedAgent.archivePhase
+                      : null
+                  }
+                />
+              </div>
+
+              {!isMobile ? (
+                <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
+                  <TerminalCopyModeBannerLayer
+                    visible={copyMode === "copy" || copyMode === "exiting"}
+                    copyMode={copyMode}
+                    onExitCopyMode={() => {
+                      void exitCopyMode();
+                    }}
+                  />
                 </div>
               ) : null}
-              <TerminalPane
-                isAttached={isAttached}
-                connState={connState}
-                statusMessage={statusMessage}
-                terminalMode={terminalMode}
-                terminalPlaceholderMessage={terminalPlaceholderMessage}
-                terminalHostRef={terminalHostRef}
-                resyncing={resyncing}
-                archivePhase={
-                  selectedAgent?.status === "archiving"
-                    ? selectedAgent.archivePhase
-                    : null
-                }
-              />
             </div>
 
             {!isMobile ? (
@@ -807,10 +823,14 @@ export function AgentsView({
             {isMobile ? (
               <MobileTerminalToolbar
                 onSendInput={sendTerminalInput}
+                onExitCopyMode={() => {
+                  void exitCopyMode();
+                }}
                 ctrlPendingRef={ctrlPendingRef}
                 isConnected={
                   connState === "connected" && Boolean(connectedAgentId)
                 }
+                copyMode={copyMode}
               />
             ) : null}
           </div>

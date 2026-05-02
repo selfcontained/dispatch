@@ -1,17 +1,24 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { getCopyModeAssistEnabled } from "../copy-mode-assist-settings.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { getSetting } from "../db/settings.js";
-import { runCommand } from "../shared/lib/run-command.js";
 import { spawn as spawnPty } from "../shared/terminal/bun-pty.js";
+import { CopyModeAssistManager } from "../terminal/copy-mode-assist-manager.js";
+import {
+  type CopyModeObserverManager,
+  type TerminalUiState,
+} from "../terminal/copy-mode-observer.js";
+import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -22,6 +29,7 @@ import {
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
 const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
+const COPY_MODE_ASSIST_DISABLED_ERROR = "Copy mode assist is disabled.";
 const AGENT_LATEST_EVENT_TYPES = [
   "working",
   "blocked",
@@ -62,6 +70,8 @@ type AgentRouteDeps = {
   ) => () => void;
   issueTerminalToken: (agentId: string) => string;
   consumeTerminalToken: (agentId: string, token: string) => boolean;
+  copyModeObserverManager: CopyModeObserverManager;
+  copyModeAssistManager: CopyModeAssistManager;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
@@ -81,6 +91,7 @@ function decodeClientMessage(
 ):
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
+  | { type: "interaction"; interaction: "scroll" }
   | null {
   try {
     const asString = typeof buffer === "string" ? buffer : buffer.toString();
@@ -89,6 +100,7 @@ function decodeClientMessage(
       data?: unknown;
       cols?: unknown;
       rows?: unknown;
+      interaction?: unknown;
     };
     if (parsed.type === "input" && typeof parsed.data === "string") {
       return { type: "input", data: parsed.data };
@@ -103,6 +115,9 @@ function decodeClientMessage(
         cols: parsed.cols,
         rows: parsed.rows,
       };
+    }
+    if (parsed.type === "interaction" && parsed.interaction === "scroll") {
+      return { type: "interaction", interaction: parsed.interaction };
     }
     return null;
   } catch {
@@ -121,20 +136,8 @@ export async function registerAgentRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  // Ensure tmux's mouse mode is on so wheel/touch events drive tmux's
-  // copy-mode scrollback. tmux defaults to mouse=off on a fresh session;
-  // call once per attach. Best-effort: the agent works without it,
-  // scrolling just doesn't.
-  const enableTmuxMouseMode = async (sessionName: string): Promise<void> => {
-    try {
-      await runCommand(
-        "tmux",
-        ["set-option", "-t", sessionName, "mouse", "on"],
-        { allowedExitCodes: [0, 1] }
-      );
-    } catch {
-      // ignore — tmux may have raced with shutdown
-    }
+  const isCopyModeAssistEnabled = async (): Promise<boolean> => {
+    return getCopyModeAssistEnabled(deps.pool);
   };
 
   app.get("/api/v1/agents", async () => {
@@ -862,6 +865,95 @@ export async function registerAgentRoutes(
     }
   });
 
+  app.post(
+    "/api/v1/agents/:id/terminal/copy-mode/exit",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const id = params.id ?? "";
+
+      try {
+        if (!(await isCopyModeAssistEnabled())) {
+          return reply
+            .code(409)
+            .send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
+        }
+        const access = await deps.agentManager.getTerminalAccess(id);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        deps.copyModeObserverManager.noteInteraction(
+          id,
+          access.sessionName,
+          "exit_copy_mode"
+        );
+        const terminal = new TmuxTerminal(access.sessionName);
+        await terminal.exitCopyMode();
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
+  app.get("/api/v1/agents/:id/terminal/state", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    try {
+      if (!(await isCopyModeAssistEnabled())) {
+        return reply.code(409).send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
+      }
+      const access = await deps.agentManager.getTerminalAccess(id);
+      if (access.mode !== "tmux") {
+        return reply.code(409).send({ error: access.message });
+      }
+
+      return {
+        terminalState: await deps.copyModeObserverManager.getState(
+          id,
+          access.sessionName
+        ),
+      };
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
+  app.post(
+    "/api/v1/agents/:id/terminal/interaction",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const body = request.body as { interaction?: unknown };
+      const id = params.id ?? "";
+
+      if (body?.interaction !== "scroll") {
+        return reply.code(400).send({ error: "interaction must be 'scroll'." });
+      }
+
+      try {
+        if (!(await isCopyModeAssistEnabled())) {
+          return reply
+            .code(409)
+            .send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
+        }
+        const access = await deps.agentManager.getTerminalAccess(id);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        deps.copyModeObserverManager.noteInteraction(
+          id,
+          access.sessionName,
+          body.interaction
+        );
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
   app.get(
     "/api/v1/agents/:id/terminal/ws",
     { websocket: true },
@@ -887,13 +979,30 @@ export async function registerAgentRoutes(
       }
 
       let tmuxSession: string;
+      const assistState = {
+        activeRef: { current: false },
+        connectionId: null as string | null,
+      };
       try {
         const access = await deps.agentManager.getTerminalAccess(agentId);
         if (access.mode !== "tmux") {
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
-        await enableTmuxMouseMode(tmuxSession);
+        if (await isCopyModeAssistEnabled()) {
+          const detachCopyModeViewer =
+            deps.copyModeObserverManager.attachViewer(
+              agentId,
+              tmuxSession,
+              randomUUID()
+            );
+          const assistConnection = await deps.copyModeAssistManager.attach(
+            tmuxSession,
+            detachCopyModeViewer
+          );
+          assistState.activeRef = assistConnection.activeRef;
+          assistState.connectionId = assistConnection.connectionId;
+        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Terminal attach failed.";
@@ -901,7 +1010,6 @@ export async function registerAgentRoutes(
         socket.close(1011, "attach failed");
         return;
       }
-
       const cols = Number(query.cols ?? 140);
       const rows = Number(query.rows ?? 42);
       const ptyProcess = spawnPty(
@@ -919,7 +1027,6 @@ export async function registerAgentRoutes(
           socket.send(JSON.stringify(payload));
         }
       };
-
       ptyProcess.onData((data) => {
         sendJson({ type: "output", data });
       });
@@ -952,11 +1059,25 @@ export async function registerAgentRoutes(
           if (message.cols > 0 && message.rows > 0) {
             ptyProcess.resize(message.cols, message.rows);
           }
+          return;
+        }
+
+        if (message.type === "interaction") {
+          if (assistState.activeRef.current) {
+            deps.copyModeObserverManager.noteInteraction(
+              agentId,
+              tmuxSession,
+              message.interaction
+            );
+          }
         }
       });
 
       socket.on("close", () => {
         clearInterval(heartbeatTimer);
+        if (assistState.connectionId) {
+          void deps.copyModeAssistManager.detach(assistState.connectionId);
+        }
         try {
           ptyProcess.kill();
         } catch {}

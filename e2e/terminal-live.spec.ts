@@ -17,13 +17,13 @@ function authHeaders(): Record<string, string> {
 async function createAndStartAgent(
   request: APIRequestContext,
   name: string
-): Promise<{ id: string; name: string }> {
+): Promise<{ id: string; name: string; tmuxSession: string | null }> {
   const createRes = await request.post("/api/v1/agents", {
     headers: authHeaders(),
     data: { name, type: "terminal", cwd: "/tmp", useWorktree: false },
   });
   const { agent } = (await createRes.json()) as {
-    agent: { id: string; name: string };
+    agent: { id: string; name: string; tmuxSession: string | null };
   };
 
   await waitForAgentRunning(request, agent.id);
@@ -79,6 +79,32 @@ async function waitForAgentCardRunning(
       timeout: timeoutMs,
     }
   );
+}
+
+function readTmuxPaneInMode(sessionName: string): boolean {
+  return (
+    execSync(
+      `tmux display-message -p -t ${JSON.stringify(sessionName)} '#{pane_in_mode}'`,
+      {
+        encoding: "utf8",
+      }
+    ).trim() === "1"
+  );
+}
+
+async function waitForTmuxCopyMode(
+  sessionName: string,
+  expected: boolean,
+  timeoutMs = 5_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (readTmuxPaneInMode(sessionName) === expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  expect(readTmuxPaneInMode(sessionName)).toBe(expected);
 }
 
 async function simulateHidden(page: Page): Promise<void> {
@@ -264,6 +290,112 @@ test.describe("Terminal live connection", () => {
 
     await waitForTerminalConnected(page, agent.name, 5_000);
     await expect.poll(() => tokenRequests).toBe(initialTokenRequests);
+  });
+
+  test("shows a copy-mode banner and returns to live immediately", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    expect(agent.tmuxSession).toBeTruthy();
+    const tmuxSession = agent.tmuxSession!;
+
+    await page.addInitScript(() => {
+      const sentInput: string[] = [];
+      (
+        window as typeof window & { __sentTerminalInput?: string[] }
+      ).__sentTerminalInput = sentInput;
+      const originalSend = WebSocket.prototype.send;
+      WebSocket.prototype.send = function patchedSend(
+        data: string | ArrayBufferLike | Blob | ArrayBufferView
+      ) {
+        if (typeof data === "string") {
+          try {
+            const payload = JSON.parse(data) as {
+              type?: string;
+              data?: string;
+            };
+            if (payload.type === "input" && typeof payload.data === "string") {
+              sentInput.push(payload.data);
+            }
+          } catch {
+            // ignore non-JSON websocket frames
+          }
+        }
+        return originalSend.call(this, data);
+      };
+    });
+
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await waitForTerminalConnected(page, agent.name, 5_000);
+
+    execSync(`tmux copy-mode -t ${JSON.stringify(tmuxSession)}`);
+
+    const banner = page.getByTestId("terminal-copy-mode-banner");
+    await expect(banner).toBeVisible({ timeout: 2_000 });
+    await expect(banner).toContainText(
+      "Viewing scrollback. Typed input is paused."
+    );
+    await waitForTmuxCopyMode(tmuxSession, true);
+
+    let releaseExitRoute: (() => void) | null = null;
+    await page.route(
+      `**/api/v1/agents/${agent.id}/terminal/copy-mode/exit`,
+      async (route) => {
+        await new Promise<void>((resolve) => {
+          releaseExitRoute = resolve;
+        });
+        await route.continue();
+      }
+    );
+
+    const clickStartedAt = Date.now();
+    await banner.click();
+    await expect(banner).toContainText("Returning to live terminal…", {
+      timeout: 300,
+    });
+    expect(Date.now() - clickStartedAt).toBeLessThan(250);
+    await page.keyboard.type("xyz");
+    await page.waitForTimeout(150);
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          () =>
+            (window as typeof window & { __sentTerminalInput?: string[] })
+              .__sentTerminalInput ?? []
+        )
+      )
+      .not.toContain("x");
+    expect(releaseExitRoute).not.toBeNull();
+    releaseExitRoute?.();
+    await waitForTmuxCopyMode(tmuxSession, false);
+    await expect(banner).toBeHidden({ timeout: 1_000 });
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          () =>
+            (window as typeof window & { __sentTerminalInput?: string[] })
+              .__sentTerminalInput ?? []
+        )
+      )
+      .not.toContain("x");
+    await page.unroute(`**/api/v1/agents/${agent.id}/terminal/copy-mode/exit`);
+
+    execSync(`tmux copy-mode -t ${JSON.stringify(tmuxSession)}`);
+    await expect(banner).toBeVisible({ timeout: 2_000 });
+    await waitForTmuxCopyMode(tmuxSession, true);
+
+    await page.locator(".xterm-screen").click();
+    await page.keyboard.press("Escape");
+    await expect(banner).toBeHidden({ timeout: 1_000 });
+    await waitForTmuxCopyMode(tmuxSession, false);
   });
 
   test("terminal-features not duplicated across attaches", async ({

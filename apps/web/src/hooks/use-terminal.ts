@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
@@ -15,7 +16,10 @@ import {
   type Agent,
   type AuthState,
   type ConnState,
+  type TerminalCopyMode,
+  type TerminalUiState,
 } from "@/components/app/types";
+import { useAgentSettings } from "@/hooks/use-agent-settings";
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
@@ -86,6 +90,8 @@ export function useTerminal(args: {
   connectedAgentId: string | null;
   terminalMode: "tmux" | "inert" | null;
   terminalPlaceholderMessage: string | null;
+  inCopyMode: boolean;
+  copyMode: TerminalCopyMode | "unknown";
   statusMessage: string;
   terminalHostRef: RefCallback<HTMLDivElement>;
   ctrlPendingRef: MutableRefObject<boolean>;
@@ -97,6 +103,7 @@ export function useTerminal(args: {
   ) => Promise<void>;
   detachTerminal: () => void;
   sendTerminalInput: (data: string) => void;
+  exitCopyMode: () => Promise<void>;
   resyncing: boolean;
 } {
   const {
@@ -110,6 +117,7 @@ export function useTerminal(args: {
     mediaResizeSettleKey,
     feedbackOpen,
   } = args;
+  const queryClient = useQueryClient();
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
@@ -119,6 +127,7 @@ export function useTerminal(args: {
   const [terminalPlaceholderMessage, setTerminalPlaceholderMessage] = useState<
     string | null
   >(null);
+  const [exitPending, setExitPending] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Starting...");
   // True while requestFit's auto-RESYNC is in flight. Lets the UI show a
   // calm "Resizing…" overlay instead of the empty / reconnect overlays
@@ -139,6 +148,9 @@ export function useTerminal(args: {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const fitDebounceRef = useRef<number | null>(null);
   const ctrlPendingRef = useRef(false);
+  const copyModeRef = useRef<TerminalCopyMode | "unknown">("live");
+  const exitCopyModeRef = useRef<() => Promise<void>>(async () => {});
+  const noteScrollInteractionRef = useRef<() => void>(() => {});
   // Filled in via effect once detachTerminal/ensureTerminalConnected exist —
   // lets requestFit trigger an auto-RESYNC without needing those defined
   // earlier in the hook body.
@@ -170,6 +182,42 @@ export function useTerminal(args: {
   agentsRef.current = agents;
   const deferMediaResizeRef = useRef(deferMediaResize);
   deferMediaResizeRef.current = deferMediaResize;
+  const lastInteractionHintAtRef = useRef(0);
+
+  const { data: agentSettings } = useAgentSettings();
+  const copyModeAssistEnabled = agentSettings?.copyModeAssistEnabled ?? false;
+  const copyModeAssistEnabledRef = useRef(copyModeAssistEnabled);
+  copyModeAssistEnabledRef.current = copyModeAssistEnabled;
+
+  const { data: terminalState } = useQuery<TerminalUiState>({
+    queryKey: ["terminal-state", connectedAgentId],
+    queryFn: async () => {
+      if (!connectedAgentId) {
+        return { copyMode: "live", lastObservedAt: 0 };
+      }
+      const payload = await api<{ terminalState: TerminalUiState }>(
+        `/api/v1/agents/${connectedAgentId}/terminal/state`
+      );
+      return payload.terminalState;
+    },
+    enabled:
+      copyModeAssistEnabled &&
+      terminalMode === "tmux" &&
+      connState === "connected" &&
+      connectedAgentId !== null,
+    refetchOnWindowFocus: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const serverCopyMode =
+    terminalMode !== "tmux" || !copyModeAssistEnabled
+      ? "live"
+      : (terminalState?.copyMode ?? "unknown");
+  const copyMode: TerminalCopyMode | "unknown" =
+    exitPending &&
+    (serverCopyMode === "unknown" || serverCopyMode === "exiting")
+      ? "exiting"
+      : serverCopyMode;
+  copyModeRef.current = copyMode;
 
   const sendResize = useCallback(() => {
     const ws = wsRef.current;
@@ -217,6 +265,10 @@ export function useTerminal(args: {
       lastErrorMessage: null,
       sessionGone: false,
     };
+  }, []);
+
+  const resetTerminalState = useCallback(() => {
+    setExitPending(false);
   }, []);
 
   const markSocketHealthy = useCallback(
@@ -337,6 +389,7 @@ export function useTerminal(args: {
   const closeSocket = useCallback(
     (announce = true) => {
       closeSocketTransport();
+      resetTerminalState();
       setConnectedAgentId(null);
       setTerminalMode(null);
       setTerminalPlaceholderMessage(null);
@@ -346,7 +399,7 @@ export function useTerminal(args: {
         setConnState("disconnected");
       }
     },
-    [closeSocketTransport]
+    [closeSocketTransport, resetTerminalState]
   );
 
   const ensureTerminalConnected = useCallback(
@@ -486,6 +539,7 @@ export function useTerminal(args: {
           }
 
           if (terminalSession.mode === "inert") {
+            resetTerminalState();
             restoreConnectedState(agent, "inert", terminalSession.message);
             return;
           }
@@ -512,6 +566,10 @@ export function useTerminal(args: {
             markSocketHealthy("open");
             restoreConnectedState(agent, "tmux");
             terminalRef.current?.focus();
+            void queryClient.invalidateQueries({
+              queryKey: ["terminal-state", agent.id],
+              exact: true,
+            });
           });
 
           ws.addEventListener("message", (event) => {
@@ -623,6 +681,8 @@ export function useTerminal(args: {
       markSocketHealthy,
       noteTerminalError,
       probeSocket,
+      queryClient,
+      resetTerminalState,
       resetTerminalSurface,
       restoreConnectedState,
       selectedAgentId,
@@ -651,6 +711,62 @@ export function useTerminal(args: {
     ws.send(JSON.stringify({ type: "input", data }));
     terminalRef.current?.focus();
   }, []);
+
+  const noteScrollInteraction = useCallback(() => {
+    const agentId = connectedAgentIdRef.current;
+    if (
+      !copyModeAssistEnabledRef.current ||
+      !agentId ||
+      terminalMode !== "tmux"
+    ) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastInteractionHintAtRef.current < 300) {
+      return;
+    }
+    lastInteractionHintAtRef.current = now;
+
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "interaction", interaction: "scroll" }));
+      return;
+    }
+
+    void api<null>(`/api/v1/agents/${agentId}/terminal/interaction`, {
+      method: "POST",
+      body: JSON.stringify({ interaction: "scroll" }),
+    }).catch(() => {});
+  }, [terminalMode]);
+
+  const exitCopyMode = useCallback(async () => {
+    const agentId = connectedAgentIdRef.current;
+    if (
+      !copyModeAssistEnabled ||
+      !agentId ||
+      terminalMode !== "tmux" ||
+      copyMode === "live"
+    ) {
+      return;
+    }
+
+    setExitPending(true);
+    terminalRef.current?.focus();
+    requestAnimationFrame(() => {
+      terminalRef.current?.focus();
+    });
+    try {
+      await api<null>(`/api/v1/agents/${agentId}/terminal/copy-mode/exit`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (error) {
+      setExitPending(false);
+      throw error;
+    }
+  }, [copyMode, copyModeAssistEnabled, terminalMode]);
+  exitCopyModeRef.current = exitCopyMode;
+  noteScrollInteractionRef.current = noteScrollInteraction;
 
   // Keep a ref so the xterm init effect can read the current theme without
   // depending on it (we don't want to re-create the terminal on theme change).
@@ -749,6 +865,7 @@ export function useTerminal(args: {
     const TOUCH_SCROLL_SENSITIVITY_PX = 30;
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
+      if (!copyModeAssistEnabledRef.current) return;
       touchY = e.touches[0].clientY;
       touchAccum = 0;
     };
@@ -757,6 +874,7 @@ export function useTerminal(args: {
     // wheel codes to tmux, which scrolls its own scrollback in copy-mode.
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
+      if (!copyModeAssistEnabledRef.current) return;
       if (!screenEl) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
@@ -809,11 +927,17 @@ export function useTerminal(args: {
 
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: true });
+    const onWheel = () => noteScrollInteractionRef.current();
     if (screenEl) {
       screenEl.addEventListener("mousedown", onMouseDown, true);
+      screenEl.addEventListener("wheel", onWheel, { passive: true });
     }
 
     const disposable = term.onData((data) => {
+      if (copyModeRef.current === "copy" && data === "\x1b") {
+        void exitCopyModeRef.current();
+        return;
+      }
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (ctrlPendingRef.current && data.length === 1) {
@@ -859,6 +983,7 @@ export function useTerminal(args: {
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
         screenEl.removeEventListener("mousedown", onMouseDown, true);
+        screenEl.removeEventListener("wheel", onWheel);
       }
       window.removeEventListener("resize", onResize);
       try {
@@ -872,6 +997,16 @@ export function useTerminal(args: {
   }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
   // Reconnect on visibility/focus.
+  useEffect(() => {
+    if (
+      terminalMode !== "tmux" ||
+      serverCopyMode === "live" ||
+      serverCopyMode === "copy"
+    ) {
+      setExitPending(false);
+    }
+  }, [serverCopyMode, terminalMode]);
+
   useEffect(() => {
     const requestForegroundReconnect = () => {
       const targetAgentId =
@@ -993,6 +1128,8 @@ export function useTerminal(args: {
       connectedAgentId,
       terminalMode,
       terminalPlaceholderMessage,
+      inCopyMode: copyMode === "copy" || copyMode === "exiting",
+      copyMode,
       statusMessage,
       terminalHostRef: setTerminalHostRef,
       ctrlPendingRef,
@@ -1000,11 +1137,13 @@ export function useTerminal(args: {
       ensureTerminalConnected,
       detachTerminal,
       sendTerminalInput,
+      exitCopyMode,
       setTerminalHostRef,
       resyncing,
     }),
     [
       connState,
+      copyMode,
       connectedAgentId,
       terminalMode,
       terminalPlaceholderMessage,
@@ -1013,6 +1152,7 @@ export function useTerminal(args: {
       ensureTerminalConnected,
       detachTerminal,
       sendTerminalInput,
+      exitCopyMode,
       setTerminalHostRef,
       resyncing,
     ]

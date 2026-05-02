@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
+import { type TerminalCopyMode } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { soundCuesEnabledAtom } from "@/lib/store";
 import { playTapCue } from "@/lib/sound-cues";
@@ -14,14 +16,18 @@ import { cn } from "@/lib/utils";
 
 type MobileTerminalToolbarProps = {
   onSendInput: (data: string) => void;
+  onExitCopyMode: () => void;
   ctrlPendingRef: MutableRefObject<boolean>;
   isConnected: boolean;
+  copyMode: TerminalCopyMode | "unknown";
 };
 
 export function MobileTerminalToolbar({
   onSendInput,
+  onExitCopyMode,
   ctrlPendingRef,
   isConnected,
+  copyMode,
 }: MobileTerminalToolbarProps): JSX.Element {
   const [inputOpen, setInputOpen] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -122,9 +128,11 @@ export function MobileTerminalToolbar({
     setInputOpen(false);
   }, [isConnected, onSendInput, playTap]);
 
+  const pausedInput = copyMode === "copy" || copyMode === "exiting";
+
   return (
     <>
-      <div className="border-t-2 border-border bg-surface px-2 py-2 md:hidden">
+      <div className="relative border-t-2 border-border bg-surface px-2 py-2 md:hidden">
         <div className="flex min-h-[4.5rem] items-stretch gap-2">
           <div className="min-w-0 flex-1">
             <Button
@@ -277,6 +285,15 @@ export function MobileTerminalToolbar({
               Enter
             </Button>
           </div>
+        </div>
+
+        <div className="pointer-events-none absolute inset-x-2 bottom-[5.25rem]">
+          <TerminalCopyModeBannerLayer
+            visible={pausedInput}
+            copyMode={copyMode}
+            onExitCopyMode={onExitCopyMode}
+            disabled={!isConnected}
+          />
         </div>
       </div>
 

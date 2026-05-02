@@ -6,6 +6,7 @@ import { runCommand } from "../shared/lib/run-command.js";
 export class TmuxTerminal {
   private static readonly SUBMIT_SETTLE_MS = 150;
   private static readonly RETRY_SUBMIT_BYTES = 4 * 1024;
+  private static readonly COPY_MODE_STATE_DELIMITER = ":::";
   private static readonly PASTED_TEXT_LINE =
     /^\[Pasted text #[0-9]+(?: \+[0-9]+ lines)?\]$/i;
   private readonly sessionName: string;
@@ -39,6 +40,59 @@ export class TmuxTerminal {
     ]);
 
     return result.stdout;
+  }
+
+  async getCopyModeState(): Promise<{
+    inCopyMode: boolean;
+  }> {
+    try {
+      const result = await runCommand(
+        "tmux",
+        ["display-message", "-p", "-t", this.sessionName, "#{pane_in_mode}"],
+        { allowedExitCodes: [0, 1] }
+      );
+
+      if (result.exitCode !== 0) {
+        return { inCopyMode: false };
+      }
+
+      return {
+        inCopyMode: result.stdout.trim() === "1",
+      };
+    } catch {
+      return { inCopyMode: false };
+    }
+  }
+
+  async exitCopyMode(): Promise<void> {
+    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
+      allowedExitCodes: [0, 1],
+    });
+  }
+
+  async getMouseMode(): Promise<"on" | "off" | null> {
+    try {
+      const result = await runCommand(
+        "tmux",
+        ["show-options", "-qv", "-t", this.sessionName, "mouse"],
+        { allowedExitCodes: [0, 1] }
+      );
+      const value = result.stdout.trim();
+      if (value === "on" || value === "off") {
+        return value;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setMouseMode(mode: "on" | "off"): Promise<void> {
+    await runCommand(
+      "tmux",
+      ["set-option", "-t", this.sessionName, "mouse", mode],
+      { allowedExitCodes: [0, 1] }
+    );
   }
 
   private findLastPasteMarker(paneText: string): string | null {
@@ -89,9 +143,7 @@ export class TmuxTerminal {
     // If the pane is in tmux copy mode, paste-buffer + Enter does not reach
     // the program until copy mode is cancelled. Exit it first so injections
     // land on the live prompt.
-    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
-      allowedExitCodes: [0, 1],
-    }).catch(() => undefined);
+    await this.exitCopyMode().catch(() => undefined);
     await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
     try {
       await runCommand("tmux", [
