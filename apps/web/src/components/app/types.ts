@@ -114,3 +114,10 @@ export type TerminalUiState = {
   copyMode: TerminalCopyMode;
   lastObservedAt: number;
 };
+
+export type DiffStats = {
+  added: number;
+  deleted: number;
+  files: number;
+  computedAt: number;
+};

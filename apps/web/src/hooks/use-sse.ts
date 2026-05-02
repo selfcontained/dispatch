@@ -3,9 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type Agent,
   type AuthState,
+  type DiffStats,
   type MediaFile,
   type TerminalUiState,
 } from "@/components/app/types";
+import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
@@ -18,6 +20,11 @@ type UiEvent =
       type: "agent.terminal_state_changed";
       agentId: string;
       terminalState: TerminalUiState;
+    }
+  | {
+      type: "agent.diff_state_changed";
+      agentId: string;
+      diffStats: DiffStats | null;
     }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
@@ -93,6 +100,14 @@ export function useSSE(authState: AuthState): void {
           queryClient.setQueryData<TerminalUiState>(
             ["terminal-state", payload.agentId],
             payload.terminalState
+          );
+          return;
+        }
+
+        if (payload.type === "agent.diff_state_changed") {
+          queryClient.setQueryData<DiffStats | null>(
+            diffStatsQueryKey(payload.agentId),
+            payload.diffStats
           );
           return;
         }

@@ -1,3 +1,4 @@
+import { resolveBaseRef } from "./base-ref.js";
 import { runCommand } from "../lib/run-command.js";
 
 export type WorktreeStatus = {
@@ -138,11 +139,9 @@ export async function getUnmergedChanges(
       { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
     );
 
-    // Resolve the base ref: prefer upstream, fall back to origin/main → main
-    const baseRef =
-      (upstreamRef ? await resolveRef(worktreePath, upstreamRef) : null) ??
-      (await resolveRef(worktreePath, "origin/main")) ??
-      (await resolveRef(worktreePath, "main"));
+    // Resolve the base ref through the shared fallback chain: prefer
+    // upstream, then `@{upstream}`, then `origin/main`, then `main`.
+    const baseRef = await resolveBaseRef(worktreePath, upstreamRef);
     if (!baseRef) {
       return { hasUnmergedCommits: false, changedFiles: [] };
     }
@@ -212,21 +211,4 @@ export async function getUncommittedChanges(
   } catch {
     return { hasUncommittedChanges: false, uncommittedFiles: [] };
   }
-}
-
-/**
- * Verify a ref name exists in the worktree's repo. Returns the input ref
- * unchanged on success, `null` if `git rev-parse` can't resolve it.
- * Module-private — used as a fallback chain inside `getUnmergedChanges`.
- */
-async function resolveRef(
-  worktreePath: string,
-  ref: string
-): Promise<string | null> {
-  const result = await runCommand(
-    "git",
-    ["-C", worktreePath, "rev-parse", "--verify", "--quiet", ref],
-    { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
-  );
-  return result.exitCode === 0 && result.stdout.trim() ? ref : null;
 }

@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import type WebSocket from "ws";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import type { DiffStatsRefresher } from "../agents/diff-stats-refresher.js";
 import { getCopyModeAssistEnabled } from "../copy-mode-assist-settings.js";
 import {
   CLI_AGENT_TYPES,
@@ -72,6 +73,7 @@ type AgentRouteDeps = {
   consumeTerminalToken: (agentId: string, token: string) => boolean;
   copyModeObserverManager: CopyModeObserverManager;
   copyModeAssistManager: CopyModeAssistManager;
+  diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
@@ -783,6 +785,26 @@ export async function registerAgentRoutes(
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
+  });
+
+  app.get("/api/v1/agents/:id/diff-stats", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    // Side effect: nudge the refresher so the in-memory cache catches up
+    // even if the client reached this endpoint before the next status
+    // event fires. The refresher uses worktreePath ?? cwd internally and
+    // returns null for paths that aren't inside a git repo, so any agent
+    // is safe to query — the freshness window absorbs duplicate signals
+    // from multiple tabs hitting this route at once.
+    void deps.diffStatsRefresher.signal(id);
+
+    return { diffStats: deps.diffStatsRefresher.getStats(id) };
   });
 
   app.delete("/api/v1/agents/:id", async (request, reply) => {

@@ -1,4 +1,5 @@
 import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
+import type { DiffStats } from "../shared/git/diff-stats.js";
 import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
 
 export type UiEvent =
@@ -8,6 +9,11 @@ export type UiEvent =
       type: "agent.terminal_state_changed";
       agentId: string;
       terminalState: TerminalUiState;
+    }
+  | {
+      type: "agent.diff_state_changed";
+      agentId: string;
+      diffStats: DiffStats | null;
     }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
