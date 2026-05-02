@@ -722,16 +722,16 @@ export class AgentManager {
       throw new AgentError("Agent is not running.", 409);
     }
 
-    if (!agent.tmuxSession) {
-      throw new AgentError("Agent is missing tmux session metadata.", 500);
-    }
-
     if (this.config.agentRuntime === "inert") {
       return {
         mode: "inert",
         message:
           "Agent is running in inert mode. No tmux session or CLI process is attached in this environment.",
       };
+    }
+
+    if (!agent.tmuxSession) {
+      throw new AgentError("Agent is missing tmux session metadata.", 500);
     }
 
     const hasSession = await this.runtime.hasSession(agent.tmuxSession);

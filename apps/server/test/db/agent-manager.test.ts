@@ -869,6 +869,23 @@ describe("AgentManager", () => {
       expect(access.mode).toBe("inert");
       expect(access.message).toContain("inert mode");
     });
+
+    it("should return inert terminal metadata even without tmux session metadata", async () => {
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      const agent = await inertManager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await pool.query("UPDATE agents SET tmux_session = NULL WHERE id = $1", [
+        agent.id,
+      ]);
+
+      const access = await inertManager.getTerminalAccess(agent.id);
+
+      expect(access.mode).toBe("inert");
+      expect(access.message).toContain("inert mode");
+    });
   });
 
   describe("upsertLatestEvent", () => {
