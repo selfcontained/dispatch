@@ -64,6 +64,23 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
         ["set-option", "-t", input.sessionName, "status", "off"],
         { allowedExitCodes: [0, 1] }
       );
+      // ⚠️ CRITICAL — DO NOT remove or gate this without explicit
+      // instruction. Tmux scroll is critical functionality.
+      //
+      // Enable mouse mode at session creation so wheel/touch scroll
+      // forwards to tmux as SGR mouse codes. This is required for any
+      // scroll on mobile (xterm has no native touch handling) and is
+      // load-bearing for desktop wheel scroll inside tmux's alternate
+      // screen too. Setting it once at launch keeps it independent of
+      // the copy-mode-assist toggle, which historically tied scroll to
+      // the toggle's on-state and silently broke scroll for everyone
+      // who left it off. The toggle controls *only* the banner UI / the
+      // passive copy-mode observer — never scroll plumbing.
+      await runCommand(
+        "tmux",
+        ["set-option", "-t", input.sessionName, "mouse", "on"],
+        { allowedExitCodes: [0, 1] }
+      );
       // Allow DCS passthrough so agent CLIs that wrap escape sequences
       // (e.g. synchronized output) can reach the outer terminal directly.
       await runCommand(

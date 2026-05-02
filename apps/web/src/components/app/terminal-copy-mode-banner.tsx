@@ -1,8 +1,8 @@
 import { type JSX } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown, Pause } from "lucide-react";
 
 import { type TerminalCopyMode } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type TerminalCopyModeBannerProps = {
@@ -37,49 +37,102 @@ export function TerminalCopyModeBannerLayer({
   );
 }
 
+const SUNSET_BODY: React.CSSProperties = {
+  background:
+    "linear-gradient(90deg, hsl(var(--destructive) / 0.07) 0%, hsl(var(--status-waiting) / 0.07) 50%, hsl(var(--primary) / 0.07) 100%)",
+  borderColor: "hsl(var(--status-waiting) / 0.40)",
+  boxShadow:
+    "0 8px 28px rgba(0,0,0,0.35), 0 0 28px hsl(var(--status-waiting) / 0.20), 0 0 28px hsl(var(--destructive) / 0.14), inset 0 1px 0 rgba(255,255,255,0.04)",
+};
+
+const SUNSET_ICON_BG = "hsl(var(--status-waiting) / 0.20)";
+const SUNSET_ICON_RING = "hsl(var(--status-waiting) / 0.25)";
+const SUNSET_ICON_COLOR = "hsl(var(--status-waiting))";
+
 export function TerminalCopyModeBanner({
   copyMode,
   onExitCopyMode,
   className,
-  compact = false,
   disabled = false,
 }: TerminalCopyModeBannerProps): JSX.Element {
   const exiting = copyMode === "exiting";
 
+  // Render the active layout always (with opacity-0 in the exiting state)
+  // so the pill keeps a stable width when the message swaps. The exiting
+  // message is overlaid via an absolutely positioned span.
   return (
-    <div
+    <button
+      type="button"
       data-testid="terminal-copy-mode-banner"
+      onClick={onExitCopyMode}
+      onMouseDown={(event) => {
+        event.preventDefault();
+      }}
+      disabled={disabled || exiting}
+      style={SUNSET_BODY}
       className={cn(
-        "pointer-events-none flex items-center justify-between gap-4 border border-primary/35 bg-primary/30 text-foreground",
-        compact ? "px-4 py-3" : "px-4 py-3",
+        "pointer-events-auto group relative flex w-full items-center justify-center gap-3 whitespace-nowrap rounded-full border py-2.5 px-3 text-foreground",
+        "backdrop-blur-[4px]",
+        "transition-all hover:brightness-110",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "disabled:cursor-default disabled:opacity-90 disabled:hover:brightness-100",
         className
       )}
     >
-      <div className="min-w-0">
-        <p className="text-sm font-semibold">
-          {exiting
-            ? "Returning to live terminal…"
-            : "Scrollback mode. Typing is paused."}
-        </p>
-        <p className="text-xs text-foreground/75">
-          {exiting
-            ? "Waiting for tmux to confirm live mode."
-            : "Press Esc or return to live."}
-        </p>
-      </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost-primary"
-        className="pointer-events-auto shrink-0 rounded-none border border-primary/45 bg-primary/18 text-foreground hover:bg-primary/26"
-        onMouseDown={(event) => {
-          event.preventDefault();
-        }}
-        onClick={onExitCopyMode}
-        disabled={disabled || exiting}
+      {/* Content cluster sits centered inside the full-width banner. The
+          banner itself spans terminal width (justify-center on the button
+          + w-full on its wrapper) so the click/tap target is large, while
+          the icon+copy+kbd stay grouped together visually. */}
+      <span
+        className={cn(
+          "flex min-w-0 items-center gap-3 transition-opacity md:gap-5",
+          exiting && "opacity-0"
+        )}
+        aria-hidden={exiting}
       >
-        {exiting ? "Returning…" : "Return to live"}
-      </Button>
-    </div>
+        <span
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-full"
+          style={{
+            background: SUNSET_ICON_BG,
+            color: SUNSET_ICON_COLOR,
+            boxShadow: `inset 0 0 0 1px ${SUNSET_ICON_RING}`,
+          }}
+        >
+          <Pause className="h-3 w-3 fill-current" />
+        </span>
+        <p className="min-w-0 truncate text-xs font-medium">
+          <span className="font-semibold">Input paused</span>
+          <span className="px-1.5 text-foreground/40 md:px-2.5">·</span>
+          <span className="text-foreground/70">
+            scroll
+            <ChevronDown
+              className="ml-0.5 mr-1.5 inline-block h-3 w-3 align-[-2px] md:mr-2"
+              aria-hidden
+            />
+            <span className="px-1 text-foreground/40 md:px-2">·</span>
+            <span className="md:hidden">tap</span>
+            <span className="hidden md:inline">click</span>
+            <span className="px-1 text-foreground/40 md:px-2">·</span>
+          </span>
+        </p>
+        <kbd
+          aria-hidden
+          className="shrink-0 rounded border border-foreground/25 bg-foreground/10 px-1.5 py-0.5 text-[10px] font-medium tracking-[0.08em] text-foreground/85 transition-all group-hover:border-foreground/40 group-hover:bg-foreground/15 group-hover:text-foreground"
+        >
+          Esc
+        </kbd>
+      </span>
+
+      {/* Exiting message overlays the same width as the active layout. */}
+      <span
+        className={cn(
+          "pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-medium tracking-tight transition-opacity",
+          exiting ? "opacity-100" : "opacity-0"
+        )}
+        aria-live="polite"
+      >
+        Returning to live…
+      </span>
+    </button>
   );
 }
