@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownToLine,
   Bell,
@@ -205,6 +206,99 @@ function RewriteLocalhostPinsSettings(): JSX.Element {
 }
 
 type WorktreeLocation = "sibling" | "nested";
+
+function CopyModeAssistSettings(): JSX.Element {
+  const queryClient = useQueryClient();
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ copyModeAssistEnabled: boolean }>("/api/v1/agents/settings")
+      .then((data) => {
+        if (cancelled) return;
+        setEnabled(data.copyModeAssistEnabled);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load copy mode setting."
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleChange = useCallback(
+    async (nextEnabled: boolean) => {
+      const previous = enabled;
+      setEnabled(nextEnabled);
+      setSaving(true);
+      setError("");
+      try {
+        await api<{ copyModeAssistEnabled: boolean }>(
+          "/api/v1/agents/settings",
+          {
+            method: "POST",
+            body: JSON.stringify({ copyModeAssistEnabled: nextEnabled }),
+          }
+        );
+        await queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
+      } catch (err) {
+        setEnabled(previous);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to save copy mode setting."
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [enabled, queryClient]
+  );
+
+  return (
+    <div>
+      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Tmux scrollback assist
+      </div>
+      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+        Detect tmux copy mode, show the scrollback banner, and add a
+        return-to-live shortcut. When off, Dispatch does not change tmux mouse
+        mode or observe copy mode at all.
+      </p>
+      <label
+        className={cn(
+          "flex max-w-xl cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50",
+          saving && "pointer-events-none opacity-60"
+        )}
+      >
+        <Checkbox
+          checked={enabled}
+          onCheckedChange={(value) => void handleChange(value === true)}
+          disabled={saving}
+          data-testid="copy-mode-assist-toggle"
+        />
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-foreground">
+            Enable tmux scrollback assist
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Off by default. Turn on the passive copy-mode banner and
+            return-to-live action.
+          </div>
+        </div>
+      </label>
+      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
 
 function WorktreeLocationSettings(): JSX.Element {
   const [worktreeLocation, setWorktreeLocation] =
@@ -682,6 +776,9 @@ export function SettingsContent({
         {activeSection === "agents" && (
           <div className="flex flex-col">
             <PersonalitySettings />
+            <div className="border-t border-border p-6">
+              <CopyModeAssistSettings />
+            </div>
             <div className="border-t border-border">
               <AgentTypeSettings
                 enabledAgentTypes={enabledAgentTypes}
