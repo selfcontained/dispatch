@@ -368,6 +368,126 @@
   --log-stream-border: 228 14% 18%;
 }
 
+[data-theme="solarized-light"] {
+  --background: 44 87% 94%;
+  --foreground: 192 81% 14%;
+  --card: 46 42% 88%;
+  --card-foreground: 192 81% 14%;
+  --popover: 44 87% 96%;
+  --popover-foreground: 192 81% 14%;
+  --primary: 205 82% 45%;
+  --primary-foreground: 44 87% 94%;
+  --muted: 46 42% 88%;
+  --muted-foreground: 196 13% 45%;
+  --accent: 46 42% 88%;
+  --accent-foreground: 192 81% 14%;
+  --destructive: 1 71% 52%;
+  --destructive-foreground: 44 87% 94%;
+  --border: 46 30% 80%;
+  --input: 46 30% 80%;
+  --ring: 205 82% 45%;
+
+  --status-working: 68 100% 30%;
+  --status-blocked: 1 71% 52%;
+  --status-waiting: 45 100% 35%;
+  --status-done: 205 82% 45%;
+  --status-idle: 196 13% 45%;
+  --status-reviewing: 237 43% 52%;
+
+  --chart-1: 205 82% 45%;
+  --chart-2: 45 100% 35%;
+  --chart-3: 68 100% 30%;
+  --chart-4: 331 64% 52%;
+  --chart-5: 205 70% 38%;
+  --chart-6: 68 80% 25%;
+
+  --surface: 46 42% 88%;
+  --log-stream-bg: 46 42% 88%;
+  --log-stream-foreground: 196 13% 35%;
+  --log-stream-muted-foreground: 196 13% 50%;
+  --log-stream-border: 46 30% 80%;
+}
+
+[data-theme="catppuccin-mocha"] {
+  --background: 240 21% 15%;
+  --foreground: 226 64% 88%;
+  --card: 240 23% 12%;
+  --card-foreground: 226 64% 88%;
+  --popover: 237 16% 23%;
+  --popover-foreground: 226 64% 88%;
+  --primary: 267 84% 81%;
+  --primary-foreground: 240 21% 15%;
+  --muted: 237 16% 23%;
+  --muted-foreground: 227 23% 72%;
+  --accent: 237 16% 23%;
+  --accent-foreground: 226 64% 88%;
+  --destructive: 343 81% 75%;
+  --destructive-foreground: 240 21% 15%;
+  --border: 234 13% 31%;
+  --input: 234 13% 31%;
+  --ring: 267 84% 81%;
+
+  --status-working: 115 54% 76%;
+  --status-blocked: 343 81% 75%;
+  --status-waiting: 41 86% 83%;
+  --status-done: 217 92% 76%;
+  --status-idle: 231 11% 47%;
+  --status-reviewing: 267 84% 81%;
+
+  --chart-1: 217 92% 76%;
+  --chart-2: 41 86% 83%;
+  --chart-3: 170 57% 73%;
+  --chart-4: 267 84% 81%;
+  --chart-5: 217 70% 60%;
+  --chart-6: 41 70% 65%;
+
+  --surface: 240 23% 12%;
+  --log-stream-bg: 240 23% 12%;
+  --log-stream-foreground: 115 54% 76%;
+  --log-stream-muted-foreground: 227 23% 72%;
+  --log-stream-border: 234 13% 31%;
+}
+
+[data-theme="daylight"] {
+  --background: 0 0% 100%;
+  --foreground: 220 24% 8%;
+  --card: 220 14% 96%;
+  --card-foreground: 220 24% 8%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 24% 8%;
+  --primary: 217 100% 42%;
+  --primary-foreground: 0 0% 100%;
+  --muted: 220 14% 92%;
+  --muted-foreground: 220 14% 30%;
+  --accent: 220 14% 92%;
+  --accent-foreground: 220 24% 8%;
+  --destructive: 350 86% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 14% 80%;
+  --input: 220 14% 80%;
+  --ring: 217 100% 42%;
+
+  --status-working: 153 80% 27%;
+  --status-blocked: 350 86% 42%;
+  --status-waiting: 30 100% 35%;
+  --status-done: 217 100% 42%;
+  --status-idle: 220 14% 40%;
+  --status-reviewing: 270 70% 35%;
+
+  --chart-1: 217 100% 42%;
+  --chart-2: 30 100% 35%;
+  --chart-3: 153 80% 27%;
+  --chart-4: 270 70% 35%;
+  --chart-5: 217 80% 30%;
+  --chart-6: 30 80% 28%;
+
+  --surface: 220 14% 96%;
+  --log-stream-bg: 0 0% 100%;
+  --log-stream-foreground: 153 80% 22%;
+  --log-stream-muted-foreground: 220 14% 30%;
+  --log-stream-border: 220 14% 80%;
+}
+
 * {
   @apply border-border;
 }
@@ -388,7 +508,7 @@ body {
    Themes with custom body::before (mytra, matrix) override this. */
 html:not([data-theme="mytra"]):not([data-theme="matrix"]):not(
     [data-theme="light"]
-  )
+  ):not([data-theme="solarized-light"]):not([data-theme="daylight"])
   body::before {
   content: "";
   position: fixed;

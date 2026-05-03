@@ -31,7 +31,7 @@ import {
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useReleaseStream } from "@/hooks/use-release-stream";
 import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
-import { type ThemeId, THEMES } from "@/hooks/use-theme";
+import { DEFAULT_THEME_ID, type ThemeId, THEMES } from "@/hooks/use-theme";
 import { Input } from "@/components/ui/input";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
@@ -433,38 +433,56 @@ function AppearanceSettings({
         <p className="mb-3 text-sm text-muted-foreground">
           Choose a color theme for the interface.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={cn(
-                "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
-                theme === t.id
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-muted-foreground/30"
-              )}
-            >
-              <div className="mt-0.5 flex gap-1">
-                {t.swatches.map((color, i) => (
-                  <span
-                    key={i}
-                    className="block h-4 w-4 rounded-full border border-white/10"
-                    style={{ backgroundColor: color }}
-                  />
+        {(["dark", "light"] as const).map((mode) => {
+          const items = THEMES.filter((t) => t.mode === mode);
+          if (items.length === 0) return null;
+          return (
+            <div key={mode} className="mb-4 last:mb-0">
+              <div className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground/80">
+                {mode === "dark" ? "Dark" : "Light"}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {items.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={cn(
+                      "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+                      theme === t.id
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:border-muted-foreground/30"
+                    )}
+                  >
+                    <div className="mt-0.5 flex gap-1">
+                      {t.swatches.map((color, i) => (
+                        <span
+                          key={i}
+                          className="block h-4 w-4 rounded-full border border-white/10"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-medium text-foreground">
+                          {t.label}
+                        </div>
+                        {t.id === DEFAULT_THEME_ID && (
+                          <span className="rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t.description}
+                      </div>
+                    </div>
+                  </button>
                 ))}
               </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
-                  {t.label}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {t.description}
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
+            </div>
+          );
+        })}
       </div>
 
       <div>
