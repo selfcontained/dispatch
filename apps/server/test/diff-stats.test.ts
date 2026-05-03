@@ -232,6 +232,32 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 3, deleted: 1, files: 1 });
   });
 
+  it("prefers origin/main over local main when baseRef is main", async () => {
+    const worktreePath = tempRoot;
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet origin/main`) {
+        return ok("origin/main");
+      }
+      if (key === `-C ${worktreePath} merge-base HEAD origin/main`) {
+        return ok(MERGE_BASE_SHA);
+      }
+      if (key === `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`) {
+        return ok("49\t6\tsrc/base-ref.ts");
+      }
+      if (key === `-C ${worktreePath} ls-files --others --exclude-standard`) {
+        return ok("");
+      }
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet main`) {
+        throw new Error("resolveBaseRef should not consult local main first");
+      }
+      throw new Error(`Unexpected command: ${key}`);
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toMatchObject({ added: 49, deleted: 6, files: 1 });
+  });
+
   it("returns null when git fails outright", async () => {
     const runCommand = vi.fn(async () => {
       throw new Error("git: command not found");

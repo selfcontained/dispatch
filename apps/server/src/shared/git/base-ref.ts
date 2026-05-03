@@ -16,6 +16,8 @@ export type ResolveBaseRefOptions = {
  * fallback chain used elsewhere in the agent flow:
  *
  *   1. `preferred` (e.g. `agent.baseBranch`) if it resolves
+ *      Special case: prefer `origin/main` over local `main` so stale
+ *      primary-checkout branches do not inflate worktree diff stats.
  *   2. the current branch's `@{upstream}`
  *   3. `origin/main`
  *   4. `main`
@@ -36,8 +38,12 @@ export async function resolveBaseRef(
   if (preferred && preferred.trim()) {
     const candidate = preferred.trim();
     if (isSafeRef(candidate)) {
-      const found = await refExists(run, worktreePath, candidate);
-      if (found) return found;
+      const candidates =
+        candidate === "main" ? ["origin/main", "main"] : [candidate];
+      for (const ref of candidates) {
+        const found = await refExists(run, worktreePath, ref);
+        if (found) return found;
+      }
     }
   }
 
