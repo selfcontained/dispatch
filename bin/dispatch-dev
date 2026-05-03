@@ -79,6 +79,10 @@ log_dir() {
   echo "/tmp/dispatch-dev-${SUFFIX}"
 }
 
+release_cache_dir() {
+  echo "${DEV_CWD}/.dispatch/dev-cache/release-${SUFFIX}"
+}
+
 save_state() {
   cat > "$(state_file)" <<EOF
 DEV_SUFFIX=${SUFFIX}
@@ -94,6 +98,7 @@ DEV_NO_DB=${DEV_NO_DB:-0}
 DEV_LIVE=${OPT_LIVE:-0}
 DEV_NO_SEED=${OPT_NO_SEED:-0}
 DEV_DISPLAY_HOST=${DEV_DISPLAY_HOST:-127.0.0.1}
+DEV_RELEASE_CACHE_DIR=${DEV_RELEASE_CACHE_DIR:-}
 EOF
 }
 
@@ -179,6 +184,7 @@ cmd_up() {
 
   mkdir -p "$(log_dir)"
   DEV_CWD="$cwd"
+  DEV_RELEASE_CACHE_DIR="$(release_cache_dir)"
 
   # --- Database ---
   DEV_NO_DB="$OPT_NO_DB"
@@ -252,6 +258,7 @@ cmd_up() {
     # Keep the release store out of ~/.dispatch/ — a stale version there
     # surfaces the update-available toast against the dev build.
     export DISPATCH_RELEASE_STORE_PATH="$(log_dir)/release.json"
+    export DISPATCH_RELEASE_CACHE_DIR="$DEV_RELEASE_CACHE_DIR"
 
     if [ "$OPT_NO_DB" != "1" ]; then
       export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
@@ -325,8 +332,9 @@ cmd_up() {
   (
     cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is
-    DISPATCH_PORT="$DEV_API_PORT" \
-    DISPATCH_VITE_CACHE_DIR="$vite_cache_dir" \
+    env \
+      DISPATCH_PORT="$DEV_API_PORT" \
+      DISPATCH_VITE_CACHE_DIR="$vite_cache_dir" \
       pnpm exec vite --port "$DEV_VITE_PORT" >> "$(log_dir)/vite.log" 2>&1 &
     echo $! > "$(log_dir)/vite.pid"
   )
@@ -349,6 +357,7 @@ cmd_up() {
   fi
   echo "  api: http://${DEV_DISPLAY_HOST}:${DEV_API_PORT}"
   echo "  web: http://${DEV_DISPLAY_HOST}:${DEV_VITE_PORT}"
+  echo "  release cache: ${DEV_RELEASE_CACHE_DIR}"
   echo ""
   echo "Cleanup: dispatch-dev down${OPT_SUFFIX:+ --suffix $SUFFIX}"
 }
@@ -413,6 +422,10 @@ cmd_status() {
     else
       echo "vite: not started"
     fi
+  fi
+
+  if [ -n "${DEV_RELEASE_CACHE_DIR:-}" ]; then
+    echo "release cache: ${DEV_RELEASE_CACHE_DIR}"
   fi
 }
 

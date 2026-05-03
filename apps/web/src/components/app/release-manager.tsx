@@ -37,6 +37,7 @@ import {
   type ReleaseChannel,
   type ReleaseInfo,
   type ReleaseJob,
+  type ReleaseProgress,
   type UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
@@ -53,7 +54,6 @@ type AppVersionInfo = {
 };
 
 const UPDATE_PHASES = ["fetching", "deploying", "restarting", "done"] as const;
-
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
@@ -70,6 +70,95 @@ function cleanError(raw: string): string {
     return stderr.replace(/^fatal:\s*/i, "");
   }
   return raw;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function formatProgressLabel(job: ReleaseJob): string | null {
+  const progress = job.progress;
+  if (!progress) return null;
+
+  if (
+    progress.bytesReceived !== null &&
+    progress.bytesReceived !== undefined &&
+    progress.totalBytes !== null &&
+    progress.totalBytes !== undefined &&
+    progress.totalBytes > 0
+  ) {
+    const percent = Math.min(
+      100,
+      Math.round((progress.bytesReceived / progress.totalBytes) * 100)
+    );
+    return `${percent}% · ${formatBytes(progress.bytesReceived)} / ${formatBytes(
+      progress.totalBytes
+    )}`;
+  }
+
+  if (
+    progress.bytesReceived !== null &&
+    progress.bytesReceived !== undefined &&
+    progress.bytesReceived > 0
+  ) {
+    return `${formatBytes(progress.bytesReceived)} downloaded`;
+  }
+
+  return null;
+}
+
+function formatInlineProgress(progress: ReleaseProgress | null): string | null {
+  if (!progress) return null;
+
+  const progressParts = [progress.label];
+  if (
+    progress.bytesReceived !== null &&
+    progress.bytesReceived !== undefined &&
+    progress.totalBytes !== null &&
+    progress.totalBytes !== undefined &&
+    progress.totalBytes > 0
+  ) {
+    const percent = Math.min(
+      100,
+      Math.round((progress.bytesReceived / progress.totalBytes) * 100)
+    );
+    progressParts.push(
+      `${percent}% · ${formatBytes(progress.bytesReceived)} / ${formatBytes(
+        progress.totalBytes
+      )}`
+    );
+  } else if (
+    progress.bytesReceived !== null &&
+    progress.bytesReceived !== undefined &&
+    progress.bytesReceived > 0
+  ) {
+    progressParts.push(`${formatBytes(progress.bytesReceived)} downloaded`);
+  }
+
+  return progressParts.join(" · ");
+}
+
+function progressPercent(progress: ReleaseProgress | null): number | null {
+  if (
+    !progress ||
+    progress.bytesReceived === null ||
+    progress.bytesReceived === undefined ||
+    progress.totalBytes === null ||
+    progress.totalBytes === undefined ||
+    progress.totalBytes <= 0
+  ) {
+    return null;
+  }
+  return Math.min(100, (progress.bytesReceived / progress.totalBytes) * 100);
 }
 
 function describeForceTriggers(info: ReleaseInfo): string {
@@ -99,7 +188,15 @@ type UpdatesSectionProps = {
 
 export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const navigate = useNavigate();
-  const { status, job, postRestartPolling, connectStream, setJob } = stream;
+  const {
+    status,
+    job,
+    infoProgress,
+    postRestartPolling,
+    streamClientId,
+    connectStream,
+    setJob,
+  } = stream;
 
   const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -111,6 +208,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [assistedUpdateLaunching, setAssistedUpdateLaunching] = useState(false);
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
+  const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
 
   // Fetch version info + channel on mount
@@ -153,14 +251,23 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     setInfoLoading(true);
     setInfoError(null);
     setInfo(null);
+    setLastCheckMessage(null);
     try {
-      const res = await fetch("/api/v1/release/info");
+      const res = await fetch("/api/v1/release/info", {
+        headers: {
+          "X-Dispatch-Release-Client-Id": streamClientId,
+        },
+      });
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
         setInfoError(cleanError(err.error ?? "Failed to check for updates"));
         return;
       }
-      setInfo((await res.json()) as ReleaseInfo);
+      const nextInfo = (await res.json()) as ReleaseInfo;
+      setInfo(nextInfo);
+      if (!nextInfo.updateAvailable) {
+        setLastCheckMessage("Up to date");
+      }
     } catch (err) {
       setInfoError(
         err instanceof Error
@@ -171,6 +278,14 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       setInfoLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (lastCheckMessage === null) return;
+    const timeout = window.setTimeout(() => {
+      setLastCheckMessage(null);
+    }, 3000);
+    return () => window.clearTimeout(timeout);
+  }, [lastCheckMessage]);
 
   const handleUpdate = async (tag: string, options?: { force?: boolean }) => {
     setUpdateError(null);
@@ -193,6 +308,11 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
       runUrl: null,
       tag,
       error: null,
+      progress: {
+        step: "starting-update",
+        label: "Starting update",
+        detail: "Preparing the update job and connecting to progress events.",
+      },
     });
     connectStream();
   };
@@ -403,21 +523,50 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
 
       {/* Check for updates */}
       <div className="flex flex-col gap-4">
-        {!info && !infoLoading && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             size="sm"
             variant="default"
             onClick={() => void handleCheckForUpdates()}
+            disabled={infoLoading}
             className="self-start text-muted-foreground hover:text-foreground"
           >
             Check for updates
           </Button>
-        )}
+          {(infoLoading || lastCheckMessage) && (
+            <div className="flex min-w-0 items-center gap-2 text-sm">
+              {infoLoading && (
+                <ActivityBars
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+              )}
+              {!infoLoading && lastCheckMessage === "Up to date" && (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+              )}
+              <span
+                className={cn(
+                  "truncate",
+                  infoLoading ? "text-muted-foreground" : "text-foreground"
+                )}
+              >
+                {infoLoading
+                  ? (formatInlineProgress(infoProgress) ??
+                    "Checking for updates")
+                  : lastCheckMessage}
+              </span>
+            </div>
+          )}
+        </div>
 
-        {infoLoading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ActivityBars size={14} />
-            Checking...
+        {infoLoading && progressPercent(infoProgress) !== null && (
+          <div className="max-w-[40rem]">
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+              <div
+                className="h-full rounded-full bg-blue-400 transition-[width] duration-200"
+                style={{ width: `${progressPercent(infoProgress)}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -537,12 +686,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   );
                 })()}
               </div>
-            ) : (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                Up to date
-              </div>
-            )}
+            ) : null}
           </>
         )}
       </div>
@@ -788,6 +932,44 @@ export function OperationTakeover({
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       {/* Left column — controls */}
       <div className="flex md:w-[360px] shrink-0 flex-col gap-6 overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6">
+        {job.progress && (
+          <div className="rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Current step
+            </div>
+            <div className="mt-2 text-sm font-medium text-foreground">
+              {job.progress.label}
+            </div>
+            {job.progress.detail && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                {job.progress.detail}
+              </div>
+            )}
+            {formatProgressLabel(job) && (
+              <div className="mt-2 text-xs font-medium text-blue-300">
+                {formatProgressLabel(job)}
+              </div>
+            )}
+            {job.progress.totalBytes &&
+              job.progress.bytesReceived !== null &&
+              job.progress.bytesReceived !== undefined &&
+              job.progress.totalBytes > 0 && (
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div
+                    className="h-full rounded-full bg-blue-400 transition-[width] duration-200"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (job.progress.bytesReceived / job.progress.totalBytes) *
+                          100
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+          </div>
+        )}
+
         <PhaseProgress
           job={job}
           phasesOrder={phasesOrder}

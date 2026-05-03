@@ -398,10 +398,15 @@ export async function deleteAgentViaAPI(
   );
   // Archive is async — poll until the agent is actually gone
   for (let i = 0; i < 50; i++) {
-    const res = await request.get(`${API}/agents/${agentId}`, {
-      headers: authHeaders(),
-    });
-    if (res.status() === 404) return;
+    try {
+      const res = await request.get(`${API}/agents/${agentId}`, {
+        headers: authHeaders(),
+      });
+      if (res.status() === 404) return;
+    } catch {
+      // The isolated API server can briefly drop connections during teardown.
+      // Treat that as retryable instead of failing the whole suite cleanup.
+    }
     await new Promise((r) => setTimeout(r, 100));
   }
 }

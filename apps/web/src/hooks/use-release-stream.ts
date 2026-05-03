@@ -139,12 +139,21 @@ export type ReleaseStatus = {
   deployedAt: string | null;
 };
 
+export type ReleaseProgress = {
+  step: string;
+  label: string;
+  detail?: string | null;
+  bytesReceived?: number | null;
+  totalBytes?: number | null;
+};
+
 type CommonReleaseJobFields = {
   startedAt: string;
   log: string[];
   runUrl: string | null;
   tag: string | null;
   error: string | null;
+  progress: ReleaseProgress | null;
 };
 
 export type ReleaseJob =
@@ -175,6 +184,8 @@ type ReleaseStreamEvent =
   | { type: "log"; line: string }
   | { type: "log.replace"; line: string }
   | { type: "log.rewind"; count: number }
+  | { type: "progress"; progress: ReleaseProgress | null }
+  | { type: "info-progress"; progress: ReleaseProgress | null }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string }
@@ -188,7 +199,10 @@ type ReleaseStreamEvent =
  */
 function applyStreamEvent(
   prev: ReleaseJob | null,
-  event: Exclude<ReleaseStreamEvent, { type: "snapshot" }>
+  event: Exclude<
+    ReleaseStreamEvent,
+    { type: "snapshot" } | { type: "info-progress" }
+  >
 ): ReleaseJob | null {
   if (!prev) return prev;
   switch (event.type) {
@@ -218,6 +232,8 @@ function applyStreamEvent(
       }
       return { ...prev, phase: event.phase as AssistedReleasePhase, error };
     }
+    case "progress":
+      return { ...prev, progress: event.progress };
     case "runUrl":
       return { ...prev, runUrl: event.url };
     case "tag":
@@ -234,7 +250,9 @@ function applyStreamEvent(
 export type UseReleaseStreamResult = {
   status: ReleaseStatus | null;
   job: ReleaseJob | null;
+  infoProgress: ReleaseProgress | null;
   postRestartPolling: boolean;
+  streamClientId: string;
   connectStream: () => void;
   fetchStatus: () => Promise<void>;
   setJob: React.Dispatch<React.SetStateAction<ReleaseJob | null>>;
@@ -243,10 +261,16 @@ export type UseReleaseStreamResult = {
 export function useReleaseStream(): UseReleaseStreamResult {
   const [status, setStatus] = useState<ReleaseStatus | null>(null);
   const [job, setJob] = useState<ReleaseJob | null>(null);
+  const [infoProgress, setInfoProgress] = useState<ReleaseProgress | null>(
+    null
+  );
   const [postRestartPolling, setPostRestartPolling] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clientIdRef = useRef<string>(
+    globalThis.crypto?.randomUUID?.() ?? `release-${Date.now()}`
+  );
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -293,13 +317,19 @@ export function useReleaseStream(): UseReleaseStreamResult {
 
   const connectStream = useCallback(() => {
     eventSourceRef.current?.close();
-    const es = new EventSource("/api/v1/release/stream");
+    const es = new EventSource(
+      `/api/v1/release/stream?clientId=${encodeURIComponent(clientIdRef.current)}`
+    );
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
       const event = JSON.parse(e.data as string) as ReleaseStreamEvent;
       if (event.type === "snapshot") {
         setJob(event.job);
+        return;
+      }
+      if (event.type === "info-progress") {
+        setInfoProgress(event.progress);
         return;
       }
       setJob((prev) => applyStreamEvent(prev, event));
@@ -332,7 +362,9 @@ export function useReleaseStream(): UseReleaseStreamResult {
   return {
     status,
     job,
+    infoProgress,
     postRestartPolling,
+    streamClientId: clientIdRef.current,
     connectStream,
     fetchStatus,
     setJob,

@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
@@ -53,6 +54,15 @@ let createSession: typeof import("../src/auth.js").createSession;
 let sessionCookie: string;
 let tempRoot: string;
 let releaseStorePath: string;
+const rootPackageVersion = (
+  JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../../../package.json"),
+      "utf8"
+    )
+  ) as { version: string }
+).version;
+const packagedCurrentTag = `v${rootPackageVersion}`;
 
 const uncaughtExceptionFilter = (err: Error): void => {
   if (
@@ -200,6 +210,84 @@ describe("release metadata route handling", () => {
       error: expect.stringContaining(
         "Latest release has malformed assisted-update metadata"
       ),
+    });
+  });
+
+  it("evaluates pending migrations on /release/info for authenticated viewers without repo admin access", async () => {
+    evaluateMock.mockResolvedValueOnce({
+      pending: [
+        {
+          filename: "001-example.yaml",
+          order: 1,
+          manifest: {
+            id: "example",
+            title: "Example migration",
+            summary: "Requires a manual follow-up step.",
+          },
+        },
+      ],
+      all: [],
+      appliedIds: new Set(),
+      errors: [],
+    });
+    mockReleaseCommands({
+      viewerPermission: "WRITE",
+      releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
+      releaseViews: {
+        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/info",
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      isAdmin: false,
+      latestTag: "v0.19.0",
+      updateAvailable: true,
+      pendingMigrations: [
+        {
+          id: "example",
+          title: "Example migration",
+          summary: "Requires a manual follow-up step.",
+        },
+      ],
+      migrationsError: null,
+      assistedRequired: true,
+    });
+    expect(evaluateMock).toHaveBeenCalledWith(
+      "v0.19.0",
+      expect.objectContaining({ repo: "selfcontained/dispatch" })
+    );
+  });
+
+  it("falls back to the packaged app version when no release tag is recorded", async () => {
+    await rm(releaseStorePath, { force: true });
+    mockReleaseCommands({
+      releaseList: [{ tagName: "v0.18.36", isPrerelease: false }],
+      releaseViews: {
+        "v0.18.36": validReleaseView({
+          body: "no fenced metadata",
+          tag: "v0.18.36",
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/info",
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      currentTag: packagedCurrentTag,
+      latestTag: "v0.18.36",
+      updateAvailable: compareSemverForTest("v0.18.36", packagedCurrentTag) > 0,
     });
   });
 
@@ -741,9 +829,11 @@ function validReleaseView({
 function mockReleaseCommands({
   releaseList = [],
   releaseViews = {},
+  viewerPermission = "ADMIN",
 }: {
   releaseList?: Array<{ tagName: string; isPrerelease: boolean }>;
   releaseViews?: Record<string, string>;
+  viewerPermission?: string;
 }) {
   runCommandMock.mockImplementation(
     async (
@@ -780,7 +870,7 @@ function mockReleaseCommands({
         args[1] === "view" &&
         args.includes("--jq")
       ) {
-        return { exitCode: 0, stdout: "ADMIN\n", stderr: "" };
+        return { exitCode: 0, stdout: `${viewerPermission}\n`, stderr: "" };
       }
       if (cmd === "gh" && args[0] === "release" && args[1] === "list") {
         return {
@@ -821,4 +911,20 @@ function mockReleaseCommands({
       throw new Error(`unexpected command: ${cmd} ${args.join(" ")}`);
     }
   );
+}
+
+function compareSemverForTest(a: string, b: string): number {
+  const parse = (value: string): number[] =>
+    value
+      .replace(/^v/, "")
+      .split(".")
+      .map((part) => Number(part));
+  const left = parse(a);
+  const right = parse(b);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] ?? 0) - (right[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
 }

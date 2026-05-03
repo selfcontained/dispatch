@@ -30,6 +30,13 @@ type CreatePhase = "preflight" | "triggering" | "watching" | "done" | "failed";
 type UpdatePhase = "fetching" | "deploying" | "restarting" | "done" | "failed";
 type AssistedReleasePhase = AssistedPhase;
 type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
+export type ReleaseProgress = {
+  step: string;
+  label: string;
+  detail?: string | null;
+  bytesReceived?: number | null;
+  totalBytes?: number | null;
+};
 
 type CommonReleaseJobFields = {
   startedAt: string;
@@ -37,6 +44,7 @@ type CommonReleaseJobFields = {
   runUrl: string | null;
   tag: string | null;
   error: string | null;
+  progress: ReleaseProgress | null;
 };
 
 export type ReleaseJob =
@@ -62,10 +70,17 @@ export type ReleaseStreamEvent =
   | { type: "log"; line: string }
   | { type: "log.replace"; line: string }
   | { type: "log.rewind"; count: number }
+  | { type: "progress"; progress: ReleaseProgress | null }
+  | { type: "info-progress"; progress: ReleaseProgress | null }
   | { type: "phase"; phase: ReleasePhase; error?: string }
   | { type: "runUrl"; url: string }
   | { type: "tag"; tag: string }
   | { type: "assisted"; state: AssistedUpdateState };
+
+export type ReleaseStreamClient = {
+  clientId: string;
+  stream: NodeJS.WritableStream;
+};
 
 type GitHubReleaseMetadata = {
   tag: string;
@@ -89,7 +104,11 @@ type CreateReleaseRuntimeDeps = {
   ensureCachedTarball: (input: {
     tag: string;
     repo: string;
-    onProgress: (input: { message: string }) => void;
+    onProgress: (input: {
+      message: string;
+      bytesReceived?: number;
+      totalBytes?: number | null;
+    }) => void;
   }) => Promise<{ path: string }>;
   pruneCacheExcept: (tags: string[]) => Promise<void>;
   unlinkCachedTarball: (tag: string) => Promise<void>;
@@ -106,7 +125,7 @@ type CreateReleaseRuntimeDeps = {
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   let activeReleaseJob: ReleaseJob | null = null;
   let activeAssistedUpdateLaunch = false;
-  const releaseStreamClients = new Set<NodeJS.WritableStream>();
+  const releaseStreamClients = new Set<ReleaseStreamClient>();
   let cachedIsAdmin: boolean | null = null;
 
   async function getAppVersionInfo(): Promise<{
@@ -167,6 +186,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
       runUrl: null,
       tag: state.tag,
       error: state.error,
+      progress: null,
       assisted: state,
     };
   }
@@ -251,7 +271,22 @@ Suggested workflow:
     const payload = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of releaseStreamClients) {
       try {
-        client.write(payload);
+        client.stream.write(payload);
+      } catch {
+        releaseStreamClients.delete(client);
+      }
+    }
+  }
+
+  function sendReleaseEventToClient(
+    clientId: string,
+    event: ReleaseStreamEvent
+  ): void {
+    const payload = `data: ${JSON.stringify(event)}\n\n`;
+    for (const client of releaseStreamClients) {
+      if (client.clientId !== clientId) continue;
+      try {
+        client.stream.write(payload);
       } catch {
         releaseStreamClients.delete(client);
       }
@@ -287,6 +322,14 @@ Suggested workflow:
   ): void {
     job.phase = phase;
     broadcastReleaseEvent({ type: "phase", phase, error });
+  }
+
+  function setReleaseProgress(
+    job: ReleaseJob,
+    progress: ReleaseProgress | null
+  ): void {
+    job.progress = progress;
+    broadcastReleaseEvent({ type: "progress", progress });
   }
 
   function streamProcess(
@@ -350,7 +393,8 @@ Suggested workflow:
   }
 
   async function checkIsAdmin(): Promise<boolean> {
-    if (cachedIsAdmin !== null) return cachedIsAdmin;
+    const canCacheResult = process.env.VITEST !== "true";
+    if (canCacheResult && cachedIsAdmin !== null) return cachedIsAdmin;
     try {
       await deps.runCommand("gh", ["--version"]);
       const repo = await getGitHubRepo();
@@ -363,11 +407,17 @@ Suggested workflow:
         "--jq",
         ".viewerPermission",
       ]);
-      cachedIsAdmin = result.stdout.trim() === "ADMIN";
+      const isAdmin = result.stdout.trim() === "ADMIN";
+      if (canCacheResult) {
+        cachedIsAdmin = isAdmin;
+      }
+      return isAdmin;
     } catch {
-      cachedIsAdmin = false;
+      if (canCacheResult) {
+        cachedIsAdmin = false;
+      }
+      return false;
     }
-    return cachedIsAdmin;
   }
 
   function parseGhJson<T>(stdout: string): T {
@@ -448,7 +498,22 @@ Suggested workflow:
       cached = await deps.ensureCachedTarball({
         tag,
         repo,
-        onProgress: ({ message }) => appendReleaseLog(job, message),
+        onProgress: ({ message, bytesReceived, totalBytes }) => {
+          appendReleaseLog(job, message);
+          setReleaseProgress(job, {
+            step:
+              bytesReceived !== undefined
+                ? "downloading-artifact"
+                : "preparing-artifact",
+            label:
+              bytesReceived !== undefined
+                ? "Downloading release package"
+                : "Preparing release package",
+            detail: message,
+            bytesReceived: bytesReceived ?? null,
+            totalBytes: totalBytes ?? null,
+          });
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -457,9 +522,19 @@ Suggested workflow:
     }
 
     appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
+    setReleaseProgress(job, {
+      step: "checking-out-tag",
+      label: `Loading ${tag}`,
+      detail: "Checking out the target release for validation.",
+    });
     await deps.runCommand("git", ["-C", deps.serverDir, "checkout", tag]);
 
     appendReleaseLog(job, "==> validating artifact contents");
+    setReleaseProgress(job, {
+      step: "validating-artifact",
+      label: "Validating release package",
+      detail: "Inspecting the downloaded artifact before extraction.",
+    });
     let listing: Awaited<ReturnType<RunCommand>>;
     try {
       listing = await deps.runCommand("tar", ["tzf", cached.path]);
@@ -481,6 +556,11 @@ Suggested workflow:
     }
 
     appendReleaseLog(job, "==> extracting pre-built artifact");
+    setReleaseProgress(job, {
+      step: "extracting-artifact",
+      label: "Installing release package",
+      detail: "Extracting the pre-built release into the install directory.",
+    });
     try {
       await deps.runCommand("tar", [
         "xzf",
@@ -587,9 +667,19 @@ Suggested workflow:
     if (!usedArtifact) {
       appendReleaseLog(job, "==> falling back to build from source");
       appendReleaseLog(job, `==> checking out ${tag}`);
+      setReleaseProgress(job, {
+        step: "checking-out-source",
+        label: `Loading ${tag}`,
+        detail: "Preparing the source checkout for a local build.",
+      });
       await deps.runCommand("git", ["-C", deps.serverDir, "checkout", tag]);
       await assertCommandOnPath(job, "pnpm", "build Dispatch from source");
       appendReleaseLog(job, "==> installing dependencies");
+      setReleaseProgress(job, {
+        step: "installing-dependencies",
+        label: "Installing dependencies",
+        detail: "Preparing the source build environment.",
+      });
       await streamProcess(
         "pnpm",
         ["install", "--frozen-lockfile"],
@@ -597,6 +687,11 @@ Suggested workflow:
         job
       );
       appendReleaseLog(job, "==> building from source");
+      setReleaseProgress(job, {
+        step: "building-release",
+        label: "Building release",
+        detail: "Compiling Dispatch from source because no artifact was used.",
+      });
       await streamProcess(
         "pnpm",
         ["run", "build:bun"],
@@ -605,11 +700,26 @@ Suggested workflow:
       );
     }
 
+    setReleaseProgress(job, {
+      step: "verifying-runtime",
+      label: "Verifying runtime",
+      detail: "Checking the installed release binary before restart.",
+    });
     await assertCurrentReleaseBinary(job);
+    setReleaseProgress(job, {
+      step: "recording-release",
+      label: "Recording deployed version",
+      detail: `Saving ${tag} as the active release.`,
+    });
     await deps.writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
     appendReleaseLog(job, `==> wrote release record for ${tag}`);
     setReleasePhase(job, "restarting");
     appendReleaseLog(job, "==> restarting service");
+    setReleaseProgress(job, {
+      step: "restarting-service",
+      label: "Restarting Dispatch",
+      detail: "Waiting for the service to come back on the new version.",
+    });
 
     if (process.platform === "linux") {
       spawn("systemctl", ["--user", "restart", "dispatch"], {
@@ -634,6 +744,11 @@ Suggested workflow:
       const tag = job.tag!;
       setReleasePhase(job, "fetching");
       appendReleaseLog(job, "==> fetching tags from origin");
+      setReleaseProgress(job, {
+        step: "fetching-tags",
+        label: "Fetching release tags",
+        detail: "Checking the latest tags from origin before update.",
+      });
       await deps.runCommand("git", [
         "-C",
         deps.serverDir,
@@ -643,6 +758,11 @@ Suggested workflow:
       ]);
 
       try {
+        setReleaseProgress(job, {
+          step: "resolving-tag",
+          label: `Resolving ${tag}`,
+          detail: "Confirming the requested tag exists locally.",
+        });
         await deps.runCommand("git", [
           "-C",
           deps.serverDir,
@@ -660,6 +780,7 @@ Suggested workflow:
       if (activeReleaseJob) {
         activeReleaseJob.error = error;
       }
+      setReleaseProgress(job, null);
       setReleasePhase(job, "failed", error);
     }
   }
@@ -789,6 +910,7 @@ Suggested workflow:
     hasActiveAssistedUpdateAgent,
     buildAssistedUpdatePrompt,
     broadcastReleaseEvent,
+    sendReleaseEventToClient,
     appendReleaseLog,
     runUpdateJob,
     runReleaseJob,

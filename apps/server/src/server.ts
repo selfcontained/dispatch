@@ -477,6 +477,7 @@ async function registerRoutes() {
     buildAssistedUpdatePrompt: releaseRuntime.buildAssistedUpdatePrompt,
     hasActiveAssistedUpdateAgent: releaseRuntime.hasActiveAssistedUpdateAgent,
     broadcastReleaseEvent: releaseRuntime.broadcastReleaseEvent,
+    sendReleaseEventToClient: releaseRuntime.sendReleaseEventToClient,
     appendReleaseLog: releaseRuntime.appendReleaseLog,
     rehydrateActiveAssistedJob: releaseRuntime.rehydrateActiveAssistedJob,
     runReleaseJob: releaseRuntime.runReleaseJob,

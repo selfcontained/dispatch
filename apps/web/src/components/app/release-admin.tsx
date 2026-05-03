@@ -155,6 +155,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
       runUrl: null,
       tag: null,
       error: null,
+      progress: null,
     });
     connectStream();
   };
