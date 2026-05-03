@@ -763,7 +763,7 @@ export function AgentsView({
               </div>
 
               {!isMobile ? (
-                <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
+                <div className="pointer-events-none absolute inset-x-2 bottom-16 z-20">
                   <TerminalCopyModeBannerLayer
                     visible={copyMode === "copy" || copyMode === "exiting"}
                     copyMode={copyMode}
