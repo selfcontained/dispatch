@@ -10,11 +10,102 @@ import { cn } from "@/lib/utils";
 
 const STALE_AFTER_MS = 30_000;
 const FLASH_DURATION_MS = 600;
+const MIN_TICK_DURATION_MS = 280;
+const MAX_TICK_DURATION_MS = FLASH_DURATION_MS;
 
 function formatCount(n: number): string {
   if (n < 1_000) return String(n);
   const thousands = n / 1_000;
   return `${thousands.toFixed(thousands < 10 ? 1 : 0)}K`;
+}
+
+function getTickDuration(from: number, to: number): number {
+  const delta = Math.abs(to - from);
+  return Math.max(
+    MIN_TICK_DURATION_MS,
+    Math.min(MAX_TICK_DURATION_MS, 220 + delta * 14)
+  );
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function useAnimatedCount(value: number): number {
+  const [displayValue, setDisplayValue] = useState(value);
+  const displayValueRef = useRef(value);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    const from = displayValueRef.current;
+
+    if (from === value) {
+      setDisplayValue(value);
+      displayValueRef.current = value;
+      return;
+    }
+
+    if (prefersReducedMotion || formatCount(from) !== formatCount(value)) {
+      setDisplayValue(value);
+      displayValueRef.current = value;
+      return;
+    }
+
+    const duration = getTickDuration(from, value);
+    const startedAt = performance.now();
+    let frame = 0;
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const nextValue = Math.round(from + (value - from) * eased);
+
+      displayValueRef.current = nextValue;
+      setDisplayValue((current) =>
+        current === nextValue ? current : nextValue
+      );
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(tick);
+      }
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [prefersReducedMotion, value]);
+
+  return displayValue;
+}
+
+function AnimatedDiffCount({
+  prefix,
+  value,
+  toneClassName,
+}: {
+  prefix: string;
+  value: number;
+  toneClassName: string;
+}) {
+  const animatedValue = useAnimatedCount(value);
+
+  return (
+    <span className={cn("tabular-nums", toneClassName)}>
+      {prefix}
+      {formatCount(animatedValue)}
+    </span>
+  );
 }
 
 export type DiffStatBadgeProps = {
@@ -82,12 +173,16 @@ export function DiffStatBadge({
           )}
           aria-label="Refresh diff stats"
         >
-          <span className="text-status-working">
-            +{formatCount(diffStats.added)}
-          </span>
-          <span className="text-status-blocked">
-            −{formatCount(diffStats.deleted)}
-          </span>
+          <AnimatedDiffCount
+            prefix="+"
+            value={diffStats.added}
+            toneClassName="text-status-working"
+          />
+          <AnimatedDiffCount
+            prefix="−"
+            value={diffStats.deleted}
+            toneClassName="text-status-blocked"
+          />
         </button>
       </TooltipTrigger>
       <TooltipContent>
