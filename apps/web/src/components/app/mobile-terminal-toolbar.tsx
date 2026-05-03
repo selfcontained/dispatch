@@ -287,7 +287,10 @@ export function MobileTerminalToolbar({
           </div>
         </div>
 
-        <div className="pointer-events-none absolute inset-x-2 bottom-[5.25rem]">
+        {/* Float the banner above the keyboard shortcut bar's top edge —
+            clears it visually with empty space, instead of sitting flush
+            against the bar's border. */}
+        <div className="pointer-events-none absolute inset-x-2 bottom-[6.5rem]">
           <TerminalCopyModeBannerLayer
             visible={pausedInput}
             copyMode={copyMode}

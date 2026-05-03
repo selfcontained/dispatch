@@ -2,6 +2,28 @@ import { randomUUID } from "node:crypto";
 
 import { TmuxTerminal } from "./tmux-terminal.js";
 
+// Manages the *observer / banner* side of copy-mode assist — tracks
+// active viewer connections and the original tmux mouse-mode value so
+// per-attach overrides can be restored.
+//
+// ⚠️ CRITICAL — DO NOT couple terminal scroll behavior to this manager
+// without explicit instruction.
+//
+// Tmux scroll on mobile/desktop is critical functionality. Mouse mode
+// is enabled unconditionally at tmux session launch (see runtime.ts),
+// and the touch→wheel synthesis on the frontend (see
+// apps/web/src/hooks/use-terminal.ts) runs unconditionally too. Both
+// must stay independent of the assist toggle: the toggle controls
+// *only* the banner UI and the passive copy-mode observer.
+//
+// Background: PR #459 originally regressed scroll by moving the
+// unconditional `enableTmuxMouseMode` call inside the assist toggle's
+// if-block. With the toggle off, mouse mode never got enabled and
+// touch scroll silently died. If you find yourself adding a
+// `copyModeAssistEnabled` (or related) check around anything that
+// touches mouse mode, scroll listeners, or wheel synthesis — STOP.
+// You're about to repeat the same regression.
+
 type ActiveAssistSession = {
   connections: Set<string>;
   originalMouseMode: "on" | "off" | null;

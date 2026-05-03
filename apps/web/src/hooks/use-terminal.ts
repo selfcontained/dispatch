@@ -863,18 +863,26 @@ export function useTerminal(args: {
     let touchY = 0;
     let touchAccum = 0;
     const TOUCH_SCROLL_SENSITIVITY_PX = 30;
+    // ⚠️ CRITICAL — DO NOT add a copyModeAssistEnabled (or similar)
+    // gate to these touch handlers. Tmux scroll on mobile is critical
+    // functionality and is independent of the assist toggle.
+    //
+    // xterm has no native touch handling, so this synthesis is the ONLY
+    // path that makes touch scroll work at all. tmux mouse mode is
+    // enabled unconditionally at session launch (see
+    // apps/server/src/agents/tmux/runtime.ts), so the synthetic wheel
+    // events are forwarded to tmux as SGR mouse codes regardless of the
+    // toggle. The toggle controls *only* the banner UI / the passive
+    // copy-mode observer. PR #459 originally tied this synthesis to the
+    // toggle and silently killed scroll for everyone with the toggle
+    // off — do not repeat that mistake.
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
-      if (!copyModeAssistEnabledRef.current) return;
       touchY = e.touches[0].clientY;
       touchAccum = 0;
     };
-    // Translate one-finger touch drags into wheel events on xterm's screen
-    // element. With tmux mouse mode on, xterm forwards those as SGR mouse
-    // wheel codes to tmux, which scrolls its own scrollback in copy-mode.
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
-      if (!copyModeAssistEnabledRef.current) return;
       if (!screenEl) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;

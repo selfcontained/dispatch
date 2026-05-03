@@ -1011,6 +1011,12 @@ export async function registerAgentRoutes(
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
+        // ⚠️ CRITICAL — this gate controls ONLY the copy-mode banner UI
+        // and the passive observer. Tmux mouse mode (the actual scroll
+        // mechanism) is enabled unconditionally at session launch in
+        // runtime.ts. Do NOT pull mouse-mode setup, wheel listeners, or
+        // any scroll plumbing inside this if-block — that's how PR #459
+        // silently broke scroll for everyone with the toggle off.
         if (await isCopyModeAssistEnabled()) {
           const detachCopyModeViewer =
             deps.copyModeObserverManager.attachViewer(
