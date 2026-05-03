@@ -44,43 +44,6 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  pendingGitRefreshEnqueuedAt: Map<string, number>;
-  gitRefreshDurationsMs: number[];
-  gitRefreshAgentDiagnostics: Map<
-    string,
-    {
-      lastQueuedAt: number | null;
-      lastStartedAt: number | null;
-      lastCompletedAt: number | null;
-      lastDurationMs: number | null;
-      lastResult:
-        | "updated"
-        | "unchanged"
-        | "probe_error"
-        | "failed"
-        | "skipped"
-        | null;
-      lastError: string | null;
-    }
-  >;
-  pendingGitRefreshAgentIds: Set<string>;
-  activeGitRefreshAgentIds: Set<string>;
-  gitRefreshCounters: {
-    enqueued: number;
-    started: number;
-    completed: number;
-    updated: number;
-    unchanged: number;
-    probeErrors: number;
-    failed: number;
-    timedOut: number;
-    skipped: number;
-  };
-  probeCommandTimeoutMs: number;
-  gitContextRefreshIntervalMs: number;
-  gitContextRefreshConcurrency: number;
-  percentile: (sortedValues: number[], quantile: number) => number | null;
-  toIso: (epochMs: number | null) => string | null;
   publishUiEvent: (event: unknown) => void;
   copyModeAssistManager: {
     disableAll: () => Promise<void>;
@@ -563,59 +526,5 @@ export async function registerSystemRoutes(
       );
     } catch {}
     return reply.status(204).send();
-  });
-
-  app.get("/api/v1/diagnostics/git-context", async () => {
-    const now = Date.now();
-    const pendingAges = Array.from(
-      deps.pendingGitRefreshEnqueuedAt.values()
-    ).map((queuedAt) => Math.max(0, now - queuedAt));
-    const oldestPendingAgeMs =
-      pendingAges.length > 0 ? Math.max(...pendingAges) : null;
-    const durations = [...deps.gitRefreshDurationsMs].sort((a, b) => a - b);
-    const p50DurationMs = deps.percentile(durations, 0.5);
-    const p95DurationMs = deps.percentile(durations, 0.95);
-    const maxDurationMs =
-      durations.length > 0 ? durations[durations.length - 1] : null;
-    const lastDurationMs =
-      deps.gitRefreshDurationsMs.length > 0
-        ? deps.gitRefreshDurationsMs[deps.gitRefreshDurationsMs.length - 1]
-        : null;
-
-    const agents = Array.from(deps.gitRefreshAgentDiagnostics.entries())
-      .map(([agentId, diag]) => ({
-        agentId,
-        pending: deps.pendingGitRefreshAgentIds.has(agentId),
-        active: deps.activeGitRefreshAgentIds.has(agentId),
-        lastQueuedAt: deps.toIso(diag.lastQueuedAt),
-        lastStartedAt: deps.toIso(diag.lastStartedAt),
-        lastCompletedAt: deps.toIso(diag.lastCompletedAt),
-        lastDurationMs: diag.lastDurationMs,
-        lastResult: diag.lastResult,
-        lastError: diag.lastError,
-      }))
-      .sort((a, b) => a.agentId.localeCompare(b.agentId));
-
-    return {
-      config: {
-        intervalMs: deps.gitContextRefreshIntervalMs,
-        concurrency: deps.gitContextRefreshConcurrency,
-        probeTimeoutMs: deps.probeCommandTimeoutMs,
-      },
-      queue: {
-        pending: deps.pendingGitRefreshAgentIds.size,
-        active: deps.activeGitRefreshAgentIds.size,
-        oldestPendingAgeMs,
-      },
-      counters: deps.gitRefreshCounters,
-      durationsMs: {
-        samples: durations.length,
-        p50: p50DurationMs,
-        p95: p95DurationMs,
-        max: maxDurationMs,
-        last: lastDurationMs,
-      },
-      agents,
-    };
   });
 }

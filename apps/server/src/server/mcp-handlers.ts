@@ -37,6 +37,10 @@ import {
   buildReviewerRecheckReadyPrompt,
 } from "../reviews/injection-prompts.js";
 import { isPinType, validatePinValue } from "../pins.js";
+import {
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../shared/git/git-context.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
@@ -70,9 +74,6 @@ type CreateMcpHandlersDeps = {
   agentManager: AgentManager;
   jobService: JobService;
   slackNotifier: SlackNotifier;
-  resolveRepoRoot: (cwd: string) => Promise<string>;
-  resolveWorktreeRoot: (cwd: string) => Promise<string>;
-  queueGitContextRefresh: (agentIds: string[]) => void;
   publishUiEvent: PublishUiEvent;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
@@ -109,9 +110,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     agentManager,
     jobService,
     slackNotifier,
-    resolveRepoRoot,
-    resolveWorktreeRoot,
-    queueGitContextRefresh,
     publishUiEvent,
     withStreamFlag,
     sendAgentPrompt,
@@ -619,7 +617,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       });
 
       const agentWithReview = await agentManager.getAgent(agent.id);
-      queueGitContextRefresh([agent.id]);
       publishUiEvent({
         type: "agent.upsert",
         agent: withStreamFlag(agentWithReview ?? agent),

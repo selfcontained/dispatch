@@ -253,21 +253,19 @@ Health check:
 curl -s http://127.0.0.1:6767/api/v1/health | jq
 ```
 
-Git context refresh diagnostics:
+Git context troubleshooting:
+
+`gitContext` is populated synchronously at agent creation, setup-complete, and every restart, then pushed to clients via SSE. There is no periodic refresh loop or diagnostics endpoint — to inspect what the server has stored, query the agents table directly:
 
 ```bash
-curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq '.queue'
-curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq '.counters'
-curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq '.durationsMs'
-curl -s http://127.0.0.1:6767/api/v1/diagnostics/git-context | jq '.agents[] | select(.pending or .active or .lastResult=="failed" or .lastResult=="probe_error")'
+psql "$DATABASE_URL" -c "SELECT id, name, git_context, git_context_stale, git_context_updated_at FROM agents WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 20;"
 ```
 
 What to look for:
 
-- `queue.pending` consistently above `0` and increasing: refresh loop is falling behind
-- `queue.oldestPendingAgeMs` steadily increasing: queue starvation/backlog
-- `counters.timedOut` increasing quickly: git probes are timing out
-- Many agents with `lastResult` of `probe_error` or `failed`: metadata may be stale
+- `git_context_stale = true`: the most recent probe errored (worktree missing, repo permissions, etc.); the prior `git_context` value is preserved for display
+- `git_context IS NULL` for a worktree-backed agent: a probe error happened before any successful probe, or the agent predates inline-populate and has not been restarted since the upgrade
+- `git_context_updated_at` far older than `updated_at`: the agent has not gone through a lifecycle event that re-probes — restart the agent to refresh
 
 ### Sessions Disappeared
 

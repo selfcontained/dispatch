@@ -6,14 +6,16 @@ import {
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { loadPersonas } from "../personas/loader.js";
+import {
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../shared/git/git-context.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import type { Pool } from "pg";
 
 type PersonaReviewRouteDeps = {
   pool: Pool;
   agentManager: AgentManager;
-  resolveWorktreeRoot: (cwd: string) => Promise<string>;
-  resolveRepoRoot: (cwd: string) => Promise<string>;
   mcpLaunchPersona: (
     agentId: string,
     opts: {
@@ -49,11 +51,9 @@ export async function registerPersonaReviewRoutes(
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      let personas = await loadPersonas(
-        await deps.resolveWorktreeRoot(query.cwd)
-      );
+      let personas = await loadPersonas(await resolveWorktreeRoot(query.cwd));
       if (personas.length === 0) {
-        personas = await loadPersonas(await deps.resolveRepoRoot(query.cwd));
+        personas = await loadPersonas(await resolveRepoRoot(query.cwd));
       }
       return { personas };
     } catch {

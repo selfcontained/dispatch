@@ -12,7 +12,6 @@ type CreateAgentLifecycleRuntimeDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   publishUiEvent: (event: unknown) => void;
-  clearGitContextAgent: (agentId: string) => void;
 };
 
 export function createAgentLifecycleRuntime(
@@ -25,7 +24,6 @@ export function createAgentLifecycleRuntime(
     reconcileIntervalMs,
     withStreamFlag,
     publishUiEvent,
-    clearGitContextAgent,
   } = deps;
 
   const activeArchives = new Set<Promise<void>>();
@@ -120,7 +118,6 @@ export function createAgentLifecycleRuntime(
               onComplete: (deletedIds) => {
                 for (const deletedId of deletedIds) {
                   streamManager.stopStream(deletedId);
-                  clearGitContextAgent(deletedId);
                   publishUiEvent({
                     type: "agent.deleted",
                     agentId: deletedId,
@@ -153,7 +150,6 @@ export function createAgentLifecycleRuntime(
     onArchivedAgentsDeleted(deletedIds: string[]): void {
       for (const deletedId of deletedIds) {
         streamManager.stopStream(deletedId);
-        clearGitContextAgent(deletedId);
         publishUiEvent({
           type: "agent.deleted",
           agentId: deletedId,

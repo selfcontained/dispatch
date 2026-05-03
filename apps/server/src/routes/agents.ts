@@ -48,7 +48,6 @@ type AgentRouteDeps = {
   agentManager: AgentManager;
   worktreeLocationKey: string;
   validWorktreeLocations: readonly string[];
-  queueGitContextRefresh: (agentIds: string[]) => void;
   publishUiEvent: (event: unknown) => void;
   subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
   sendUiSnapshot: (
@@ -636,7 +635,6 @@ export async function registerAgentRoutes(
         initialPins: !isTerminalAgent ? startupPins : [],
         initialFiles: !isTerminalAgent ? startupFiles : [],
       });
-      deps.queueGitContextRefresh([agent.id]);
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
@@ -717,7 +715,6 @@ export async function registerAgentRoutes(
         worktreeBranch:
           typeof body.worktreeBranch === "string" ? body.worktreeBranch : null,
       });
-      deps.queueGitContextRefresh([agent.id]);
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
@@ -734,7 +731,6 @@ export async function registerAgentRoutes(
 
     try {
       const agent = await deps.agentManager.startAgent(id);
-      deps.queueGitContextRefresh([agent.id]);
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
@@ -765,7 +761,6 @@ export async function registerAgentRoutes(
       const agent = await deps.agentManager.stopAgent(id, {
         force: body?.force as boolean | undefined,
       });
-      deps.queueGitContextRefresh([agent.id]);
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),
@@ -796,13 +791,12 @@ export async function registerAgentRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    // Side effect: nudge the refresher so the in-memory cache catches up
-    // even if the client reached this endpoint before the next status
-    // event fires. The refresher uses worktreePath ?? cwd internally and
-    // returns null for paths that aren't inside a git repo, so any agent
-    // is safe to query — the freshness window absorbs duplicate signals
-    // from multiple tabs hitting this route at once.
-    void deps.diffStatsRefresher.signal(id);
+    // Await the signal so first-paint always sees a fresh value rather
+    // than the cold-cache `null` followed by an SSE update milliseconds
+    // later. The 3s freshness window inside the refresher still absorbs
+    // duplicate signals from multiple tabs hitting this route at once,
+    // so awaiting is cheap on warm caches.
+    await deps.diffStatsRefresher.signal(id);
 
     return { diffStats: deps.diffStatsRefresher.getStats(id) };
   });
@@ -877,7 +871,6 @@ export async function registerAgentRoutes(
     } catch (error) {
       const refreshed = await deps.agentManager.getAgent(id);
       if (refreshed) {
-        deps.queueGitContextRefresh([refreshed.id]);
         deps.publishUiEvent({
           type: "agent.upsert",
           agent: deps.withStreamFlag(refreshed),

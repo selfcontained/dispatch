@@ -350,7 +350,13 @@ describe("AgentManager", () => {
       });
 
       expect(agent.status).toBe("running");
-      expect(vi.mocked(runCommand)).not.toHaveBeenCalled();
+      // Inert mode skips the tmux runtime, but the inline git-context
+      // probe still runs against the agent's cwd. Assert specifically
+      // that no `tmux` subprocess was launched.
+      const tmuxCalls = vi
+        .mocked(runCommand)
+        .mock.calls.filter(([cmd]) => cmd === "tmux");
+      expect(tmuxCalls).toHaveLength(0);
     });
 
     it("should inject an agent-scoped MCP URL into Codex launches", async () => {
