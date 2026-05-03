@@ -21,6 +21,7 @@ import {
 } from "../terminal/copy-mode-observer.js";
 import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import { RENAME_PROMPT } from "../agents/auto-rename-prompter.js";
+import { shouldSuggestSessionRename } from "../agents/tmux/session-name.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -786,6 +787,26 @@ export async function registerAgentRoutes(
         return reply
           .code(409)
           .send({ error: "Agent must be running to receive a rename prompt." });
+      }
+      // Mirror the gates the auto-listener and the sidebar UI apply, so a
+      // direct API caller can't paste the rename prompt into an agent that
+      // wouldn't be eligible via the UI: terminal agents have no Claude
+      // session to read the prompt (it would land in the user's shell),
+      // and personas / job agents / already-renamed agents already carry a
+      // meaningful name.
+      if (agent.type === "terminal") {
+        return reply
+          .code(409)
+          .send({ error: "Terminal agents cannot be prompted to rename." });
+      }
+      if (
+        !shouldSuggestSessionRename(agent.name, agent.id, {
+          persona: agent.persona,
+        })
+      ) {
+        return reply
+          .code(409)
+          .send({ error: "Agent already has a custom session name." });
       }
       await deps.sendAgentPrompt(id, RENAME_PROMPT);
       return reply.code(204).send();
