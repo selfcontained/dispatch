@@ -1,5 +1,5 @@
 ## What's Changed
-* Raise desktop copy mode banner by @selfcontained in https://github.com/selfcontained/dispatch/pull/480
+* Stabilize agent sidebar details (gitContext + diff polling) by @selfcontained in https://github.com/selfcontained/dispatch/pull/481
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.33...v0.18.34
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.34...v0.18.35
