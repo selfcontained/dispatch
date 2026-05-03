@@ -5,6 +5,9 @@ export type ThemeId =
   | "cool-navy"
   | "oled-black"
   | "solarized-dark"
+  | "solarized-light"
+  | "catppuccin-mocha"
+  | "daylight"
   | "light"
   | "vaporwave"
   | "matrix"
@@ -41,6 +44,7 @@ export type ThemeDefinition = {
   id: ThemeId;
   label: string;
   description: string;
+  mode: "light" | "dark";
   swatches: string[];
   terminal: TerminalPalette;
 };
@@ -149,6 +153,86 @@ const MATRIX: TerminalPalette = {
   brightWhite: "#effff2",
 };
 
+/** Solarized Light — warm cream paper with the canonical Solarized accents */
+const SOLARIZED_LIGHT: TerminalPalette = {
+  minimumContrastRatio: 4.5,
+  foreground: "#586e75",
+  background: "#fdf6e3",
+  cursor: "#586e75",
+  cursorAccent: "#fdf6e3",
+  selectionBackground: "#eee8d5",
+  selectionInactiveBackground: "#eee8d5",
+  black: "#073642",
+  red: "#dc322f",
+  green: "#859900",
+  yellow: "#b58900",
+  blue: "#268bd2",
+  magenta: "#d33682",
+  cyan: "#2aa198",
+  white: "#eee8d5",
+  brightBlack: "#002b36",
+  brightRed: "#cb4b16",
+  brightGreen: "#586e75",
+  brightYellow: "#657b83",
+  brightBlue: "#839496",
+  brightMagenta: "#6c71c4",
+  brightCyan: "#93a1a1",
+  brightWhite: "#fdf6e3",
+};
+
+/** Catppuccin Mocha — muted pastel palette on a soft dark base */
+const CATPPUCCIN_MOCHA: TerminalPalette = {
+  foreground: "#cdd6f4",
+  background: "#1e1e2e",
+  cursor: "#f5e0dc",
+  cursorAccent: "#1e1e2e",
+  selectionBackground: "#585b70",
+  selectionInactiveBackground: "#45475a",
+  black: "#45475a",
+  red: "#f38ba8",
+  green: "#a6e3a1",
+  yellow: "#f9e2af",
+  blue: "#89b4fa",
+  magenta: "#f5c2e7",
+  cyan: "#94e2d5",
+  white: "#bac2de",
+  brightBlack: "#585b70",
+  brightRed: "#f38ba8",
+  brightGreen: "#a6e3a1",
+  brightYellow: "#f9e2af",
+  brightBlue: "#89b4fa",
+  brightMagenta: "#f5c2e7",
+  brightCyan: "#94e2d5",
+  brightWhite: "#a6adc8",
+};
+
+/** Daylight — high-contrast pure white tuned for outdoor / sunlit screens */
+const DAYLIGHT: TerminalPalette = {
+  minimumContrastRatio: 7,
+  foreground: "#0a0c10",
+  background: "#ffffff",
+  cursor: "#0a0c10",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#c4d4ff",
+  selectionInactiveBackground: "#d8def0",
+  black: "#0a0c10",
+  red: "#c8102e",
+  green: "#0d7d4d",
+  yellow: "#a14400",
+  blue: "#0050d8",
+  magenta: "#8a1a8c",
+  cyan: "#006d77",
+  white: "#1f2328",
+  brightBlack: "#5a6171",
+  brightRed: "#b00020",
+  brightGreen: "#0a6840",
+  brightYellow: "#8a3700",
+  brightBlue: "#003ea3",
+  brightMagenta: "#6e0e80",
+  brightCyan: "#005159",
+  brightWhite: "#0a0c10",
+};
+
 /** Mytra — matte black, machined steel, and indigo-violet light */
 const MYTRA: TerminalPalette = {
   minimumContrastRatio: 4.5,
@@ -178,9 +262,18 @@ const MYTRA: TerminalPalette = {
 
 export const THEMES: ThemeDefinition[] = [
   {
+    id: "catppuccin-mocha",
+    label: "Catppuccin Mocha",
+    description: "Muted pastel mauve & blue on a soft dark base",
+    mode: "dark",
+    swatches: ["#1e1e2e", "#cba6f7", "#89b4fa", "#f5c2e7"],
+    terminal: CATPPUCCIN_MOCHA,
+  },
+  {
     id: "cool-navy",
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
+    mode: "dark",
     swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
     terminal: {
       ...MONOKAI,
@@ -190,9 +283,18 @@ export const THEMES: ThemeDefinition[] = [
     },
   },
   {
+    id: "daylight",
+    label: "Daylight",
+    description: "High-contrast bright theme tuned for outdoor screens",
+    mode: "light",
+    swatches: ["#ffffff", "#0050d8", "#c8102e", "#0d7d4d"],
+    terminal: DAYLIGHT,
+  },
+  {
     id: "light",
     label: "Light",
     description: "Primer-inspired IDE light theme",
+    mode: "light",
     swatches: ["#e6eaef", "#0d7d4d", "#1f2328", "#d1d9e0"],
     terminal: MONOKAI,
   },
@@ -200,20 +302,15 @@ export const THEMES: ThemeDefinition[] = [
     id: "matrix",
     label: "Matrix",
     description: "Phosphor green on near-black terminal glass",
+    mode: "dark",
     swatches: ["#020403", "#0a0f0b", "#1fa34a", "#6bff8f"],
     terminal: MATRIX,
-  },
-  {
-    id: "mytra",
-    label: "Mytra",
-    description: "Matte black with machined steel and indigo-violet light",
-    swatches: ["#020202", "#20242c", "#5c6778", "#6c63ff"],
-    terminal: MYTRA,
   },
   {
     id: "midnight",
     label: "Midnight",
     description: "OLED black with vibrant cyan & pink",
+    mode: "dark",
     swatches: ["#000000", "#58b8ff", "#ff5db1", "#f1e84f"],
     terminal: {
       ...MONOKAI,
@@ -223,9 +320,18 @@ export const THEMES: ThemeDefinition[] = [
     },
   },
   {
+    id: "mytra",
+    label: "Mytra",
+    description: "Matte black with machined steel and indigo-violet light",
+    mode: "dark",
+    swatches: ["#020202", "#20242c", "#5c6778", "#6c63ff"],
+    terminal: MYTRA,
+  },
+  {
     id: "oled-black",
     label: "OLED Black",
     description: "True black for OLED screens",
+    mode: "dark",
     swatches: ["#000000", "#34d399", "#f0f0f0", "#222222"],
     terminal: {
       ...MONOKAI,
@@ -238,13 +344,23 @@ export const THEMES: ThemeDefinition[] = [
     id: "solarized-dark",
     label: "Solarized Dark",
     description: "Classic Ethan Schoonover palette",
+    mode: "dark",
     swatches: ["#002b36", "#268bd2", "#859900", "#b58900"],
     terminal: SOLARIZED_DARK,
+  },
+  {
+    id: "solarized-light",
+    label: "Solarized Light",
+    description: "Warm cream paper, restrained accents",
+    mode: "light",
+    swatches: ["#fdf6e3", "#268bd2", "#cb4b16", "#859900"],
+    terminal: SOLARIZED_LIGHT,
   },
   {
     id: "vaporwave",
     label: "Vaporwave",
     description: "Neon pink & cyan on deep purple",
+    mode: "dark",
     swatches: ["#1a0a2e", "#ff71ce", "#01cdfe", "#b967ff"],
     terminal: VAPORWAVE,
   },
@@ -252,10 +368,13 @@ export const THEMES: ThemeDefinition[] = [
     id: "default",
     label: "Warm Dark",
     description: "Warm charcoal with emerald accents",
+    mode: "dark",
     swatches: ["#141210", "#0d8358", "#f5f0f0", "#4d3e2e"],
     terminal: MONOKAI,
   },
 ];
+
+export const DEFAULT_THEME_ID: ThemeId = "cool-navy";
 
 export function getTerminalPalette(themeId: ThemeId): TerminalPalette {
   return THEMES.find((t) => t.id === themeId)?.terminal ?? MONOKAI;
@@ -264,10 +383,10 @@ export function getTerminalPalette(themeId: ThemeId): TerminalPalette {
 const STORAGE_KEY = "dispatch:theme";
 
 function getStoredTheme(): ThemeId {
-  if (typeof window === "undefined") return "cool-navy";
+  if (typeof window === "undefined") return DEFAULT_THEME_ID;
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored && THEMES.some((t) => t.id === stored)) return stored as ThemeId;
-  return "cool-navy";
+  return DEFAULT_THEME_ID;
 }
 
 function applyTheme(themeId: ThemeId): void {
