@@ -326,7 +326,6 @@ Returns `204` regardless of whether the notification was still pending.
 | GET    | `/git/branches`            | List remote branches for a repo                   |
 | POST   | `/clipboard/image`         | Write browser clipboard image to macOS pasteboard |
 | POST   | `/energy-report`           | Report PWA energy metrics                         |
-| GET    | `/diagnostics/git-context` | Git context refresh diagnostics                   |
 
 ## Release Management
 
