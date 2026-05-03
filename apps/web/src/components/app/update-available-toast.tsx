@@ -75,7 +75,7 @@ export function UpdateAvailableToast(): null {
         ? `Server updated to ${serverVersion}. Reload to pick it up.`
         : "Server updated. Reload to pick up the new version.";
 
-      toast(message, {
+      toast.info(message, {
         id: TOAST_ID,
         duration: Infinity,
         icon: <RefreshCw className="h-4 w-4" />,
