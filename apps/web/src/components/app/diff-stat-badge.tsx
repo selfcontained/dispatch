@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 const STALE_AFTER_MS = 30_000;
 const FLASH_DURATION_MS = 600;
 const MIN_TICK_DURATION_MS = 280;
-const MAX_TICK_DURATION_MS = 900;
+const MAX_TICK_DURATION_MS = FLASH_DURATION_MS;
 
 function formatCount(n: number): string {
   if (n < 1_000) return String(n);
@@ -27,16 +27,38 @@ function getTickDuration(from: number, to: number): number {
   );
 }
 
-function useAnimatedCount(value: number): number {
-  const [displayValue, setDisplayValue] = useState(value);
-  const previousValue = useRef(value);
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    const from = previousValue.current;
-    previousValue.current = value;
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function useAnimatedCount(value: number): number {
+  const [displayValue, setDisplayValue] = useState(value);
+  const displayValueRef = useRef(value);
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    const from = displayValueRef.current;
 
     if (from === value) {
       setDisplayValue(value);
+      displayValueRef.current = value;
+      return;
+    }
+
+    if (prefersReducedMotion || formatCount(from) !== formatCount(value)) {
+      setDisplayValue(value);
+      displayValueRef.current = value;
       return;
     }
 
@@ -50,6 +72,7 @@ function useAnimatedCount(value: number): number {
       const eased = 1 - Math.pow(1 - progress, 3);
       const nextValue = Math.round(from + (value - from) * eased);
 
+      displayValueRef.current = nextValue;
       setDisplayValue((current) =>
         current === nextValue ? current : nextValue
       );
@@ -61,7 +84,7 @@ function useAnimatedCount(value: number): number {
 
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [value]);
+  }, [prefersReducedMotion, value]);
 
   return displayValue;
 }
