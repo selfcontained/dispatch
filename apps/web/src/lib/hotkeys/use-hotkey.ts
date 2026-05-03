@@ -51,18 +51,10 @@ function parseCombo(combo: string): Parsed {
   return parsed;
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (target.isContentEditable) return true;
-  return false;
-}
-
-// Stronger opt-out than `allowInInputs`: when an ancestor element marks itself
-// with data-hotkey-disable="true", *no* hotkey fires from inside that scope —
-// even ones that opted into firing in inputs. Used to keep palette/global
-// shortcuts from triggering on top of an open modal that owns its own input.
+// Opt-out marker: when an ancestor element has data-hotkey-disable="true",
+// no hotkey fires from inside that scope. Applied to the base DialogContent
+// so global shortcuts don't trigger on top of an open modal that owns its
+// own input.
 function isHotkeyDisabledScope(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return !!target.closest('[data-hotkey-disable="true"]');
@@ -136,12 +128,10 @@ export function useHotkey(
     if (!enabled) return;
     const def: HotkeyDef = HOTKEYS[id];
     const parsed = parseCombo(def.combo);
-    const allowInInputs = def.allowInInputs ?? false;
 
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!comboMatches(parsed, e)) return;
       if (isHotkeyDisabledScope(e.target)) return;
-      if (!allowInInputs && isEditableTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       handlerRef.current(e);
