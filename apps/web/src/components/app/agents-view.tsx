@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  ArrowDown,
-  ArrowUp,
-  PanelLeft,
-  PanelLeftOpen,
-  PanelRight,
-  PanelRightOpen,
-  Plus,
-} from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { useAtom } from "jotai";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
@@ -52,11 +44,8 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import {
-  CommandPalette,
-  type CommandAction,
-} from "@/components/app/command-palette";
-import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { CommandPalette } from "@/components/app/command-palette";
+import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -166,9 +155,6 @@ export function AgentsView({
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(() =>
     readExpandedAgentId()
   );
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
   const feedbackItemId =
     itemId !== undefined && Number.isInteger(Number(itemId))
@@ -244,36 +230,6 @@ export function AgentsView({
       isPinned: !(prev.isPinned ?? false),
     }));
   }, [setDesktopMediaSidebarState]);
-
-  useHotkey("toggle-media-sidebar", () => {
-    if (!isMobile && !sidebarAgentId) return;
-    setMediaOpen(!mediaOpen);
-  });
-
-  useHotkey("toggle-agent-sidebar", () => {
-    handleSetLeftPanelOpen(!leftPanelOpen);
-  });
-
-  const cycleAgent = useCallback(
-    (direction: -1 | 1) => {
-      const cycleAgents = agents.filter((a) => !a.parentAgentId);
-      if (cycleAgents.length === 0) return;
-      const currentIdx = validatedSelectedAgentId
-        ? cycleAgents.findIndex((a) => a.id === validatedSelectedAgentId)
-        : -1;
-      const nextIdx =
-        currentIdx === -1
-          ? direction === 1
-            ? 0
-            : cycleAgents.length - 1
-          : (currentIdx + direction + cycleAgents.length) % cycleAgents.length;
-      navigate(agentRoute(cycleAgents[nextIdx].id));
-    },
-    [agents, navigate, validatedSelectedAgentId]
-  );
-
-  useHotkey("focus-prev-agent", () => cycleAgent(-1));
-  useHotkey("focus-next-agent", () => cycleAgent(1));
 
   const finishMediaResizeSettle = useCallback(() => {
     if (mediaResizeTimerRef.current) {
@@ -514,63 +470,17 @@ export function AgentsView({
     setCreateOpen(true);
   }, []);
 
-  const paletteActions = useMemo<CommandAction[]>(
-    () => [
-      {
-        id: "new-agent",
-        title: "New agent",
-        keywords: ["create", "spawn", "add"],
-        icon: Plus,
-        run: () => openCreateDialog(),
-      },
-      {
-        id: "toggle-media-sidebar",
-        title: "Toggle media sidebar",
-        keywords: ["pins", "media", "right"],
-        hotkey: "toggle-media-sidebar",
-        icon: mediaOpen ? PanelRight : PanelRightOpen,
-        disabled: !isMobile && !sidebarAgentId,
-        run: () => {
-          if (!isMobile && !sidebarAgentId) return;
-          setMediaOpen(!mediaOpen);
-        },
-      },
-      {
-        id: "toggle-agent-sidebar",
-        title: "Toggle agent sidebar",
-        keywords: ["agents", "left", "list"],
-        hotkey: "toggle-agent-sidebar",
-        icon: leftPanelOpen ? PanelLeft : PanelLeftOpen,
-        run: () => handleSetLeftPanelOpen(!leftPanelOpen),
-      },
-      {
-        id: "focus-next-agent",
-        title: "Focus next agent",
-        keywords: ["cycle", "switch", "down"],
-        hotkey: "focus-next-agent",
-        icon: ArrowDown,
-        run: () => cycleAgent(1),
-      },
-      {
-        id: "focus-prev-agent",
-        title: "Focus previous agent",
-        keywords: ["cycle", "switch", "up"],
-        hotkey: "focus-prev-agent",
-        icon: ArrowUp,
-        run: () => cycleAgent(-1),
-      },
-    ],
-    [
-      cycleAgent,
-      handleSetLeftPanelOpen,
-      isMobile,
-      leftPanelOpen,
-      mediaOpen,
-      openCreateDialog,
-      setMediaOpen,
-      sidebarAgentId,
-    ]
-  );
+  const { paletteOpen, setPaletteOpen, paletteActions } = useAgentHotkeys({
+    agents,
+    isMobile,
+    sidebarAgentId,
+    validatedSelectedAgentId,
+    mediaOpen,
+    setMediaOpen,
+    leftPanelOpen,
+    handleSetLeftPanelOpen,
+    openCreateDialog,
+  });
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
