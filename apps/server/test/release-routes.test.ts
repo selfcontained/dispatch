@@ -203,7 +203,23 @@ describe("release metadata route handling", () => {
     });
   });
 
-  it("does not evaluate pending migrations on /release/info for non-admin viewers", async () => {
+  it("evaluates pending migrations on /release/info for authenticated viewers without repo admin access", async () => {
+    evaluateMock.mockResolvedValueOnce({
+      pending: [
+        {
+          filename: "001-example.yaml",
+          order: 1,
+          manifest: {
+            id: "example",
+            title: "Example migration",
+            summary: "Requires a manual follow-up step.",
+          },
+        },
+      ],
+      all: [],
+      appliedIds: new Set(),
+      errors: [],
+    });
     mockReleaseCommands({
       viewerPermission: "WRITE",
       releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
@@ -223,10 +239,46 @@ describe("release metadata route handling", () => {
       isAdmin: false,
       latestTag: "v0.19.0",
       updateAvailable: true,
-      pendingMigrations: [],
+      pendingMigrations: [
+        {
+          id: "example",
+          title: "Example migration",
+          summary: "Requires a manual follow-up step.",
+        },
+      ],
       migrationsError: null,
+      assistedRequired: true,
     });
-    expect(evaluateMock).not.toHaveBeenCalled();
+    expect(evaluateMock).toHaveBeenCalledWith(
+      "v0.19.0",
+      expect.objectContaining({ repo: "selfcontained/dispatch" })
+    );
+  });
+
+  it("falls back to the packaged app version when no release tag is recorded", async () => {
+    await rm(releaseStorePath, { force: true });
+    mockReleaseCommands({
+      releaseList: [{ tagName: "v0.18.36", isPrerelease: false }],
+      releaseViews: {
+        "v0.18.36": validReleaseView({
+          body: "no fenced metadata",
+          tag: "v0.18.36",
+        }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/info",
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      currentTag: "v0.18.35",
+      latestTag: "v0.18.36",
+      updateAvailable: true,
+    });
   });
 
   it("rejects /release/update when the target release requires assisted flow", async () => {

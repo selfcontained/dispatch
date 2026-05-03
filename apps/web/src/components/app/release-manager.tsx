@@ -147,6 +147,20 @@ function formatInlineProgress(progress: ReleaseProgress | null): string | null {
   return progressParts.join(" · ");
 }
 
+function progressPercent(progress: ReleaseProgress | null): number | null {
+  if (
+    !progress ||
+    progress.bytesReceived === null ||
+    progress.bytesReceived === undefined ||
+    progress.totalBytes === null ||
+    progress.totalBytes === undefined ||
+    progress.totalBytes <= 0
+  ) {
+    return null;
+  }
+  return Math.min(100, (progress.bytesReceived / progress.totalBytes) * 100);
+}
+
 function describeForceTriggers(info: ReleaseInfo): string {
   const migrationCount = info.pendingMigrations?.length ?? 0;
   // Migrations are the concrete signal — when present the user already
@@ -544,6 +558,17 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             </div>
           )}
         </div>
+
+        {infoLoading && progressPercent(infoProgress) !== null && (
+          <div className="max-w-[40rem]">
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+              <div
+                className="h-full rounded-full bg-blue-400 transition-[width] duration-200"
+                style={{ width: `${progressPercent(infoProgress)}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {infoError && (
           <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

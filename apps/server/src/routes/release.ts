@@ -119,6 +119,13 @@ export async function registerReleaseRoutes(
   app: FastifyInstance,
   deps: ReleaseRouteDeps
 ): Promise<void> {
+  const deriveCurrentTag = async (): Promise<string | null> => {
+    const record = await readReleaseStore();
+    if (record?.tag) return record.tag;
+    const version = (await deps.getAppVersionInfo()).version?.trim() ?? null;
+    return version && /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : null;
+  };
+
   const getReleaseStreamClientId = (request: FastifyRequest): string | null => {
     const header = request.headers["x-dispatch-release-client-id"];
     if (typeof header !== "string") return null;
@@ -163,8 +170,7 @@ export async function registerReleaseRoutes(
         "--quiet",
       ]);
 
-      const record = await readReleaseStore();
-      const currentTag = record?.tag ?? null;
+      const currentTag = await deriveCurrentTag();
       const isAdmin = await deps.checkIsAdmin();
       const channelRaw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
       const channel = channelRaw === "latest" ? "latest" : "stable";
@@ -214,6 +220,18 @@ export async function registerReleaseRoutes(
         latestTag &&
         deps.compareSemver(latestTag, currentTag) > 0
       );
+      request.log.info(
+        {
+          currentTag,
+          latestTag,
+          absoluteLatestTag,
+          updateAvailable,
+          channel,
+          releaseStreamClientId,
+          isAdmin,
+        },
+        "release/info: computed release availability"
+      );
 
       let latestRelease: {
         tag: string;
@@ -253,12 +271,20 @@ export async function registerReleaseRoutes(
 
       let pendingMigrations: PendingMigrationSummary[] = [];
       let migrationsError: string | null = null;
-      if (latestTag && updateAvailable && isAdmin) {
+      if (latestTag && updateAvailable) {
+        request.log.info(
+          { tag: latestTag },
+          "release/info: evaluating pending migrations for update check"
+        );
         try {
           const repo = await deps.getGitHubRepo();
           const evaluation = await evaluatePendingMigrations(latestTag, {
             repo,
             onProgress: ({ message, bytesReceived, totalBytes }) => {
+              request.log.info(
+                { tag: latestTag, message, bytesReceived, totalBytes },
+                "release/info: migration evaluation progress"
+              );
               emitInfoProgress(releaseStreamClientId, {
                 step:
                   bytesReceived !== undefined
@@ -282,6 +308,15 @@ export async function registerReleaseRoutes(
               .map((e) => `${e.filename}: ${e.error}`)
               .join("; ");
           }
+          request.log.info(
+            {
+              tag: latestTag,
+              pendingMigrationCount: pendingMigrations.length,
+              evaluationErrorCount: evaluation.errors.length,
+              migrationsError,
+            },
+            "release/info: migration evaluation complete"
+          );
         } catch (err) {
           migrationsError =
             err instanceof Error ? err.message : "migration evaluation failed";
