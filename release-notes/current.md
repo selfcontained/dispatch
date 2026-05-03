@@ -1,6 +1,7 @@
 ## What's Changed
-* Bump copy mode banner opacity to read over light backgrounds by @selfcontained in https://github.com/selfcontained/dispatch/pull/485
-* Fix legacy worktree diff stats path fallback by @selfcontained in https://github.com/selfcontained/dispatch/pull/486
+* Fire hotkeys from inside text inputs and the terminal by @selfcontained in https://github.com/selfcontained/dispatch/pull/488
+* Improve update check progress and release detection by @selfcontained in https://github.com/selfcontained/dispatch/pull/487
+* Prefer origin/main for diff stats base by @selfcontained in https://github.com/selfcontained/dispatch/pull/489
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.37...v0.18.38
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.38...v0.18.39
