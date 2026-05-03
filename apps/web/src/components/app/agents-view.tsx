@@ -44,6 +44,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -228,6 +229,36 @@ export function AgentsView({
       isPinned: !(prev.isPinned ?? false),
     }));
   }, [setDesktopMediaSidebarState]);
+
+  useHotkey("toggle-media-sidebar", () => {
+    if (!isMobile && !sidebarAgentId) return;
+    setMediaOpen(!mediaOpen);
+  });
+
+  useHotkey("toggle-agent-sidebar", () => {
+    handleSetLeftPanelOpen(!leftPanelOpen);
+  });
+
+  const cycleAgent = useCallback(
+    (direction: -1 | 1) => {
+      const cycleAgents = agents.filter((a) => !a.parentAgentId);
+      if (cycleAgents.length === 0) return;
+      const currentIdx = validatedSelectedAgentId
+        ? cycleAgents.findIndex((a) => a.id === validatedSelectedAgentId)
+        : -1;
+      const nextIdx =
+        currentIdx === -1
+          ? direction === 1
+            ? 0
+            : cycleAgents.length - 1
+          : (currentIdx + direction + cycleAgents.length) % cycleAgents.length;
+      navigate(agentRoute(cycleAgents[nextIdx].id));
+    },
+    [agents, navigate, validatedSelectedAgentId]
+  );
+
+  useHotkey("focus-prev-agent", () => cycleAgent(-1));
+  useHotkey("focus-next-agent", () => cycleAgent(1));
 
   const finishMediaResizeSettle = useCallback(() => {
     if (mediaResizeTimerRef.current) {
