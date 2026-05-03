@@ -13,6 +13,7 @@ import {
   GitBranch,
   Play,
   Pause,
+  Tag,
 } from "lucide-react";
 
 import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
@@ -40,10 +41,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AnimatePresence, motion } from "framer-motion";
+import { toast } from "sonner";
+
 import { useCopyText } from "@/hooks/use-copy";
+import { api } from "@/lib/api";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
+
+function hasDefaultSessionName(agent: Agent): boolean {
+  if (agent.persona) return false;
+  if (agent.type === "terminal") return false;
+  if (agent.name.startsWith("job-")) return false;
+  return agent.name.trim() === `agent-${agent.id.slice(-6)}`;
+}
 
 export type AgentCardProps = {
   agent: Agent;
@@ -153,10 +164,32 @@ export function AgentCard({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
+  const [renamePromptPending, setRenamePromptPending] = React.useState(false);
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
   const isAssistedUpdateAgent = agent.role === "assisted_update";
   const isTerminalAgent = agent.type === "terminal";
+  const canPromptRename =
+    agent.status === "running" && hasDefaultSessionName(agent);
+  const promptAgentToRename = React.useCallback(async () => {
+    if (renamePromptPending) return;
+    setRenamePromptPending(true);
+    try {
+      await api(`/api/v1/agents/${agent.id}/prompt-rename`, {
+        method: "POST",
+      });
+      toast.success("Asked the agent to set a session name.");
+    } catch (err) {
+      toast.error("Couldn't reach the agent — try again in a moment.", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      // Clear after a short delay so a rapid double-click doesn't fire twice
+      // even if the agent hasn't renamed itself yet (which would otherwise
+      // hide the button via canPromptRename going false).
+      setTimeout(() => setRenamePromptPending(false), 1500);
+    }
+  }, [agent.id, renamePromptPending]);
   const sidebarBaseBranch = agent.baseBranch ?? "main";
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
@@ -193,24 +226,52 @@ export function AgentCard({
             void attachToAgent(agent);
           }}
         >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="min-w-0 flex flex-1 items-center gap-2 text-left text-sm font-semibold">
-                <AgentTypeIcon
-                  type={agent.type}
-                  eventType={
-                    isTerminalAgent
-                      ? null
-                      : agent.status === "running"
-                        ? agent.latestEvent?.type
-                        : null
-                  }
-                />
-                <span className="truncate">{agent.name}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>{agent.cwd}</TooltipContent>
-          </Tooltip>
+          <div className="flex flex-1 min-w-0 items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="min-w-0 flex items-center gap-2 text-left text-sm font-semibold">
+                  <AgentTypeIcon
+                    type={agent.type}
+                    eventType={
+                      isTerminalAgent
+                        ? null
+                        : agent.status === "running"
+                          ? agent.latestEvent?.type
+                          : null
+                    }
+                  />
+                  <span className="truncate">{agent.name}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>{agent.cwd}</TooltipContent>
+            </Tooltip>
+            {canPromptRename ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-agent-control="true"
+                    data-testid={`agent-prompt-rename-${agent.id}`}
+                    className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground"
+                    disabled={renamePromptPending}
+                    onClick={() => {
+                      void promptAgentToRename();
+                    }}
+                  >
+                    <Tag className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Ask agent to name session
+                  <br />
+                  <span className="text-muted-foreground">
+                    Sends a prompt asking the agent to rename itself
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
 
           {needsAttention ? (
             <Badge

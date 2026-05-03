@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { RefreshCw, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef } from "react";
+import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+
 import { reloadApp } from "@/lib/pwa-update";
 import {
   dismissVersionMismatch,
@@ -9,7 +10,8 @@ import {
   isVersionMismatchDismissed,
   subscribeVersionMismatch,
 } from "@/lib/version";
-import { cn } from "@/lib/utils";
+
+const TOAST_ID = "dispatch-update-available";
 
 function isEditableElement(element: Element | null): element is HTMLElement {
   if (!(element instanceof HTMLElement)) return false;
@@ -21,128 +23,103 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
   return selectors.some((selector) => element.matches(selector));
 }
 
-type ToastState = {
-  visible: boolean;
-  serverVersion: string | null;
-};
-
-function readToastState(): ToastState {
-  return {
-    visible: isVersionMismatch() && !isVersionMismatchDismissed(),
-    serverVersion: getServerVersion(),
-  };
-}
-
-export function UpdateAvailableToast(): JSX.Element | null {
-  const [state, setState] = useState<ToastState>(readToastState);
+/**
+ * Subscribes to the version-mismatch signal and surfaces it as a sticky
+ * sonner toast. Returns no JSX — sonner's `<Toaster />` is responsible for
+ * rendering. The toast carries a `Reload` action and persists until the
+ * user dismisses it or reloads.
+ *
+ * The component name is preserved so existing imports keep resolving;
+ * conceptually this is now an effect-only controller, not a renderer.
+ */
+export function UpdateAvailableToast(): null {
   const reloadingRef = useRef(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    const sync = (): void => setState(readToastState());
+    const handleReload = (): void => {
+      const activeElement = document.activeElement;
+      const hadFocusedEditable =
+        hadFocusedEditableRef.current || isEditableElement(activeElement);
+      hadFocusedEditableRef.current = false;
+
+      if (
+        window.location.pathname.startsWith("/settings") &&
+        hadFocusedEditable &&
+        !window.confirm(
+          "You have a settings field open. Reloading now may discard unsaved changes. Reload anyway?"
+        )
+      ) {
+        return;
+      }
+
+      if (reloadingRef.current) return;
+      reloadingRef.current = true;
+
+      if (isEditableElement(activeElement)) {
+        activeElement.blur();
+      }
+
+      void reloadApp();
+    };
+
+    const sync = (): void => {
+      const visible = isVersionMismatch() && !isVersionMismatchDismissed();
+      if (!visible) {
+        toast.dismiss(TOAST_ID);
+        return;
+      }
+
+      const serverVersion = getServerVersion();
+      const message = serverVersion
+        ? `Server updated to ${serverVersion}. Reload to pick it up.`
+        : "Server updated. Reload to pick up the new version.";
+
+      toast(message, {
+        id: TOAST_ID,
+        duration: Infinity,
+        icon: <RefreshCw className="h-4 w-4" />,
+        action: {
+          label: "Reload",
+          onClick: handleReload,
+        },
+        // Capture whether an editable element was focused at the moment
+        // the user reached for the toast — sonner's Action button does not
+        // pierce through focus the way a native button would, so we sample
+        // focus on pointerdown before the toast steals it.
+        onAutoClose: () => {
+          hadFocusedEditableRef.current = false;
+        },
+        onDismiss: () => {
+          dismissVersionMismatch();
+        },
+      });
+    };
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Element | null;
+      if (!target) return;
+      // Sample focus before the toast click steals it. We can't pin to the
+      // specific toast id because sonner doesn't always reflect `id` as a
+      // DOM attribute, so we check membership in any sonner toast — fine
+      // since the update toast is the only one that triggers a reload.
+      if (target.closest("[data-sonner-toast]")) {
+        hadFocusedEditableRef.current = isEditableElement(
+          document.activeElement
+        );
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
     const unsubscribe = subscribeVersionMismatch(sync);
     sync();
-    return unsubscribe;
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      toast.dismiss(TOAST_ID);
+    };
   }, []);
 
-  if (!state.visible) return null;
-
-  const handleReload = (): void => {
-    const activeElement = document.activeElement;
-    const hadFocusedEditable =
-      hadFocusedEditableRef.current || isEditableElement(activeElement);
-    hadFocusedEditableRef.current = false;
-
-    if (
-      window.location.pathname.startsWith("/settings") &&
-      hadFocusedEditable &&
-      !window.confirm(
-        "You have a settings field open. Reloading now may discard unsaved changes. Reload anyway?"
-      )
-    ) {
-      return;
-    }
-
-    if (reloadingRef.current) return;
-    reloadingRef.current = true;
-
-    if (isEditableElement(activeElement)) {
-      activeElement.blur();
-    }
-
-    void reloadApp();
-  };
-
-  const handleDismiss = (): void => {
-    dismissVersionMismatch();
-  };
-
-  return (
-    <div
-      className={cn(
-        "fixed z-50 left-1/2 -translate-x-1/2 bottom-4",
-        "pb-[env(safe-area-inset-bottom)]",
-        "md:left-auto md:translate-x-0 md:right-4 md:bottom-4 md:top-auto",
-        "md:pt-0",
-        "w-[calc(100vw-2rem)] max-w-sm md:w-auto md:max-w-lg"
-      )}
-    >
-      <div
-        className={cn(
-          "relative flex flex-col gap-3 rounded-lg overflow-hidden",
-          "sm:flex-row sm:items-center",
-          "bg-card text-card-foreground",
-          "border border-border border-l-4 border-l-primary",
-          "shadow-2xl pl-4 py-3 pr-14 md:pr-12"
-        )}
-      >
-        <button
-          type="button"
-          onClick={handleDismiss}
-          aria-label="Dismiss update notification"
-          className={cn(
-            "absolute top-1 right-1 z-10",
-            "h-11 w-11 md:h-8 md:w-8 inline-flex items-center justify-center rounded-md",
-            "text-muted-foreground hover:text-foreground hover:bg-muted",
-            "transition-colors focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-ring",
-            "focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-          )}
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div
-            className={cn(
-              "shrink-0 h-8 w-8 rounded-md inline-flex items-center justify-center",
-              "bg-primary/15 text-primary"
-            )}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </div>
-          <div
-            role="status"
-            aria-live="polite"
-            className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words"
-          >
-            {state.serverVersion
-              ? `Server updated to ${state.serverVersion}. Reload to pick it up.`
-              : "Server updated. Reload to pick up the new version."}
-          </div>
-        </div>
-        <Button
-          onPointerDownCapture={() => {
-            hadFocusedEditableRef.current = isEditableElement(
-              document.activeElement
-            );
-          }}
-          onClick={handleReload}
-          className="h-11 w-full shrink-0 md:h-8 md:w-auto"
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          Reload
-        </Button>
-      </div>
-    </div>
-  );
+  return null;
 }

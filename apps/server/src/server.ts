@@ -134,6 +134,7 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 
 const config = loadConfig();
@@ -244,6 +245,9 @@ const notificationRuntime = createNotificationRuntime({
     agentLifecycleRuntime.autoArchiveJobAgent(agentId),
 });
 const injectAgentPrompt = createPromptInjector(agentManager, app.log);
+agentManager.onLatestEvent(
+  createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
+);
 const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,
@@ -524,6 +528,8 @@ async function registerRoutes() {
       agentLifecycleRuntime.onArchiveError(agentId, error),
     trackArchivePromise: (agentId, archivePromise) =>
       agentLifecycleRuntime.trackArchivePromise(agentId, archivePromise),
+    sendAgentPrompt: (agentId, prompt) =>
+      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
   });
 
   // --- Personas ---

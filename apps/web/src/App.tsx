@@ -30,6 +30,7 @@ import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
+import { Toaster } from "sonner";
 
 type RouteHandle = {
   navSection?: NavSection;
@@ -241,6 +242,41 @@ export function DashboardLayout(): JSX.Element {
     <>
       <Outlet context={context} />
       <UpdateAvailableToast />
+      <Toaster
+        position="bottom-right"
+        closeButton
+        richColors
+        toastOptions={{ duration: 3000 }}
+        // Drive sonner's color tokens off the project's theme variables so
+        // toasts pick up whatever palette the user has selected, rather
+        // than sonner's hardcoded light/dark `richColors` palette.
+        // `richColors` is needed for sonner to apply the type-specific
+        // (--success-*, --error-*, etc) tokens — without it every toast
+        // would use --normal-* regardless of type.
+        style={
+          {
+            // Default ("normal") toast — neutral card surface.
+            "--normal-bg": "hsl(var(--card))",
+            "--normal-text": "hsl(var(--card-foreground))",
+            "--normal-border": "hsl(var(--border))",
+            // Typed toasts use the status color as the bg so they stand
+            // out clearly. The project's status palette is bright in both
+            // themes, so a dark `--background` text color stays readable.
+            "--success-bg": "hsl(var(--status-done))",
+            "--success-text": "hsl(var(--background))",
+            "--success-border": "hsl(var(--status-done))",
+            "--info-bg": "hsl(var(--primary))",
+            "--info-text": "hsl(var(--primary-foreground))",
+            "--info-border": "hsl(var(--primary))",
+            "--warning-bg": "hsl(var(--status-waiting))",
+            "--warning-text": "hsl(var(--background))",
+            "--warning-border": "hsl(var(--status-waiting))",
+            "--error-bg": "hsl(var(--status-blocked))",
+            "--error-text": "hsl(var(--background))",
+            "--error-border": "hsl(var(--status-blocked))",
+          } as React.CSSProperties
+        }
+      />
     </>
   );
 }

@@ -20,6 +20,7 @@ import {
   type TerminalUiState,
 } from "../terminal/copy-mode-observer.js";
 import { TmuxTerminal } from "../terminal/tmux-terminal.js";
+import { RENAME_PROMPT } from "../agents/auto-rename-prompter.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -76,6 +77,7 @@ type AgentRouteDeps = {
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
+  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
 };
 
 function escapeHtml(s: string): string {
@@ -766,6 +768,27 @@ export async function registerAgentRoutes(
         agent: deps.withStreamFlag(agent),
       });
       return { agent };
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
+  app.post("/api/v1/agents/:id/prompt-rename", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    try {
+      const agent = await deps.agentManager.getAgent(id);
+      if (!agent) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      if (agent.status !== "running") {
+        return reply
+          .code(409)
+          .send({ error: "Agent must be running to receive a rename prompt." });
+      }
+      await deps.sendAgentPrompt(id, RENAME_PROMPT);
+      return reply.code(204).send();
     } catch (error) {
       return deps.handleAgentError(reply, error);
     }
