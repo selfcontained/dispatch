@@ -38,8 +38,11 @@ export function TerminalCopyModeBannerLayer({
 }
 
 const SUNSET_BODY: React.CSSProperties = {
+  // Sunset gradient stays, but with enough opacity (and a translucent dark
+  // base behind it) to keep the banner from washing out over light
+  // backgrounds like red/green diff highlights.
   background:
-    "linear-gradient(90deg, hsl(var(--destructive) / 0.07) 0%, hsl(var(--status-waiting) / 0.07) 50%, hsl(var(--primary) / 0.07) 100%)",
+    "linear-gradient(90deg, hsl(var(--destructive) / 0.40) 0%, hsl(var(--status-waiting) / 0.40) 50%, hsl(var(--primary) / 0.40) 100%), hsl(0 0% 0% / 0.65)",
   borderColor: "hsl(var(--status-waiting) / 0.40)",
   boxShadow:
     "0 8px 28px rgba(0,0,0,0.35), 0 0 28px hsl(var(--status-waiting) / 0.20), 0 0 28px hsl(var(--destructive) / 0.14), inset 0 1px 0 rgba(255,255,255,0.04)",
