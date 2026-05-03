@@ -44,6 +44,8 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { CommandPalette } from "@/components/app/command-palette";
+import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -467,6 +469,18 @@ export function AgentsView({
     setRequestedCreateType(typeOverride ?? null);
     setCreateOpen(true);
   }, []);
+
+  const { paletteOpen, setPaletteOpen, paletteActions } = useAgentHotkeys({
+    agents,
+    isMobile,
+    sidebarAgentId,
+    validatedSelectedAgentId,
+    mediaOpen,
+    setMediaOpen,
+    leftPanelOpen,
+    handleSetLeftPanelOpen,
+    openCreateDialog,
+  });
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
@@ -923,6 +937,12 @@ export function AgentsView({
           />
         </GlassSidebar>
       ) : null}
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        actions={paletteActions}
+      />
 
       <CreateAgentDialog
         open={createOpen}
