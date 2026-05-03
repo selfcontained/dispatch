@@ -19,7 +19,7 @@ export function diffStatsQueryKey(agentId: string): [string, string] {
  * after returning from another tab. `refresh()` is the tap-to-refresh
  * entry point. Polling stops automatically when `enabled` flips false.
  */
-const DIFF_STATS_POLL_INTERVAL_MS = 30_000;
+const DIFF_STATS_POLL_INTERVAL_MS = 10_000;
 const DIFF_STATS_STALE_TIME_MS = 15_000;
 
 export function useAgentDiffStats(

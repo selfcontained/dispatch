@@ -9,6 +9,8 @@ export type DiffStatsAgent = {
   baseBranch: string | null;
 };
 
+const DEFAULT_WORKTREE_BASE_BRANCH = "main";
+
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";
   agentId: string;
@@ -117,13 +119,14 @@ export class DiffStatsRefresher {
       if (!path) {
         nextStats = null;
       } else {
-        // Pass `agent.baseBranch` straight through — `getDiffStats` runs
-        // it through the shared `resolveBaseRef` chain, so we don't bake a
-        // second fallback policy in here.
-        nextStats = await this.computeDiffStats(
-          path,
-          agent?.baseBranch ?? null
-        );
+        // Managed worktree agents default to `main` elsewhere in Dispatch,
+        // but older rows may still have a null baseBranch persisted. Keep
+        // non-worktree agents on the shared resolver fallback chain while
+        // forcing worktree-backed agents onto the intended default base.
+        const baseRef =
+          agent?.baseBranch ??
+          (agent?.worktreePath ? DEFAULT_WORKTREE_BASE_BRANCH : null);
+        nextStats = await this.computeDiffStats(path, baseRef);
       }
     } catch (err) {
       this.logger?.warn(
