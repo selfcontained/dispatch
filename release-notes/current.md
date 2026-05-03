@@ -1,5 +1,6 @@
 ## What's Changed
-* Nudge default-named sessions to rename themselves by @selfcontained in https://github.com/selfcontained/dispatch/pull/482
+* Add keyboard hotkeys + Cmd+K command palette by @selfcontained in https://github.com/selfcontained/dispatch/pull/483
+* Fix worktree diff stats base fallback by @selfcontained in https://github.com/selfcontained/dispatch/pull/484
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.35...v0.18.36
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.18.36...v0.18.37
