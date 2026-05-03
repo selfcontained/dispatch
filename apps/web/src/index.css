@@ -970,3 +970,54 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   animation-play-state: paused;
   will-change: auto;
 }
+
+/* Sonner toaster — drive sonner's color tokens off the project's theme
+   variables so toasts pick up whatever palette the user has selected,
+   rather than sonner's hardcoded light/dark `richColors` palette.
+
+   `!important` is required on each var because sonner injects its own
+   `[data-sonner-toaster][data-sonner-theme=…]` rule at runtime via JS,
+   which sits later in the cascade than this static stylesheet at equal
+   specificity and would otherwise win.
+
+   Success → `--status-working` (the green token consistent across all
+   themes — `--status-done` is blue/cyan in some themes). Info → blue
+   (`--status-done`). Warning/error use their semantic status tokens.
+   Each typed toast uses the status color as the bg with `--background`
+   text for contrast, so the toast reads as a colored alert surface. */
+[data-sonner-toaster][data-sonner-theme] {
+  /* Default ("normal") toast — neutral card surface. */
+  --normal-bg: hsl(var(--card)) !important;
+  --normal-text: hsl(var(--card-foreground)) !important;
+  --normal-border: hsl(var(--border)) !important;
+  --success-bg: hsl(var(--status-working)) !important;
+  --success-text: hsl(var(--background)) !important;
+  --success-border: hsl(var(--status-working)) !important;
+  --info-bg: hsl(var(--status-done)) !important;
+  --info-text: hsl(var(--background)) !important;
+  --info-border: hsl(var(--status-done)) !important;
+  --warning-bg: hsl(var(--status-waiting)) !important;
+  --warning-text: hsl(var(--background)) !important;
+  --warning-border: hsl(var(--status-waiting)) !important;
+  --error-bg: hsl(var(--status-blocked)) !important;
+  --error-text: hsl(var(--background)) !important;
+  --error-border: hsl(var(--status-blocked)) !important;
+}
+
+/* Pin the close + action buttons onto a dark contrasting surface so
+   they read against the bright status-color toast bg. The border is
+   intentionally NOT overridden here — sonner inherits it from the
+   toast type's `--*-border` (= the toast bg in our setup), so each
+   button reads as a dark disc/pill ringed in the toast's accent
+   color, visually tying the two together. `!important` is required
+   because sonner's injected stylesheet sets these via attribute
+   selectors with higher specificity than utility classes. */
+[data-sonner-toaster] [data-close-button],
+[data-sonner-toaster] [data-button] {
+  background: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+[data-sonner-toaster] [data-close-button]:hover,
+[data-sonner-toaster] [data-button]:hover {
+  background: hsl(var(--muted)) !important;
+}

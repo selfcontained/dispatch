@@ -242,63 +242,15 @@ export function DashboardLayout(): JSX.Element {
     <>
       <Outlet context={context} />
       <UpdateAvailableToast />
+      {/* Color tokens, close button, and action button styling live in
+          `index.css` under `[data-sonner-toaster]` — `richColors` is what
+          tells sonner to apply the type-specific (--success-*, --error-*,
+          etc) tokens we set there. */}
       <Toaster
         position="bottom-right"
         closeButton
         richColors
-        toastOptions={{
-          duration: 3000,
-          classNames: {
-            // Pin the close button onto a dark contrasting surface so the
-            // X is readable on the bright status-color toast bg. The
-            // border is intentionally NOT overridden — sonner inherits it
-            // from the toast type's `--*-border` (which equals the toast
-            // bg in our setup), so the close button reads as a dark disc
-            // ringed in the toast's accent color, visually tying the two.
-            // `!important` is required because sonner's injected
-            // stylesheet sets these via attribute selectors with higher
-            // specificity than utility classes.
-            closeButton: "!bg-background !text-foreground hover:!bg-muted",
-            // Match the action button to the close button so the two
-            // interactive elements read as a pair against the bright
-            // toast bg (sonner defaults action buttons to white-ish on
-            // dark, which competes with the body text).
-            actionButton: "!bg-background !text-foreground hover:!bg-muted",
-          },
-        }}
-        // Drive sonner's color tokens off the project's theme variables so
-        // toasts pick up whatever palette the user has selected, rather
-        // than sonner's hardcoded light/dark `richColors` palette.
-        // `richColors` is needed for sonner to apply the type-specific
-        // (--success-*, --error-*, etc) tokens — without it every toast
-        // would use --normal-* regardless of type.
-        style={
-          {
-            // Default ("normal") toast — neutral card surface.
-            "--normal-bg": "hsl(var(--card))",
-            "--normal-text": "hsl(var(--card-foreground))",
-            "--normal-border": "hsl(var(--border))",
-            // Typed toasts use the status color as the bg so they stand
-            // out clearly. The project's status palette is bright in both
-            // themes, so a dark `--background` text color stays readable.
-            // Success → `--status-working` (the green token, consistent
-            // across themes — `--status-done` is blue/cyan in some themes).
-            "--success-bg": "hsl(var(--status-working))",
-            "--success-text": "hsl(var(--background))",
-            "--success-border": "hsl(var(--status-working))",
-            // Info → `--status-done` (blue/cyan in most themes; visually
-            // distinct from the green success accent).
-            "--info-bg": "hsl(var(--status-done))",
-            "--info-text": "hsl(var(--background))",
-            "--info-border": "hsl(var(--status-done))",
-            "--warning-bg": "hsl(var(--status-waiting))",
-            "--warning-text": "hsl(var(--background))",
-            "--warning-border": "hsl(var(--status-waiting))",
-            "--error-bg": "hsl(var(--status-blocked))",
-            "--error-text": "hsl(var(--background))",
-            "--error-border": "hsl(var(--status-blocked))",
-          } as React.CSSProperties
-        }
+        toastOptions={{ duration: 3000 }}
       />
     </>
   );
