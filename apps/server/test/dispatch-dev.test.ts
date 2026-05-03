@@ -72,12 +72,16 @@ describe("dispatch-dev", () => {
     expect(state).toMatch(/DEV_API_PORT=\d+/);
     expect(state).toMatch(/DEV_API_PID=\d+/);
     expect(state).toMatch(/DEV_DB_PORT=\d+/);
+    expect(state).toContain(
+      `DEV_RELEASE_CACHE_DIR=${REPO_ROOT}/.dispatch/dev-cache/release-${SUFFIX}`
+    );
 
     // --- status ---
     const statusOutput = run("status");
     expect(statusOutput).toContain("db:   running");
     expect(statusOutput).toContain("api:  running");
     expect(statusOutput).toContain("vite:");
+    expect(statusOutput).toContain("release cache:");
 
     // --- url ---
     const urlOutput = run("url");

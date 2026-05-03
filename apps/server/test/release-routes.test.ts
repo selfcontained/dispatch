@@ -203,6 +203,32 @@ describe("release metadata route handling", () => {
     });
   });
 
+  it("does not evaluate pending migrations on /release/info for non-admin viewers", async () => {
+    mockReleaseCommands({
+      viewerPermission: "WRITE",
+      releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
+      releaseViews: {
+        "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/release/info",
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      isAdmin: false,
+      latestTag: "v0.19.0",
+      updateAvailable: true,
+      pendingMigrations: [],
+      migrationsError: null,
+    });
+    expect(evaluateMock).not.toHaveBeenCalled();
+  });
+
   it("rejects /release/update when the target release requires assisted flow", async () => {
     mockReleaseCommands({
       releaseViews: {
@@ -741,9 +767,11 @@ function validReleaseView({
 function mockReleaseCommands({
   releaseList = [],
   releaseViews = {},
+  viewerPermission = "ADMIN",
 }: {
   releaseList?: Array<{ tagName: string; isPrerelease: boolean }>;
   releaseViews?: Record<string, string>;
+  viewerPermission?: string;
 }) {
   runCommandMock.mockImplementation(
     async (
@@ -780,7 +808,7 @@ function mockReleaseCommands({
         args[1] === "view" &&
         args.includes("--jq")
       ) {
-        return { exitCode: 0, stdout: "ADMIN\n", stderr: "" };
+        return { exitCode: 0, stdout: `${viewerPermission}\n`, stderr: "" };
       }
       if (cmd === "gh" && args[0] === "release" && args[1] === "list") {
         return {

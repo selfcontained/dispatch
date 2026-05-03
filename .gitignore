@@ -20,6 +20,7 @@ artifacts/
 test-results/
 playwright-report/
 .dispatch/config.json
+.dispatch/dev-cache/
 .dispatch/worktrees/
 opencode.json
 apps/server/src/generated/runtime-assets/

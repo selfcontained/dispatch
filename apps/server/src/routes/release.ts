@@ -1,4 +1,9 @@
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
+import type {
+  FastifyBaseLogger,
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+} from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
@@ -36,6 +41,8 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
   ReleaseJob,
+  ReleaseProgress,
+  ReleaseStreamClient,
   ReleaseStreamEvent,
   ReleaseVersionType,
 } from "../server/release-runtime.js";
@@ -57,7 +64,7 @@ type ReleaseRouteDeps = {
   setActiveReleaseJob: (job: ReleaseJob | null) => void;
   getActiveAssistedUpdateLaunch: () => boolean;
   setActiveAssistedUpdateLaunch: (active: boolean) => void;
-  releaseStreamClients: Set<NodeJS.WritableStream>;
+  releaseStreamClients: Set<ReleaseStreamClient>;
   getAppVersionInfo: () => Promise<{
     releaseTag: string | null;
     version: string | null;
@@ -90,6 +97,10 @@ type ReleaseRouteDeps = {
   }) => string;
   hasActiveAssistedUpdateAgent: () => Promise<boolean>;
   broadcastReleaseEvent: (event: ReleaseStreamEvent) => void;
+  sendReleaseEventToClient: (
+    clientId: string,
+    event: ReleaseStreamEvent
+  ) => void;
   appendReleaseLog: (job: ReleaseJob, line: string) => void;
   rehydrateActiveAssistedJob: () => Promise<void>;
   runReleaseJob: (job: ReleaseJob) => Promise<void>;
@@ -108,6 +119,24 @@ export async function registerReleaseRoutes(
   app: FastifyInstance,
   deps: ReleaseRouteDeps
 ): Promise<void> {
+  const getReleaseStreamClientId = (request: FastifyRequest): string | null => {
+    const header = request.headers["x-dispatch-release-client-id"];
+    if (typeof header !== "string") return null;
+    const trimmed = header.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  const emitInfoProgress = (
+    clientId: string | null,
+    progress: ReleaseProgress | null
+  ): void => {
+    if (!clientId) return;
+    deps.sendReleaseEventToClient(clientId, {
+      type: "info-progress",
+      progress,
+    });
+  };
+
   app.get("/api/v1/app/version", async () => {
     return deps.getAppVersionInfo();
   });
@@ -118,6 +147,12 @@ export async function registerReleaseRoutes(
   });
 
   app.get("/api/v1/release/info", async (request, reply) => {
+    const releaseStreamClientId = getReleaseStreamClientId(request);
+    emitInfoProgress(releaseStreamClientId, {
+      step: "fetching-tags",
+      label: "Fetching release tags",
+      detail: "Checking origin for the latest available releases.",
+    });
     try {
       await runCommand("git", [
         "-C",
@@ -137,6 +172,11 @@ export async function registerReleaseRoutes(
       let latestTag: string | null = null;
       let absoluteLatestTag: string | null = null;
       try {
+        emitInfoProgress(releaseStreamClientId, {
+          step: "loading-release-list",
+          label: "Looking up latest release",
+          detail: `Selecting the newest ${channel} release from GitHub.`,
+        });
         const repo = await deps.getGitHubRepo();
         const ghResult = await runCommand("gh", [
           "release",
@@ -183,6 +223,11 @@ export async function registerReleaseRoutes(
       let assistedMetadata: AssistedUpdateMetadata | null = null;
       let assistedMetadataError: string | null = null;
       if (latestTag && updateAvailable) {
+        emitInfoProgress(releaseStreamClientId, {
+          step: "loading-release-notes",
+          label: `Inspecting ${latestTag}`,
+          detail: "Loading release metadata and assisted-update requirements.",
+        });
         const fullRelease = await deps.fetchLatestReleaseMetadata(latestTag);
         latestRelease = fullRelease
           ? {
@@ -208,11 +253,26 @@ export async function registerReleaseRoutes(
 
       let pendingMigrations: PendingMigrationSummary[] = [];
       let migrationsError: string | null = null;
-      if (latestTag && updateAvailable) {
+      if (latestTag && updateAvailable && isAdmin) {
         try {
           const repo = await deps.getGitHubRepo();
           const evaluation = await evaluatePendingMigrations(latestTag, {
             repo,
+            onProgress: ({ message, bytesReceived, totalBytes }) => {
+              emitInfoProgress(releaseStreamClientId, {
+                step:
+                  bytesReceived !== undefined
+                    ? "downloading-release-package"
+                    : "inspecting-release-package",
+                label:
+                  bytesReceived !== undefined
+                    ? "Downloading release package"
+                    : "Inspecting release package",
+                detail: message,
+                bytesReceived: bytesReceived ?? null,
+                totalBytes: totalBytes ?? null,
+              });
+            },
           });
           pendingMigrations = evaluation.pending.map((m) =>
             toSummary(m.manifest)
@@ -299,6 +359,8 @@ export async function registerReleaseRoutes(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return reply.code(500).send({ error: message });
+    } finally {
+      emitInfoProgress(releaseStreamClientId, null);
     }
   });
 
@@ -423,6 +485,7 @@ export async function registerReleaseRoutes(
       runUrl: null,
       tag: null,
       error: null,
+      progress: null,
     };
     deps.setActiveReleaseJob(job);
     void deps.runReleaseJob(job);
@@ -562,6 +625,7 @@ export async function registerReleaseRoutes(
       runUrl: null,
       tag,
       error: null,
+      progress: null,
     };
     deps.setActiveReleaseJob(job);
     void deps.runUpdateJob(job);
@@ -730,6 +794,7 @@ export async function registerReleaseRoutes(
           runUrl: null,
           tag: body.tag,
           error: null,
+          progress: null,
           assisted: { ...assistedState, agentId: agent.id },
         });
         deps.broadcastReleaseEvent({
@@ -827,7 +892,15 @@ export async function registerReleaseRoutes(
     return { ok: true };
   });
 
-  app.get("/api/v1/release/stream", async (_request, reply) => {
+  app.get("/api/v1/release/stream", async (request, reply) => {
+    const clientId =
+      typeof request.query === "object" &&
+      request.query !== null &&
+      "clientId" in request.query &&
+      typeof request.query.clientId === "string" &&
+      request.query.clientId.trim().length > 0
+        ? request.query.clientId.trim()
+        : "default";
     reply.raw.setHeader("Content-Type", "text/event-stream");
     reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
     reply.raw.setHeader("Connection", "keep-alive");
@@ -835,7 +908,8 @@ export async function registerReleaseRoutes(
     reply.hijack();
 
     const stream = reply.raw;
-    deps.releaseStreamClients.add(stream);
+    const client = { clientId, stream };
+    deps.releaseStreamClients.add(client);
     const heartbeat = setInterval(() => {
       stream.write(": keepalive\n\n");
     }, 20_000);
@@ -854,7 +928,7 @@ export async function registerReleaseRoutes(
 
     stream.on("close", () => {
       clearInterval(heartbeat);
-      deps.releaseStreamClients.delete(stream);
+      deps.releaseStreamClients.delete(client);
     });
   });
 }
