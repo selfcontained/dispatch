@@ -7,6 +7,10 @@ export type DiffStatsAgent = {
   worktreePath: string | null;
   cwd: string | null;
   baseBranch: string | null;
+  gitContext?: {
+    worktreePath: string;
+    isWorktree: boolean;
+  } | null;
 };
 
 const DEFAULT_WORKTREE_BASE_BRANCH = "main";
@@ -111,11 +115,15 @@ export class DiffStatsRefresher {
     let nextStats: DiffStats | null = null;
     try {
       const agent = await this.getAgent(agentId);
-      // Prefer the dispatch-managed worktreePath (set on `useWorktree=true`
-      // creates), but fall back to the agent's cwd so any agent pointed at
-      // a git working tree gets stats. `getDiffStats` returns null when
-      // the path isn't inside a repo, so this is safe.
-      const path = agent?.worktreePath ?? agent?.cwd ?? null;
+      // Prefer the dispatch-managed worktreePath. Older rows can be missing
+      // that column while still having a populated gitContext from a prior
+      // probe, so use the probed worktree path before falling back to cwd.
+      // `getDiffStats` returns null when the path isn't inside a repo.
+      const gitContextWorktreePath = agent?.gitContext?.isWorktree
+        ? agent.gitContext.worktreePath
+        : null;
+      const path =
+        agent?.worktreePath ?? gitContextWorktreePath ?? agent?.cwd ?? null;
       if (!path) {
         nextStats = null;
       } else {
@@ -125,7 +133,9 @@ export class DiffStatsRefresher {
         // forcing worktree-backed agents onto the intended default base.
         const baseRef =
           agent?.baseBranch ??
-          (agent?.worktreePath ? DEFAULT_WORKTREE_BASE_BRANCH : null);
+          (agent?.worktreePath || gitContextWorktreePath
+            ? DEFAULT_WORKTREE_BASE_BRANCH
+            : null);
         nextStats = await this.computeDiffStats(path, baseRef);
       }
     } catch (err) {
