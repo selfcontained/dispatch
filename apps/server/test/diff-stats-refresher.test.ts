@@ -292,6 +292,39 @@ describe("DiffStatsRefresher", () => {
     expect(compute).toHaveBeenCalledWith("/some/repo", "main");
   });
 
+  it("prefers gitContext.worktreePath over cwd for legacy worktree rows", async () => {
+    const agents = setupAgents([
+      [
+        "a1",
+        {
+          worktreePath: null,
+          cwd: "/shared/repo",
+          baseBranch: null,
+          gitContext: {
+            worktreePath: "/actual/worktree",
+            isWorktree: true,
+          },
+        },
+      ],
+    ]);
+    const compute = vi.fn(
+      async (): Promise<DiffStats> => ({
+        added: 7,
+        deleted: 3,
+        files: 2,
+        computedAt: Date.now(),
+      })
+    );
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: () => {},
+      computeDiffStats: compute,
+    });
+
+    await refresher.signal("a1");
+    expect(compute).toHaveBeenCalledWith("/actual/worktree", "main");
+  });
+
   it("publishes null when both worktreePath and cwd are missing", async () => {
     const agents = setupAgents([
       ["a1", { worktreePath: null, cwd: null, baseBranch: null }],
