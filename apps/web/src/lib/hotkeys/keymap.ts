@@ -12,13 +12,15 @@
 // Shifted symbol keys (e.g. ">", "<") are matched on KeyboardEvent.key, so
 // the binding works across keyboard layouts where the physical position of
 // the symbol differs.
+//
+// Hotkeys fire from anywhere in the page, including text inputs and the
+// terminal. To suppress firing inside a particular subtree (e.g. an open
+// modal that owns its own keyboard shortcuts), mark that subtree's root
+// with `data-hotkey-disable="true"`.
 
 export type HotkeyDef = {
   combo: string;
   description: string;
-  // When true, the hotkey fires even if focus is inside an editable element
-  // (inputs, textareas, contenteditable, xterm). Default false.
-  allowInInputs?: boolean;
 };
 
 export const HOTKEYS = {
@@ -33,17 +35,14 @@ export const HOTKEYS = {
   "focus-prev-agent": {
     combo: "mod+shift+up",
     description: "Focus previous agent",
-    allowInInputs: true,
   },
   "focus-next-agent": {
     combo: "mod+shift+down",
     description: "Focus next agent",
-    allowInInputs: true,
   },
   "open-command-palette": {
     combo: "mod+k",
     description: "Open command palette",
-    allowInInputs: true,
   },
 } satisfies Record<string, HotkeyDef>;
 
