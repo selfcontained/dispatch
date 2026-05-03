@@ -30,6 +30,7 @@ import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
+import { Toaster } from "sonner";
 
 type RouteHandle = {
   navSection?: NavSection;
@@ -241,6 +242,16 @@ export function DashboardLayout(): JSX.Element {
     <>
       <Outlet context={context} />
       <UpdateAvailableToast />
+      {/* Color tokens, close button, and action button styling live in
+          `index.css` under `[data-sonner-toaster]` — `richColors` is what
+          tells sonner to apply the type-specific (--success-*, --error-*,
+          etc) tokens we set there. */}
+      <Toaster
+        position="bottom-right"
+        closeButton
+        richColors
+        toastOptions={{ duration: 3000 }}
+      />
     </>
   );
 }
