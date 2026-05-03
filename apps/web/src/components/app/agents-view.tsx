@@ -529,6 +529,7 @@ export function AgentsView({
         keywords: ["pins", "media", "right"],
         hotkey: "toggle-media-sidebar",
         icon: mediaOpen ? PanelRight : PanelRightOpen,
+        disabled: !isMobile && !sidebarAgentId,
         run: () => {
           if (!isMobile && !sidebarAgentId) return;
           setMediaOpen(!mediaOpen);

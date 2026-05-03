@@ -32,6 +32,7 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      data-hotkey-disable="true"
       className={cn(
         "fixed left-1/2 top-1/2 z-[70] flex flex-col w-[min(560px,calc(100vw-2rem))] max-h-[80vh] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-hidden rounded-xl p-4",
         glassOverlay,

@@ -26,6 +26,7 @@ export type CommandAction = {
   keywords?: string[];
   hotkey?: HotkeyId;
   icon?: LucideIcon;
+  disabled?: boolean;
   run: () => void;
 };
 
@@ -137,6 +138,7 @@ function CommandPaletteItem({
     <CommandPrimitive.Item
       value={value}
       onSelect={onSelect}
+      disabled={action.disabled}
       className={cn(
         "group relative flex cursor-default select-none items-center gap-3 rounded-lg px-2 py-2 text-sm outline-none",
         "transition-colors duration-100",
