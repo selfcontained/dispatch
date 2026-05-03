@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
@@ -53,6 +54,15 @@ let createSession: typeof import("../src/auth.js").createSession;
 let sessionCookie: string;
 let tempRoot: string;
 let releaseStorePath: string;
+const rootPackageVersion = (
+  JSON.parse(
+    readFileSync(
+      path.resolve(import.meta.dirname, "../../../package.json"),
+      "utf8"
+    )
+  ) as { version: string }
+).version;
+const packagedCurrentTag = `v${rootPackageVersion}`;
 
 const uncaughtExceptionFilter = (err: Error): void => {
   if (
@@ -275,9 +285,9 @@ describe("release metadata route handling", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      currentTag: "v0.18.35",
+      currentTag: packagedCurrentTag,
       latestTag: "v0.18.36",
-      updateAvailable: true,
+      updateAvailable: compareSemverForTest("v0.18.36", packagedCurrentTag) > 0,
     });
   });
 
@@ -901,4 +911,20 @@ function mockReleaseCommands({
       throw new Error(`unexpected command: ${cmd} ${args.join(" ")}`);
     }
   );
+}
+
+function compareSemverForTest(a: string, b: string): number {
+  const parse = (value: string): number[] =>
+    value
+      .replace(/^v/, "")
+      .split(".")
+      .map((part) => Number(part));
+  const left = parse(a);
+  const right = parse(b);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] ?? 0) - (right[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
 }
