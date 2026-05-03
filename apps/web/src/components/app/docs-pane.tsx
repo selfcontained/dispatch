@@ -9,6 +9,7 @@ import {
   Monitor,
   PlugZap,
   Signal,
+  Sparkles,
   Users,
   X,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 export type DocsSection =
   | "agents"
+  | "personalities"
   | "tools"
   | "jobs"
   | "worktrees"
@@ -196,6 +198,93 @@ const SECTIONS: SectionDef[] = [
             asked whether to keep or remove the worktree. Archived agents are
             preserved in the History section of the Activity page.
           </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "personalities",
+    label: "Personalities",
+    icon: Sparkles,
+    title: "Personalities",
+    content: (
+      <>
+        <P>
+          A personality is a short block of text that Dispatch appends to every
+          regular agent's system prompt at launch. Use it for voice (
+          <em>"keep replies brief and sardonic"</em>) or standing preferences (
+          <em>
+            "prefer pnpm over npm; never run dev servers in the foreground"
+          </em>
+          ). Personalities are unrelated to <strong>Reviewers</strong> — those
+          are full prompt definitions for one-off review agents and are managed
+          separately.
+        </P>
+
+        <Section>
+          <H3>Managing personalities</H3>
+          <P>
+            Open <strong>Settings → Agents</strong>. The Personalities list is
+            at the top of the pane. Click <strong>New personality</strong> to
+            add one. Each entry has:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Name</strong> — up to 80 characters, must be unique. Shown
+              in the row and on the active toggle.
+            </li>
+            <li>
+              <strong>Prompt</strong> — up to 1000 characters. This is the text
+              appended verbatim to the agent's system prompt at launch.
+            </li>
+          </ul>
+          <P>
+            Existing entries expose <strong>Edit</strong> and{" "}
+            <strong>Delete</strong> actions inline. Edits don't affect agents
+            that have already started — the prompt is captured at launch time.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Activating</H3>
+          <P>
+            Click the radio circle on the left of a row to make a personality
+            active; click it again to deactivate. Only one personality can be
+            active at a time, and the active one applies to <em>every</em>{" "}
+            regular agent you create from then on. There is no per-agent
+            override — if no personality is active, agents launch with no
+            personality text appended.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>What it applies to</H3>
+          <P>
+            The active personality is appended at launch and on resume for every
+            standard agent regardless of CLI: it goes into Claude's{" "}
+            <Code>--append-system-prompt</Code> flag and into the launch prompt
+            for Codex and OpenCode. Terminal agents have no CLI to inject into,
+            so the personality is silently skipped.
+          </P>
+          <P>
+            Three flows intentionally <em>don't</em> get the personality, since
+            they ship their own carefully-tuned prompts and an extra voice tweak
+            risks destabilizing them:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Persona reviewers</strong> launched via{" "}
+              <Code>dispatch_launch_persona</Code> or the Reviewers UI.
+            </li>
+            <li>
+              <strong>Job runs</strong> spawned by the scheduler or a manual{" "}
+              <strong>Run now</strong>.
+            </li>
+            <li>
+              <strong>Agent-assisted update</strong> agents created from the
+              Updates pane.
+            </li>
+          </ul>
         </Section>
       </>
     ),
