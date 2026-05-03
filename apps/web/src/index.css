@@ -1002,6 +1002,17 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   --error-bg: hsl(var(--status-blocked)) !important;
   --error-text: hsl(var(--background)) !important;
   --error-border: hsl(var(--status-blocked)) !important;
+
+  /* Push the toast above the mobile bottom nav (≤600px breakpoint).
+     Sonner only consumes `--mobile-offset-bottom` inside its own
+     `@media (max-width:600px)` rule, so setting it at all sizes is
+     a no-op on desktop. The 5rem clears the nav (~52–66px including
+     its safe-area pad) plus a small breathing gap, and adding the
+     env() inset on top keeps the toast above the iOS home indicator
+     when the app is installed as a PWA with `viewport-fit=cover`. */
+  --mobile-offset-bottom: calc(
+    env(safe-area-inset-bottom, 0px) + 5rem
+  ) !important;
 }
 
 /* Pin the close + action buttons onto a dark contrasting surface so

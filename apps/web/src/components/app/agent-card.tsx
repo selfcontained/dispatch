@@ -253,7 +253,14 @@ export function AgentCard({
                     variant="ghost"
                     data-agent-control="true"
                     data-testid={`agent-prompt-rename-${agent.id}`}
-                    className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground"
+                    aria-label="Ask agent to set a session name"
+                    // Compact 24×24 visual on fine pointers (desktop), bumps
+                    // to ~40×40 on coarse pointers (touch) so the hit area
+                    // clears the rough 44px touch-target guideline. The
+                    // `[@media(pointer:coarse)]:` arbitrary variant is the
+                    // closest Tailwind 3.4 native equivalent to a `touch:`
+                    // modifier — see `index.css` for the generated rule.
+                    className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
                     disabled={renamePromptPending}
                     onClick={() => {
                       void promptAgentToRename();
