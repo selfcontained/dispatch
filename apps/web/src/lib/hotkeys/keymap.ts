@@ -40,6 +40,11 @@ export const HOTKEYS = {
     description: "Focus next agent",
     allowInInputs: true,
   },
+  "open-command-palette": {
+    combo: "mod+k",
+    description: "Open command palette",
+    allowInInputs: true,
+  },
 } satisfies Record<string, HotkeyDef>;
 
 export type HotkeyId = keyof typeof HOTKEYS;

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  PanelLeft,
+  PanelLeftOpen,
+  PanelRight,
+  PanelRightOpen,
+  Plus,
+} from "lucide-react";
 import { useAtom } from "jotai";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
@@ -44,6 +52,10 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import {
+  CommandPalette,
+  type CommandAction,
+} from "@/components/app/command-palette";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import {
   inactiveMediaSidebarStateAtom,
@@ -154,6 +166,9 @@ export function AgentsView({
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(() =>
     readExpandedAgentId()
   );
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
   const feedbackItemId =
     itemId !== undefined && Number.isInteger(Number(itemId))
@@ -498,6 +513,63 @@ export function AgentsView({
     setRequestedCreateType(typeOverride ?? null);
     setCreateOpen(true);
   }, []);
+
+  const paletteActions = useMemo<CommandAction[]>(
+    () => [
+      {
+        id: "new-agent",
+        title: "New agent",
+        keywords: ["create", "spawn", "add"],
+        icon: Plus,
+        run: () => openCreateDialog(),
+      },
+      {
+        id: "toggle-media-sidebar",
+        title: "Toggle media sidebar",
+        keywords: ["pins", "media", "right"],
+        hotkey: "toggle-media-sidebar",
+        icon: mediaOpen ? PanelRight : PanelRightOpen,
+        run: () => {
+          if (!isMobile && !sidebarAgentId) return;
+          setMediaOpen(!mediaOpen);
+        },
+      },
+      {
+        id: "toggle-agent-sidebar",
+        title: "Toggle agent sidebar",
+        keywords: ["agents", "left", "list"],
+        hotkey: "toggle-agent-sidebar",
+        icon: leftPanelOpen ? PanelLeft : PanelLeftOpen,
+        run: () => handleSetLeftPanelOpen(!leftPanelOpen),
+      },
+      {
+        id: "focus-next-agent",
+        title: "Focus next agent",
+        keywords: ["cycle", "switch", "down"],
+        hotkey: "focus-next-agent",
+        icon: ArrowDown,
+        run: () => cycleAgent(1),
+      },
+      {
+        id: "focus-prev-agent",
+        title: "Focus previous agent",
+        keywords: ["cycle", "switch", "up"],
+        hotkey: "focus-prev-agent",
+        icon: ArrowUp,
+        run: () => cycleAgent(-1),
+      },
+    ],
+    [
+      cycleAgent,
+      handleSetLeftPanelOpen,
+      isMobile,
+      leftPanelOpen,
+      mediaOpen,
+      openCreateDialog,
+      setMediaOpen,
+      sidebarAgentId,
+    ]
+  );
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
@@ -954,6 +1026,12 @@ export function AgentsView({
           />
         </GlassSidebar>
       ) : null}
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        actions={paletteActions}
+      />
 
       <CreateAgentDialog
         open={createOpen}
