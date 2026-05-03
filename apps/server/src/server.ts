@@ -117,11 +117,6 @@ import {
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
-import {
-  createGitContextRuntime,
-  percentile,
-  toIso,
-} from "./server/git-context-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
@@ -201,12 +196,6 @@ const streamManager = new StreamManager(
     uiEventBroker.publish({ type: "media.changed", agentId });
   }
 );
-const PROBE_COMMAND_TIMEOUT_MS = 800;
-const GIT_CONTEXT_REFRESH_INTERVAL_MS = 120_000;
-const GIT_CONTEXT_REFRESH_CONCURRENCY = 1;
-const GIT_CONTEXT_MIN_REQUEUE_MS = 60_000;
-const GIT_DIAGNOSTICS_HISTORY_LIMIT = 200;
-
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
 
 const ICON_COLOR_KEY = "icon_color";
@@ -236,18 +225,6 @@ const releaseRuntime = createReleaseRuntime({
   createReleaseLogStreamProcessor: (sinks, onLine) =>
     new ReleaseLogStreamProcessor(sinks, onLine),
 });
-const gitContextRuntime = createGitContextRuntime({
-  pool,
-  agentManager,
-  appLog: app.log,
-  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-  withStreamFlag,
-  probeCommandTimeoutMs: PROBE_COMMAND_TIMEOUT_MS,
-  refreshIntervalMs: GIT_CONTEXT_REFRESH_INTERVAL_MS,
-  refreshConcurrency: GIT_CONTEXT_REFRESH_CONCURRENCY,
-  minRequeueMs: GIT_CONTEXT_MIN_REQUEUE_MS,
-  diagnosticsHistoryLimit: GIT_DIAGNOSTICS_HISTORY_LIMIT,
-});
 const agentLifecycleRuntime = createAgentLifecycleRuntime({
   agentManager,
   streamManager,
@@ -255,7 +232,6 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
   reconcileIntervalMs: AGENT_STATUS_RECONCILE_INTERVAL_MS,
   withStreamFlag,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-  clearGitContextAgent: gitContextRuntime.clearAgent,
 });
 const notificationRuntime = createNotificationRuntime({
   agentManager,
@@ -278,9 +254,6 @@ const mcpHandlers = createMcpHandlers({
   agentManager,
   jobService,
   slackNotifier,
-  resolveRepoRoot: gitContextRuntime.resolveRepoRoot,
-  resolveWorktreeRoot: gitContextRuntime.resolveWorktreeRoot,
-  queueGitContextRefresh: gitContextRuntime.queue,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
@@ -425,8 +398,6 @@ async function registerRoutes() {
     getBearerToken,
     validateJobMcpToken,
     validateAgentMcpToken,
-    resolveRepoRoot: gitContextRuntime.resolveRepoRoot,
-    resolveWorktreeRoot: gitContextRuntime.resolveWorktreeRoot,
     mcpSendNotify: mcpHandlers.sendNotify,
     mcpUpsertEvent: mcpHandlers.upsertEvent,
     mcpRenameSession: mcpHandlers.renameSession,
@@ -460,17 +431,6 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    pendingGitRefreshEnqueuedAt: gitContextRuntime.pendingEnqueuedAt,
-    gitRefreshDurationsMs: gitContextRuntime.durationsMs,
-    gitRefreshAgentDiagnostics: gitContextRuntime.agentDiagnostics,
-    pendingGitRefreshAgentIds: gitContextRuntime.pendingAgentIds,
-    activeGitRefreshAgentIds: gitContextRuntime.activeAgentIds,
-    gitRefreshCounters: gitContextRuntime.counters,
-    probeCommandTimeoutMs: PROBE_COMMAND_TIMEOUT_MS,
-    gitContextRefreshIntervalMs: GIT_CONTEXT_REFRESH_INTERVAL_MS,
-    gitContextRefreshConcurrency: GIT_CONTEXT_REFRESH_CONCURRENCY,
-    percentile,
-    toIso,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     copyModeAssistManager,
   });
@@ -518,7 +478,6 @@ async function registerRoutes() {
     runReleaseJob: releaseRuntime.runReleaseJob,
     runUpdateJob: releaseRuntime.runUpdateJob,
     getBearerToken,
-    queueGitContextRefresh: gitContextRuntime.queue,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
     handleAgentError,
@@ -537,7 +496,6 @@ async function registerRoutes() {
     agentManager,
     worktreeLocationKey: WORKTREE_LOCATION_KEY,
     validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
-    queueGitContextRefresh: gitContextRuntime.queue,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>
@@ -572,8 +530,6 @@ async function registerRoutes() {
   await registerPersonaReviewRoutes(app, {
     pool,
     agentManager,
-    resolveWorktreeRoot: gitContextRuntime.resolveWorktreeRoot,
-    resolveRepoRoot: gitContextRuntime.resolveRepoRoot,
     mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpCancelRecheck: mcpHandlers.cancelRecheck,
     sendAgentPrompt: (agentId, prompt) =>
@@ -633,9 +589,14 @@ export async function initializeApp(options?: {
     // in-memory job from the on-disk state file so the operator UI
     // surfaces the in-flight phase right away.
     await releaseRuntime.rehydrateActiveAssistedJob();
+    // Warm the diff-stats cache so the first sidebar expand doesn't get a
+    // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
+    // freshness window dedupes any overlap with SSE-driven signals from
+    // agent activity that lands while warmup is still in flight.
     const agents = await agentManager.listAgents();
-    gitContextRuntime.queue(agents.map((agent) => agent.id));
-    gitContextRuntime.startLoop();
+    for (const agent of agents) {
+      void diffStatsRefresher.signal(agent.id);
+    }
     agentLifecycleRuntime.startReconcileLoop();
     authRuntime.startSessionCleanupTimer();
   }
@@ -675,7 +636,6 @@ async function cleanupAppResources(): Promise<void> {
 
   jobService.stopAllSchedulers();
   streamManager.stopAll();
-  gitContextRuntime.stopLoop();
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
 

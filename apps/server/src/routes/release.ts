@@ -97,7 +97,6 @@ type ReleaseRouteDeps = {
   getBearerToken: (request: {
     headers: { authorization?: string };
   }) => string | null;
-  queueGitContextRefresh: (agentIds: string[]) => void;
   publishUiEvent: (event: unknown) => void;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
@@ -739,7 +738,6 @@ export async function registerReleaseRoutes(
         });
       }
 
-      deps.queueGitContextRefresh([agent.id]);
       deps.publishUiEvent({
         type: "agent.upsert",
         agent: deps.withStreamFlag(agent),

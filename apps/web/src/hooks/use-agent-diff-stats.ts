@@ -11,11 +11,17 @@ export function diffStatsQueryKey(agentId: string): [string, string] {
 }
 
 /**
- * Server-pushed diff stats for one agent. The fetch on mount also nudges
- * the server-side refresher (which fans the result out via SSE), so live
- * updates flow through `agent.diff_state_changed` rather than polling.
- * `refresh()` is the tap-to-refresh entry point.
+ * Server-pushed diff stats for one agent. Live updates flow through
+ * `agent.diff_state_changed` SSE whenever the agent emits a status event,
+ * which covers the common "agent is actively working" case. While the
+ * panel is open we also poll on a slow cadence and refetch on tab focus
+ * so the badge stays current during quiet periods (no agent events) and
+ * after returning from another tab. `refresh()` is the tap-to-refresh
+ * entry point. Polling stops automatically when `enabled` flips false.
  */
+const DIFF_STATS_POLL_INTERVAL_MS = 30_000;
+const DIFF_STATS_STALE_TIME_MS = 15_000;
+
 export function useAgentDiffStats(
   agentId: string,
   enabled: boolean
@@ -34,8 +40,9 @@ export function useAgentDiffStats(
       return payload.diffStats;
     },
     enabled,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
+    refetchOnWindowFocus: true,
+    refetchInterval: DIFF_STATS_POLL_INTERVAL_MS,
+    staleTime: DIFF_STATS_STALE_TIME_MS,
   });
 
   const refresh = useCallback(() => {

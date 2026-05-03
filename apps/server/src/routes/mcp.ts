@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { JobService } from "../jobs/service.js";
+import {
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../shared/git/git-context.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 
 type McpRouteDeps = {
@@ -24,8 +28,6 @@ type McpRouteDeps = {
     bearerToken: string,
     agentId: string
   ) => boolean;
-  resolveRepoRoot: (cwd: string) => Promise<string>;
-  resolveWorktreeRoot: (cwd: string) => Promise<string>;
   mcpSendNotify: unknown;
   mcpUpsertEvent: unknown;
   mcpRenameSession: unknown;
@@ -94,8 +96,8 @@ export async function registerMcpRoutes(
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
     try {
-      repoRoot = await deps.resolveRepoRoot(agent.cwd);
-      worktreeRoot = await deps.resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(agent.cwd);
+      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
     } catch {}
 
     const jobTools = run
@@ -200,8 +202,8 @@ export async function registerMcpRoutes(
     let repoRoot: string | null = null;
     let worktreeRoot: string | null = null;
     try {
-      repoRoot = await deps.resolveRepoRoot(agent.cwd);
-      worktreeRoot = await deps.resolveWorktreeRoot(agent.cwd);
+      repoRoot = await resolveRepoRoot(agent.cwd);
+      worktreeRoot = await resolveWorktreeRoot(agent.cwd);
     } catch {}
 
     reply.hijack();

@@ -22,6 +22,10 @@ import {
   getUnmergedChanges,
   readWorktreeStatus,
 } from "../shared/git/worktree-status.js";
+import {
+  buildGitContextForWorktree,
+  probeGitContext,
+} from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
@@ -259,6 +263,51 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
+  /**
+   * Populate `git_context` for an agent at lifecycle boundaries (creation,
+   * setup-complete, restart). For dispatch-managed worktrees we already
+   * know the branch + path from row columns and only need a single git
+   * call to resolve the parent repo root; for other agents (no
+   * `worktree_path`) we run a full probe against `cwd`. Probe failures
+   * are logged and persisted as `stale = true` so the existing value
+   * (if any) stays visible in the UI rather than disappearing.
+   */
+  async populateGitContext(id: string): Promise<void> {
+    const agent = await this.getAgent(id);
+    if (!agent) return;
+
+    const result =
+      agent.worktreePath && agent.worktreeBranch
+        ? await buildGitContextForWorktree({
+            worktreePath: agent.worktreePath,
+            worktreeBranch: agent.worktreeBranch,
+          })
+        : await probeGitContext(agent.cwd);
+
+    if (result.status === "error") {
+      this.logger.warn(
+        { agentId: id },
+        "Git context probe failed; marking stale and continuing."
+      );
+      await this.pool.query(
+        `UPDATE agents SET git_context_stale = true, git_context_updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      return;
+    }
+
+    await this.pool.query(
+      `
+      UPDATE agents
+      SET git_context = $2::jsonb,
+          git_context_stale = false,
+          git_context_updated_at = NOW()
+      WHERE id = $1
+      `,
+      [id, result.value ? JSON.stringify(result.value) : null]
+    );
+  }
+
   /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
     await harvestTokenUsage(
@@ -477,6 +526,10 @@ export class AgentManager {
         `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, effectiveCwd, worktreePath, worktreeBranch]
       );
+      // Populate gitContext synchronously so the create response and the
+      // resulting agent.upsert SSE both carry it — no UI flicker waiting
+      // for a background refresh to arrive.
+      await this.populateGitContext(id);
       await this.setSystemLatestEvent(
         id,
         type === "terminal"
@@ -585,6 +638,11 @@ export class AgentManager {
       `,
       [id, result.effectiveCwd, result.worktreePath, result.worktreeBranch]
     );
+
+    // Populate gitContext now that worktree info is final, so the SSE
+    // upsert that follows setSystemLatestEvent (and the route's own
+    // upsert) carries the populated context.
+    await this.populateGitContext(id);
 
     await this.setSystemLatestEvent(
       id,
@@ -707,6 +765,10 @@ export class AgentManager {
       });
 
       await this.setAgentStatus(id, "running", null, tmuxSession);
+      // Re-populate gitContext on every restart so existing agents that
+      // predate inline-populate still get a fresh context (and any drift
+      // from external git activity gets picked up at start time).
+      await this.populateGitContext(id);
       await this.setSystemLatestEvent(
         id,
         agent.type === "terminal"
