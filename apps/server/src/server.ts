@@ -105,6 +105,7 @@ import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerReleaseRoutes } from "./routes/release.js";
+import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import {
@@ -226,6 +227,30 @@ const releaseRuntime = createReleaseRuntime({
   createReleaseLogStreamProcessor: (sinks, onLine) =>
     new ReleaseLogStreamProcessor(sinks, onLine),
 });
+const autoCheckRuntime = createAutoCheckRuntime({
+  pool,
+  computeDeps: {
+    pool,
+    serverDir,
+    getGitHubRepo: releaseRuntime.getGitHubRepo,
+    parseGhJson: releaseRuntime.parseGhJson,
+    compareSemver: releaseRuntime.compareSemver,
+    getAppVersionInfo: async () => {
+      const info = await releaseRuntime.getAppVersionInfo();
+      return { version: info.version };
+    },
+    fetchLatestReleaseMetadata: releaseRuntime.fetchLatestReleaseMetadata,
+  },
+  isApplyInProgress: releaseRuntime.hasActiveUpdateJob,
+  broadcast: (snapshot) => {
+    uiEventBroker.publish({
+      type: "release.cached_info_changed",
+      snapshot,
+    });
+  },
+  logger: app.log,
+});
+
 const agentLifecycleRuntime = createAgentLifecycleRuntime({
   agentManager,
   streamManager,
@@ -459,6 +484,12 @@ async function registerRoutes() {
     validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     getActiveReleaseJob: releaseRuntime.getActiveReleaseJob,
     setActiveReleaseJob: (job) => {
+      // When an apply starts for the same tag the snapshot advertises,
+      // clear the snapshot so the UI doesn't keep showing "vX available"
+      // alongside the in-flight install.
+      if (job && job.tag) {
+        autoCheckRuntime.clearSnapshotIfMatchesTag(job.tag);
+      }
       releaseRuntime.setActiveReleaseJob(job as ReleaseJob | null);
     },
     getActiveAssistedUpdateLaunch: releaseRuntime.getActiveAssistedUpdateLaunch,
@@ -486,6 +517,7 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
     handleAgentError,
+    autoCheck: autoCheckRuntime,
   });
 
   await registerMediaRoutes(app, {
@@ -606,6 +638,7 @@ export async function initializeApp(options?: {
     }
     agentLifecycleRuntime.startReconcileLoop();
     authRuntime.startSessionCleanupTimer();
+    autoCheckRuntime.startScheduler();
   }
   if (!routesRegistered) {
     await registerRoutes();
@@ -645,6 +678,7 @@ async function cleanupAppResources(): Promise<void> {
   streamManager.stopAll();
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
+  autoCheckRuntime.stopScheduler();
 
   notificationRuntime.clearPendingWebNotifications();
 

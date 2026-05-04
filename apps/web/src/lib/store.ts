@@ -17,6 +17,29 @@ function atomWithLocalStorage<T>(key: string, initialValue: T) {
     })()
   );
 
+  // Subscribe to cross-tab `storage` events while any consumer of this
+  // atom is mounted, so a write in tab A propagates to tab B without a
+  // reload. Same-tab writes still go through the derived setter below.
+  // (`storage` only fires for changes from *other* tabs, so there's no
+  // self-echo to worry about.)
+  baseAtom.onMount = (setSelf) => {
+    if (typeof window === "undefined") return;
+    const handle = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      if (event.newValue === null) {
+        setSelf(initialValue);
+        return;
+      }
+      try {
+        setSelf(JSON.parse(event.newValue) as T);
+      } catch {
+        // Ignore malformed payloads from other tabs — keep current state.
+      }
+    };
+    window.addEventListener("storage", handle);
+    return () => window.removeEventListener("storage", handle);
+  };
+
   const derivedAtom = atom(
     (get) => get(baseAtom),
     (_get, set, update: T | ((prev: T) => T)) => {
@@ -50,6 +73,13 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
 // atom backed by localStorage; the family caches them by trimmed cwd.
 export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
+);
+
+// Per-tag dismissal flag for the "release available" toast. Dismissing
+// vX.Y.Z prevents that toast from re-showing for the same tag, but a
+// newer tag still triggers a fresh toast on its own atom.
+export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
 export type MediaSidebarTab = "pins" | "media";

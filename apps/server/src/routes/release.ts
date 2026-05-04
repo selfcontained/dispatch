@@ -17,8 +17,18 @@ import { readReleaseStore } from "../release-store.js";
 import {
   inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
-  type AssistedUpdateMetadata,
 } from "../release-metadata.js";
+import {
+  computeReleaseInfo,
+  type ComputeReleaseInfoDeps,
+} from "../release-info.js";
+import {
+  AUTOMATIC_UPDATE_MODES,
+  isValidMode,
+  readAutomaticUpdateMode,
+  writeAutomaticUpdateMode,
+  type AutoCheckRuntime,
+} from "../release-auto-check.js";
 import {
   buildAssistedUpdateContext,
   applyAssistedPhase,
@@ -38,6 +48,65 @@ import {
   toSummary,
   type PendingMigrationSummary,
 } from "../update-migrations-evaluator.js";
+
+/**
+ * Per-viewer admin enrichment for /api/v1/release/info. Excluded from the
+ * shared snapshot because it depends on the requesting user's GitHub repo
+ * permission. Sees no auth context — the caller passes the precomputed
+ * isAdmin flag so we don't hit gh twice in one request.
+ */
+async function computeAdminExtras(input: {
+  isAdmin: boolean;
+  compareTag: string | null;
+  serverDir: string;
+}): Promise<{
+  unreleasedCount: number;
+  commits: Array<{ sha: string; subject: string }>;
+  refMissing: boolean;
+}> {
+  if (!input.isAdmin || !input.compareTag) {
+    return { unreleasedCount: 0, commits: [], refMissing: false };
+  }
+  const refCheck = await runCommand(
+    "git",
+    ["-C", input.serverDir, "rev-parse", "--verify", input.compareTag],
+    { allowedExitCodes: [0, 128] }
+  );
+  if (refCheck.exitCode !== 0) {
+    return { unreleasedCount: 0, commits: [], refMissing: true };
+  }
+  const countResult = await runCommand("git", [
+    "-C",
+    input.serverDir,
+    "rev-list",
+    `${input.compareTag}..origin/main`,
+    "--count",
+  ]);
+  const unreleasedCount = Number(countResult.stdout) || 0;
+  if (unreleasedCount === 0) {
+    return { unreleasedCount: 0, commits: [], refMissing: false };
+  }
+  const logResult = await runCommand("git", [
+    "-C",
+    input.serverDir,
+    "log",
+    `${input.compareTag}..origin/main`,
+    "--no-merges",
+    "--format=%H\t%s",
+    "--max-count=20",
+  ]);
+  const commits = logResult.stdout
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => {
+      const tab = line.indexOf("\t");
+      return {
+        sha: line.slice(0, tab).slice(0, 7),
+        subject: line.slice(tab + 1),
+      };
+    });
+  return { unreleasedCount, commits, refMissing: false };
+}
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
   ReleaseJob,
@@ -113,19 +182,13 @@ type ReleaseRouteDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
+  autoCheck: AutoCheckRuntime;
 };
 
 export async function registerReleaseRoutes(
   app: FastifyInstance,
   deps: ReleaseRouteDeps
 ): Promise<void> {
-  const deriveCurrentTag = async (): Promise<string | null> => {
-    const record = await readReleaseStore();
-    if (record?.tag) return record.tag;
-    const version = (await deps.getAppVersionInfo()).version?.trim() ?? null;
-    return version && /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : null;
-  };
-
   const getReleaseStreamClientId = (request: FastifyRequest): string | null => {
     const header = request.headers["x-dispatch-release-client-id"];
     if (typeof header !== "string") return null;
@@ -153,250 +216,111 @@ export async function registerReleaseRoutes(
     return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
   });
 
+  const computeDeps: ComputeReleaseInfoDeps = {
+    pool: deps.pool,
+    serverDir: deps.serverDir,
+    getGitHubRepo: deps.getGitHubRepo,
+    parseGhJson: deps.parseGhJson,
+    compareSemver: deps.compareSemver,
+    getAppVersionInfo: async () => {
+      const info = await deps.getAppVersionInfo();
+      return { version: info.version };
+    },
+    fetchLatestReleaseMetadata: deps.fetchLatestReleaseMetadata,
+  };
+
   app.get("/api/v1/release/info", async (request, reply) => {
     const releaseStreamClientId = getReleaseStreamClientId(request);
-    emitInfoProgress(releaseStreamClientId, {
-      step: "fetching-tags",
-      label: "Fetching release tags",
-      detail: "Checking origin for the latest available releases.",
+    const result = await computeReleaseInfo(computeDeps, {
+      logger: request.log,
+      onProgress: (progress) =>
+        emitInfoProgress(releaseStreamClientId, progress),
     });
-    try {
-      await runCommand("git", [
-        "-C",
-        deps.serverDir,
-        "fetch",
-        "origin",
-        "--tags",
-        "--quiet",
-      ]);
-
-      const currentTag = await deriveCurrentTag();
-      const isAdmin = await deps.checkIsAdmin();
-      const channelRaw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
-      const channel = channelRaw === "latest" ? "latest" : "stable";
-
-      let latestTag: string | null = null;
-      let absoluteLatestTag: string | null = null;
-      try {
-        emitInfoProgress(releaseStreamClientId, {
-          step: "loading-release-list",
-          label: "Looking up latest release",
-          detail: `Selecting the newest ${channel} release from GitHub.`,
-        });
-        const repo = await deps.getGitHubRepo();
-        const ghResult = await runCommand("gh", [
-          "release",
-          "list",
-          "--repo",
-          repo,
-          "--limit",
-          "10",
-          "--json",
-          "tagName,isPrerelease",
-        ]);
-        const allReleases = deps.parseGhJson<
-          Array<{ tagName: string; isPrerelease: boolean }>
-        >(ghResult.stdout);
-        absoluteLatestTag = allReleases[0]?.tagName ?? null;
-        latestTag =
-          channel === "stable"
-            ? (allReleases.find((r) => !r.isPrerelease)?.tagName ?? null)
-            : (allReleases[0]?.tagName ?? null);
-      } catch {
-        const tagsResult = await runCommand("git", [
-          "-C",
-          deps.serverDir,
-          "tag",
-          "--sort=-version:refname",
-        ]);
-        const fallbackTag =
-          tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
-        latestTag = fallbackTag;
-        absoluteLatestTag = fallbackTag;
-      }
-
-      const updateAvailable = !!(
-        currentTag &&
-        latestTag &&
-        deps.compareSemver(latestTag, currentTag) > 0
-      );
-      request.log.info(
-        {
-          currentTag,
-          latestTag,
-          absoluteLatestTag,
-          updateAvailable,
-          channel,
-          releaseStreamClientId,
-          isAdmin,
-        },
-        "release/info: computed release availability"
-      );
-
-      let latestRelease: {
-        tag: string;
-        publishedAt: string;
-        url: string;
-      } | null = null;
-      let assistedMetadata: AssistedUpdateMetadata | null = null;
-      let assistedMetadataError: string | null = null;
-      if (latestTag && updateAvailable) {
-        emitInfoProgress(releaseStreamClientId, {
-          step: "loading-release-notes",
-          label: `Inspecting ${latestTag}`,
-          detail: "Loading release metadata and assisted-update requirements.",
-        });
-        const fullRelease = await deps.fetchLatestReleaseMetadata(latestTag);
-        latestRelease = fullRelease
-          ? {
-              tag: fullRelease.tag,
-              publishedAt: fullRelease.publishedAt,
-              url: fullRelease.url,
-            }
-          : null;
-        const inspected = inspectAssistedUpdateMetadata(
-          fullRelease?.body ?? null
-        );
-        if (inspected.state === "invalid") {
-          assistedMetadataError = inspected.error;
-        } else if (inspected.state === "valid") {
-          assistedMetadata = inspected.metadata;
-        }
-      }
-      if (assistedMetadataError) {
-        return reply.code(500).send({
-          error: `Latest release has malformed assisted-update metadata: ${assistedMetadataError}`,
-        });
-      }
-
-      let pendingMigrations: PendingMigrationSummary[] = [];
-      let migrationsError: string | null = null;
-      if (latestTag && updateAvailable) {
-        request.log.info(
-          { tag: latestTag },
-          "release/info: evaluating pending migrations for update check"
-        );
-        try {
-          const repo = await deps.getGitHubRepo();
-          const evaluation = await evaluatePendingMigrations(latestTag, {
-            repo,
-            onProgress: ({ message, bytesReceived, totalBytes }) => {
-              request.log.info(
-                { tag: latestTag, message, bytesReceived, totalBytes },
-                "release/info: migration evaluation progress"
-              );
-              emitInfoProgress(releaseStreamClientId, {
-                step:
-                  bytesReceived !== undefined
-                    ? "downloading-release-package"
-                    : "inspecting-release-package",
-                label:
-                  bytesReceived !== undefined
-                    ? "Downloading release package"
-                    : "Inspecting release package",
-                detail: message,
-                bytesReceived: bytesReceived ?? null,
-                totalBytes: totalBytes ?? null,
-              });
-            },
-          });
-          pendingMigrations = evaluation.pending.map((m) =>
-            toSummary(m.manifest)
-          );
-          if (evaluation.errors.length > 0) {
-            migrationsError = evaluation.errors
-              .map((e) => `${e.filename}: ${e.error}`)
-              .join("; ");
-          }
-          request.log.info(
-            {
-              tag: latestTag,
-              pendingMigrationCount: pendingMigrations.length,
-              evaluationErrorCount: evaluation.errors.length,
-              migrationsError,
-            },
-            "release/info: migration evaluation complete"
-          );
-        } catch (err) {
-          migrationsError =
-            err instanceof Error ? err.message : "migration evaluation failed";
-          request.log.error(
-            { err, tag: latestTag },
-            "release/info: migration evaluation failed; UI will surface error and offer standard update fallback"
-          );
-        }
-      }
-      const assistedRequired =
-        pendingMigrations.length > 0 ||
-        (migrationsError !== null && updateAvailable) ||
-        isAssistedUpdateRequired(assistedMetadata, currentTag);
-
-      let unreleasedCount = 0;
-      let commits: Array<{ sha: string; subject: string }> = [];
-      let refMissing = false;
-      const compareTag = absoluteLatestTag ?? currentTag;
-      if (isAdmin && compareTag) {
-        const refCheck = await runCommand(
-          "git",
-          ["-C", deps.serverDir, "rev-parse", "--verify", compareTag],
-          { allowedExitCodes: [0, 128] }
-        );
-        if (refCheck.exitCode !== 0) {
-          refMissing = true;
-        } else {
-          const countResult = await runCommand("git", [
-            "-C",
-            deps.serverDir,
-            "rev-list",
-            `${compareTag}..origin/main`,
-            "--count",
-          ]);
-          unreleasedCount = Number(countResult.stdout) || 0;
-          if (unreleasedCount > 0) {
-            const logResult = await runCommand("git", [
-              "-C",
-              deps.serverDir,
-              "log",
-              `${compareTag}..origin/main`,
-              "--no-merges",
-              "--format=%H\t%s",
-              "--max-count=20",
-            ]);
-            commits = logResult.stdout
-              .split("\n")
-              .filter((line) => line.trim())
-              .map((line) => {
-                const tab = line.indexOf("\t");
-                return {
-                  sha: line.slice(0, tab).slice(0, 7),
-                  subject: line.slice(tab + 1),
-                };
-              });
-          }
-        }
-      }
-
-      return {
-        currentTag,
-        channel,
-        isAdmin,
-        latestTag,
-        updateAvailable,
-        latestRelease,
-        unreleasedCount,
-        commits,
-        refMissing,
-        assisted: assistedMetadata,
-        assistedRequired,
-        pendingMigrations,
-        migrationsError,
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return reply.code(500).send({ error: message });
-    } finally {
-      emitInfoProgress(releaseStreamClientId, null);
+    if (!result.ok) {
+      return reply.code(500).send({ error: result.error });
     }
+    const { snapshot } = result;
+    request.log.info(
+      {
+        currentTag: snapshot.currentTag,
+        latestTag: snapshot.latestTag,
+        updateAvailable: snapshot.updateAvailable,
+        channel: snapshot.channel,
+        releaseStreamClientId,
+      },
+      "release/info: computed release availability"
+    );
+
+    // Write-through into the auto-check cache so the toast/cached-info
+    // endpoint reflects the freshest classification the operator just saw —
+    // EXCEPT when an apply for this exact tag is in flight. In that case
+    // re-populating would broadcast `release.cached_info_changed` to every
+    // connected client and re-advertise the in-flight tag as "available",
+    // undoing the clear-on-apply protection. The requesting client still
+    // gets the fresh data in the response body either way.
+    const activeJob = deps.getActiveReleaseJob();
+    const isApplyingSnapshotTag =
+      activeJob !== null &&
+      (activeJob.jobType === "update" ||
+        activeJob.jobType === "update-assisted") &&
+      activeJob.tag !== null &&
+      activeJob.tag === snapshot.latestTag &&
+      !isTerminalPhase(activeJob.phase as AssistedPhase);
+    if (!isApplyingSnapshotTag) {
+      deps.autoCheck.setSnapshotForWriteThrough(snapshot);
+    }
+
+    const isAdmin = await deps.checkIsAdmin();
+    const extras = await computeAdminExtras({
+      isAdmin,
+      compareTag: snapshot.absoluteLatestTag ?? snapshot.currentTag,
+      serverDir: deps.serverDir,
+    });
+
+    return {
+      currentTag: snapshot.currentTag,
+      channel: snapshot.channel,
+      isAdmin,
+      latestTag: snapshot.latestTag,
+      updateAvailable: snapshot.updateAvailable,
+      latestRelease: snapshot.latestRelease,
+      unreleasedCount: extras.unreleasedCount,
+      commits: extras.commits,
+      refMissing: extras.refMissing,
+      assisted: snapshot.assisted,
+      assistedRequired: snapshot.assistedRequired,
+      pendingMigrations: snapshot.pendingMigrations,
+      migrationsError: snapshot.migrationsError,
+    };
+  });
+
+  app.get("/api/v1/release/cached-info", async () => {
+    const snapshot = deps.autoCheck.getSnapshot();
+    return { snapshot };
+  });
+
+  app.get("/api/v1/release/auto-update-mode", async () => {
+    const mode = await readAutomaticUpdateMode(deps.pool);
+    return { mode };
+  });
+
+  app.post("/api/v1/release/auto-update-mode", async (request, reply) => {
+    const body = request.body as { mode?: unknown } | undefined;
+    if (!isValidMode(body?.mode)) {
+      return reply.code(400).send({
+        error: `mode must be one of: ${AUTOMATIC_UPDATE_MODES.join(", ")}`,
+      });
+    }
+    const nextMode = body!.mode as never;
+    await writeAutomaticUpdateMode(deps.pool, nextMode);
+    // Flipping into "check" mode is an explicit "I want to know about
+    // updates" signal — fire a check immediately rather than waiting up
+    // to 6h for the next interval. The auto-check runtime's single
+    // flight handles overlap if a check is already running.
+    if (nextMode === "check") {
+      void deps.autoCheck.runAutoCheckOnce("mode-enabled");
+    }
+    return { mode: body!.mode };
   });
 
   app.get("/api/v1/release/channel", async () => {
@@ -416,6 +340,13 @@ export async function registerReleaseRoutes(
       });
     }
     await setSetting(deps.pool, RELEASE_CHANNEL_KEY, body.channel as string);
+    // The cached snapshot was computed for the previous channel; it's
+    // stale the moment the operator switches. Fire an immediate
+    // background check for the new channel so the page (and toast)
+    // pick up the right state without waiting up to 6h for the next
+    // interval. Fire-and-forget — the broadcast on completion drives
+    // the UI, the HTTP response just confirms the setting persisted.
+    void deps.autoCheck.runAutoCheckOnce("channel-change");
     return { channel: body.channel };
   });
 

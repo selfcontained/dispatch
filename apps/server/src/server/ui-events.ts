@@ -1,4 +1,5 @@
 import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
+import type { ReleaseInfoSnapshot } from "../release-info.js";
 import type { DiffStats } from "../shared/git/diff-stats.js";
 import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
 
@@ -38,6 +39,10 @@ export type UiEvent =
       agentName: string;
       eventType: string;
       message: string;
+    }
+  | {
+      type: "release.cached_info_changed";
+      snapshot: ReleaseInfoSnapshot | null;
     };
 
 export class UiEventBroker {

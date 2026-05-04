@@ -27,6 +27,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import {
   AssistedUpdateGate,
@@ -42,6 +49,10 @@ import {
 } from "@/hooks/use-release-stream";
 import { api } from "@/lib/api";
 import { agentRoute } from "@/lib/agent-routes";
+import {
+  useCachedReleaseInfo,
+  type ReleaseInfoSnapshot,
+} from "@/hooks/use-cached-release-info";
 import { clearCachesAndReload, reloadApp } from "@/lib/pwa-update";
 import { cn } from "@/lib/utils";
 
@@ -161,7 +172,9 @@ function progressPercent(progress: ReleaseProgress | null): number | null {
   return Math.min(100, (progress.bytesReceived / progress.totalBytes) * 100);
 }
 
-function describeForceTriggers(info: ReleaseInfo): string {
+function describeForceTriggers(
+  info: ReleaseInfo | ReleaseInfoSnapshot
+): string {
   const migrationCount = info.pendingMigrations?.length ?? 0;
   // Migrations are the concrete signal — when present the user already
   // sees them spelled out in the gate card, so the dialog references the
@@ -202,6 +215,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [channel, setChannel] = useState<ReleaseChannel>("stable");
   const [channelSaving, setChannelSaving] = useState(false);
+  const [autoUpdateMode, setAutoUpdateMode] = useState<"off" | "check">(
+    "check"
+  );
+  const [autoUpdateSaving, setAutoUpdateSaving] = useState(false);
   const [info, setInfo] = useState<ReleaseInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -210,6 +227,27 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
+
+  const cachedInfoQuery = useCachedReleaseInfo();
+  const cachedSnapshot = cachedInfoQuery.data?.snapshot ?? null;
+
+  // Prefer the live ReleaseInfo from a manual check (which carries admin
+  // enrichment) when present; otherwise fall back to the cached snapshot
+  // from the server's auto-check. Both shapes share every field this
+  // component renders — admin-only fields live on ReleaseInfo and aren't
+  // read here, so the union type is intentionally narrow on purpose: any
+  // future admin-only addition will require an explicit type widening.
+  //
+  // The cached snapshot is filtered to the current `channel`: if the
+  // user just switched Stable→Latest (or vice versa) the snapshot from
+  // the previous channel is stale and should not render until a fresh
+  // check for the new channel populates it.
+  const cachedSnapshotForChannel =
+    cachedSnapshot && cachedSnapshot.channel === channel
+      ? cachedSnapshot
+      : null;
+  const displayInfo: ReleaseInfo | ReleaseInfoSnapshot | null =
+    info ?? cachedSnapshotForChannel;
 
   // Fetch version info + channel on mount
   useEffect(() => {
@@ -224,10 +262,33 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         if (!cancelled) setChannel(data.channel);
       })
       .catch(() => {});
+    void api<{ mode: "off" | "check" }>("/api/v1/release/auto-update-mode")
+      .then((data) => {
+        if (!cancelled) setAutoUpdateMode(data.mode);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const handleAutoUpdateModeChange = useCallback(
+    async (next: "off" | "check") => {
+      setAutoUpdateMode(next);
+      setAutoUpdateSaving(true);
+      try {
+        await api("/api/v1/release/auto-update-mode", {
+          method: "POST",
+          body: JSON.stringify({ mode: next }),
+        });
+      } catch {
+        setAutoUpdateMode((prev) => (prev === "off" ? "check" : "off"));
+      } finally {
+        setAutoUpdateSaving(false);
+      }
+    },
+    []
+  );
 
   const handleChannelChange = useCallback(async (value: ReleaseChannel) => {
     setChannel(value);
@@ -521,6 +582,45 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         </div>
       </div>
 
+      {/* Automatic updates */}
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Automatic updates
+        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          When on, Dispatch periodically checks for new releases and notifies
+          you. Updates never install automatically.
+        </p>
+        <div
+          className={cn(
+            "inline-block min-w-[14rem]",
+            autoUpdateSaving && "opacity-50 pointer-events-none"
+          )}
+        >
+          <Select
+            value={autoUpdateMode}
+            onValueChange={(value) =>
+              void handleAutoUpdateModeChange(value as "off" | "check")
+            }
+          >
+            <SelectTrigger
+              data-testid="auto-update-mode-select"
+              className="w-full"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off" data-testid="auto-update-mode-off">
+                Off
+              </SelectItem>
+              <SelectItem value="check" data-testid="auto-update-mode-check">
+                Automatically check
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Check for updates */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -576,28 +676,28 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           </div>
         )}
 
-        {info && (
+        {displayInfo && (
           <>
-            {info.updateAvailable && info.latestTag ? (
+            {displayInfo.updateAvailable && displayInfo.latestTag ? (
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <ArrowDownToLine className="h-4 w-4 text-blue-400" />
                   <span className="text-sm text-foreground">
                     <span className="font-mono font-semibold">
-                      {info.latestTag}
+                      {displayInfo.latestTag}
                     </span>{" "}
                     available
                   </span>
-                  {info.latestRelease?.publishedAt && (
+                  {displayInfo.latestRelease?.publishedAt && (
                     <span className="text-xs text-muted-foreground">
-                      · {formatDate(info.latestRelease.publishedAt)}
+                      · {formatDate(displayInfo.latestRelease.publishedAt)}
                     </span>
                   )}
                 </div>
 
-                {info.latestRelease?.url && (
+                {displayInfo.latestRelease?.url && (
                   <a
-                    href={info.latestRelease.url}
+                    href={displayInfo.latestRelease.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
@@ -613,7 +713,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </div>
                 )}
 
-                {info.migrationsError && (
+                {displayInfo.migrationsError && (
                   <div
                     className="flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-sm text-amber-200"
                     data-testid="migration-eval-warning"
@@ -624,7 +724,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                         Could not evaluate update migrations
                       </span>
                       <span className="max-h-24 overflow-y-auto break-all text-xs text-amber-200/80">
-                        {info.migrationsError}
+                        {displayInfo.migrationsError}
                       </span>
                       <span className="text-xs text-amber-200/60">
                         Standard update is still available — the assisted flow
@@ -640,41 +740,42 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   unapplied install-update migrations; assisted-metadata card
                   shows when the release declares mode=required/recommended.
                 */}
-                {info.pendingMigrations &&
-                  info.pendingMigrations.length > 0 && (
+                {displayInfo.pendingMigrations &&
+                  displayInfo.pendingMigrations.length > 0 && (
                     <PendingMigrationsGate
-                      tag={info.latestTag}
-                      pendingMigrations={info.pendingMigrations}
+                      tag={displayInfo.latestTag}
+                      pendingMigrations={displayInfo.pendingMigrations}
                     />
                   )}
-                {info.assisted && info.assisted.mode !== "normal" && (
-                  <AssistedUpdateGate
-                    tag={info.latestTag}
-                    metadata={info.assisted}
-                    required={info.assistedRequired === true}
-                  />
-                )}
+                {displayInfo.assisted &&
+                  displayInfo.assisted.mode !== "normal" && (
+                    <AssistedUpdateGate
+                      tag={displayInfo.latestTag}
+                      metadata={displayInfo.assisted}
+                      required={displayInfo.assistedRequired === true}
+                    />
+                  )}
 
                 {(() => {
                   const assistedPreferred =
-                    info.assistedRequired === true ||
-                    (info.pendingMigrations?.length ?? 0) > 0 ||
-                    info.assisted?.mode === "recommended";
+                    displayInfo.assistedRequired === true ||
+                    (displayInfo.pendingMigrations?.length ?? 0) > 0 ||
+                    displayInfo.assisted?.mode === "recommended";
                   return (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 self-start">
                       <UpdateActions
-                        tag={info.latestTag}
+                        tag={displayInfo.latestTag}
                         assistedPreferred={assistedPreferred}
                         forceRequired={
-                          info.assistedRequired === true ||
-                          (info.pendingMigrations?.length ?? 0) > 0
+                          displayInfo.assistedRequired === true ||
+                          (displayInfo.pendingMigrations?.length ?? 0) > 0
                         }
                         assistedLaunching={assistedUpdateLaunching}
                         onStandardUpdate={() =>
-                          void handleUpdate(info.latestTag!)
+                          void handleUpdate(displayInfo.latestTag!)
                         }
                         onAssistedUpdate={() =>
-                          void handleAssistedUpdate(info.latestTag!)
+                          void handleAssistedUpdate(displayInfo.latestTag!)
                         }
                         onForceStandardUpdate={() => setForceConfirmOpen(true)}
                       />
@@ -734,7 +835,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         </div>
       </div>
 
-      {info?.updateAvailable && info.latestTag && (
+      {displayInfo?.updateAvailable && displayInfo.latestTag && (
         <Dialog open={forceConfirmOpen} onOpenChange={setForceConfirmOpen}>
           <DialogContent>
             <DialogHeader>
@@ -745,10 +846,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
               <span>
                 <span className="font-mono text-amber-100">
-                  {info.latestTag}
+                  {displayInfo.latestTag}
                 </span>{" "}
-                {describeForceTriggers(info)}. This may leave your install in a
-                non-working state.
+                {describeForceTriggers(displayInfo)}. This may leave your
+                install in a non-working state.
               </span>
             </div>
 
@@ -757,7 +858,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                 variant="primary"
                 onClick={() => {
                   setForceConfirmOpen(false);
-                  void handleUpdate(info.latestTag!, { force: true });
+                  void handleUpdate(displayInfo.latestTag!, { force: true });
                 }}
                 data-testid="force-standard-update-confirm"
               >

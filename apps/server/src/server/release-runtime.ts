@@ -891,10 +891,22 @@ Suggested workflow:
     }
   }
 
+  function hasActiveUpdateJob(): boolean {
+    if (!activeReleaseJob) return false;
+    if (
+      activeReleaseJob.jobType !== "update" &&
+      activeReleaseJob.jobType !== "update-assisted"
+    ) {
+      return false;
+    }
+    return !deps.isTerminalPhase(activeReleaseJob.phase as AssistedPhase);
+  }
+
   return {
     RELEASE_VERSION_TYPES,
     getAppVersionInfo,
     getActiveReleaseJob: () => activeReleaseJob,
+    hasActiveUpdateJob,
     setActiveReleaseJob: (job: ReleaseJob | null) => {
       activeReleaseJob = job;
     },
