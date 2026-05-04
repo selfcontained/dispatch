@@ -252,8 +252,23 @@ export async function registerReleaseRoutes(
     );
 
     // Write-through into the auto-check cache so the toast/cached-info
-    // endpoint reflects the freshest classification the operator just saw.
-    deps.autoCheck.setSnapshotForWriteThrough(snapshot);
+    // endpoint reflects the freshest classification the operator just saw —
+    // EXCEPT when an apply for this exact tag is in flight. In that case
+    // re-populating would broadcast `release.cached_info_changed` to every
+    // connected client and re-advertise the in-flight tag as "available",
+    // undoing the clear-on-apply protection. The requesting client still
+    // gets the fresh data in the response body either way.
+    const activeJob = deps.getActiveReleaseJob();
+    const isApplyingSnapshotTag =
+      activeJob !== null &&
+      (activeJob.jobType === "update" ||
+        activeJob.jobType === "update-assisted") &&
+      activeJob.tag !== null &&
+      activeJob.tag === snapshot.latestTag &&
+      !isTerminalPhase(activeJob.phase as AssistedPhase);
+    if (!isApplyingSnapshotTag) {
+      deps.autoCheck.setSnapshotForWriteThrough(snapshot);
+    }
 
     const isAdmin = await deps.checkIsAdmin();
     const extras = await computeAdminExtras({
