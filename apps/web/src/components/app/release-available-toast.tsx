@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
 import { ArrowDownToLine, ShieldAlert } from "lucide-react";
@@ -80,9 +80,36 @@ export function ReleaseAvailableToast(): null {
   const dismissed = useAtomValue(dismissedAtom);
   const setDismissed = useSetAtom(dismissedAtom);
 
+  // Track the tag of the toast that's currently visible on screen so we
+  // can dismiss it explicitly when the snapshot transitions out of the
+  // "show" state — instead of via effect cleanup, which would dismiss
+  // and recreate on every dep change and produce a visible flicker.
+  const shownTagRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!snapshot || !snapshot.updateAvailable || !tag) return;
-    if (dismissed) return;
+    const wantsToShow =
+      snapshot !== null &&
+      snapshot.updateAvailable &&
+      tag !== null &&
+      !dismissed;
+
+    // Tag changed (or we no longer want to show): retire the prior toast.
+    const prevTag = shownTagRef.current;
+    if (prevTag !== null && prevTag !== tag) {
+      toast.dismiss(`${TOAST_ID_PREFIX}${prevTag}`);
+      shownTagRef.current = null;
+    }
+
+    if (!wantsToShow) {
+      // Conditions no longer met for the *current* tag (e.g. user
+      // dismissed, or updateAvailable flipped to false). Make sure
+      // anything we previously rendered is gone.
+      if (prevTag !== null && prevTag === tag) {
+        toast.dismiss(`${TOAST_ID_PREFIX}${tag}`);
+        shownTagRef.current = null;
+      }
+      return;
+    }
 
     const variant = classifyVariant(snapshot);
     const { title, primaryLabel, secondaryLabel } = copyForVariant(
@@ -91,6 +118,9 @@ export function ReleaseAvailableToast(): null {
     );
     const toastId = `${TOAST_ID_PREFIX}${tag}`;
 
+    // Sonner dedupes by id — calling toast(...) again with the same id
+    // updates the existing toast in place rather than creating a new
+    // one, so re-renders don't flicker.
     toast(title, {
       id: toastId,
       duration: Infinity,
@@ -135,14 +165,19 @@ export function ReleaseAvailableToast(): null {
           setDismissed(true);
         },
       },
-      onDismiss: () => {
-        setDismissed(true);
-      },
+      // Intentionally no `onDismiss` callback. Sonner fires it for BOTH
+      // user-initiated dismissals AND programmatic `toast.dismiss(id)`,
+      // so wiring it to setDismissed would treat every transition as a
+      // user dismissal. The cancel button above is the canonical
+      // "user said Later" signal.
     });
 
-    return () => {
-      toast.dismiss(toastId);
-    };
+    shownTagRef.current = tag;
+
+    // No effect-cleanup dismissal — transitions are handled at the top of
+    // the next effect run via shownTagRef. This avoids the
+    // dismiss-and-recreate flicker that happens when React Query produces
+    // a new snapshot reference with identical content.
   }, [snapshot, tag, dismissed, navigate, setDismissed]);
 
   return null;
