@@ -27,7 +27,7 @@ Vite frontend — all on auto-selected free ports.
 Commands:
   up        Start DB + API server + Vite frontend
   down      Stop all dev services and remove the DB container
-  restart   Tear down and re-create the environment
+  restart   Restart the API + Vite servers, keeping the DB intact
   status    Show which services are running
   logs      Show recent output (default: api; use --vite or --db)
   url       Print the dev server URL
@@ -388,6 +388,62 @@ cmd_down() {
   echo "Dev environment torn down (suffix: ${SUFFIX})."
 }
 
+# Returns 0 when the postgres container for the loaded state is
+# running and healthy. Caller is expected to have invoked load_state.
+db_container_running() {
+  if [ "${DEV_NO_DB:-0}" = "1" ] || [ -z "${DEV_CONTAINER_SUFFIX:-}" ]; then
+    return 1
+  fi
+  local container_name="dispatch-postgres-${DEV_CONTAINER_SUFFIX}"
+  docker ps -q -f "name=${container_name}" 2>/dev/null | grep -q .
+}
+
+# Soft restart: cycle API + Vite while leaving the DB container running.
+# Falls back to a full teardown + cmd_up if there's no usable state or
+# the DB isn't actually running.
+cmd_restart() {
+  if ! load_state 2>/dev/null; then
+    echo "No state file found for suffix '${SUFFIX}'. Falling back to a fresh up."
+    cmd_up
+    return
+  fi
+  if [ "${DEV_NO_DB:-0}" != "1" ] && ! db_container_running; then
+    echo "DB container is gone — falling back to a fresh up (this will reseed)."
+    cmd_down 2>/dev/null || true
+    cmd_up
+    return
+  fi
+
+  # Stop the app processes only — DB stays up.
+  stop_service "${DEV_API_PID:-}" "API server"
+  stop_service "${DEV_VITE_PID:-}" "Vite server"
+
+  # Re-launch on the same ports so any open browser tabs reconnect
+  # without a manual refresh, and so the DATABASE_URL we assemble
+  # below still points at the running container.
+  RESTART_DB_PORT="${DEV_DB_PORT:-}"
+  RESTART_API_PORT="${DEV_API_PORT:-}"
+  RESTART_VITE_PORT="${DEV_VITE_PORT:-}"
+
+  # Restore the OPT_* flags from saved state so cmd_up branches
+  # consistently with the previous run.
+  [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
+  [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
+  [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
+
+  # Always skip seeding on restart — the DB already has the data the
+  # last seed produced, and re-running would either duplicate rows or
+  # crash on existing-row constraints.
+  OPT_NO_SEED="1"
+
+  # Drop the live state file so cmd_up's "stack already running" check
+  # falls through to the fresh-up path. Logs are preserved (handy for
+  # before/after diff after picking up code changes).
+  rm -f "$(state_file)"
+
+  cmd_up
+}
+
 cmd_status() {
   if ! load_state; then
     echo "No dev environment found for suffix '${SUFFIX}'."
@@ -534,21 +590,7 @@ SUFFIX="$(resolve_suffix)"
 case "$CMD" in
   up)       cmd_up ;;
   down)     cmd_down ;;
-  restart)
-    # Restore flags and ports from previous state if not explicitly set
-    if load_state 2>/dev/null; then
-      [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
-      [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
-      [ "$OPT_NO_SEED" = "0" ] && [ "${DEV_NO_SEED:-0}" = "1" ] && OPT_NO_SEED="1"
-      [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
-      # Preserve ports so restart reuses them
-      RESTART_DB_PORT="${DEV_DB_PORT:-}"
-      RESTART_API_PORT="${DEV_API_PORT:-}"
-      RESTART_VITE_PORT="${DEV_VITE_PORT:-}"
-    fi
-    cmd_down 2>/dev/null || true
-    cmd_up
-    ;;
+  restart)  cmd_restart ;;
   status)   cmd_status ;;
   logs)     cmd_logs ;;
   url)      cmd_url ;;
