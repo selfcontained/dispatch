@@ -7,6 +7,7 @@ import {
   type ComputeReleaseInfoDeps,
   type ReleaseInfoSnapshot,
 } from "./release-info.js";
+import { pruneCacheExcept } from "./release-tarball-cache.js";
 
 export const AUTOMATIC_UPDATE_MODE_KEY = "automatic_update_mode";
 export const AUTOMATIC_UPDATE_MODES = ["off", "check"] as const;
@@ -152,6 +153,26 @@ export function createAutoCheckRuntime(deps: AutoCheckRuntimeDeps) {
       }
       snapshot = result.snapshot;
       emitBroadcast();
+
+      // Prune the local release-tarball cache to the tags we still
+      // need: the install's current tag, plus the latest discovered
+      // tag (the one a future apply would target). Without this,
+      // long-lived installs that keep checking but never upgrade
+      // accumulate one tarball per newly shipped release indefinitely.
+      // Skip if an apply started during the compute window — its own
+      // post-deploy prune will run with the right keep-set.
+      if (!deps.isApplyInProgress()) {
+        const tagsToKeep = [
+          result.snapshot.currentTag,
+          result.snapshot.latestTag,
+        ].filter((t): t is string => t !== null);
+        if (tagsToKeep.length > 0) {
+          await pruneCacheExcept(tagsToKeep).catch((err) => {
+            deps.logger.warn({ err }, "auto-update: cache prune failed");
+          });
+        }
+      }
+
       return { ok: true, snapshot: result.snapshot };
     })();
     inflight = promise;

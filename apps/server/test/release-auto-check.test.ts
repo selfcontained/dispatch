@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { computeMock, getSettingMock, setSettingMock } = vi.hoisted(() => ({
-  computeMock: vi.fn(),
-  getSettingMock: vi.fn(),
-  setSettingMock: vi.fn(),
-}));
+const { computeMock, getSettingMock, setSettingMock, pruneCacheMock } =
+  vi.hoisted(() => ({
+    computeMock: vi.fn(),
+    getSettingMock: vi.fn(),
+    setSettingMock: vi.fn(),
+    pruneCacheMock: vi.fn(async () => {}),
+  }));
 
 vi.mock("../src/release-info.js", () => ({
   computeReleaseInfo: computeMock,
@@ -13,6 +15,14 @@ vi.mock("../src/release-info.js", () => ({
 vi.mock("../src/db/settings.js", () => ({
   getSetting: getSettingMock,
   setSetting: setSettingMock,
+}));
+
+// Stub the tarball-cache prune so unit tests don't touch the host's real
+// `~/.dispatch/cache/` directory. The auto-check now calls it after
+// every successful check; without this mock, running the suite would
+// remove the user's actual cached release tarballs.
+vi.mock("../src/release-tarball-cache.js", () => ({
+  pruneCacheExcept: pruneCacheMock,
 }));
 
 import {
@@ -88,6 +98,8 @@ describe("createAutoCheckRuntime.runAutoCheckOnce", () => {
     computeMock.mockReset();
     getSettingMock.mockReset();
     setSettingMock.mockReset();
+    pruneCacheMock.mockReset();
+    pruneCacheMock.mockImplementation(async () => {});
   });
 
   it("skips when mode=off", async () => {
@@ -211,6 +223,40 @@ describe("createAutoCheckRuntime.runAutoCheckOnce", () => {
     expect(runtime.getSnapshot()).toBeNull();
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith(null);
+  });
+
+  it("prunes the tarball cache to currentTag + latestTag after a successful check", async () => {
+    getSettingMock.mockResolvedValue("check");
+    computeMock.mockResolvedValueOnce({ ok: true, snapshot: baseSnapshot });
+    const runtime = createAutoCheckRuntime({
+      pool: fakePool,
+      computeDeps: fakeComputeDeps,
+      isApplyInProgress: () => false,
+      broadcast: () => {},
+      logger: noopLogger,
+    });
+    await runtime.runAutoCheckOnce("startup");
+    expect(pruneCacheMock).toHaveBeenCalledTimes(1);
+    expect(pruneCacheMock).toHaveBeenCalledWith(["v0.18.41", "v0.18.42"]);
+  });
+
+  it("skips pruning when an apply starts during the compute window", async () => {
+    getSettingMock.mockResolvedValue("check");
+    computeMock.mockResolvedValueOnce({ ok: true, snapshot: baseSnapshot });
+    let applyInProgress = false;
+    const runtime = createAutoCheckRuntime({
+      pool: fakePool,
+      computeDeps: fakeComputeDeps,
+      // Toggle to true once the compute resolves but before the prune
+      // step decides whether to fire.
+      isApplyInProgress: () => applyInProgress,
+      broadcast: () => {
+        applyInProgress = true;
+      },
+      logger: noopLogger,
+    });
+    await runtime.runAutoCheckOnce("startup");
+    expect(pruneCacheMock).not.toHaveBeenCalled();
   });
 
   it("preserves snapshot and does not broadcast on apply for a different tag", async () => {

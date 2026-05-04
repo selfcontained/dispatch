@@ -436,12 +436,30 @@ cmd_restart() {
   # crash on existing-row constraints.
   OPT_NO_SEED="1"
 
-  # Drop the live state file so cmd_up's "stack already running" check
-  # falls through to the fresh-up path. Logs are preserved (handy for
-  # before/after diff after picking up code changes).
-  rm -f "$(state_file)"
+  # Move the state file aside (instead of deleting it) so that if
+  # cmd_up fails — port conflict, runtime crash, missing dep — the
+  # caller can still `dispatch-dev down` and find the still-running
+  # postgres container. cmd_up writes a fresh state on success; on
+  # failure the EXIT trap restores the backup.
+  local sf="$(state_file)"
+  local sf_backup="${sf}.restart-backup"
+  mv "$sf" "$sf_backup"
+
+  # `set -e` will abort the function on cmd_up failure, so the trap
+  # is the only place the backup gets restored on error. On success
+  # we clear the trap and remove the backup explicitly.
+  # shellcheck disable=SC2064
+  trap "
+    if [ -f \"$sf_backup\" ] && [ ! -f \"$sf\" ]; then
+      mv \"$sf_backup\" \"$sf\"
+      echo 'Restart aborted; restored prior state file so dispatch-dev down can clean up.' >&2
+    fi
+  " EXIT
 
   cmd_up
+
+  rm -f "$sf_backup"
+  trap - EXIT
 }
 
 cmd_status() {
