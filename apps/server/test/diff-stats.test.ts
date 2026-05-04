@@ -201,6 +201,29 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 16, deleted: 3, files: 3 });
   });
 
+  it("excludes common lockfiles from tracked and untracked diff counts", async () => {
+    const worktreePath = tempRoot;
+    await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "ignored\n");
+    await mkdir(path.join(worktreePath, "nested"), { recursive: true });
+    await writeFile(
+      path.join(worktreePath, "nested", "Cargo.lock"),
+      "ignored\n"
+    );
+    await writeFile(path.join(worktreePath, "notes.txt"), "keep\nme\n");
+
+    const runCommand = withCommands(worktreePath, "main", {
+      [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+        ok(
+          "100\t250\tpnpm-lock.yaml\n50\t20\tnested/Cargo.lock\n4\t1\tsrc/foo.ts"
+        ),
+      [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
+        ok("pnpm-lock.yaml\nnested/Cargo.lock\nnotes.txt"),
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toMatchObject({ added: 6, deleted: 1, files: 2 });
+  });
+
   it("falls back to origin/main when the requested baseRef does not resolve", async () => {
     const worktreePath = tempRoot;
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
