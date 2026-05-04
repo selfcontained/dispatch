@@ -52,6 +52,13 @@ export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
 );
 
+// Per-tag dismissal flag for the "release available" toast. Dismissing
+// vX.Y.Z prevents that toast from re-showing for the same tag, but a
+// newer tag still triggers a fresh toast on its own atom.
+export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
+);
+
 export type MediaSidebarTab = "pins" | "media";
 
 export type MediaSidebarState = {

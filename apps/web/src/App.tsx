@@ -29,6 +29,7 @@ import {
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { agentRoute } from "@/lib/agent-routes";
+import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 import { Toaster } from "sonner";
 
@@ -241,6 +242,7 @@ export function DashboardLayout(): JSX.Element {
   return (
     <>
       <Outlet context={context} />
+      <ReleaseAvailableToast />
       <UpdateAvailableToast />
       {/* Color tokens, close button, and action button styling live in
           `index.css` under `[data-sonner-toaster]` — `richColors` is what

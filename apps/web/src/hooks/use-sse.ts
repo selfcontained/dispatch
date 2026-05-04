@@ -11,6 +11,10 @@ import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
+import {
+  CACHED_RELEASE_INFO_QUERY_KEY,
+  type ReleaseInfoSnapshot,
+} from "@/hooks/use-cached-release-info";
 
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
@@ -41,6 +45,10 @@ type UiEvent =
       agentName: string;
       eventType: string;
       message: string;
+    }
+  | {
+      type: "release.cached_info_changed";
+      snapshot: ReleaseInfoSnapshot | null;
     };
 
 function patchAgentHasStream(
@@ -176,6 +184,13 @@ export function useSSE(authState: AuthState): void {
               keepalive: true,
             }).catch(() => {});
           }
+          return;
+        }
+
+        if (payload.type === "release.cached_info_changed") {
+          queryClient.setQueryData(CACHED_RELEASE_INFO_QUERY_KEY, {
+            snapshot: payload.snapshot,
+          });
           return;
         }
       } catch {}
