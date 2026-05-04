@@ -118,21 +118,16 @@ export function ReleaseAvailableToast(): null {
     );
     const toastId = `${TOAST_ID_PREFIX}${tag}`;
 
-    // Sonner dedupes by id — calling the same variant function again
-    // with the same id updates the existing toast in place rather than
-    // creating a new one, so re-renders don't flicker.
+    // Sonner dedupes by id — calling toast.info again with the same id
+    // updates the existing toast in place rather than creating a new
+    // one, so re-renders don't flicker.
     //
-    // Variant mapping ties the toast's color treatment to the spec's
-    // assisted-update classification, picking up the
-    // info/warning/success/error tokens defined in index.css under
-    // `[data-sonner-toaster][data-sonner-theme]`:
-    //   - standard   → toast.info     (informational, blue surface)
-    //   - recommended → toast.warning (operator should pay attention,
-    //                                  amber surface)
-    //   - required   → toast.warning (same surface; ShieldAlert icon
-    //                                  carries the stronger signal)
-    const toastFn = variant === "standard" ? toast.info : toast.warning;
-    toastFn(title, {
+    // All three variants use the info surface (blue) — an update being
+    // available is informational, not a warning or error. The
+    // distinction between standard / recommended / required is carried
+    // by the title copy and the icon swap (ArrowDownToLine vs
+    // ShieldAlert for the required case).
+    toast.info(title, {
       id: toastId,
       duration: Infinity,
       icon:
