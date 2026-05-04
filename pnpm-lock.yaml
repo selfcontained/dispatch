@@ -179,6 +179,9 @@ importers:
       react-router-dom:
         specifier: ^7.14.0
         version: 7.14.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-slot-counter:
+        specifier: ^3.3.3
+        version: 3.3.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       recharts:
         specifier: ^3.8.1
         version: 3.8.1(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react-is@16.13.1)(react@18.3.1)(redux@5.0.1)
@@ -7186,6 +7189,16 @@ packages:
       react-dom:
         optional: true
 
+  react-slot-counter@3.3.3:
+    resolution:
+      {
+        integrity: sha512-sB5qwYmDFgYZsiG6zloSjzvJzYeeZgV5f/tHWdb8tKB+Jq6+NanvUV5Qbrii34TVP+ZFBeoI33VVvGLCVpiCsw==,
+      }
+    engines: { node: ">=16.0.0" }
+    peerDependencies:
+      react: ">=16.8.0"
+      react-dom: ">=16.8.0"
+
   react-style-singleton@2.2.3:
     resolution:
       {
@@ -13406,6 +13419,11 @@ snapshots:
       react: 18.3.1
       set-cookie-parser: 2.7.2
     optionalDependencies:
+      react-dom: 18.3.1(react@18.3.1)
+
+  react-slot-counter@3.3.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
   react-style-singleton@2.2.3(@types/react@18.3.28)(react@18.3.1):

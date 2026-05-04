@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import SlotCounter from "react-slot-counter";
 
 import {
   Tooltip,
@@ -10,103 +11,18 @@ import { cn } from "@/lib/utils";
 
 const STALE_AFTER_MS = 30_000;
 const FLASH_DURATION_MS = 600;
-const MIN_TICK_DURATION_MS = 280;
-const MAX_TICK_DURATION_MS = FLASH_DURATION_MS;
-
-function formatCount(n: number): string {
-  if (n < 1_000) return String(n);
-  const thousands = n / 1_000;
-  return `${thousands.toFixed(thousands < 10 ? 1 : 0)}K`;
-}
-
-function getTickDuration(from: number, to: number): number {
-  const delta = Math.abs(to - from);
-  return Math.max(
-    MIN_TICK_DURATION_MS,
-    Math.min(MAX_TICK_DURATION_MS, 220 + delta * 14)
-  );
-}
-
-function usePrefersReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPrefersReducedMotion(mediaQuery.matches);
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
-function useAnimatedCount(value: number): number {
-  const [displayValue, setDisplayValue] = useState(value);
-  const displayValueRef = useRef(value);
-  const prefersReducedMotion = usePrefersReducedMotion();
-
-  useEffect(() => {
-    const from = displayValueRef.current;
-
-    if (from === value) {
-      setDisplayValue(value);
-      displayValueRef.current = value;
-      return;
-    }
-
-    if (prefersReducedMotion || formatCount(from) !== formatCount(value)) {
-      setDisplayValue(value);
-      displayValueRef.current = value;
-      return;
-    }
-
-    const duration = getTickDuration(from, value);
-    const startedAt = performance.now();
-    let frame = 0;
-
-    const tick = (now: number) => {
-      const elapsed = now - startedAt;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const nextValue = Math.round(from + (value - from) * eased);
-
-      displayValueRef.current = nextValue;
-      setDisplayValue((current) =>
-        current === nextValue ? current : nextValue
-      );
-
-      if (progress < 1) {
-        frame = window.requestAnimationFrame(tick);
-      }
-    };
-
-    frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
-  }, [prefersReducedMotion, value]);
-
-  return displayValue;
-}
-
-function AnimatedDiffCount({
-  prefix,
-  value,
-  toneClassName,
-}: {
-  prefix: string;
-  value: number;
-  toneClassName: string;
-}) {
-  const animatedValue = useAnimatedCount(value);
-
-  return (
-    <span className={cn("tabular-nums", toneClassName)}>
-      {prefix}
-      {formatCount(animatedValue)}
-    </span>
-  );
-}
+const slotCounterProps = {
+  animateUnchanged: false,
+  useMonospaceWidth: true,
+  hasInfiniteList: true,
+  duration: 0.45,
+  delay: 0.04,
+  dummyCharacterCount: 0,
+  containerClassName: "inline-flex items-center",
+  charClassName: "h-[1em]",
+  numberClassName: "tabular-nums",
+  separatorClassName: "tabular-nums",
+} as const;
 
 export type DiffStatBadgeProps = {
   diffStats: DiffStats | null | undefined;
@@ -119,17 +35,45 @@ export type DiffStatBadgeProps = {
   onRefresh: () => void;
 };
 
+function usePrefersReducedMotion(): boolean {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
 export function DiffStatBadge({
   diffStats,
   latestEventAt,
   onRefresh,
 }: DiffStatBadgeProps): JSX.Element | null {
   const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<number | null>(null);
   const lastSig = useRef<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
-  const sig = diffStats
-    ? `${diffStats.added}:${diffStats.deleted}:${diffStats.files}`
-    : null;
+  const sig = diffStats ? `${diffStats.added}:${diffStats.deleted}` : null;
+
+  const triggerFlash = () => {
+    if (flashTimer.current !== null) {
+      window.clearTimeout(flashTimer.current);
+    }
+
+    setFlash(true);
+    flashTimer.current = window.setTimeout(() => {
+      setFlash(false);
+      flashTimer.current = null;
+    }, FLASH_DURATION_MS);
+  };
 
   useEffect(() => {
     if (sig === null) {
@@ -137,13 +81,21 @@ export function DiffStatBadge({
       return;
     }
     if (lastSig.current !== null && lastSig.current !== sig) {
-      setFlash(true);
-      const timer = window.setTimeout(() => setFlash(false), FLASH_DURATION_MS);
+      triggerFlash();
       lastSig.current = sig;
-      return () => window.clearTimeout(timer);
+      return;
     }
     lastSig.current = sig;
   }, [sig]);
+
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) {
+        window.clearTimeout(flashTimer.current);
+      }
+    },
+    []
+  );
 
   if (!diffStats) return null;
   if (diffStats.added === 0 && diffStats.deleted === 0) return null;
@@ -163,6 +115,7 @@ export function DiffStatBadge({
           data-testid="diff-stat-badge"
           onClick={(event) => {
             event.stopPropagation();
+            triggerFlash();
             onRefresh();
           }}
           className={cn(
@@ -173,16 +126,30 @@ export function DiffStatBadge({
           )}
           aria-label="Refresh diff stats"
         >
-          <AnimatedDiffCount
-            prefix="+"
-            value={diffStats.added}
-            toneClassName="text-status-working"
-          />
-          <AnimatedDiffCount
-            prefix="−"
-            value={diffStats.deleted}
-            toneClassName="text-status-blocked"
-          />
+          <span className="inline-flex items-center tabular-nums text-status-working">
+            <span>+</span>
+            {prefersReducedMotion ? (
+              <span>{diffStats.added}</span>
+            ) : (
+              <SlotCounter
+                value={diffStats.added}
+                direction="bottom-up"
+                {...slotCounterProps}
+              />
+            )}
+          </span>
+          <span className="inline-flex items-center tabular-nums text-status-blocked">
+            <span>−</span>
+            {prefersReducedMotion ? (
+              <span>{diffStats.deleted}</span>
+            ) : (
+              <SlotCounter
+                value={diffStats.deleted}
+                direction="top-down"
+                {...slotCounterProps}
+              />
+            )}
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent>

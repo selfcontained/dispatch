@@ -14,6 +14,7 @@ export type DiffStats = {
 const UNTRACKED_LINE_COUNT_MAX_BYTES = 1_000_000;
 const GIT_TIMEOUT_MS = 15_000;
 const BINARY_PROBE_BYTES = 8 * 1024;
+const DIFF_STATS_EXCLUDED_PATHS = new Set(["pnpm-lock.yaml"]);
 
 type CommandRunner = (
   command: string,
@@ -88,6 +89,7 @@ export async function getDiffStats(
       const [a, d, ...rest] = parts;
       const filePath = rest.join("\t");
       if (!filePath) continue;
+      if (shouldIgnoreDiffStatsPath(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
       if (a === "-" && d === "-") continue;
@@ -97,6 +99,7 @@ export async function getDiffStats(
 
     for (const filePath of untracked.stdout.split("\n")) {
       if (!filePath) continue;
+      if (shouldIgnoreDiffStatsPath(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
       const lines = await countUntrackedLines(worktreePath, filePath);
@@ -148,4 +151,8 @@ function countLines(content: string): number {
   if (content.length === 0) return 0;
   const parts = content.split("\n");
   return parts[parts.length - 1] === "" ? parts.length - 1 : parts.length;
+}
+
+function shouldIgnoreDiffStatsPath(filePath: string): boolean {
+  return DIFF_STATS_EXCLUDED_PATHS.has(filePath);
 }
