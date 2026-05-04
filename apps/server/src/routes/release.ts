@@ -311,7 +311,15 @@ export async function registerReleaseRoutes(
         error: `mode must be one of: ${AUTOMATIC_UPDATE_MODES.join(", ")}`,
       });
     }
-    await writeAutomaticUpdateMode(deps.pool, body!.mode as never);
+    const nextMode = body!.mode as never;
+    await writeAutomaticUpdateMode(deps.pool, nextMode);
+    // Flipping into "check" mode is an explicit "I want to know about
+    // updates" signal — fire a check immediately rather than waiting up
+    // to 6h for the next interval. The auto-check runtime's single
+    // flight handles overlap if a check is already running.
+    if (nextMode === "check") {
+      void deps.autoCheck.runAutoCheckOnce("mode-enabled");
+    }
     return { mode: body!.mode };
   });
 
@@ -332,6 +340,13 @@ export async function registerReleaseRoutes(
       });
     }
     await setSetting(deps.pool, RELEASE_CHANNEL_KEY, body.channel as string);
+    // The cached snapshot was computed for the previous channel; it's
+    // stale the moment the operator switches. Fire an immediate
+    // background check for the new channel so the page (and toast)
+    // pick up the right state without waiting up to 6h for the next
+    // interval. Fire-and-forget — the broadcast on completion drives
+    // the UI, the HTTP response just confirms the setting persisted.
+    void deps.autoCheck.runAutoCheckOnce("channel-change");
     return { channel: body.channel };
   });
 
