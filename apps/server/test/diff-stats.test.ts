@@ -201,16 +201,23 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 16, deleted: 3, files: 3 });
   });
 
-  it("excludes pnpm-lock.yaml from tracked and untracked diff counts", async () => {
+  it("excludes common lockfiles from tracked and untracked diff counts", async () => {
     const worktreePath = tempRoot;
     await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "ignored\n");
+    await mkdir(path.join(worktreePath, "nested"), { recursive: true });
+    await writeFile(
+      path.join(worktreePath, "nested", "Cargo.lock"),
+      "ignored\n"
+    );
     await writeFile(path.join(worktreePath, "notes.txt"), "keep\nme\n");
 
     const runCommand = withCommands(worktreePath, "main", {
       [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
-        ok("100\t250\tpnpm-lock.yaml\n4\t1\tsrc/foo.ts"),
+        ok(
+          "100\t250\tpnpm-lock.yaml\n50\t20\tnested/Cargo.lock\n4\t1\tsrc/foo.ts"
+        ),
       [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
-        ok("pnpm-lock.yaml\nnotes.txt"),
+        ok("pnpm-lock.yaml\nnested/Cargo.lock\nnotes.txt"),
     });
 
     const result = await getDiffStats(worktreePath, "main", { runCommand });

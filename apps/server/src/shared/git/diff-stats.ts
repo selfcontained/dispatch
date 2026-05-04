@@ -14,7 +14,21 @@ export type DiffStats = {
 const UNTRACKED_LINE_COUNT_MAX_BYTES = 1_000_000;
 const GIT_TIMEOUT_MS = 15_000;
 const BINARY_PROBE_BYTES = 8 * 1024;
-const DIFF_STATS_EXCLUDED_PATHS = new Set(["pnpm-lock.yaml"]);
+const DIFF_STATS_EXCLUDED_BASENAMES = new Set([
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lockb",
+  "bun.lock",
+  "Cargo.lock",
+  "Gemfile.lock",
+  "poetry.lock",
+  "uv.lock",
+  "Podfile.lock",
+  "Package.resolved",
+  "composer.lock",
+  "mix.lock",
+]);
 
 type CommandRunner = (
   command: string,
@@ -154,5 +168,5 @@ function countLines(content: string): number {
 }
 
 function shouldIgnoreDiffStatsPath(filePath: string): boolean {
-  return DIFF_STATS_EXCLUDED_PATHS.has(filePath);
+  return DIFF_STATS_EXCLUDED_BASENAMES.has(path.basename(filePath));
 }
