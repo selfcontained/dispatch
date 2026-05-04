@@ -102,17 +102,30 @@ export function ReleaseAvailableToast(): null {
         ),
       action: {
         label: primaryLabel,
-        onClick: () => {
+        onClick: async () => {
           if (variant === "standard") {
-            void api("/api/v1/release/update", {
-              method: "POST",
-              body: JSON.stringify({ tag }),
-            }).catch(() => {});
+            // Await the apply-start request so a 5xx / network failure
+            // surfaces as an error toast rather than vanishing silently
+            // alongside the dismissal of this one. On success the
+            // operator lands on /settings/updates to watch the takeover.
+            try {
+              await api("/api/v1/release/update", {
+                method: "POST",
+                body: JSON.stringify({ tag }),
+              });
+            } catch (err) {
+              toast.error(
+                err instanceof Error
+                  ? `Couldn't start update: ${err.message}`
+                  : "Couldn't start update"
+              );
+              return;
+            }
           }
-          // Both standard and assisted variants land on the Updates page —
-          // standard so the operator can watch the apply-flow takeover,
-          // assisted so they review the migration list before launching
-          // the agent. Per spec, "Review update" must NOT auto-launch.
+          // Standard: navigate so the operator sees the apply-flow takeover.
+          // Assisted: per spec, "Review update" must NOT auto-launch — it
+          // just routes to the page so the operator can review migrations
+          // and explicitly start the agent.
           navigate("/settings/updates");
         },
       },

@@ -237,8 +237,17 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   // component renders — admin-only fields live on ReleaseInfo and aren't
   // read here, so the union type is intentionally narrow on purpose: any
   // future admin-only addition will require an explicit type widening.
+  //
+  // The cached snapshot is filtered to the current `channel`: if the
+  // user just switched Stable→Latest (or vice versa) the snapshot from
+  // the previous channel is stale and should not render until a fresh
+  // check for the new channel populates it.
+  const cachedSnapshotForChannel =
+    cachedSnapshot && cachedSnapshot.channel === channel
+      ? cachedSnapshot
+      : null;
   const displayInfo: ReleaseInfo | ReleaseInfoSnapshot | null =
-    info ?? cachedSnapshot;
+    info ?? cachedSnapshotForChannel;
 
   // Fetch version info + channel on mount
   useEffect(() => {
