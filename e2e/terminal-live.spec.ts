@@ -292,6 +292,67 @@ test.describe("Terminal live connection", () => {
     await expect.poll(() => tokenRequests).toBe(initialTokenRequests);
   });
 
+  test("re-focuses terminal when window is foregrounded", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await waitForTerminalConnected(page, agent.name, 5_000);
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+
+    // Move focus away from the terminal, mimicking what the browser often
+    // does when the app loses focus and is later re-foregrounded.
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      document.body.focus();
+    });
+    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+
+    await simulateVisibleWithFocus(page);
+
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused({
+      timeout: 1_000,
+    });
+  });
+
+  test("does not steal focus from another input on foreground", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await waitForTerminalConnected(page, agent.name, 5_000);
+
+    // Plant a focused text input outside the terminal host.
+    await page.evaluate(() => {
+      const input = document.createElement("input");
+      input.id = "e2e-decoy-input";
+      input.type = "text";
+      document.body.appendChild(input);
+      input.focus();
+    });
+    await expect(page.locator("#e2e-decoy-input")).toBeFocused();
+
+    await simulateVisibleWithFocus(page);
+    await page.waitForTimeout(150);
+
+    await expect(page.locator("#e2e-decoy-input")).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+  });
+
   test("shows a copy-mode banner and returns to live immediately", async ({
     page,
     request,

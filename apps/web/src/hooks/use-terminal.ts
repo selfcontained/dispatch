@@ -1028,14 +1028,33 @@ export function useTerminal(args: {
       void ensureTerminalConnected(false, false, targetAgentId);
     };
 
+    // Re-focus the terminal when the window/tab is foregrounded so the user
+    // can type immediately. Gated to avoid stealing focus from other inputs
+    // (dialogs, search, sidebar fields) that the browser may have restored.
+    const tryFocusTerminalOnForeground = () => {
+      const term = terminalRef.current;
+      const host = terminalHostRef.current;
+      if (!term || !host) return;
+      if (terminalMode !== "tmux") return;
+      if (isMobile) return;
+      if (copyModeRef.current === "copy") return;
+      const active = document.activeElement;
+      if (active && active !== document.body && !host.contains(active)) {
+        return;
+      }
+      term.focus();
+    };
+
     const onVisible = () => {
       if (!document.hidden) {
         requestForegroundReconnect();
+        tryFocusTerminalOnForeground();
       }
     };
 
     const onFocus = () => {
       requestForegroundReconnect();
+      tryFocusTerminalOnForeground();
     };
 
     const onOnline = () => {
@@ -1056,7 +1075,13 @@ export function useTerminal(args: {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
     };
-  }, [clearReconnectTimer, ensureTerminalConnected, selectedAgentId]);
+  }, [
+    clearReconnectTimer,
+    ensureTerminalConnected,
+    isMobile,
+    selectedAgentId,
+    terminalMode,
+  ]);
 
   // Fit on layout change. The actual fit is debounced and reads the host's
   // settled size, so we don't need a hand-tuned timer to "wait for" the CSS
