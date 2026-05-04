@@ -182,11 +182,43 @@ const SECTIONS: SectionDef[] = [
           <H3>Agent details</H3>
           <P>
             Expand an agent card to see its metadata: working directory or
-            worktree path, git branch, and agent type. CLI agents also show
+            worktree path, git branch, agent type, and a{" "}
+            <strong>diff-stats badge</strong> in the top-right summarizing
+            uncommitted changes against the base branch. CLI agents also show
             whether they're running in full access or sandboxed mode, plus a
             feedback panel and persona launcher; terminal agents skip those
             since they have no CLI. Persona agents show their role and link to
             their parent agent.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Diff-stats badge</H3>
+          <P>
+            The <Code>+X −Y</Code> badge in the corner of the expanded card is
+            recomputed against the worktree's base branch (defaults to{" "}
+            <Code>origin/main</Code>). It is hidden entirely when the agent has
+            no changes, briefly highlights when the numbers tick, and dims to
+            ~60% opacity when the agent has reported activity since the last
+            compute (a hint that the cached value may be stale). Clicking the
+            badge forces a fresh recompute; the tooltip shows the file count.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Tmux scrollback</H3>
+          <P>
+            By default, attaching to an agent puts you in tmux's live mode and
+            scrolling the wheel sends arrow-key events to whatever program is
+            running. Turn on{" "}
+            <strong>Settings → Agents → Tmux scrollback assist</strong> (off by
+            default) to enable a passive copy-mode helper: when you scroll up
+            (or otherwise enter tmux copy mode), Dispatch shows an{" "}
+            <em>Input paused — scroll · click · Esc</em> banner over the
+            terminal. Clicking the banner or pressing <Code>Esc</Code> drops you
+            back to live so your next keystroke goes to the agent. With the
+            assist off, Dispatch makes no changes to tmux's mouse mode and does
+            not observe copy mode at all.
           </P>
         </Section>
 
