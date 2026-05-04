@@ -353,6 +353,36 @@ test.describe("Terminal live connection", () => {
     await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
   });
 
+  test("does not steal focus from a portal-backed dialog input on foreground", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await waitForTerminalConnected(page, agent.name, 5_000);
+
+    // Open the real create-agent dialog (portal-backed via Radix). This
+    // exercises the same focus-trap structure a user would hit if Cmd-Tab
+    // happened with a dialog open, instead of a decoy input on body.
+    await page.getByTestId("create-agent-button").click();
+    const nameInput = page.getByTestId("create-agent-name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.focus();
+    await expect(nameInput).toBeFocused();
+
+    await simulateVisibleWithFocus(page);
+    await page.waitForTimeout(150);
+
+    await expect(nameInput).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+  });
+
   test("shows a copy-mode banner and returns to live immediately", async ({
     page,
     request,

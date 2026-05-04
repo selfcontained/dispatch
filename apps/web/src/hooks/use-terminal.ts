@@ -1039,9 +1039,15 @@ export function useTerminal(args: {
       if (isMobile) return;
       if (copyModeRef.current === "copy") return;
       const active = document.activeElement;
-      if (active && active !== document.body && !host.contains(active)) {
-        return;
-      }
+      // Treat body / documentElement / null as "nothing else holds focus" —
+      // some browsers report the root element instead of body when no
+      // interactive control owns focus after the window is foregrounded.
+      const focusElsewhere =
+        active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        !host.contains(active);
+      if (focusElsewhere) return;
       term.focus();
     };
 
