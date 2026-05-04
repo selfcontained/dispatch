@@ -79,9 +79,15 @@ export function useSSE(authState: AuthState): void {
             sortAgentsByCreatedAtDesc(payload.agents)
           );
           // A snapshot means a fresh SSE connection (initial or reconnect).
-          // Invalidate job queries so they refetch — the snapshot only
-          // carries agents, so jobs could be stale after a reconnect.
+          // Invalidate the queries that aren't carried in the snapshot
+          // payload — jobs and the cached release info — so they refetch.
+          // Without this, a tab that was hidden/disconnected during a
+          // `release.cached_info_changed` event would keep stale release
+          // state forever (the query has staleTime: Infinity).
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          void queryClient.invalidateQueries({
+            queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
+          });
           return;
         }
 
