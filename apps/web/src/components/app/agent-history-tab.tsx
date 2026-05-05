@@ -43,6 +43,8 @@ import {
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
+import { PinItem } from "@/components/app/pins-panel";
+import { type AgentPin } from "@/components/app/types";
 import {
   useHistoryAgents,
   useHistoryAgentDetail,
@@ -763,18 +765,22 @@ function FeedbackTimeline({ feedback }: { feedback: HistoryFeedbackItem[] }) {
   );
 }
 
-type DetailTab = "events" | "media" | "feedback";
+type DetailTab = "events" | "media" | "pins" | "feedback";
 
 function DetailTabs({
   events,
   media,
+  pins,
   feedback,
   agentId,
+  workspaceRoot,
 }: {
   events: HistoryEvent[];
   media: HistoryMedia[];
+  pins: AgentPin[];
   feedback: HistoryFeedbackItem[];
   agentId: string;
+  workspaceRoot: string | null;
 }) {
   const [tab, setTab] = useState<DetailTab>("events");
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -800,6 +806,7 @@ function DetailTabs({
   const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
     { key: "events", label: "Events", count: events.length },
     { key: "media", label: "Media", count: media.length },
+    { key: "pins", label: "Pins", count: pins.length },
     { key: "feedback", label: "Feedback", count: feedback.length },
   ];
 
@@ -880,6 +887,23 @@ function DetailTabs({
           {tab === "media" && media.length === 0 && (
             <p className="py-6 text-center text-xs text-muted-foreground">
               No media captured.
+            </p>
+          )}
+
+          {tab === "pins" && pins.length > 0 && (
+            <div className="divide-y divide-border rounded-md border border-border">
+              {pins.map((pin) => (
+                <PinItem
+                  key={pin.label.toLowerCase()}
+                  pin={pin}
+                  workspaceRoot={workspaceRoot}
+                />
+              ))}
+            </div>
+          )}
+          {tab === "pins" && pins.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No pins recorded.
             </p>
           )}
 
@@ -1067,12 +1091,14 @@ function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Tabbed: Events / Media */}
+      {/* Tabbed: Events / Media / Pins / Feedback */}
       <DetailTabs
         events={events}
         media={media}
+        pins={agent.pins ?? []}
         feedback={feedback}
         agentId={agentId}
+        workspaceRoot={agent.gitContext?.repoRoot ?? agent.cwd}
       />
     </div>
   );
