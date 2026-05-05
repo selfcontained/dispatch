@@ -185,6 +185,16 @@ export async function registerPersonaReviewRoutes(
         .code(400)
         .send({ error: "context must be a string when provided." });
     }
+    if (
+      body.includeDiff === false &&
+      (!body.context ||
+        (typeof body.context === "string" && !body.context.trim()))
+    ) {
+      return reply.code(400).send({
+        error:
+          "context is required when includeDiff is false — the reviewer needs an explicit description of what to review.",
+      });
+    }
 
     try {
       const parent = await deps.agentManager.getAgent(agentId);
