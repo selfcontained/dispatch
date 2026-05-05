@@ -340,6 +340,26 @@ export function PersonaLauncher({
                     ) : null}
                   </div>
 
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                    <Checkbox
+                      checked={allowRecheck}
+                      onCheckedChange={() =>
+                        setAllowRecheck((current) => !current)
+                      }
+                      className="mt-0.5"
+                      data-testid="launch-reviewer-allow-recheck"
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Re-review after feedback is addressed
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Adds a second pass once the first round of feedback is
+                        resolved.
+                      </span>
+                    </span>
+                  </label>
+
                   <div className="space-y-2">
                     <label className="text-sm text-muted-foreground">
                       Persona
@@ -389,26 +409,6 @@ export function PersonaLauncher({
                       })}
                     </div>
                   </div>
-
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                    <Checkbox
-                      checked={allowRecheck}
-                      onCheckedChange={() =>
-                        setAllowRecheck((current) => !current)
-                      }
-                      className="mt-0.5"
-                      data-testid="launch-reviewer-allow-recheck"
-                    />
-                    <span className="space-y-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        Re-review after feedback is addressed
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Adds a second pass once the first round of feedback is
-                        resolved.
-                      </span>
-                    </span>
-                  </label>
                 </div>
               </div>
 
