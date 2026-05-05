@@ -329,6 +329,7 @@ export type McpRequestContext = {
       context: string;
       agentType?: LaunchPersonaAgentType;
       allowRecheck?: boolean;
+      includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   getFeedback?: (
@@ -1066,6 +1067,12 @@ async function createDispatchMcpServer(
             .describe(
               "Opt into a single round-trip review: the reviewer stays alive after its initial verdict and performs a second pass once you call dispatch_submit_resolution. Adds latency (~several minutes); use when verification matters."
             ),
+          includeDiff: z
+            .boolean()
+            .default(true)
+            .describe(
+              "Whether to include the git diff in the persona prompt. Set to false for non-code reviews (PRDs, docs, media) where the diff is not the review target."
+            ),
         },
       },
       async (args) => {
@@ -1075,6 +1082,7 @@ async function createDispatchMcpServer(
             context: args.context,
             agentType: args.agentType,
             allowRecheck: args.allowRecheck,
+            includeDiff: args.includeDiff,
           });
           const text = buildLaunchPersonaResponseText(
             result.persona,

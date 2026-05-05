@@ -23,6 +23,7 @@ type PersonaReviewRouteDeps = {
       context: string;
       agentType?: (typeof CLI_AGENT_TYPES)[number];
       allowRecheck?: boolean;
+      includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   mcpCancelRecheck: (
@@ -67,6 +68,7 @@ export async function registerPersonaReviewRoutes(
       persona?: unknown;
       agentType?: unknown;
       allowRecheck?: unknown;
+      includeDiff?: unknown;
     } | null;
     const agentId = params.id ?? "";
 
@@ -96,6 +98,14 @@ export async function registerPersonaReviewRoutes(
         .code(400)
         .send({ error: "allowRecheck is required and must be a boolean." });
     }
+    if (
+      body.includeDiff !== undefined &&
+      typeof body.includeDiff !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "includeDiff must be a boolean when provided." });
+    }
 
     try {
       const access = await deps.agentManager.getTerminalAccess(agentId);
@@ -105,9 +115,10 @@ export async function registerPersonaReviewRoutes(
           .send({ error: "Agent does not have an active tmux session." });
       }
 
+      const includeDiff = body.includeDiff !== false;
       const prompt = [
         `Use the dispatch_launch_persona MCP tool to launch the "${body.persona}" persona on your current work.`,
-        `Use agentType: "${body.agentType}" and allowRecheck: ${body.allowRecheck ? "true" : "false"}.`,
+        `Use agentType: "${body.agentType}", allowRecheck: ${body.allowRecheck ? "true" : "false"}, and includeDiff: ${includeDiff ? "true" : "false"}.`,
         "Treat this as an author-requested review for the current worktree/branch.",
         "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
         "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
@@ -126,6 +137,7 @@ export async function registerPersonaReviewRoutes(
       persona?: unknown;
       agentType?: unknown;
       allowRecheck?: unknown;
+      includeDiff?: unknown;
       context?: unknown;
     } | null;
     const agentId = params.id ?? "";
@@ -159,6 +171,14 @@ export async function registerPersonaReviewRoutes(
       return reply
         .code(400)
         .send({ error: "allowRecheck must be a boolean when provided." });
+    }
+    if (
+      body.includeDiff !== undefined &&
+      typeof body.includeDiff !== "boolean"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "includeDiff must be a boolean when provided." });
     }
     if (body.context !== undefined && typeof body.context !== "string") {
       return reply
@@ -194,6 +214,7 @@ export async function registerPersonaReviewRoutes(
         context,
         agentType: requestedAgentType,
         allowRecheck: body.allowRecheck === true,
+        includeDiff: body.includeDiff !== false,
       });
       const agent = await deps.agentManager.getAgent(result.agentId);
       return {
