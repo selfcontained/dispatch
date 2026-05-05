@@ -201,11 +201,14 @@ export async function registerPersonaReviewRoutes(
         }
       }
 
+      const includeDiffVal = body.includeDiff !== false;
       const context =
         body.context?.trim() ||
         [
           `Review the current work for agent "${parent.name}".`,
-          "Inspect the current diff, changed files, and surrounding code.",
+          includeDiffVal
+            ? "Inspect the current diff, changed files, and surrounding code."
+            : "Inspect the described work and surrounding code.",
           "Focus on actionable bugs, regressions, and missing validation.",
         ].join(" ");
 
@@ -214,7 +217,7 @@ export async function registerPersonaReviewRoutes(
         context,
         agentType: requestedAgentType,
         allowRecheck: body.allowRecheck === true,
-        includeDiff: body.includeDiff !== false,
+        includeDiff: includeDiffVal,
       });
       const agent = await deps.agentManager.getAgent(result.agentId);
       return {
