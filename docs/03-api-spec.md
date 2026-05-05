@@ -199,11 +199,12 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 {
   "persona": "backend-security-review",
   "agentType": "claude",
-  "allowRecheck": true
+  "allowRecheck": true,
+  "includeDiff": true
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`codex`, `claude`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`codex`, `claude`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target.
 
 ### `POST /agents/:id/persona-reviews`
 
@@ -212,6 +213,7 @@ Sends a server-built prompt into the parent agent's tmux session asking it to ca
   "persona": "backend-security-review",
   "agentType": "claude",
   "allowRecheck": true,
+  "includeDiff": true,
   "context": "Review the auth middleware refactor in apps/server/src/auth/."
 }
 ```

@@ -127,12 +127,17 @@ export async function loadPersonaBySlug(
  * This ensures consistent severity definitions and feedback hygiene
  * regardless of what the repo-specific persona markdown contains.
  */
-const STANDARD_FEEDBACK_GUIDANCE = `
+function buildStandardFeedbackGuidance(includeDiff: boolean): string {
+  const scopeLine = includeDiff
+    ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
+    : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
+
+  return `
 ## Feedback Guidelines (from Dispatch)
 
 ### How to submit feedback
 - Call \`dispatch_feedback\` for each finding with: severity, description, and a concrete suggestion. Include file path and line number when applicable.
-- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes.
+${scopeLine}
 
 ### Review lifecycle
 - Call \`review_status\` with a short message when you begin reviewing. Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.
@@ -150,6 +155,7 @@ const STANDARD_FEEDBACK_GUIDANCE = `
 ### Info feedback limits — STRICT
 Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback like "Good defense-in-depth...", "Good design decision...", or "This is well-structured..." is noise and will be ignored — do not submit it. The \`info\` severity is ONLY for non-obvious decisions that a future contributor might mistakenly undo. Limit to at most 2 items per review. If you have nothing critical to preserve, submit zero info items.
 `.trim();
+}
 
 /**
  * Round-trip guidance appended when the review was launched with
@@ -171,6 +177,8 @@ This is a two-round review. You have a round-1 obligation (already described abo
 export type AssemblePersonaPromptOptions = {
   /** When true, appends the recheck round-trip guidance block. */
   allowRecheck?: boolean;
+  /** When false, omits the git diff section from the prompt. Defaults to true. */
+  includeDiff?: boolean;
 };
 
 export function assemblePersonaPrompt(
@@ -179,6 +187,8 @@ export function assemblePersonaPrompt(
   diff: string,
   options: AssemblePersonaPromptOptions = {}
 ): string {
+  const includeDiff = options.includeDiff !== false;
+
   // Strip legacy {{context}} and {{diff}} placeholders if present — Dispatch
   // now appends these sections automatically so persona files don't need them.
   const personaBody = persona.body
@@ -187,13 +197,15 @@ export function assemblePersonaPrompt(
 
   const sections: string[] = [
     personaBody.trimEnd(),
-    STANDARD_FEEDBACK_GUIDANCE,
+    buildStandardFeedbackGuidance(includeDiff),
   ];
   if (options.allowRecheck) {
     sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
   }
   sections.push(`## Context from parent agent\n${context}`);
-  sections.push(`## Changes to review\n${truncateDiffForPrompt(diff)}`);
+  if (includeDiff) {
+    sections.push(`## Changes to review\n${truncateDiffForPrompt(diff)}`);
+  }
 
   return sections.join("\n\n");
 }

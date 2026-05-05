@@ -206,6 +206,50 @@ describe("assemblePersonaPrompt", () => {
     });
     expect(result).not.toContain("Recheck round-trip");
   });
+
+  it("includes the diff section by default (includeDiff unset)", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff");
+    expect(result).toContain("## Changes to review\nthe-diff");
+    expect(result).toContain("the scope of the changes (the diff below)");
+  });
+
+  it("includes the diff section when includeDiff is true", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff", {
+      includeDiff: true,
+    });
+    expect(result).toContain("## Changes to review\nthe-diff");
+    expect(result).toContain("the scope of the changes (the diff below)");
+  });
+
+  it("omits the diff section when includeDiff is false", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff", {
+      includeDiff: false,
+    });
+    expect(result).not.toContain("## Changes to review");
+    expect(result).not.toContain("the-diff");
+  });
+
+  it("adapts guidance wording when includeDiff is false", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", "", {
+      includeDiff: false,
+    });
+    expect(result).not.toContain("the diff below");
+    expect(result).toContain(
+      "the scope of the work under review described in the parent context"
+    );
+  });
+
+  it("still includes context section when includeDiff is false", () => {
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "Review the PRD for gaps",
+      "",
+      { includeDiff: false }
+    );
+    expect(result).toContain(
+      "## Context from parent agent\nReview the PRD for gaps"
+    );
+  });
 });
 
 // ── loadPersonas / loadPersonaBySlug (filesystem) ───────────────────

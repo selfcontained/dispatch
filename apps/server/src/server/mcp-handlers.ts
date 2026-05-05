@@ -520,6 +520,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         context: string;
         agentType?: (typeof CLI_AGENT_TYPES)[number];
         allowRecheck?: boolean;
+        includeDiff?: boolean;
       }
     ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
       const parent = await agentManager.getAgent(agentId);
@@ -572,9 +573,13 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         );
       }
 
-      const diff = await buildPersonaReviewDiff(parentCwd, runCommand);
+      const includeDiff = opts.includeDiff !== false;
+      const diff = includeDiff
+        ? await buildPersonaReviewDiff(parentCwd, runCommand)
+        : "";
       const prompt = assemblePersonaPrompt(persona, opts.context, diff, {
         allowRecheck: opts.allowRecheck,
+        includeDiff,
       });
 
       const personaArgs: string[] = ["--append-system-prompt", prompt];
