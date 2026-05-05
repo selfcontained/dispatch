@@ -6,6 +6,7 @@ import {
   Briefcase,
   GitBranch,
   Image,
+  Keyboard,
   Monitor,
   PlugZap,
   Signal,
@@ -18,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 export type DocsSection =
   | "agents"
+  | "shortcuts"
   | "personalities"
   | "tools"
   | "jobs"
@@ -223,12 +225,105 @@ const SECTIONS: SectionDef[] = [
         </Section>
 
         <Section>
+          <H3>Renaming agents</H3>
+          <P>
+            Agents created without an explicit name start with a placeholder (
+            <Code>agent-&lt;last6&gt;</Code>). The first time the agent
+            transitions into a working state, Dispatch automatically sends a
+            prompt asking it to set a descriptive session name via the{" "}
+            <Code>dispatch_rename_session</Code> tool. You can also trigger this
+            manually by clicking the <strong>Tag</strong> icon that appears next
+            to a running agent that still has a default name. Terminal agents,
+            persona agents, and job agents are excluded from both paths.
+          </P>
+        </Section>
+
+        <Section>
           <H3>Archiving agents</H3>
           <P>
             Click the archive button to remove an agent. If the agent has a
             worktree with unmerged commits or uncommitted changes, you'll be
             asked whether to keep or remove the worktree. Archived agents are
             preserved in the History section of the Activity page.
+          </P>
+        </Section>
+      </>
+    ),
+  },
+  {
+    id: "shortcuts",
+    label: "Keyboard Shortcuts",
+    icon: Keyboard,
+    title: "Keyboard Shortcuts",
+    content: (
+      <>
+        <P>
+          Dispatch registers a small set of global keyboard shortcuts and a
+          command palette. These fire from anywhere in the page — including text
+          inputs and the xterm terminal — because they listen in the{" "}
+          <em>capture</em> phase of the document. To suppress them inside a
+          particular subtree (e.g. a modal), mark the subtree root with{" "}
+          <Code>data-hotkey-disable=&quot;true&quot;</Code>.
+        </P>
+
+        <Section>
+          <H3>Global hotkeys</H3>
+          <P>
+            On macOS, <Code>Mod</Code> is <Code>⌘</Code>. On Windows/Linux it is{" "}
+            <Code>Ctrl</Code>.
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <Code>Mod+K</Code> — Open the command palette.
+            </li>
+            <li>
+              <Code>Mod+Shift+&gt;</Code> — Toggle the media sidebar.
+            </li>
+            <li>
+              <Code>Mod+Shift+&lt;</Code> — Toggle the agent sidebar.
+            </li>
+            <li>
+              <Code>Mod+Shift+↑</Code> — Focus the previous agent (cycles
+              through top-level agents only; review children are skipped).
+            </li>
+            <li>
+              <Code>Mod+Shift+↓</Code> — Focus the next agent.
+            </li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>Command palette</H3>
+          <P>
+            Press <Code>Mod+K</Code> to open the palette. It shows a searchable
+            list of actions — type to filter, then press Enter or click to run
+            one:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>New agent</strong> — opens the Create dialog.
+            </li>
+            <li>
+              <strong>Toggle media sidebar</strong> — same as{" "}
+              <Code>Mod+Shift+&gt;</Code>. Disabled when no agent is selected on
+              desktop (mobile always allows it).
+            </li>
+            <li>
+              <strong>Toggle agent sidebar</strong> — same as{" "}
+              <Code>Mod+Shift+&lt;</Code>.
+            </li>
+            <li>
+              <strong>Focus next agent</strong> — same as{" "}
+              <Code>Mod+Shift+↓</Code>.
+            </li>
+            <li>
+              <strong>Focus previous agent</strong> — same as{" "}
+              <Code>Mod+Shift+↑</Code>.
+            </li>
+          </ul>
+          <P>
+            Each action shows its hotkey badge inline so you can learn the
+            shortcut as you use the palette.
           </P>
         </Section>
       </>
@@ -1337,10 +1432,20 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <Section>
           <H3>Checking for updates</H3>
           <P>
-            Click <strong>Check for updates</strong>. If a newer tag is
-            available, Dispatch shows the version, publish date, a link to the
-            GitHub release, and the next-step buttons described below. If you're
-            up to date, you'll see a green check.
+            Dispatch checks for updates automatically in the background (every
+            six hours while the server is running). When a newer tag is
+            discovered, a toast notification appears with an action button —
+            either <strong>Update now</strong> (for simple releases) or{" "}
+            <strong>Review update</strong> (when guided steps are needed).
+            Dismissing the toast suppresses it until a different release is
+            available. You can also click <strong>Check for updates</strong> on
+            the Updates page to force a manual check. If you're up to date,
+            you'll see a green check.
+          </P>
+          <P>
+            Automatic checks can be turned off via the{" "}
+            <strong>Automatic updates</strong> dropdown on the Updates page.
+            Updates never install automatically — the toast only notifies.
           </P>
         </Section>
 
