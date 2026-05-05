@@ -282,7 +282,7 @@ function PinValueRow({
   );
 }
 
-function PinItem({
+export function PinItem({
   pin,
   workspaceRoot,
 }: {
