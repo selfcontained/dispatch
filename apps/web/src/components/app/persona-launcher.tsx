@@ -1,5 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useAtom } from "jotai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -38,6 +39,7 @@ import {
   type AgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
+import { reviewAllowRecheckPrefAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type PersonaSummary = {
@@ -68,6 +70,10 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
+  const allowRecheckAtom = useMemo(
+    () => reviewAllowRecheckPrefAtom(cwd.trim()),
+    [cwd]
+  );
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -75,7 +81,8 @@ export function PersonaLauncher({
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
-  const [allowRecheck, setAllowRecheck] = useState(false);
+  const [allowRecheck, setAllowRecheck] = useAtom(allowRecheckAtom);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [isLaunching, setIsLaunching] = useState(false);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
@@ -122,7 +129,7 @@ export function PersonaLauncher({
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
     setSelectedAgentType(agentType);
     setSelectedPersona(null);
-    setAllowRecheck(false);
+    setLaunchError(null);
     setTypeDropdownOpen(false);
     setDialogOpen(true);
   };
@@ -148,6 +155,7 @@ export function PersonaLauncher({
   const launchPersona = async () => {
     if (!selectedPersona || isLaunching) return;
     setIsLaunching(true);
+    setLaunchError(null);
     try {
       await persistReviewAgentType(selectedAgentType);
       await api(`/api/v1/agents/${agent.id}/launch-review`, {
@@ -159,6 +167,10 @@ export function PersonaLauncher({
         }),
       });
       setDialogOpen(false);
+    } catch (err) {
+      setLaunchError(
+        err instanceof Error ? err.message : "Review launch failed. Try again."
+      );
     } finally {
       setIsLaunching(false);
     }
@@ -316,6 +328,7 @@ export function PersonaLauncher({
                                   value={agentType}
                                   onSelect={() => {
                                     setSelectedAgentType(agentType);
+                                    setLaunchError(null);
                                     setTypeDropdownOpen(false);
                                     requestAnimationFrame(() =>
                                       typeTriggerRef.current?.focus()
@@ -372,7 +385,10 @@ export function PersonaLauncher({
                           <button
                             key={persona.slug}
                             type="button"
-                            onClick={() => setSelectedPersona(persona.slug)}
+                            onClick={() => {
+                              setSelectedPersona(persona.slug);
+                              setLaunchError(null);
+                            }}
                             className={cn(
                               "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                               isSelected
@@ -413,6 +429,14 @@ export function PersonaLauncher({
               </div>
 
               <div className="flex justify-end gap-2 pt-3">
+                {launchError ? (
+                  <p
+                    className="mr-auto max-w-[28rem] text-sm text-destructive"
+                    data-testid="launch-reviewer-error"
+                  >
+                    {launchError}
+                  </p>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
