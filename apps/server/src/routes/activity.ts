@@ -418,8 +418,15 @@ export async function registerActivityRoutes(
       name: string;
       persona: string | null;
       status: string;
+      latestEvent: {
+        type: string;
+        message: string;
+        updatedAt: string;
+        metadata: Record<string, unknown> | null;
+      } | null;
       totalTokens: number;
       createdAt: string;
+      updatedAt: string;
     };
     const childrenByParent = new Map<string, ChildAgent[]>();
 
@@ -432,11 +439,21 @@ export async function registerActivityRoutes(
           a.name,
           a.persona,
           a.status,
+          CASE
+            WHEN a.latest_event_type IS NULL OR a.latest_event_message IS NULL OR a.latest_event_updated_at IS NULL THEN NULL
+            ELSE json_build_object(
+              'type', a.latest_event_type,
+              'message', a.latest_event_message,
+              'updatedAt', a.latest_event_updated_at,
+              'metadata', COALESCE(a.latest_event_metadata, '{}'::jsonb)
+            )
+          END AS "latestEvent",
           COALESCE((
             SELECT SUM(input_tokens + cache_creation_tokens + cache_read_tokens + output_tokens)
             FROM agent_token_usage WHERE agent_id = a.id
           ), 0)::bigint AS "totalTokens",
           a.created_at AS "createdAt",
+          a.updated_at AS "updatedAt",
           a.parent_agent_id AS "parentAgentId"
          FROM agents a
          WHERE a.parent_agent_id = ANY($1)
@@ -453,8 +470,10 @@ export async function registerActivityRoutes(
           name: child.name,
           persona: child.persona,
           status: child.status,
+          latestEvent: child.latestEvent,
           totalTokens: child.totalTokens,
           createdAt: child.createdAt,
+          updatedAt: child.updatedAt,
         });
       }
     }

@@ -15,7 +15,14 @@ export type HistoryChildAgent = {
   persona: string | null;
   status: string;
   totalTokens: number;
+  latestEvent: {
+    type: string;
+    message: string;
+    updatedAt: string;
+    metadata: Record<string, unknown> | null;
+  } | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type HistoryAgent = {

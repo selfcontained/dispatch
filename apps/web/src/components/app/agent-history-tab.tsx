@@ -49,6 +49,7 @@ import {
   useHistoryAgents,
   useHistoryAgentDetail,
   useHistoryProjects,
+  type HistoryAgent,
   type HistoryFilters,
   type HistoryEvent,
   type HistoryFeedbackItem,
@@ -91,6 +92,31 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   idle: "Idle",
 };
 
+const ACTIVE_EVENT_TEXT_COLORS: Record<string, string> = {
+  working: "text-status-working",
+  blocked: "text-status-blocked",
+  waiting_user: "text-status-waiting",
+  done: "text-status-done",
+  idle: "text-foreground/80",
+};
+
+function getAgentActivityAt(agent: {
+  latestEvent?: { updatedAt: string } | null;
+  updatedAt: string;
+}): string {
+  return agent.latestEvent?.updatedAt ?? agent.updatedAt;
+}
+
+function isActiveHistoryAgent(agent: HistoryAgent): boolean {
+  if (agent.status === "creating" || agent.status === "running") return true;
+  const eventType = agent.latestEvent?.type;
+  return (
+    eventType === "working" ||
+    eventType === "blocked" ||
+    eventType === "waiting_user"
+  );
+}
+
 // ── List View ────────────────────────────────────────────────────────
 
 type SortKey = "created_at" | "name" | "updated_at";
@@ -108,7 +134,7 @@ function AgentHistoryList({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [type, setType] = useState("");
   const [project, setProject] = useState("");
-  const [sort, setSort] = useState<SortKey>("created_at");
+  const [sort, setSort] = useState<SortKey>("updated_at");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -144,6 +170,14 @@ function AgentHistoryList({
 
   const { data, isLoading } = useHistoryAgents(filters);
   const { data: projects } = useHistoryProjects();
+  const activeAgents = useMemo(
+    () => data?.agents.filter(isActiveHistoryAgent) ?? [],
+    [data?.agents]
+  );
+  const finishedAgents = useMemo(
+    () => data?.agents.filter((agent) => !isActiveHistoryAgent(agent)) ?? [],
+    [data?.agents]
+  );
 
   const toggleSort = useCallback(
     (key: SortKey) => {
@@ -162,6 +196,68 @@ function AgentHistoryList({
 
   return (
     <div className="mx-auto flex h-full max-w-5xl flex-col px-3 sm:px-5 md:px-8">
+      {activeAgents.length > 0 && (
+        <section className="mt-4 mb-6 rounded-xl border border-border/60 bg-muted/10">
+          <div className="flex items-center justify-between border-b border-border/50 px-3 py-2 sm:px-5">
+            <div>
+              <h2 className="text-sm font-medium text-foreground">Active</h2>
+            </div>
+            <Badge className="h-5 px-1.5 text-[10px]">
+              {activeAgents.length}
+            </Badge>
+          </div>
+          <div className="divide-y divide-border/40">
+            {activeAgents.map((agent) => {
+              const latestEvent = agent.latestEvent;
+              return (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => onSelect(agent.id)}
+                  className="flex w-full items-start gap-3 px-3 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
+                >
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <AgentTypeIcon type={agent.type} />
+                    <Badge
+                      className={cn(
+                        "h-5 border border-current bg-transparent px-1.5 text-[10px]",
+                        latestEvent
+                          ? (ACTIVE_EVENT_TEXT_COLORS[latestEvent.type] ??
+                              "text-muted-foreground")
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {latestEvent
+                        ? (EVENT_TYPE_LABELS[latestEvent.type] ??
+                          latestEvent.type)
+                        : "Active"}
+                    </Badge>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {agent.name}
+                      </span>
+                      <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                        {shortProjectName(
+                          agent.gitContext?.repoRoot ?? agent.cwd
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                      {latestEvent?.message ?? "Agent is still in progress"}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right text-[11px] text-foreground">
+                    {formatRelativeTime(getAgentActivityAt(agent))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Search + filters */}
       <div className="space-y-2 pt-4 pb-2">
         <div className="relative">
@@ -279,10 +375,10 @@ function AgentHistoryList({
               <th className="px-2 py-2 font-medium">Tokens</th>
               <th
                 className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-5"
-                onClick={() => toggleSort("created_at")}
+                onClick={() => toggleSort("updated_at")}
               >
-                Created{" "}
-                {sort === "created_at" &&
+                Finished{" "}
+                {sort === "updated_at" &&
                   (order === "desc" ? (
                     <ChevronDown className="ml-0.5 inline h-3 w-3" />
                   ) : (
@@ -301,7 +397,7 @@ function AgentHistoryList({
                 </tr>
               ))}
 
-            {data?.agents.map((agent) => {
+            {finishedAgents.map((agent) => {
               const hasChildren = agent.children.length > 0;
               const isExpanded = expandedIds.has(agent.id);
               return (
@@ -367,7 +463,7 @@ function AgentHistoryList({
                       )}
                     </td>
                     <td className="px-2 py-2.5 pr-3 text-muted-foreground sm:pr-5">
-                      {formatRelativeTime(agent.createdAt)}
+                      {formatRelativeTime(getAgentActivityAt(agent))}
                     </td>
                   </tr>
                   {hasChildren &&
@@ -397,7 +493,7 @@ function AgentHistoryList({
                             : "—"}
                         </td>
                         <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5">
-                          {formatRelativeTime(child.createdAt)}
+                          {formatRelativeTime(getAgentActivityAt(child))}
                         </td>
                       </tr>
                     ))}
@@ -405,14 +501,17 @@ function AgentHistoryList({
               );
             })}
 
-            {data && data.agents.length === 0 && !isLoading && (
+            {data && finishedAgents.length === 0 && !isLoading && (
               <tr>
                 <td
                   colSpan={5}
                   className="px-5 py-12 text-center text-sm text-muted-foreground"
                 >
-                  No agents found.{" "}
-                  {hasActiveFilters && <span>Try adjusting your filters.</span>}
+                  {hasActiveFilters
+                    ? "No finished agents match the current filters."
+                    : activeAgents.length > 0
+                      ? "No finished agents in this view yet."
+                      : "No agents found."}
                 </td>
               </tr>
             )}
@@ -422,8 +521,8 @@ function AgentHistoryList({
         {data && data.agents.length < data.total && (
           <div className="py-3 text-center">
             <button className="text-xs text-muted-foreground hover:text-foreground">
-              Showing {data.agents.length} of {data.total} — load more coming
-              soon
+              Showing {data.agents.length} of {data.total} agents — load more
+              coming soon
             </button>
           </div>
         )}
