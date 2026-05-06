@@ -1,6 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { ReviewDiffResult } from "./review-diff.js";
+
 export type PersonaDefinition = {
   /** Filename without extension (used as persona ID) */
   slug: string;
@@ -21,19 +23,7 @@ type PersonaFrontmatter = {
 };
 
 const PERSONAS_DIR = ".dispatch/personas";
-export const MAX_DIFF_BYTES = 50 * 1024;
-
-export function truncateDiffForPrompt(diff: string): string {
-  if (Buffer.byteLength(diff, "utf-8") <= MAX_DIFF_BYTES) {
-    return diff;
-  }
-
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  return (
-    decoder.decode(Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES)) +
-    "\n\n[... diff truncated at 50KB ...]"
-  );
-}
+export const INLINE_DIFF_THRESHOLD_BYTES = 15 * 1024;
 
 export function parseFrontmatter(content: string): {
   frontmatter: PersonaFrontmatter;
@@ -181,10 +171,66 @@ export type AssemblePersonaPromptOptions = {
   includeDiff?: boolean;
 };
 
+function buildDiffGuidance(result: ReviewDiffResult): string {
+  const { baseRef } = result;
+  const sizeKB = Math.round(result.diffByteSize / 1024);
+  const hasStat =
+    !!result.stat ||
+    !!result.uncommittedStat ||
+    result.untrackedFiles.length > 0;
+
+  const lines = [
+    hasStat
+      ? `The full diff is too large to include inline (~${sizeKB}KB). A file-level summary is below — use the provided git commands to inspect specific files in the worktree.`
+      : `The full diff is too large to include inline (~${sizeKB}KB). Use the git commands below to inspect changes in the worktree.`,
+    "",
+  ];
+
+  if (result.stat) {
+    lines.push(
+      `**Committed changes (vs ${baseRef}):**`,
+      "```",
+      result.stat,
+      "```",
+      ""
+    );
+  }
+
+  if (result.uncommittedStat) {
+    lines.push(
+      "**Uncommitted working tree changes:**",
+      "```",
+      result.uncommittedStat,
+      "```",
+      ""
+    );
+  }
+
+  if (result.untrackedFiles.length > 0) {
+    lines.push(
+      "**Untracked files:**",
+      ...result.untrackedFiles.map((f) => `- ${f}`),
+      ""
+    );
+  }
+
+  lines.push(
+    "### How to inspect changes",
+    "```bash",
+    `git diff ${baseRef}...HEAD -- <path>     # committed changes for one file`,
+    `git diff ${baseRef}...HEAD               # full committed diff`,
+    `git diff HEAD                            # uncommitted working tree changes`,
+    `git ls-files --others --exclude-standard # untracked files`,
+    "```"
+  );
+
+  return lines.join("\n");
+}
+
 export function assemblePersonaPrompt(
   persona: PersonaDefinition,
   context: string,
-  diff: string,
+  diffResult: ReviewDiffResult | null,
   options: AssemblePersonaPromptOptions = {}
 ): string {
   const includeDiff = options.includeDiff !== false;
@@ -203,8 +249,12 @@ export function assemblePersonaPrompt(
     sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
   }
   sections.push(`## Context from parent agent\n${context}`);
-  if (includeDiff) {
-    sections.push(`## Changes to review\n${truncateDiffForPrompt(diff)}`);
+  if (includeDiff && diffResult) {
+    if (diffResult.diffByteSize <= INLINE_DIFF_THRESHOLD_BYTES) {
+      sections.push(`## Changes to review\n${diffResult.diff}`);
+    } else {
+      sections.push(`## Changes to review\n${buildDiffGuidance(diffResult)}`);
+    }
   }
 
   return sections.join("\n\n");

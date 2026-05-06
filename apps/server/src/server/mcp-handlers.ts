@@ -37,6 +37,7 @@ import {
   buildReviewerRecheckReadyPrompt,
 } from "../reviews/injection-prompts.js";
 import { isPinType, validatePinValue } from "../pins.js";
+import { resolveBaseRef } from "../shared/git/base-ref.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -574,10 +575,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
 
       const includeDiff = opts.includeDiff !== false;
-      const diff = includeDiff
-        ? await buildPersonaReviewDiff(parentCwd, runCommand)
-        : "";
-      const prompt = assemblePersonaPrompt(persona, opts.context, diff, {
+      let diffResult = null;
+      if (includeDiff) {
+        const baseRef =
+          (await resolveBaseRef(parentCwd, parent.baseBranch)) ?? "origin/main";
+        diffResult = await buildPersonaReviewDiff(
+          parentCwd,
+          baseRef,
+          runCommand
+        );
+      }
+      const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
         allowRecheck: opts.allowRecheck,
         includeDiff,
       });
