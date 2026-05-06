@@ -5,11 +5,27 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   assemblePersonaPrompt,
+  INLINE_DIFF_THRESHOLD_BYTES,
   loadPersonaBySlug,
   loadPersonas,
   parseFrontmatter,
 } from "../src/personas/loader.js";
 import type { PersonaDefinition } from "../src/personas/loader.js";
+import type { ReviewDiffResult } from "../src/personas/review-diff.js";
+
+function makeDiffResult(
+  diff: string,
+  overrides: Partial<ReviewDiffResult> = {}
+): ReviewDiffResult {
+  return {
+    diff,
+    stat: overrides.stat ?? "",
+    uncommittedStat: overrides.uncommittedStat ?? "",
+    untrackedFiles: overrides.untrackedFiles ?? [],
+    baseRef: overrides.baseRef ?? "origin/main",
+    diffByteSize: overrides.diffByteSize ?? Buffer.byteLength(diff, "utf-8"),
+  };
+}
 
 // ── parseFrontmatter ────────────────────────────────────────────────
 
@@ -103,7 +119,7 @@ describe("assemblePersonaPrompt", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "Built a widget",
-      "diff --git a/foo"
+      makeDiffResult("diff --git a/foo")
     );
 
     expect(result).toContain("# You are a Test Reviewer");
@@ -113,7 +129,11 @@ describe("assemblePersonaPrompt", () => {
   });
 
   it("orders sections correctly: persona body, guidelines, context, diff", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "diff");
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("diff")
+    );
 
     const bodyIdx = result.indexOf("# You are a Test Reviewer");
     const guidelinesIdx = result.indexOf("## Feedback Guidelines");
@@ -130,35 +150,89 @@ describe("assemblePersonaPrompt", () => {
       ...basePersona,
       body: "# Reviewer\n\n## Context\n{{context}}\n\n## Diff\n{{diff}}",
     };
-    const result = assemblePersonaPrompt(persona, "my context", "my diff");
+    const result = assemblePersonaPrompt(
+      persona,
+      "my context",
+      makeDiffResult("my diff")
+    );
 
-    // Placeholders should be gone from the persona body section
     expect(result).not.toMatch(/\{\{context\}\}/);
     expect(result).not.toMatch(/\{\{diff\}\}/);
-    // But the actual values appear in the injected sections
     expect(result).toContain("## Context from parent agent\nmy context");
     expect(result).toContain("## Changes to review\nmy diff");
   });
 
-  it("truncates diffs exceeding 50KB", () => {
+  it("uses stat summary + git commands for large diffs", () => {
     const largeDiff = "a".repeat(60 * 1024);
-    const result = assemblePersonaPrompt(basePersona, "ctx", largeDiff);
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult(largeDiff, {
+        stat: " a.ts | 10 +\n 1 file changed",
+        baseRef: "origin/main",
+      })
+    );
 
-    expect(result).toContain("[... diff truncated at 50KB ...]");
-    // The full 60KB string should not be present
     expect(result).not.toContain(largeDiff);
+    expect(result).toContain("too large to include inline");
+    expect(result).toContain("a.ts | 10 +");
+    expect(result).toContain("git diff origin/main...HEAD -- <path>");
+    expect(result).toContain("git diff origin/main...HEAD");
   });
 
-  it("does not truncate diffs under 50KB", () => {
-    const smallDiff = "b".repeat(40 * 1024);
-    const result = assemblePersonaPrompt(basePersona, "ctx", smallDiff);
+  it("includes uncommitted stat and untracked files for large diffs without committed changes", () => {
+    const largeDiff = "a".repeat(60 * 1024);
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult(largeDiff, {
+        stat: "",
+        uncommittedStat: " b.ts | 5 +\n 1 file changed",
+        untrackedFiles: ["new-feature.ts", "config.json"],
+        baseRef: "origin/main",
+      })
+    );
 
-    expect(result).not.toContain("[... diff truncated");
+    expect(result).toContain("too large to include inline");
+    expect(result).toContain("Uncommitted working tree changes");
+    expect(result).toContain("b.ts | 5 +");
+    expect(result).toContain("Untracked files");
+    expect(result).toContain("- new-feature.ts");
+    expect(result).toContain("- config.json");
+    expect(result).not.toContain("Committed changes");
+  });
+
+  it("omits file-level summary preamble when no stat sources exist for large diffs", () => {
+    const largeDiff = "a".repeat(60 * 1024);
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult(largeDiff, {
+        stat: "",
+        uncommittedStat: "",
+        untrackedFiles: [],
+      })
+    );
+
+    expect(result).toContain("too large to include inline");
+    expect(result).not.toContain("file-level summary is below");
+    expect(result).toContain("git commands below");
+  });
+
+  it("inlines small diffs under the threshold", () => {
+    const smallDiff = "b".repeat(Math.floor(INLINE_DIFF_THRESHOLD_BYTES * 0.8));
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult(smallDiff)
+    );
+
+    expect(result).not.toContain("too large to include inline");
     expect(result).toContain(smallDiff);
   });
 
   it("includes standard severity levels", () => {
-    const result = assemblePersonaPrompt(basePersona, "", "");
+    const result = assemblePersonaPrompt(basePersona, "", null);
 
     expect(result).toContain("**critical**");
     expect(result).toContain("**high**");
@@ -168,26 +242,28 @@ describe("assemblePersonaPrompt", () => {
   });
 
   it("includes info feedback limits", () => {
-    const result = assemblePersonaPrompt(basePersona, "", "");
+    const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).toContain("Info feedback limits");
     expect(result).toContain("Do NOT submit positive affirmations");
   });
 
   it("omits the recheck round-trip block by default", () => {
-    const result = assemblePersonaPrompt(basePersona, "", "");
+    const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).not.toContain("Recheck round-trip");
   });
 
   it("appends the recheck round-trip block when allowRecheck is true", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "diff", {
-      allowRecheck: true,
-    });
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("diff"),
+      { allowRecheck: true }
+    );
 
     expect(result).toContain("Recheck round-trip");
     expect(result).toContain("dispatch_complete_review");
     expect(result).toContain("respondsToFeedbackId");
     expect(result).toContain("dispatch_get_recheck_context");
-    // Round-trip transitions are pushed via terminal injection, not polled.
     expect(result).not.toContain("dispatch_await_recheck");
     expect(result).not.toContain("pollAgainInSeconds");
     expect(result).toMatch(/push a short prompt/i);
@@ -201,36 +277,49 @@ describe("assemblePersonaPrompt", () => {
   });
 
   it("omits the recheck round-trip block when allowRecheck is false", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "diff", {
-      allowRecheck: false,
-    });
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("diff"),
+      { allowRecheck: false }
+    );
     expect(result).not.toContain("Recheck round-trip");
   });
 
   it("includes the diff section by default (includeDiff unset)", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff");
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("the-diff")
+    );
     expect(result).toContain("## Changes to review\nthe-diff");
     expect(result).toContain("the scope of the changes (the diff below)");
   });
 
   it("includes the diff section when includeDiff is true", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff", {
-      includeDiff: true,
-    });
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("the-diff"),
+      { includeDiff: true }
+    );
     expect(result).toContain("## Changes to review\nthe-diff");
     expect(result).toContain("the scope of the changes (the diff below)");
   });
 
   it("omits the diff section when includeDiff is false", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "the-diff", {
-      includeDiff: false,
-    });
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("the-diff"),
+      { includeDiff: false }
+    );
     expect(result).not.toContain("## Changes to review");
     expect(result).not.toContain("the-diff");
   });
 
   it("adapts guidance wording when includeDiff is false", () => {
-    const result = assemblePersonaPrompt(basePersona, "ctx", "", {
+    const result = assemblePersonaPrompt(basePersona, "ctx", null, {
       includeDiff: false,
     });
     expect(result).not.toContain("the diff below");
@@ -243,12 +332,18 @@ describe("assemblePersonaPrompt", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "Review the PRD for gaps",
-      "",
+      null,
       { includeDiff: false }
     );
     expect(result).toContain(
       "## Context from parent agent\nReview the PRD for gaps"
     );
+  });
+
+  it("handles null diffResult gracefully when includeDiff is true", () => {
+    const result = assemblePersonaPrompt(basePersona, "ctx", null);
+    expect(result).not.toContain("## Changes to review");
+    expect(result).toContain("## Context from parent agent");
   });
 });
 
