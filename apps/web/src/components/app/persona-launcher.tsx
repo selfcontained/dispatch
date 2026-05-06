@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useAtom } from "jotai";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
@@ -38,6 +39,7 @@ import {
   type AgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
+import { reviewAllowRecheckPrefAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type PersonaSummary = {
@@ -68,6 +70,10 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
+  const allowRecheckAtom = useMemo(
+    () => reviewAllowRecheckPrefAtom(cwd.trim()),
+    [cwd]
+  );
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -75,8 +81,7 @@ export function PersonaLauncher({
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
-  const [allowRecheck, setAllowRecheck] = useState(false);
-  const [isLaunching, setIsLaunching] = useState(false);
+  const [allowRecheck, setAllowRecheck] = useAtom(allowRecheckAtom);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -93,6 +98,23 @@ export function PersonaLauncher({
 
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
+
+  const launchMutation = useMutation({
+    mutationFn: async (persona: string) => {
+      await persistReviewAgentType(selectedAgentType);
+      await api(`/api/v1/agents/${agent.id}/launch-review`, {
+        method: "POST",
+        body: JSON.stringify({
+          persona,
+          agentType: selectedAgentType,
+          allowRecheck,
+        }),
+      });
+    },
+    onSuccess: () => {
+      setDialogOpen(false);
+    },
+  });
 
   if (personas.length === 0) {
     return (
@@ -122,7 +144,7 @@ export function PersonaLauncher({
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
     setSelectedAgentType(agentType);
     setSelectedPersona(null);
-    setAllowRecheck(false);
+    launchMutation.reset();
     setTypeDropdownOpen(false);
     setDialogOpen(true);
   };
@@ -145,29 +167,13 @@ export function PersonaLauncher({
     );
   };
 
-  const launchPersona = async () => {
-    if (!selectedPersona || isLaunching) return;
-    setIsLaunching(true);
-    try {
-      await persistReviewAgentType(selectedAgentType);
-      await api(`/api/v1/agents/${agent.id}/launch-review`, {
-        method: "POST",
-        body: JSON.stringify({
-          persona: selectedPersona,
-          agentType: selectedAgentType,
-          allowRecheck,
-        }),
-      });
-      setDialogOpen(false);
-    } finally {
-      setIsLaunching(false);
-    }
-  };
+  const launchErrorMessage =
+    launchMutation.error instanceof Error ? launchMutation.error.message : null;
 
   const reviewButton = (
     <Button
       variant="ghost"
-      disabled={disabled || isLaunching}
+      disabled={disabled || launchMutation.isPending}
       className={cn(
         "gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md hover:bg-white/[0.1] hover:text-foreground disabled:pointer-events-auto",
         showReviewAgentTypePicker && "rounded-r-none border-r-0"
@@ -200,7 +206,7 @@ export function PersonaLauncher({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                disabled={disabled || isLaunching}
+                disabled={disabled || launchMutation.isPending}
                 className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
                 data-testid="launch-reviewer-type-dropdown"
               >
@@ -316,6 +322,7 @@ export function PersonaLauncher({
                                   value={agentType}
                                   onSelect={() => {
                                     setSelectedAgentType(agentType);
+                                    launchMutation.reset();
                                     setTypeDropdownOpen(false);
                                     requestAnimationFrame(() =>
                                       typeTriggerRef.current?.focus()
@@ -343,9 +350,10 @@ export function PersonaLauncher({
                   <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                     <Checkbox
                       checked={allowRecheck}
-                      onCheckedChange={() =>
-                        setAllowRecheck((current) => !current)
-                      }
+                      onCheckedChange={() => {
+                        launchMutation.reset();
+                        setAllowRecheck((current) => !current);
+                      }}
                       className="mt-0.5"
                       data-testid="launch-reviewer-allow-recheck"
                     />
@@ -372,7 +380,10 @@ export function PersonaLauncher({
                           <button
                             key={persona.slug}
                             type="button"
-                            onClick={() => setSelectedPersona(persona.slug)}
+                            onClick={() => {
+                              setSelectedPersona(persona.slug);
+                              launchMutation.reset();
+                            }}
                             className={cn(
                               "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                               isSelected
@@ -413,6 +424,14 @@ export function PersonaLauncher({
               </div>
 
               <div className="flex justify-end gap-2 pt-3">
+                {launchErrorMessage ? (
+                  <p
+                    className="mr-auto max-w-[28rem] text-sm text-destructive"
+                    data-testid="launch-reviewer-error"
+                  >
+                    {launchErrorMessage}
+                  </p>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
@@ -423,9 +442,10 @@ export function PersonaLauncher({
                 <Button
                   type="button"
                   variant="primary"
-                  disabled={!selectedPersona || isLaunching}
+                  disabled={!selectedPersona || launchMutation.isPending}
                   onClick={() => {
-                    void launchPersona();
+                    if (!selectedPersona) return;
+                    void launchMutation.mutateAsync(selectedPersona);
                   }}
                   data-testid="launch-reviewer-submit"
                 >

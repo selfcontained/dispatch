@@ -125,6 +125,16 @@ test.describe("Persona recheck UI", () => {
     const recheckToggle = page.getByTestId("launch-reviewer-allow-recheck");
     await recheckToggle.click();
     await expect(recheckToggle).toHaveAttribute("data-state", "checked");
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Launch Review" })
+    ).not.toBeVisible();
+
+    await page.getByTestId("launch-reviewer-button").click();
+    await expect(
+      page.getByRole("heading", { name: "Launch Review" })
+    ).toBeVisible();
+    await expect(recheckToggle).toHaveAttribute("data-state", "checked");
     await page
       .getByTestId("launch-reviewer-persona-architecture-review")
       .click();
@@ -135,5 +145,45 @@ test.describe("Persona recheck UI", () => {
       persona: "architecture-review",
       allowRecheck: true,
     });
+  });
+
+  test("launcher shows an error when review launch fails", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-${Date.now()}`,
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+
+    await page.route(
+      `**/api/v1/agents/${agent.id}/launch-review`,
+      async (route) => {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "Launch review failed on the server.",
+          }),
+        });
+      }
+    );
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await waitForAppShell(page);
+
+    await page.getByTestId("launch-reviewer-button").click();
+    await page
+      .getByTestId("launch-reviewer-persona-architecture-review")
+      .click();
+    await page.getByTestId("launch-reviewer-submit").click();
+
+    await expect(page.getByTestId("launch-reviewer-error")).toHaveText(
+      "Launch review failed on the server."
+    );
+    await expect(
+      page.getByRole("heading", { name: "Launch Review" })
+    ).toBeVisible();
   });
 });
