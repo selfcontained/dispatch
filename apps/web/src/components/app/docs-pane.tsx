@@ -244,7 +244,8 @@ const SECTIONS: SectionDef[] = [
             Click the archive button to remove an agent. If the agent has a
             worktree with unmerged commits or uncommitted changes, you'll be
             asked whether to keep or remove the worktree. Archived agents are
-            preserved in the History section of the Activity page.
+            preserved in the History section of the Activity page, where you can
+            review their events, media, pins, and feedback.
           </P>
         </Section>
       </>
@@ -971,11 +972,13 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             An agent calls the built-in <Code>dispatch_launch_persona</Code>{" "}
             tool, passing the persona name and a context briefing. Dispatch
             loads the persona definition from the repo and spawns a new child
-            agent with the persona's instructions, the parent's context, and a
-            diff of the current branch. The child reviews the work, pings
-            progress with <Code>review_status</Code>, submits findings via{" "}
+            agent with the persona's instructions, the parent's context, and (by
+            default) a diff of the current branch. The child reviews the work,
+            pings progress with <Code>review_status</Code>, submits findings via{" "}
             <Code>dispatch_feedback</Code>, and finishes with{" "}
-            <Code>dispatch_complete_review</Code>.
+            <Code>dispatch_complete_review</Code>. Pass{" "}
+            <Code>includeDiff: false</Code> for non-code reviews (PRDs, docs,
+            media) where the git diff is not the review target.
           </P>
           <P>
             Reviewers always run as a CLI-type agent (claude / codex /
@@ -1249,10 +1252,19 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <Section>
           <H3>Media sidebar</H3>
           <P>
-            Click any agent's media count badge to open the sidebar. Media items
-            are shown in reverse chronological order (most recent 50). Click an
-            item to open the full-screen lightbox. New items since your last
-            visit are marked with a badge.
+            Click any agent's media count badge (or press{" "}
+            <Code>Mod+Shift+&gt;</Code>) to open the sidebar. Media items are
+            shown in reverse chronological order (most recent 50). Click an item
+            to open the full-screen lightbox. New items since your last visit
+            are marked with a badge.
+          </P>
+          <P>
+            The sidebar opens in <strong>drawer</strong> mode by default —
+            floating over the terminal without shifting the layout. Click the
+            pin icon in the sidebar header to switch to <strong>pinned</strong>{" "}
+            mode, which takes layout space and shrinks the terminal to make
+            room. Click the unpin icon to switch back. On mobile the sidebar
+            always opens as a full-screen overlay.
           </P>
           <P>
             The <strong>Share file</strong> button at the top of the sidebar
