@@ -28,6 +28,8 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
 - Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
 - Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`).
+- Personalities — short system-prompt blocks appended to every agent for voice or standing preferences.
+- Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - GitHub integration — PR creation and CI status checks via MCP tools.
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
@@ -176,7 +178,7 @@ Persona agents get a narrower set focused on reviewing their parent's work: `rev
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, and `get_feedback_summary`.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `dispatch_list_media`, `dispatch_launch_persona`, `dispatch_get_feedback`, `dispatch_resolve_feedback`, `dispatch_submit_resolution`, `dispatch_cancel_recheck`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, and `get_feedback_summary`.
 
 ### Repo-specific tools
 
@@ -194,7 +196,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Docs
 
-User-facing documentation (agents, repo tools, jobs, worktrees, reviewers, status events, media, notifications, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, jobs, worktrees, reviewers, status events, media, notifications, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract

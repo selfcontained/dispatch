@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-05
+updated_at: 2026-05-06
 ---
 
 # docs-audit — state handoff
@@ -9,26 +9,24 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`614871c9b6144406440b4ed630ca95cfdd3729df` — HEAD at the start of the 2026-05-05 run. v0.19.3 release tag.
+`e680934cc9de06aa5f8ba2b7ec2e74c29c93b693` — HEAD at the start of the 2026-05-06 run. v0.19.4 release tag.
 
 ## next_focus
 
-**Audit README.md feature list and "user-facing docs" section list.** Multiple backlog items have accumulated around README.md:
+**Audit docs/03-api-spec.md for the remaining backlog items.** Several API surface gaps have accumulated:
 
-- The in-app feature list is missing bullets for sound cues, personalities, keyboard shortcuts / Cmd+K palette, and new themes (Solarized Light, Catppuccin Mocha, Daylight).
-- The "user-facing docs" sentence needs cross-checking against `DOCS_SECTION_NAV` — `personalities` and `shortcuts` sections were added since the list was last touched.
-- The MCP tools summary may understate the surface (JOB_TOOLS gained 6 entries in PR #466; subsequent tools may have landed since).
+- `GET /api/v1/release/auto-check/mode`, `PUT /api/v1/release/auto-check/mode`, `POST /api/v1/release/auto-check/run` (PR #493) and the SSE `release-info` event are undocumented.
+- The Slack-fallback delay claim ("~3s") needs verification against `apps/server/src/notifications/slack.ts`.
+- The Media POST body shape (`{ file, description }`) may have changed — check if `description` is optional or if `name` was added.
+- Confirm the Streaming section's multipart MJPEG framing claim is still accurate.
 
-This is a focused, single-file pass that closes three backlog items at once.
+This is a focused api-spec pass that closes four backlog items.
 
 ## backlog
 
 Items noticed during prior passes but left for later runs. Pick the most relevant one when `next_focus` is empty or already done.
 
-- **README.md MCP tools summary** — may be out of date. Spot-check against `AGENT_TOOLS` / `JOB_TOOLS` / `PERSONA_TOOLS` whenever a future run touches this area.
 - **docs/03-api-spec.md — multiple endpoints missing.** The full personalities CRUD surface (`GET /personalities`, `POST /personalities`, `PATCH /personalities/:id`, `DELETE /personalities/:id`, `POST /personalities/active`) plus the body shapes (`{ name, prompt }`, `name ≤ 80`, `prompt ≤ 1000`, 409 on duplicate name) are undocumented. The agents-settings endpoint (`POST /api/v1/agents/settings` for `copyModeAssistEnabled`), `GET /api/v1/agents/:id/diff-stats`, and `POST /api/v1/agents/:id/prompt-rename` (PR #482) are also new and missing. Add when an api-spec pass next runs.
-- **docs/03-api-spec.md remaining gaps.** The 2026-04-28 pass covered the missing endpoints and error codes but did not refresh: (1) the `Notifications` section's claim that the Slack-fallback delay is "~3s" — verify against `apps/server/src/notifications/slack.ts`; (2) the Streaming section's CDP details — confirm the multipart MJPEG framing claim is still accurate; (3) the Media POST description: `{ file, description }` — `description` may now be optional or accept a `name` field too. Quick spot-checks for a future API run.
-- **docs/03-api-spec.md — automatic update check endpoints.** PR #493 added `GET /api/v1/release/auto-check/mode`, `PUT /api/v1/release/auto-check/mode`, `POST /api/v1/release/auto-check/run` (manual trigger), plus the SSE `release-info` event. None of these are in the api-spec yet.
 - **docs-pane "Reviewers" section — resolution capture UI surfaces.** PR #374 (`8ad64b9`) added resolution reasons + parent summary rendering in `feedback-panel.tsx` (`ResolutionInfoBlock` at line 735, resolution `summary` at lines 1179 / 1570). The docs don't describe what the human sees in the Feedback panel for resolved items; could be a one-paragraph addition to "Submitting findings" or "Round-trip reviews".
 - **docs-pane "Agents" section — sidebar badges enumeration.** The Agents section under "Status indicators" / "Agent details" doesn't enumerate every conditional badge that `agent-card.tsx` renders (Job, Update, Attention, full-access). A single "Sidebar badges" subsection in Agents that enumerates them all would close the cross-reference gap.
 - **docs-pane "Updates" section — `ASSISTED_UPDATE_METADATA_INVALID`.** Low-impact but worth a sentence if the section gets revisited.
@@ -66,6 +64,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Automatic update check introduced a new SSE event.** `release-info` as an SSE event type is undocumented in the SSE schema surface.
 - **Per-install state files live outside the repo checkout.** `~/.dispatch/release.json`, `~/.dispatch/assisted-update.json`, `~/.dispatch/applied-migrations.json`, `~/.dispatch/cache/release-<tag>.tar.gz`.
 - **MCP tool params accrete without docs updates.** `includeDiff` on `dispatch_launch_persona` (PR #496) defaulted to true and wasn't in the docs until this run. Watch for new optional params on existing tools.
+- **README MCP tool lists go stale when tool sets expand.** JOB_TOOLS gained review round-trip tools without a README update; cross-check `AGENT_TOOLS`/`JOB_TOOLS`/`PERSONA_TOOLS` in `apps/server/src/shared/mcp/server.ts` whenever the README tools section is touched.
 
 ## Notes for the next run
 
@@ -98,3 +97,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-03** (Agents v2 — diff badge + tmux scrollback) — Added diff-stats badge and Tmux scrollback subsections to Agents.
 - **2026-05-04** (Keyboard shortcuts + rename + auto-check) — Added new docs-pane "Keyboard Shortcuts" section (global hotkeys + command palette). Added "Renaming agents" subsection to Agents. Updated "Checking for updates" in the Updates section to describe automatic background checks and the release-available toast (PR #493).
 - **2026-05-05** (Reviewers includeDiff + Media sidebar modes + History pins) — Updated Reviewers "How personas work" to document `includeDiff` param (PR #496). Updated Media sidebar section to describe drawer vs. pinned modes and the pin toggle (next_focus from PR #468). Noted Pins tab in Agent History detail view (PR #499).
+- **2026-05-06** (Size-adaptive review diffs + README audit) — Updated Reviewers "How personas work" to document size-adaptive diff behavior (PR #501: diffs >15KB get file-level summaries + git commands instead of inline). Updated README.md: added "shortcuts" and "personalities" to docs section list, added personalities and keyboard shortcuts to features list, fixed JOB_TOOLS list (added 6 missing review round-trip tools).
