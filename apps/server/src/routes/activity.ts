@@ -340,7 +340,10 @@ export async function registerActivityRoutes(
     const order =
       typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
 
-    const conditions: string[] = ["a.parent_agent_id IS NULL"];
+    const conditions: string[] = [
+      "a.parent_agent_id IS NULL",
+      "a.deleted_at IS NOT NULL",
+    ];
     const params: unknown[] = [];
     if (search) {
       params.push(`%${deps.escapeLike(search)}%`);
