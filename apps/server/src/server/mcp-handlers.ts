@@ -37,7 +37,10 @@ import {
   buildReviewerRecheckReadyPrompt,
 } from "../reviews/injection-prompts.js";
 import { isPinType, validatePinValue } from "../pins.js";
-import { resolveBaseRef } from "../shared/git/base-ref.js";
+import {
+  refreshRemoteBaseRef,
+  resolveBaseRef,
+} from "../shared/git/base-ref.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -577,6 +580,9 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const includeDiff = opts.includeDiff !== false;
       let diffResult = null;
       if (includeDiff) {
+        await refreshRemoteBaseRef(parentCwd, parent.baseBranch, {
+          runCommand,
+        });
         const baseRef =
           (await resolveBaseRef(parentCwd, parent.baseBranch)) ?? "origin/main";
         diffResult = await buildPersonaReviewDiff(

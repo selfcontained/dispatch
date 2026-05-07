@@ -11,6 +11,54 @@ export type ResolveBaseRefOptions = {
   runCommand?: CommandRunner;
 };
 
+function preferredRemoteBranch(
+  preferred: string | null | undefined
+): string | null {
+  const candidate = preferred?.trim();
+  if (!candidate || !isSafeRef(candidate)) return null;
+  return candidate.startsWith("origin/")
+    ? candidate.slice("origin/".length)
+    : candidate;
+}
+
+export async function refreshRemoteBaseRef(
+  worktreePath: string,
+  preferred: string | null | undefined,
+  options: ResolveBaseRefOptions = {}
+): Promise<void> {
+  const run = options.runCommand ?? runCommand;
+
+  let remoteBranch = preferredRemoteBranch(preferred);
+  if (!remoteBranch) {
+    try {
+      const upstream = await run(
+        "git",
+        ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
+        { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
+      );
+      if (upstream.exitCode === 0) {
+        remoteBranch = preferredRemoteBranch(upstream.stdout);
+      }
+    } catch {
+      // No upstream configured — fall through to origin/main.
+    }
+  }
+
+  if (!remoteBranch) {
+    remoteBranch = "main";
+  }
+
+  try {
+    await run(
+      "git",
+      ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
+      { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
+    );
+  } catch {
+    // Keep the existing local tracking refs as a fallback.
+  }
+}
+
 /**
  * Resolve a usable base ref for the given worktree, applying the same
  * fallback chain used elsewhere in the agent flow:

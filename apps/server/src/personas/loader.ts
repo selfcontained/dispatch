@@ -171,6 +171,18 @@ export type AssemblePersonaPromptOptions = {
   includeDiff?: boolean;
 };
 
+function buildDiffCommands(baseRef: string): string {
+  return [
+    "### How to inspect changes locally",
+    "```bash",
+    `git diff ${baseRef}...HEAD -- <path>     # committed changes for one file`,
+    `git diff ${baseRef}...HEAD               # full committed diff`,
+    "git diff HEAD                            # uncommitted working tree changes",
+    "git ls-files --others --exclude-standard # untracked files",
+    "```",
+  ].join("\n");
+}
+
 function buildDiffGuidance(result: ReviewDiffResult): string {
   const { baseRef } = result;
   const sizeKB = Math.round(result.diffByteSize / 1024);
@@ -214,15 +226,7 @@ function buildDiffGuidance(result: ReviewDiffResult): string {
     );
   }
 
-  lines.push(
-    "### How to inspect changes",
-    "```bash",
-    `git diff ${baseRef}...HEAD -- <path>     # committed changes for one file`,
-    `git diff ${baseRef}...HEAD               # full committed diff`,
-    `git diff HEAD                            # uncommitted working tree changes`,
-    `git ls-files --others --exclude-standard # untracked files`,
-    "```"
-  );
+  lines.push(buildDiffCommands(baseRef));
 
   return lines.join("\n");
 }
@@ -251,7 +255,9 @@ export function assemblePersonaPrompt(
   sections.push(`## Context from parent agent\n${context}`);
   if (includeDiff && diffResult) {
     if (diffResult.diffByteSize <= INLINE_DIFF_THRESHOLD_BYTES) {
-      sections.push(`## Changes to review\n${diffResult.diff}`);
+      sections.push(
+        `## Changes to review\n${diffResult.diff}\n\n${buildDiffCommands(diffResult.baseRef)}`
+      );
     } else {
       sections.push(`## Changes to review\n${buildDiffGuidance(diffResult)}`);
     }
