@@ -9,6 +9,8 @@ type CommandRunner = (
 export type ResolveBaseRefOptions = {
   /** Override for tests. */
   runCommand?: CommandRunner;
+  /** When false, do not infer the target branch from @{upstream}. */
+  allowUpstreamFallback?: boolean;
 };
 
 function normalizeBranchName(ref: string | null | undefined): string | null {
@@ -22,33 +24,36 @@ function normalizeBranchName(ref: string | null | undefined): string | null {
 async function resolveTargetBranch(
   run: CommandRunner,
   worktreePath: string,
-  preferred: string | null | undefined
+  preferred: string | null | undefined,
+  options: ResolveBaseRefOptions = {}
 ): Promise<string> {
   const preferredBranch = normalizeBranchName(preferred);
   if (preferredBranch) {
     return preferredBranch;
   }
 
-  try {
-    const upstream = await run(
-      "git",
-      ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
-      { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
-    );
-    if (upstream.exitCode === 0) {
-      const upstreamRef = upstream.stdout.trim();
-      // Review diff refreshes only the origin tracking refs that Dispatch
-      // worktrees are created against. Non-origin upstreams intentionally
-      // fall through to the origin/main default below.
-      if (upstreamRef.startsWith("origin/")) {
-        const upstreamBranch = normalizeBranchName(upstreamRef);
-        if (upstreamBranch) {
-          return upstreamBranch;
+  if (options.allowUpstreamFallback !== false) {
+    try {
+      const upstream = await run(
+        "git",
+        ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
+        { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
+      );
+      if (upstream.exitCode === 0) {
+        const upstreamRef = upstream.stdout.trim();
+        // Review diff refreshes only the origin tracking refs that Dispatch
+        // worktrees are created against. Non-origin upstreams intentionally
+        // fall through to the origin/main default below.
+        if (upstreamRef.startsWith("origin/")) {
+          const upstreamBranch = normalizeBranchName(upstreamRef);
+          if (upstreamBranch) {
+            return upstreamBranch;
+          }
         }
       }
+    } catch {
+      // No upstream configured — fall through to origin/main.
     }
-  } catch {
-    // No upstream configured — fall through to origin/main.
   }
 
   return "main";
@@ -67,7 +72,12 @@ export async function refreshRemoteBaseRef(
   options: ResolveBaseRefOptions = {}
 ): Promise<void> {
   const run = options.runCommand ?? runCommand;
-  const remoteBranch = await resolveTargetBranch(run, worktreePath, preferred);
+  const remoteBranch = await resolveTargetBranch(
+    run,
+    worktreePath,
+    preferred,
+    options
+  );
 
   try {
     await run(
@@ -87,7 +97,7 @@ export async function refreshRemoteBaseRef(
  *   1. `preferred` (e.g. `agent.baseBranch`) if it resolves
  *      Special case: prefer `origin/main` over local `main` so stale
  *      primary-checkout branches do not inflate worktree diff stats.
- *   2. the current branch's `@{upstream}`
+ *   2. the current branch's `@{upstream}` (unless disabled by the caller)
  *   3. `origin/main`
  *   4. `main`
  *
@@ -103,7 +113,12 @@ export async function resolveBaseRef(
   options: ResolveBaseRefOptions = {}
 ): Promise<string | null> {
   const run = options.runCommand ?? runCommand;
-  const branchName = await resolveTargetBranch(run, worktreePath, preferred);
+  const branchName = await resolveTargetBranch(
+    run,
+    worktreePath,
+    preferred,
+    options
+  );
   for (const ref of candidateRefsForBranch(branchName)) {
     const found = await refExists(run, worktreePath, ref);
     if (found) return found;
