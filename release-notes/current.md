@@ -1,7 +1,6 @@
 ## What's Changed
-* docs: Reviewers includeDiff, Media sidebar modes, History pins by @selfcontained in https://github.com/selfcontained/dispatch/pull/500
-* feat: size-adaptive persona review diffs with canonical base ref by @selfcontained in https://github.com/selfcontained/dispatch/pull/501
-* Persist reviewer recheck preference per workspace by @selfcontained in https://github.com/selfcontained/dispatch/pull/502
+* docs: size-adaptive review diffs, README audit by @selfcontained in https://github.com/selfcontained/dispatch/pull/504
+* Refine agent history active and finished sections by @selfcontained in https://github.com/selfcontained/dispatch/pull/503
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.19.3...v0.19.4
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.19.4...v0.19.5
