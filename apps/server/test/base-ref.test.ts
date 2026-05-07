@@ -56,6 +56,23 @@ describe("refreshRemoteBaseRef", () => {
     expect(calls).toContain("-C /wt fetch origin release/x --quiet");
   });
 
+  it("falls back to origin/main when upstream tracks a non-origin remote", async () => {
+    const calls: string[] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      calls.push(key);
+      if (key === "-C /wt rev-parse --abbrev-ref @{upstream}") {
+        return ok("fork/release/x\n");
+      }
+      return ok("");
+    });
+
+    await refreshRemoteBaseRef("/wt", null, { runCommand });
+
+    expect(calls).toContain("-C /wt fetch origin main --quiet");
+    expect(calls).not.toContain("-C /wt fetch origin fork/release/x --quiet");
+  });
+
   it("falls back to origin/main when no base branch or upstream is available", async () => {
     const calls: string[] = [];
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
@@ -109,5 +126,29 @@ describe("resolveBaseRef", () => {
 
     expect(result).toBe("origin/main");
     expect(calls).not.toContain("-C /wt rev-parse --verify --quiet main");
+  });
+
+  it("prefers origin/<branch> over the local branch when both are available", async () => {
+    const calls: string[] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      calls.push(key);
+      if (key === "-C /wt rev-parse --verify --quiet origin/release/2026.05") {
+        return ok("origin/release/2026.05");
+      }
+      if (key === "-C /wt rev-parse --verify --quiet release/2026.05") {
+        throw new Error("resolveBaseRef should prefer origin/<branch> first");
+      }
+      throw new Error(`Unexpected command: ${key}`);
+    });
+
+    const result = await resolveBaseRef("/wt", "release/2026.05", {
+      runCommand,
+    });
+
+    expect(result).toBe("origin/release/2026.05");
+    expect(calls).not.toContain(
+      "-C /wt rev-parse --verify --quiet release/2026.05"
+    );
   });
 });
