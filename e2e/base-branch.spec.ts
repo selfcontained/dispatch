@@ -116,7 +116,7 @@ test.describe("Agent base branch", () => {
     expect(body.agent.baseBranch).toBe("feature/foo");
   });
 
-  test("POST /api/v1/agents defaults baseBranch to main", async ({
+  test("POST /api/v1/agents defaults baseBranch to null", async ({
     request,
   }) => {
     const res = await request.post("/api/v1/agents", {
@@ -124,7 +124,7 @@ test.describe("Agent base branch", () => {
       data: { cwd: "/tmp", useWorktree: false },
     });
     const body = (await res.json()) as { agent: { baseBranch: string | null } };
-    expect(body.agent.baseBranch).toBe("main");
+    expect(body.agent.baseBranch).toBeNull();
   });
 
   test("create_pr MCP tool defaults baseBranch from agent metadata", async ({

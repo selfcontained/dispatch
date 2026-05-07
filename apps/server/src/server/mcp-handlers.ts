@@ -580,11 +580,19 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const includeDiff = opts.includeDiff !== false;
       let diffResult = null;
       if (includeDiff) {
-        await refreshRemoteBaseRef(parentCwd, parent.baseBranch, {
+        const reviewBaseBranch =
+          parent.baseBranch ??
+          (parent.worktreePath && parent.worktreeBranch ? "main" : null);
+        const allowUpstreamFallback = reviewBaseBranch == null;
+        await refreshRemoteBaseRef(parentCwd, reviewBaseBranch, {
           runCommand,
+          allowUpstreamFallback,
         });
         const baseRef =
-          (await resolveBaseRef(parentCwd, parent.baseBranch)) ?? "origin/main";
+          (await resolveBaseRef(parentCwd, reviewBaseBranch, {
+            runCommand,
+            allowUpstreamFallback,
+          })) ?? "origin/main";
         diffResult = await buildPersonaReviewDiff(
           parentCwd,
           baseRef,

@@ -40,14 +40,33 @@ describe("refreshRemoteBaseRef", () => {
     expect(calls).toContain("-C /wt fetch origin release/2026.05 --quiet");
   });
 
-  it("falls back to origin/main when baseBranch is missing", async () => {
+  it("falls back to the upstream branch when baseBranch is missing", async () => {
+    const calls: string[] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      calls.push(key);
+      if (key === "-C /wt rev-parse --abbrev-ref @{upstream}") {
+        return ok("origin/release/x\n");
+      }
+      return ok("");
+    });
+
+    await refreshRemoteBaseRef("/wt", null, { runCommand });
+
+    expect(calls).toContain("-C /wt fetch origin release/x --quiet");
+  });
+
+  it("can disable upstream fallback and force origin/main semantics", async () => {
     const calls: string[] = [];
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       calls.push(args.join(" "));
       return ok("");
     });
 
-    await refreshRemoteBaseRef("/wt", null, { runCommand });
+    await refreshRemoteBaseRef("/wt", null, {
+      runCommand,
+      allowUpstreamFallback: false,
+    });
 
     expect(calls).toContain("-C /wt fetch origin main --quiet");
     expect(calls).not.toContain("-C /wt rev-parse --abbrev-ref @{upstream}");
@@ -69,7 +88,29 @@ describe("refreshRemoteBaseRef", () => {
 });
 
 describe("resolveBaseRef", () => {
-  it("falls back to origin/main when preferred baseBranch is missing", async () => {
+  it("falls back to the upstream branch when preferred baseBranch is missing", async () => {
+    const calls: string[] = [];
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      calls.push(key);
+      if (key === "-C /wt rev-parse --abbrev-ref @{upstream}") {
+        return ok("origin/release/x\n");
+      }
+      if (key === "-C /wt rev-parse --verify --quiet origin/release/x") {
+        return ok("origin/release/x");
+      }
+      if (key === "-C /wt rev-parse --verify --quiet release/x") {
+        return fail("");
+      }
+      throw new Error(`Unexpected command: ${key}`);
+    });
+
+    const result = await resolveBaseRef("/wt", null, { runCommand });
+
+    expect(result).toBe("origin/release/x");
+  });
+
+  it("can disable upstream fallback and force origin/main resolution", async () => {
     const calls: string[] = [];
     const runCommand = vi.fn(async (_command: string, args: string[]) => {
       const key = args.join(" ");
@@ -83,7 +124,10 @@ describe("resolveBaseRef", () => {
       throw new Error(`Unexpected command: ${key}`);
     });
 
-    const result = await resolveBaseRef("/wt", null, { runCommand });
+    const result = await resolveBaseRef("/wt", null, {
+      runCommand,
+      allowUpstreamFallback: false,
+    });
 
     expect(result).toBe("origin/main");
     expect(calls).not.toContain("-C /wt rev-parse --abbrev-ref @{upstream}");
