@@ -381,6 +381,7 @@ export class AgentManager {
       }
       throw err;
     }
+    normalizedBaseBranch = normalizedBaseBranch ?? "main";
 
     // Compute worktree params for the setup script
     let worktreeBranchName: string | undefined;

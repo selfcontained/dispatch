@@ -318,12 +318,12 @@ describe("AgentManager", () => {
       expect(agent.baseBranch).toBe("feature/foo");
     });
 
-    it("should default baseBranch to null when not provided", async () => {
+    it("should default baseBranch to main when not provided", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
       });
-      expect(agent.baseBranch).toBeNull();
+      expect(agent.baseBranch).toBe("main");
     });
 
     it("should reject non-absolute paths", async () => {
