@@ -315,7 +315,9 @@ export async function registerActivityRoutes(
     const result = await deps.pool.query<{ project: string }>(
       `SELECT DISTINCT COALESCE(git_context->>'repoRoot', cwd) AS project
        FROM agents
-       WHERE COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL
+       WHERE parent_agent_id IS NULL
+         AND deleted_at IS NOT NULL
+         AND COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL
        ORDER BY project`
     );
     return { projects: result.rows.map((row) => row.project) };
@@ -340,7 +342,10 @@ export async function registerActivityRoutes(
     const order =
       typeof query.order === "string" && query.order === "asc" ? "ASC" : "DESC";
 
-    const conditions: string[] = ["a.parent_agent_id IS NULL"];
+    const conditions: string[] = [
+      "a.parent_agent_id IS NULL",
+      "a.deleted_at IS NOT NULL",
+    ];
     const params: unknown[] = [];
     if (search) {
       params.push(`%${deps.escapeLike(search)}%`);
