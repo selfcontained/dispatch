@@ -973,8 +973,12 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             tool, passing the persona name and a context briefing. Dispatch
             loads the persona definition from the repo and spawns a new child
             agent with the persona's instructions, the parent's context, and (by
-            default) a diff of the current branch. The child reviews the work,
-            pings progress with <Code>review_status</Code>, submits findings via{" "}
+            default) a diff of the current changes against the agent's base
+            branch. Small diffs are included inline; large diffs (over ~15 KB)
+            are replaced with a file-level summary and <Code>git diff</Code>{" "}
+            commands the reviewer can run in the worktree to inspect specific
+            files. The child reviews the work, pings progress with{" "}
+            <Code>review_status</Code>, submits findings via{" "}
             <Code>dispatch_feedback</Code>, and finishes with{" "}
             <Code>dispatch_complete_review</Code>. Pass{" "}
             <Code>includeDiff: false</Code> for non-code reviews (PRDs, docs,
