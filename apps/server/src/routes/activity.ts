@@ -315,7 +315,9 @@ export async function registerActivityRoutes(
     const result = await deps.pool.query<{ project: string }>(
       `SELECT DISTINCT COALESCE(git_context->>'repoRoot', cwd) AS project
        FROM agents
-       WHERE COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL
+       WHERE parent_agent_id IS NULL
+         AND deleted_at IS NOT NULL
+         AND COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL
        ORDER BY project`
     );
     return { projects: result.rows.map((row) => row.project) };
