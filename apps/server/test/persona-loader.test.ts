@@ -119,13 +119,14 @@ describe("assemblePersonaPrompt", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "Built a widget",
-      makeDiffResult("diff --git a/foo")
+      makeDiffResult("diff --git a/foo", { baseRef: "origin/main" })
     );
 
     expect(result).toContain("# You are a Test Reviewer");
     expect(result).toContain("## Feedback Guidelines (from Dispatch)");
     expect(result).toContain("## Context from parent agent\nBuilt a widget");
     expect(result).toContain("## Changes to review\ndiff --git a/foo");
+    expect(result).toContain("git diff origin/main...HEAD");
   });
 
   it("orders sections correctly: persona body, guidelines, context, diff", () => {
@@ -224,11 +225,13 @@ describe("assemblePersonaPrompt", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "ctx",
-      makeDiffResult(smallDiff)
+      makeDiffResult(smallDiff, { baseRef: "origin/main" })
     );
 
     expect(result).not.toContain("too large to include inline");
     expect(result).toContain(smallDiff);
+    expect(result).toContain("git diff origin/main...HEAD -- <path>");
+    expect(result).toContain("git diff HEAD");
   });
 
   it("includes standard severity levels", () => {
@@ -290,21 +293,23 @@ describe("assemblePersonaPrompt", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "ctx",
-      makeDiffResult("the-diff")
+      makeDiffResult("the-diff", { baseRef: "origin/main" })
     );
     expect(result).toContain("## Changes to review\nthe-diff");
     expect(result).toContain("the scope of the changes (the diff below)");
+    expect(result).toContain("git diff origin/main...HEAD");
   });
 
   it("includes the diff section when includeDiff is true", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "ctx",
-      makeDiffResult("the-diff"),
+      makeDiffResult("the-diff", { baseRef: "origin/main" }),
       { includeDiff: true }
     );
     expect(result).toContain("## Changes to review\nthe-diff");
     expect(result).toContain("the scope of the changes (the diff below)");
+    expect(result).toContain("git diff origin/main...HEAD");
   });
 
   it("omits the diff section when includeDiff is false", () => {

@@ -11,6 +11,75 @@ export type ResolveBaseRefOptions = {
   runCommand?: CommandRunner;
 };
 
+function normalizeBranchName(ref: string | null | undefined): string | null {
+  const candidate = ref?.trim();
+  if (!candidate || !isSafeRef(candidate)) return null;
+  return candidate.startsWith("origin/")
+    ? candidate.slice("origin/".length)
+    : candidate;
+}
+
+async function resolveTargetBranch(
+  run: CommandRunner,
+  worktreePath: string,
+  preferred: string | null | undefined
+): Promise<string> {
+  const preferredBranch = normalizeBranchName(preferred);
+  if (preferredBranch) {
+    return preferredBranch;
+  }
+
+  try {
+    const upstream = await run(
+      "git",
+      ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
+      { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
+    );
+    if (upstream.exitCode === 0) {
+      const upstreamRef = upstream.stdout.trim();
+      // Review diff refreshes only the origin tracking refs that Dispatch
+      // worktrees are created against. Non-origin upstreams intentionally
+      // fall through to the origin/main default below.
+      if (upstreamRef.startsWith("origin/")) {
+        const upstreamBranch = normalizeBranchName(upstreamRef);
+        if (upstreamBranch) {
+          return upstreamBranch;
+        }
+      }
+    }
+  } catch {
+    // No upstream configured — fall through to origin/main.
+  }
+
+  return "main";
+}
+
+function candidateRefsForBranch(branchName: string): string[] {
+  if (branchName === "main") {
+    return ["origin/main", "main"];
+  }
+  return [`origin/${branchName}`, branchName];
+}
+
+export async function refreshRemoteBaseRef(
+  worktreePath: string,
+  preferred: string | null | undefined,
+  options: ResolveBaseRefOptions = {}
+): Promise<void> {
+  const run = options.runCommand ?? runCommand;
+  const remoteBranch = await resolveTargetBranch(run, worktreePath, preferred);
+
+  try {
+    await run(
+      "git",
+      ["-C", worktreePath, "fetch", "origin", remoteBranch, "--quiet"],
+      { allowedExitCodes: [0, 1, 128], timeoutMs: 15_000 }
+    );
+  } catch {
+    // Keep the existing local tracking refs as a fallback if refresh fails.
+  }
+}
+
 /**
  * Resolve a usable base ref for the given worktree, applying the same
  * fallback chain used elsewhere in the agent flow:
@@ -34,34 +103,10 @@ export async function resolveBaseRef(
   options: ResolveBaseRefOptions = {}
 ): Promise<string | null> {
   const run = options.runCommand ?? runCommand;
-
-  if (preferred && preferred.trim()) {
-    const candidate = preferred.trim();
-    if (isSafeRef(candidate)) {
-      const candidates =
-        candidate === "main" ? ["origin/main", "main"] : [candidate];
-      for (const ref of candidates) {
-        const found = await refExists(run, worktreePath, ref);
-        if (found) return found;
-      }
-    }
-  }
-
-  try {
-    const upstream = await run(
-      "git",
-      ["-C", worktreePath, "rev-parse", "--abbrev-ref", "@{upstream}"],
-      { allowedExitCodes: [0, 128], timeoutMs: 5_000 }
-    );
-    if (upstream.exitCode === 0) {
-      const trimmed = upstream.stdout.trim();
-      if (trimmed && isSafeRef(trimmed)) {
-        const found = await refExists(run, worktreePath, trimmed);
-        if (found) return found;
-      }
-    }
-  } catch {
-    // No upstream configured — fall through to the origin/main / main chain.
+  const branchName = await resolveTargetBranch(run, worktreePath, preferred);
+  for (const ref of candidateRefsForBranch(branchName)) {
+    const found = await refExists(run, worktreePath, ref);
+    if (found) return found;
   }
 
   return (
