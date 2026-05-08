@@ -382,6 +382,7 @@ export class JobStore {
         j.full_access AS "fullAccess",
         j.auto_archive AS "autoArchive",
         j.callable,
+        j.singleton,
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",

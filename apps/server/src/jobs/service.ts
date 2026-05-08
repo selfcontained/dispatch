@@ -309,6 +309,7 @@ export class JobService {
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
     if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
     if (input.callable !== undefined) config.callable = input.callable;
+    if (input.singleton !== undefined) config.singleton = input.singleton;
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
