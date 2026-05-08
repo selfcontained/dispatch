@@ -1143,6 +1143,7 @@ function AddJobFlow({
   const [branchName, setBranchName] = useState("");
   const [keepAgent, setKeepAgent] = useState(false);
   const [callable, setCallable] = useState(false);
+  const [singleton, setSingleton] = useState(true);
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1279,6 +1280,21 @@ function AddJobFlow({
                   checked={callable}
                   onCheckedChange={setCallable}
                   ariaLabel="Show in command palette"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Single instance
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Only allow one active run at a time.
+                  </span>
+                </span>
+                <SwitchToggle
+                  checked={singleton}
+                  onCheckedChange={setSingleton}
+                  ariaLabel="Single instance"
                 />
               </label>
             </div>
@@ -1423,6 +1439,7 @@ function AddJobFlow({
               fullAccess,
               autoArchive: !keepAgent,
               callable,
+              singleton,
               enabled: effectiveEnabled,
             }).catch((error) => setSubmitError(errorMessage(error)));
           }}
@@ -1877,6 +1894,7 @@ function SettingsTab({
   const [branchName, setBranchName] = useState(job.branchName ?? "");
   const [keepAgent, setKeepAgent] = useState(!job.autoArchive);
   const [callable, setCallable] = useState(job.callable);
+  const [singleton, setSingleton] = useState(job.singleton);
   const [enabled, setEnabled] = useState(job.enabled);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -1903,6 +1921,7 @@ function SettingsTab({
     setBranchName(job.branchName ?? "");
     setKeepAgent(!job.autoArchive);
     setCallable(job.callable);
+    setSingleton(job.singleton);
     setEnabled(job.enabled);
     setSaveError(null);
     setRemoveError(null);
@@ -2060,6 +2079,21 @@ function SettingsTab({
               ariaLabel="Show in command palette"
             />
           </label>
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <span>
+              <span className="block font-medium text-foreground">
+                Single instance
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Only allow one active run at a time.
+              </span>
+            </span>
+            <SwitchToggle
+              checked={singleton}
+              onCheckedChange={setSingleton}
+              ariaLabel="Single instance"
+            />
+          </label>
         </div>
         {saveError ? (
           <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
@@ -2092,6 +2126,7 @@ function SettingsTab({
                 fullAccess,
                 autoArchive: !keepAgent,
                 callable,
+                singleton,
                 enabled: effectiveEnabled,
               })
                 .then(() => {

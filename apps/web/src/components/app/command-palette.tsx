@@ -1,7 +1,10 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Search, type LucideIcon } from "lucide-react";
+import { CornerDownLeft, Search, type LucideIcon } from "lucide-react";
 import { Command as CommandPrimitive } from "cmdk";
 
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -27,6 +30,7 @@ export type CommandAction = {
   hotkey?: HotkeyId;
   icon?: LucideIcon;
   disabled?: boolean;
+  confirm?: { description: string };
   run: () => void;
 };
 
@@ -48,8 +52,42 @@ export function CommandPalette({
   actions,
   groups,
 }: CommandPaletteProps): JSX.Element {
+  const [pendingAction, setPendingAction] = useState<CommandAction | null>(
+    null
+  );
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) setPendingAction(null);
+      onOpenChange(next);
+    },
+    [onOpenChange]
+  );
+
+  const handleSelect = useCallback(
+    (action: CommandAction) => {
+      if (action.confirm) {
+        setPendingAction(action);
+      } else {
+        handleOpenChange(false);
+        action.run();
+      }
+    },
+    [handleOpenChange]
+  );
+
+  const handleConfirm = useCallback(() => {
+    if (!pendingAction) return;
+    const action = pendingAction;
+    setPendingAction(null);
+    handleOpenChange(false);
+    action.run();
+  }, [pendingAction, handleOpenChange]);
+
+  const handleBack = useCallback(() => setPendingAction(null), []);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPortal>
         <DialogOverlay />
         <DialogPrimitive.Content
@@ -68,67 +106,69 @@ export function CommandPalette({
           {/* Subtle gradient hairline on top — picks up the active theme primary */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-          <Command
-            label="Command palette"
-            className="bg-transparent"
-            filter={(value, search) => {
-              const words = value.toLowerCase().split(/\s+/);
-              const term = search.toLowerCase();
-              return words.some((w) => w.startsWith(term)) ? 1 : 0;
-            }}
-          >
-            <div className="flex items-center gap-2 border-b border-primary/15 px-4">
-              <Search
-                className="h-4 w-4 shrink-0 text-primary/80"
-                aria-hidden
-              />
-              <CommandPrimitive.Input
-                autoFocus
-                placeholder="Type a command…"
-                className={cn(
-                  "flex h-12 w-full bg-transparent py-3 text-sm outline-none",
-                  "placeholder:text-muted-foreground/70"
-                )}
-              />
-            </div>
+          {pendingAction ? (
+            <ConfirmActionPane
+              action={pendingAction}
+              onConfirm={handleConfirm}
+              onBack={handleBack}
+            />
+          ) : (
+            <Command
+              label="Command palette"
+              className="bg-transparent"
+              filter={(value, search) => {
+                const words = value.toLowerCase().split(/\s+/);
+                const term = search.toLowerCase();
+                return words.some((w) => w.startsWith(term)) ? 1 : 0;
+              }}
+            >
+              <div className="flex items-center gap-2 border-b border-primary/15 px-4">
+                <Search
+                  className="h-4 w-4 shrink-0 text-primary/80"
+                  aria-hidden
+                />
+                <CommandPrimitive.Input
+                  autoFocus
+                  placeholder="Type a command…"
+                  className={cn(
+                    "flex h-12 w-full bg-transparent py-3 text-sm outline-none",
+                    "placeholder:text-muted-foreground/70"
+                  )}
+                />
+              </div>
 
-            <CommandList className="max-h-[360px] p-1">
-              <CommandEmpty>No commands found.</CommandEmpty>
-              <CommandGroup heading="Commands" className="text-foreground">
-                {actions.map((action) => (
-                  <CommandPaletteItem
-                    key={action.id}
-                    action={action}
-                    onSelect={() => {
-                      onOpenChange(false);
-                      action.run();
-                    }}
-                  />
-                ))}
-              </CommandGroup>
-              {groups?.map(
-                (group) =>
-                  group.actions.length > 0 && (
-                    <CommandGroup
-                      key={group.label}
-                      heading={group.label}
-                      className="text-foreground"
-                    >
-                      {group.actions.map((action) => (
-                        <CommandPaletteItem
-                          key={action.id}
-                          action={action}
-                          onSelect={() => {
-                            onOpenChange(false);
-                            action.run();
-                          }}
-                        />
-                      ))}
-                    </CommandGroup>
-                  )
-              )}
-            </CommandList>
-          </Command>
+              <CommandList className="max-h-[360px] p-1">
+                <CommandEmpty>No commands found.</CommandEmpty>
+                <CommandGroup heading="Commands" className="text-foreground">
+                  {actions.map((action) => (
+                    <CommandPaletteItem
+                      key={action.id}
+                      action={action}
+                      onSelect={() => handleSelect(action)}
+                    />
+                  ))}
+                </CommandGroup>
+                {groups?.map(
+                  (group) =>
+                    group.actions.length > 0 && (
+                      <CommandGroup
+                        key={group.label}
+                        heading={group.label}
+                        className="text-foreground"
+                      >
+                        {group.actions.map((action) => (
+                          <CommandPaletteItem
+                            key={action.id}
+                            action={action}
+                            onSelect={() => handleSelect(action)}
+                          />
+                        ))}
+                      </CommandGroup>
+                    )
+                )}
+              </CommandList>
+            </Command>
+          )}
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
@@ -157,6 +197,78 @@ function HotkeyBadge({ id }: { id: HotkeyId }): JSX.Element {
       ) : null}
       <span>{key}</span>
     </kbd>
+  );
+}
+
+function ConfirmActionPane({
+  action,
+  onConfirm,
+  onBack,
+}: {
+  action: CommandAction;
+  onConfirm: () => void;
+  onBack: () => void;
+}): JSX.Element {
+  const paneRef = useRef<HTMLDivElement>(null);
+  const Icon = action.icon;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onConfirm();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onBack();
+      }
+    };
+    const el = paneRef.current;
+    el?.addEventListener("keydown", handler);
+    return () => el?.removeEventListener("keydown", handler);
+  }, [onConfirm, onBack]);
+
+  useEffect(() => {
+    paneRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      ref={paneRef}
+      tabIndex={-1}
+      className="flex flex-col gap-4 px-5 py-5 outline-none"
+    >
+      <div className="flex items-center gap-3">
+        {Icon && (
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+              "border border-primary/30 bg-primary/[0.12] text-primary"
+            )}
+          >
+            <Icon className="h-4 w-4" aria-hidden />
+          </span>
+        )}
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium text-foreground">
+            {action.title}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {action.confirm?.description}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          Cancel
+        </Button>
+        <Button variant="primary" size="sm" onClick={onConfirm}>
+          Launch
+          <CornerDownLeft className="ml-1.5 h-3 w-3 opacity-60" />
+        </Button>
+      </div>
+    </div>
   );
 }
 

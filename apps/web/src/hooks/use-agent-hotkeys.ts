@@ -164,6 +164,9 @@ export function useAgentHotkeys({
           title: job.name,
           keywords: ["job", "run", "launch"],
           icon: Play,
+          confirm: {
+            description: "This will create a new agent and run this job.",
+          },
           run: () => {
             runNow.mutateAsync(job).then(async (result) => {
               await queryClient.invalidateQueries({ queryKey: ["agents"] });

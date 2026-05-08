@@ -43,6 +43,7 @@ export type JobRecord = {
   fullAccess: boolean;
   autoArchive: boolean;
   callable: boolean;
+  singleton: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -101,6 +102,7 @@ export type JobConfigUpdate = {
   fullAccess?: boolean;
   autoArchive?: boolean;
   callable?: boolean;
+  singleton?: boolean;
   enabled?: boolean;
 };
 
@@ -121,14 +123,15 @@ export class JobStore {
     fullAccess: boolean;
     autoArchive: boolean;
     callable: boolean;
+    singleton: boolean;
     enabled: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -146,6 +149,7 @@ export class JobStore {
           input.branchName,
           input.autoArchive,
           input.callable,
+          input.singleton,
           input.enabled,
         ]
       );
@@ -551,6 +555,7 @@ export class JobStore {
             base_branch = CASE WHEN $15 THEN $16 ELSE base_branch END,
             auto_archive = COALESCE($17, auto_archive),
             callable = COALESCE($18, callable),
+            singleton = COALESCE($19, singleton),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -574,6 +579,7 @@ export class JobStore {
           input.baseBranch ?? null,
           input.autoArchive,
           input.callable,
+          input.singleton,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -657,6 +663,7 @@ export class JobStore {
       full_access AS "fullAccess",
       auto_archive AS "autoArchive",
       callable,
+      singleton,
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

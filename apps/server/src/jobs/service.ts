@@ -45,6 +45,7 @@ export type AddJobInput = {
   fullAccess?: boolean;
   autoArchive?: boolean;
   callable?: boolean;
+  singleton?: boolean;
   enabled?: boolean;
 };
 
@@ -115,13 +116,13 @@ export class JobService {
       );
     }
 
-    // Pre-check for user-friendly error message. The DB unique index
-    // (idx_job_runs_one_active_per_job) is the real guard against concurrent races.
-    const activeRun = await this.store.findActiveRun(job.id);
-    if (activeRun) {
-      throw new Error(
-        `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
-      );
+    if (job.singleton) {
+      const activeRun = await this.store.findActiveRun(job.id);
+      if (activeRun) {
+        throw new Error(
+          `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
+        );
+      }
     }
 
     // Everything below reads from the DB record only
@@ -252,6 +253,7 @@ export class JobService {
       fullAccess: input.fullAccess ?? false,
       autoArchive: input.autoArchive ?? true,
       callable: input.callable ?? false,
+      singleton: input.singleton ?? true,
       enabled: input.enabled ?? false,
     });
 
@@ -480,13 +482,15 @@ export class JobService {
         const current = await this.store.getJob(jobId);
         if (!current || !current.enabled) return;
 
-        const activeRun = await this.store.findActiveRun(jobId);
-        if (activeRun) {
-          this.logger.info(
-            { jobId, name: current.name, activeRunId: activeRun.id },
-            "Skipping scheduled run — job already has an active run"
-          );
-          return;
+        if (current.singleton) {
+          const activeRun = await this.store.findActiveRun(jobId);
+          if (activeRun) {
+            this.logger.info(
+              { jobId, name: current.name, activeRunId: activeRun.id },
+              "Skipping scheduled run — job already has an active run"
+            );
+            return;
+          }
         }
         await this.runJob({
           name: current.name,

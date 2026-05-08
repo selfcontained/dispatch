@@ -89,19 +89,31 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
     await expect(palette.getByText(jobName)).toBeVisible();
     await expect(palette.getByText("Commands")).not.toBeVisible();
 
-    // 6. Press Enter to launch
+    // 6. Press Enter to select the job
     await page.keyboard.press("Enter");
 
-    // 7. Palette should close
+    // 7. Confirmation step appears — verify it shows the job name and launch button
+    await expect(palette.getByText("This will create a new agent")).toBeVisible(
+      {
+        timeout: 3_000,
+      }
+    );
+    const launchBtn = palette.getByRole("button", { name: "Launch" });
+    await expect(launchBtn).toBeVisible();
+
+    // 8. Press Enter to confirm launch
+    await page.keyboard.press("Enter");
+
+    // 9. Palette should close
     await expect(palette).not.toBeVisible({ timeout: 3_000 });
 
-    // 8. Wait for the agent to appear in the sidebar (via SSE, no refresh)
+    // 10. Wait for the agent to appear in the sidebar (via SSE, no refresh)
     const sidebar = page.getByTestId("agent-sidebar");
     await expect(
       sidebar.getByText(new RegExp(`job-e2e-callable-`))
     ).toBeVisible({ timeout: 10_000 });
 
-    // 9. Verify URL navigated to the new agent (worktree setup adds latency)
+    // 11. Verify URL navigated to the new agent (worktree setup adds latency)
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
 });

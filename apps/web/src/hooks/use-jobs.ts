@@ -52,6 +52,7 @@ export type Job = {
   fullAccess: boolean;
   autoArchive: boolean;
   callable: boolean;
+  singleton: boolean;
   createdAt: string;
   updatedAt: string;
   lastRunId: string | null;
@@ -101,6 +102,7 @@ export type AddJobConfig = {
   fullAccess?: boolean;
   autoArchive?: boolean;
   callable?: boolean;
+  singleton?: boolean;
   enabled?: boolean;
 };
 

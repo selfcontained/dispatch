@@ -34,6 +34,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   fullAccess: z.boolean().optional(),
   autoArchive: z.boolean().optional(),
   callable: z.boolean().optional(),
+  singleton: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 const JobHistoryParamsSchema = z.object({
