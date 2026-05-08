@@ -44,6 +44,7 @@ export type AddJobInput = {
   branchName?: string | null;
   fullAccess?: boolean;
   autoArchive?: boolean;
+  callable?: boolean;
   enabled?: boolean;
 };
 
@@ -250,6 +251,7 @@ export class JobService {
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       autoArchive: input.autoArchive ?? true,
+      callable: input.callable ?? false,
       enabled: input.enabled ?? false,
     });
 
@@ -304,6 +306,7 @@ export class JobService {
     if (branchName !== undefined) config.branchName = branchName;
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
     if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
+    if (input.callable !== undefined) config.callable = input.callable;
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);

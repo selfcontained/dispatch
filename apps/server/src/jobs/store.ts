@@ -42,6 +42,7 @@ export type JobRecord = {
   branchName: string | null;
   fullAccess: boolean;
   autoArchive: boolean;
+  callable: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -99,6 +100,7 @@ export type JobConfigUpdate = {
   branchName?: string | null;
   fullAccess?: boolean;
   autoArchive?: boolean;
+  callable?: boolean;
   enabled?: boolean;
 };
 
@@ -118,14 +120,15 @@ export class JobStore {
     branchName: string | null;
     fullAccess: boolean;
     autoArchive: boolean;
+    callable: boolean;
     enabled: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -142,6 +145,7 @@ export class JobStore {
           input.baseBranch,
           input.branchName,
           input.autoArchive,
+          input.callable,
           input.enabled,
         ]
       );
@@ -373,6 +377,7 @@ export class JobStore {
         j.branch_name AS "branchName",
         j.full_access AS "fullAccess",
         j.auto_archive AS "autoArchive",
+        j.callable,
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -545,6 +550,7 @@ export class JobStore {
             enabled = COALESCE($14, enabled),
             base_branch = CASE WHEN $15 THEN $16 ELSE base_branch END,
             auto_archive = COALESCE($17, auto_archive),
+            callable = COALESCE($18, callable),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -567,6 +573,7 @@ export class JobStore {
           Object.prototype.hasOwnProperty.call(input, "baseBranch"),
           input.baseBranch ?? null,
           input.autoArchive,
+          input.callable,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -649,6 +656,7 @@ export class JobStore {
       branch_name AS "branchName",
       full_access AS "fullAccess",
       auto_archive AS "autoArchive",
+      callable,
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

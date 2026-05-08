@@ -30,16 +30,23 @@ export type CommandAction = {
   run: () => void;
 };
 
+export type CommandGroup = {
+  label: string;
+  actions: CommandAction[];
+};
+
 type CommandPaletteProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   actions: CommandAction[];
+  groups?: CommandGroup[];
 };
 
 export function CommandPalette({
   open,
   onOpenChange,
   actions,
+  groups,
 }: CommandPaletteProps): JSX.Element {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,7 +68,15 @@ export function CommandPalette({
           {/* Subtle gradient hairline on top — picks up the active theme primary */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-          <Command label="Command palette" className="bg-transparent">
+          <Command
+            label="Command palette"
+            className="bg-transparent"
+            filter={(value, search) => {
+              const words = value.toLowerCase().split(/\s+/);
+              const term = search.toLowerCase();
+              return words.some((w) => w.startsWith(term)) ? 1 : 0;
+            }}
+          >
             <div className="flex items-center gap-2 border-b border-primary/15 px-4">
               <Search
                 className="h-4 w-4 shrink-0 text-primary/80"
@@ -79,7 +94,7 @@ export function CommandPalette({
 
             <CommandList className="max-h-[360px] p-1">
               <CommandEmpty>No commands found.</CommandEmpty>
-              <CommandGroup className="text-foreground">
+              <CommandGroup heading="Commands" className="text-foreground">
                 {actions.map((action) => (
                   <CommandPaletteItem
                     key={action.id}
@@ -91,6 +106,27 @@ export function CommandPalette({
                   />
                 ))}
               </CommandGroup>
+              {groups?.map(
+                (group) =>
+                  group.actions.length > 0 && (
+                    <CommandGroup
+                      key={group.label}
+                      heading={group.label}
+                      className="text-foreground"
+                    >
+                      {group.actions.map((action) => (
+                        <CommandPaletteItem
+                          key={action.id}
+                          action={action}
+                          onSelect={() => {
+                            onOpenChange(false);
+                            action.run();
+                          }}
+                        />
+                      ))}
+                    </CommandGroup>
+                  )
+              )}
             </CommandList>
           </Command>
         </DialogPrimitive.Content>

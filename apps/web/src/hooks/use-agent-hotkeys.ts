@@ -7,16 +7,23 @@ import {
   PanelLeftOpen,
   PanelRight,
   PanelRightOpen,
+  Play,
   Plus,
 } from "lucide-react";
 
-import { type CommandAction } from "@/components/app/command-palette";
+import {
+  type CommandAction,
+  type CommandGroup,
+} from "@/components/app/command-palette";
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { type Job, useJobActions } from "@/hooks/use-jobs";
+import { useQueryClient } from "@tanstack/react-query";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
+  jobs: Job[];
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
@@ -31,6 +38,7 @@ export type UseAgentHotkeysResult = {
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
   paletteActions: CommandAction[];
+  paletteGroups: CommandGroup[];
 };
 
 /**
@@ -40,6 +48,7 @@ export type UseAgentHotkeysResult = {
  */
 export function useAgentHotkeys({
   agents,
+  jobs,
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
@@ -50,7 +59,9 @@ export function useAgentHotkeys({
   openCreateDialog,
 }: UseAgentHotkeysArgs): UseAgentHotkeysResult {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { runNow } = useJobActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
@@ -142,5 +153,29 @@ export function useAgentHotkeys({
     ]
   );
 
-  return { paletteOpen, setPaletteOpen, paletteActions };
+  const paletteGroups = useMemo<CommandGroup[]>(() => {
+    const callableJobs = jobs.filter((j) => j.callable);
+    if (callableJobs.length === 0) return [];
+    return [
+      {
+        label: "Jobs",
+        actions: callableJobs.map((job) => ({
+          id: `job-${job.id}`,
+          title: job.name,
+          keywords: ["job", "run", "launch"],
+          icon: Play,
+          run: () => {
+            runNow.mutateAsync(job).then(async (result) => {
+              await queryClient.invalidateQueries({ queryKey: ["agents"] });
+              if (result.agentId) {
+                navigate(agentRoute(result.agentId));
+              }
+            });
+          },
+        })),
+      },
+    ];
+  }, [jobs, runNow, navigate, queryClient]);
+
+  return { paletteOpen, setPaletteOpen, paletteActions, paletteGroups };
 }

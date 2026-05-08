@@ -273,6 +273,12 @@ const injectAgentPrompt = createPromptInjector(agentManager, app.log);
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
 );
+agentManager.onAgentCreated((agent) => {
+  uiEventBroker.publish({
+    type: "agent.upsert",
+    agent: withStreamFlag(agent),
+  });
+});
 const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,
@@ -418,6 +424,8 @@ async function registerRoutes() {
   await registerJobRoutes(app, {
     jobService,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    getAgent: (id) => agentManager.getAgent(id),
+    withStreamFlag,
   });
 
   await registerMcpRoutes(app, {

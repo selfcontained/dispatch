@@ -46,6 +46,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { useJobs } from "@/hooks/use-jobs";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {
@@ -473,17 +474,20 @@ export function AgentsView({
     setCreateOpen(true);
   }, []);
 
-  const { paletteOpen, setPaletteOpen, paletteActions } = useAgentHotkeys({
-    agents,
-    isMobile,
-    sidebarAgentId,
-    validatedSelectedAgentId,
-    mediaOpen,
-    setMediaOpen,
-    leftPanelOpen,
-    handleSetLeftPanelOpen,
-    openCreateDialog,
-  });
+  const { data: jobs = [] } = useJobs();
+  const { paletteOpen, setPaletteOpen, paletteActions, paletteGroups } =
+    useAgentHotkeys({
+      agents,
+      jobs,
+      isMobile,
+      sidebarAgentId,
+      validatedSelectedAgentId,
+      mediaOpen,
+      setMediaOpen,
+      leftPanelOpen,
+      handleSetLeftPanelOpen,
+      openCreateDialog,
+    });
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
@@ -964,6 +968,7 @@ export function AgentsView({
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         actions={paletteActions}
+        groups={paletteGroups}
       />
 
       <CreateAgentDialog

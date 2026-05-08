@@ -38,6 +38,7 @@ describe("JobStore", () => {
       baseBranch: null,
       branchName: null,
       autoArchive: true,
+      callable: false,
       enabled: false,
     });
     const run = await store.createRun(job.id, {
