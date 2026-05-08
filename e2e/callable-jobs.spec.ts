@@ -98,8 +98,8 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
         timeout: 3_000,
       }
     );
-    const launchBtn = palette.getByRole("button", { name: "Launch" });
-    await expect(launchBtn).toBeVisible();
+    const launchOption = palette.getByRole("option", { name: "Launch" });
+    await expect(launchOption).toBeVisible();
 
     // 8. Press Enter to confirm launch
     await page.keyboard.press("Enter");
