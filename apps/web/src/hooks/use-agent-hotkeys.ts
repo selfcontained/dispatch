@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   type CommandAction,
@@ -168,12 +169,17 @@ export function useAgentHotkeys({
             description: "This will create a new agent and run this job.",
           },
           run: () => {
-            runNow.mutateAsync(job).then(async (result) => {
-              await queryClient.invalidateQueries({ queryKey: ["agents"] });
-              if (result.agentId) {
-                navigate(agentRoute(result.agentId));
-              }
-            });
+            runNow
+              .mutateAsync(job)
+              .then(async (result) => {
+                await queryClient.invalidateQueries({ queryKey: ["agents"] });
+                if (result.agentId) {
+                  navigate(agentRoute(result.agentId));
+                }
+              })
+              .catch((err: Error) => {
+                toast.error(`Failed to launch job: ${err.message}`);
+              });
           },
         })),
       },
