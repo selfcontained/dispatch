@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-06
+updated_at: 2026-05-07
 ---
 
 # docs-audit — state handoff
@@ -9,24 +9,23 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`e680934cc9de06aa5f8ba2b7ec2e74c29c93b693` — HEAD at the start of the 2026-05-06 run. v0.19.4 release tag.
+`f908a64f80a6e899267a36c1d572810d95cc5347` — HEAD at the start of the 2026-05-07 run. v0.19.7 release tag.
 
 ## next_focus
 
-**Audit docs/03-api-spec.md for the remaining backlog items.** Several API surface gaps have accumulated:
+**Audit docs-pane "Agents" section against recent agent-history and base-ref changes.** PRs #503/#506/#507 changed user-visible behavior:
 
-- `GET /api/v1/release/auto-check/mode`, `PUT /api/v1/release/auto-check/mode`, `POST /api/v1/release/auto-check/run` (PR #493) and the SSE `release-info` event are undocumented.
-- The Slack-fallback delay claim ("~3s") needs verification against `apps/server/src/notifications/slack.ts`.
-- The Media POST body shape (`{ file, description }`) may have changed — check if `description` is optional or if `name` was added.
-- Confirm the Streaming section's multipart MJPEG framing claim is still accurate.
+- History tab now defaults to sort by `updated_at` (desc) and column header reads "Finished" instead of "Created".
+- History only shows archived (finished) agents — not active ones.
+- Review base branch resolution now always refreshes the remote tracking ref before generating the diff (`refreshRemoteBaseRef` in `base-ref.ts`). Worktree agents default to `baseBranch = "main"` if none is set explicitly.
+- These are backend/UX changes that may warrant a mention in the Agents or Reviewers docs-pane sections if users ask "why doesn't my active agent show in history?" or "how does the review diff pick its base?"
 
-This is a focused api-spec pass that closes four backlog items.
+This is a targeted pass: check whether the docs-pane claims about history behavior and review diffing are still accurate.
 
 ## backlog
 
 Items noticed during prior passes but left for later runs. Pick the most relevant one when `next_focus` is empty or already done.
 
-- **docs/03-api-spec.md — multiple endpoints missing.** The full personalities CRUD surface (`GET /personalities`, `POST /personalities`, `PATCH /personalities/:id`, `DELETE /personalities/:id`, `POST /personalities/active`) plus the body shapes (`{ name, prompt }`, `name ≤ 80`, `prompt ≤ 1000`, 409 on duplicate name) are undocumented. The agents-settings endpoint (`POST /api/v1/agents/settings` for `copyModeAssistEnabled`), `GET /api/v1/agents/:id/diff-stats`, and `POST /api/v1/agents/:id/prompt-rename` (PR #482) are also new and missing. Add when an api-spec pass next runs.
 - **docs-pane "Reviewers" section — resolution capture UI surfaces.** PR #374 (`8ad64b9`) added resolution reasons + parent summary rendering in `feedback-panel.tsx` (`ResolutionInfoBlock` at line 735, resolution `summary` at lines 1179 / 1570). The docs don't describe what the human sees in the Feedback panel for resolved items; could be a one-paragraph addition to "Submitting findings" or "Round-trip reviews".
 - **docs-pane "Agents" section — sidebar badges enumeration.** The Agents section under "Status indicators" / "Agent details" doesn't enumerate every conditional badge that `agent-card.tsx` renders (Job, Update, Attention, full-access). A single "Sidebar badges" subsection in Agents that enumerates them all would close the cross-reference gap.
 - **docs-pane "Updates" section — `ASSISTED_UPDATE_METADATA_INVALID`.** Low-impact but worth a sentence if the section gets revisited.
@@ -61,10 +60,12 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Repo tool prefix is `repo_`, not `repo.`.** MCP clients don't support dots in tool names.
 - **Push-based prompt injection makes some "what the agent sees" claims wrong.** Cross-check the docs whenever injection-prompts.ts is edited.
 - **Media sidebar has two layout modes (drawer / pinned).** Docs claims about "opening the sidebar" should specify which mode is the default (drawer). The pin/unpin toggle and its layout effects are a frequent source of confusion.
-- **Automatic update check introduced a new SSE event.** `release-info` as an SSE event type is undocumented in the SSE schema surface.
+- **Automatic update check introduced a new SSE event.** `release-info` as an SSE event type is undocumented in the SSE schema surface. — **Closed:** SSE event types are now enumerated in `docs/03-api-spec.md`.
 - **Per-install state files live outside the repo checkout.** `~/.dispatch/release.json`, `~/.dispatch/assisted-update.json`, `~/.dispatch/applied-migrations.json`, `~/.dispatch/cache/release-<tag>.tar.gz`.
 - **MCP tool params accrete without docs updates.** `includeDiff` on `dispatch_launch_persona` (PR #496) defaulted to true and wasn't in the docs until this run. Watch for new optional params on existing tools.
 - **README MCP tool lists go stale when tool sets expand.** JOB_TOOLS gained review round-trip tools without a README update; cross-check `AGENT_TOOLS`/`JOB_TOOLS`/`PERSONA_TOOLS` in `apps/server/src/shared/mcp/server.ts` whenever the README tools section is touched.
+- **API-spec endpoint tables go stale when new route files are added.** Personalities CRUD was added without an api-spec section. When a new route file appears in `apps/server/src/routes/`, check whether its endpoints are in the spec.
+- **History endpoint query params change without docs updates.** The `sort` values changed from `recent|oldest` to `created_at|name|updated_at` and an `order` param was added, but the api-spec wasn't updated. Grep the actual query parsing in the route handler.
 
 ## Notes for the next run
 
@@ -98,3 +99,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-04** (Keyboard shortcuts + rename + auto-check) — Added new docs-pane "Keyboard Shortcuts" section (global hotkeys + command palette). Added "Renaming agents" subsection to Agents. Updated "Checking for updates" in the Updates section to describe automatic background checks and the release-available toast (PR #493).
 - **2026-05-05** (Reviewers includeDiff + Media sidebar modes + History pins) — Updated Reviewers "How personas work" to document `includeDiff` param (PR #496). Updated Media sidebar section to describe drawer vs. pinned modes and the pin toggle (next_focus from PR #468). Noted Pins tab in Agent History detail view (PR #499).
 - **2026-05-06** (Size-adaptive review diffs + README audit) — Updated Reviewers "How personas work" to document size-adaptive diff behavior (PR #501: diffs >15KB get file-level summaries + git commands instead of inline). Updated README.md: added "shortcuts" and "personalities" to docs section list, added personalities and keyboard shortcuts to features list, fixed JOB_TOOLS list (added 6 missing review round-trip tools).
+- **2026-05-07** (API spec v2) — Closed the api-spec `next_focus`. Added: release auto-check endpoints (auto-update-mode, cached-info), SSE event type enumeration (15 types), Personalities CRUD section, diff-stats and prompt-rename agent endpoints. Fixed: History query params (sort values, added search/order, archived-only behavior), Media POST source field, Settings endpoint description.

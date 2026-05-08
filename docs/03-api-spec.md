@@ -51,6 +51,8 @@
 | POST   | `/agents/:id/start`             | Start a stopped agent                        |
 | POST   | `/agents/:id/stop`              | Stop a running agent                         |
 | PATCH  | `/agents/:id/review-agent-type` | Set preferred agent type for persona reviews |
+| GET    | `/agents/:id/diff-stats`        | Get worktree diff stats for an agent         |
+| POST   | `/agents/:id/prompt-rename`     | Prompt a running agent to rename its session |
 | DELETE | `/agents/:id`                   | Delete agent (soft delete)                   |
 
 ### `POST /agents` — Create Agent
@@ -151,7 +153,24 @@ Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
 
 ### `GET /events` (SSE)
 
-Server-Sent Events stream. Events include agent state changes, media uploads, and stream updates. Used by the frontend for real-time UI updates.
+Server-Sent Events stream. Used by the frontend for real-time UI updates. Event types:
+
+| Event type                     | Payload                                              |
+| ------------------------------ | ---------------------------------------------------- |
+| `snapshot`                     | Full agent list (sent on initial connection)         |
+| `agent.upsert`                 | Single agent record (created or updated)             |
+| `agent.terminal_state_changed` | Terminal UI state for an agent                       |
+| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)     |
+| `agent.deleted`                | Agent ID that was deleted                            |
+| `media.changed`                | Agent ID whose media list changed                    |
+| `media.seen`                   | Agent ID + array of media keys marked seen           |
+| `stream.started`               | Agent ID whose live stream started                   |
+| `stream.stopped`               | Agent ID whose live stream stopped                   |
+| `feedback.created`             | Agent ID + new feedback record                       |
+| `feedback.updated`             | Agent ID + updated feedback record                   |
+| `job.changed`                  | (no payload) — job config or run state changed       |
+| `notification`                 | Web notification payload (id, agent, event, message) |
+| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)             |
 
 ## Terminal
 
@@ -164,12 +183,12 @@ The WebSocket provides bidirectional terminal I/O with resize support, bridging 
 
 ## Media
 
-| Method | Path                      | Description                                       |
-| ------ | ------------------------- | ------------------------------------------------- |
-| GET    | `/agents/:id/media`       | List media files with seen/unseen status          |
-| GET    | `/agents/:id/media/:file` | Download a media file                             |
-| POST   | `/agents/:id/media`       | Upload media (multipart form: file + description) |
-| POST   | `/agents/:id/media/seen`  | Mark media files as seen                          |
+| Method | Path                      | Description                                                |
+| ------ | ------------------------- | ---------------------------------------------------------- |
+| GET    | `/agents/:id/media`       | List media files with seen/unseen status                   |
+| GET    | `/agents/:id/media/:file` | Download a media file                                      |
+| POST   | `/agents/:id/media`       | Upload media (multipart form: file + source + description) |
+| POST   | `/agents/:id/media/seen`  | Mark media files as seen                                   |
 
 ## Streaming
 
@@ -239,6 +258,32 @@ Query params: `scope=children` to include feedback from child persona agents.
 
 Status values: `open`, `dismissed`, `forwarded`, `fixed`, `ignored`. `reason` is optional in general but **required** when `status` is `ignored` (max 10,000 characters). When `status` is `fixed` or `ignored`, the server captures the current HEAD SHA of the agent's working tree as `resolutionCommit` for round-trip review provenance.
 
+## Personalities
+
+| Method | Path                    | Description                                             |
+| ------ | ----------------------- | ------------------------------------------------------- |
+| GET    | `/personalities`        | List all personalities and the active personality ID    |
+| POST   | `/personalities`        | Create a personality (`{ name, prompt }`)               |
+| PATCH  | `/personalities/:id`    | Update name and/or prompt (both optional)               |
+| DELETE | `/personalities/:id`    | Delete a personality                                    |
+| POST   | `/personalities/active` | Set the active personality (`{ id }` or `{ id: null }`) |
+
+### `POST /personalities`
+
+```json
+{ "name": "Concise reviewer", "prompt": "Be brief and direct..." }
+```
+
+`name` is required (max 80 chars, unique — returns `409` on duplicate). `prompt` is required (max 1,000 chars). Returns `201` with the new personality.
+
+### `POST /personalities/active`
+
+```json
+{ "id": "<personality-id>" }
+```
+
+Pass `{ "id": null }` to deactivate. Returns `404` if the ID doesn't match an existing personality.
+
 ## Activity & Analytics
 
 | Method | Path                                | Description                                                 |
@@ -264,15 +309,15 @@ All token endpoints accept `days` and `timezone` query params.
 
 ## History
 
-| Method | Path                  | Description                                                |
-| ------ | --------------------- | ---------------------------------------------------------- |
-| GET    | `/history/projects`   | List all projects where agents have worked                 |
-| GET    | `/history/agents`     | Paginated agent history with filtering and sorting         |
-| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and media |
+| Method | Path                  | Description                                                 |
+| ------ | --------------------- | ----------------------------------------------------------- |
+| GET    | `/history/projects`   | List projects from archived agents (excludes active ones)   |
+| GET    | `/history/agents`     | Paginated archived-agent history with filtering and sorting |
+| GET    | `/history/agents/:id` | Detailed agent history including events, tokens, and media  |
 
 ### `GET /history/agents`
 
-Query params: `project`, `type`, `sort` (`recent` | `oldest`), `limit`, `offset`
+Query params: `search` (name substring), `project`, `type`, `sort` (`created_at` | `name` | `updated_at`), `order` (`asc` | `desc`, default `desc`), `limit` (max 100), `offset`. Only returns archived (finished) agents.
 
 ## Notifications
 
@@ -308,12 +353,12 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                        | Description                                                         |
-| ------ | --------------------------- | ------------------------------------------------------------------- |
-| GET    | `/agents/settings`          | Get agent settings (worktree location)                              |
-| POST   | `/agents/settings`          | Update agent settings                                               |
-| GET    | `/app/settings/agent-types` | Get enabled agent types                                             |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`, `terminal`) |
+| Method | Path                        | Description                                                                         |
+| ------ | --------------------------- | ----------------------------------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name, copy-mode assist) |
+| POST   | `/agents/settings`          | Update agent settings (all fields optional)                                         |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                                             |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`, `terminal`)                 |
 
 ## System
 
@@ -331,22 +376,33 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Release Management
 
-| Method | Path                       | Description                                                                          |
-| ------ | -------------------------- | ------------------------------------------------------------------------------------ |
-| GET    | `/release/status`          | Current deployed release tag and timestamp                                           |
-| GET    | `/release/info`            | Latest available version and unreleased commits                                      |
-| GET    | `/release/channel`         | Get current release channel (`stable` or `latest`)                                   |
-| POST   | `/release/channel`         | Set release channel                                                                  |
-| GET    | `/release/admin-check`     | Check if current instance is a release admin                                         |
-| POST   | `/release/promote`         | Promote a pre-release to stable (admin only)                                         |
-| GET    | `/releases`                | List recent GitHub releases                                                          |
-| POST   | `/release`                 | Trigger new release (`versionType`: major/minor/patch)                               |
-| POST   | `/release/update`          | One-click update to a specific tag (gated — see below)                               |
-| POST   | `/release/assisted/launch` | Launch a full-access agent on the production checkout to perform an assisted update  |
-| POST   | `/release/assisted/phase`  | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
-| GET    | `/release/assisted/state`  | Read the current assisted-update state (tag, phase, notes, checks)                   |
-| DELETE | `/release/assisted/state`  | Clear the persisted assisted-update state                                            |
-| GET    | `/release/stream`          | SSE stream for release operation progress                                            |
+| Method | Path                        | Description                                                                          |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------ |
+| GET    | `/release/status`           | Current deployed release tag and timestamp                                           |
+| GET    | `/release/info`             | Latest available version and unreleased commits                                      |
+| GET    | `/release/cached-info`      | Return the latest auto-check snapshot (or `null` if no check has run yet)            |
+| GET    | `/release/auto-update-mode` | Get automatic update-check mode (`off` or `check`)                                   |
+| POST   | `/release/auto-update-mode` | Set automatic update-check mode                                                      |
+| GET    | `/release/channel`          | Get current release channel (`stable` or `latest`)                                   |
+| POST   | `/release/channel`          | Set release channel                                                                  |
+| GET    | `/release/admin-check`      | Check if current instance is a release admin                                         |
+| POST   | `/release/promote`          | Promote a pre-release to stable (admin only)                                         |
+| GET    | `/releases`                 | List recent GitHub releases                                                          |
+| POST   | `/release`                  | Trigger new release (`versionType`: major/minor/patch)                               |
+| POST   | `/release/update`           | One-click update to a specific tag (gated — see below)                               |
+| POST   | `/release/assisted/launch`  | Launch a full-access agent on the production checkout to perform an assisted update  |
+| POST   | `/release/assisted/phase`   | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
+| GET    | `/release/assisted/state`   | Read the current assisted-update state (tag, phase, notes, checks)                   |
+| DELETE | `/release/assisted/state`   | Clear the persisted assisted-update state                                            |
+| GET    | `/release/stream`           | SSE stream for release operation progress                                            |
+
+### `POST /release/auto-update-mode`
+
+```json
+{ "mode": "check" }
+```
+
+`mode` must be `off` or `check`. When set to `check`, the server fires an immediate background check (in addition to the periodic 6-hour interval) and broadcasts a `release.cached_info_changed` SSE event when results arrive.
 
 ### `POST /release/update`
 
