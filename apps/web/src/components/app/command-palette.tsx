@@ -211,18 +211,9 @@ function ConfirmPage({
   const Icon = action.icon;
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-4">
-      <div className="flex items-center gap-3">
-        {Icon && (
-          <span
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-              "border border-primary/30 bg-primary/[0.12] text-primary"
-            )}
-          >
-            <Icon className="h-4 w-4" aria-hidden />
-          </span>
-        )}
+    <div className="flex flex-col gap-2 px-3 py-3">
+      <div className="flex items-center gap-2.5">
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />}
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-medium text-foreground">
             {action.title}
@@ -242,10 +233,8 @@ function ConfirmPage({
           className={cn(itemClassName, "data-[selected=true]:bg-primary/10")}
         >
           <span aria-hidden className={accentClassName} />
-          <span className={cn(iconWrapClassName, iconWrapSelectedClassName)}>
-            <CornerDownLeft className="h-4 w-4" aria-hidden />
-          </span>
-          <span className="flex-1 truncate text-foreground/90 data-[selected=true]:text-foreground">
+          <CornerDownLeft className={iconClassName} aria-hidden />
+          <span className="flex-1 truncate text-foreground/80 data-[selected=true]:text-foreground">
             Launch
           </span>
         </Command.Item>
@@ -257,7 +246,7 @@ function ConfirmPage({
           className={cn(itemClassName, "data-[selected=true]:bg-primary/10")}
         >
           <span aria-hidden className={accentClassName} />
-          <span className="flex-1 truncate pl-11 text-muted-foreground group-data-[selected=true]:text-foreground">
+          <span className="flex-1 truncate pl-6 text-muted-foreground group-data-[selected=true]:text-foreground">
             Cancel
           </span>
         </Command.Item>
@@ -271,11 +260,11 @@ function HotkeyBadge({ id }: { id: HotkeyId }): JSX.Element {
   return (
     <kbd
       className={cn(
-        "ml-2 inline-flex h-6 items-center justify-center rounded-md px-2",
-        "border border-white/[0.14] bg-white/[0.06]",
-        "font-mono text-xs font-semibold leading-none tracking-wide text-muted-foreground",
+        "ml-2 inline-flex h-5 items-center justify-center rounded px-1.5",
+        "bg-white/[0.06]",
+        "font-mono text-[10px] font-medium leading-none tracking-wide text-muted-foreground/60",
         "transition-colors duration-100",
-        "group-data-[selected=true]:border-primary/40 group-data-[selected=true]:bg-primary/15 group-data-[selected=true]:text-primary"
+        "group-data-[selected=true]:bg-primary/10 group-data-[selected=true]:text-primary/80"
       )}
     >
       {modifiers ? (
@@ -292,16 +281,13 @@ function HotkeyBadge({ id }: { id: HotkeyId }): JSX.Element {
 }
 
 const itemClassName =
-  "group relative flex cursor-default select-none items-center gap-3 rounded-lg px-2 py-2 text-sm outline-none transition-colors duration-100";
+  "group relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors duration-100";
 
 const accentClassName =
-  "absolute inset-y-1 left-0 w-[3px] rounded-full bg-primary opacity-0 transition-opacity group-data-[selected=true]:opacity-100";
+  "absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-primary opacity-0 transition-opacity group-data-[selected=true]:opacity-100";
 
-const iconWrapClassName =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/[0.08] text-primary/80 transition-colors duration-100";
-
-const iconWrapSelectedClassName =
-  "group-data-[selected=true]:border-primary/50 group-data-[selected=true]:bg-primary/20 group-data-[selected=true]:text-primary group-data-[selected=true]:shadow-[0_0_18px_-2px_hsl(var(--primary)/0.45)]";
+const iconClassName =
+  "h-4 w-4 shrink-0 text-muted-foreground/70 transition-colors duration-100 group-data-[selected=true]:text-primary";
 
 function CommandPaletteItem({
   action,
@@ -326,13 +312,9 @@ function CommandPaletteItem({
     >
       <span aria-hidden className={accentClassName} />
 
-      {Icon ? (
-        <span className={cn(iconWrapClassName, iconWrapSelectedClassName)}>
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-      ) : null}
+      {Icon ? <Icon className={iconClassName} aria-hidden /> : null}
 
-      <span className="flex-1 truncate text-foreground/90 group-data-[selected=true]:text-foreground">
+      <span className="flex-1 truncate text-foreground/80 group-data-[selected=true]:text-foreground">
         {action.title}
       </span>
 
