@@ -537,7 +537,7 @@ export class AgentManager {
         id,
         type === "terminal"
           ? { type: "idle", message: "Terminal session started." }
-          : { type: "working", message: "Session started." }
+          : { type: "idle", message: "Session started." }
       );
     } else {
       try {
@@ -651,7 +651,7 @@ export class AgentManager {
       id,
       agent.type === "terminal"
         ? { type: "idle", message: "Terminal session started." }
-        : { type: "working", message: "Session started." }
+        : { type: "idle", message: "Session started." }
     );
 
     // Clean up setup script
@@ -704,7 +704,7 @@ export class AgentManager {
     if (hasSession) {
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
-        type: "working",
+        type: "idle",
         message: "Session attached to existing tmux session.",
       });
       return (await this.getAgent(id)) as AgentRecord;
@@ -783,7 +783,7 @@ export class AgentManager {
               message: "Terminal session resumed.",
             }
           : {
-              type: "working",
+              type: "idle",
               message: shouldResume ? "Session resumed." : "Session started.",
             }
       );
