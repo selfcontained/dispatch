@@ -45,6 +45,7 @@ import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
+import { getPrStatus } from "../shared/github/pr.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
@@ -580,9 +581,21 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const includeDiff = opts.includeDiff !== false;
       let diffResult = null;
       if (includeDiff) {
-        const reviewBaseBranch =
+        let reviewBaseBranch: string | null =
           parent.baseBranch ??
           (parent.worktreePath && parent.worktreeBranch ? "main" : null);
+
+        if (reviewBaseBranch == null) {
+          try {
+            const pr = await getPrStatus({ cwd: parentCwd }, runCommand);
+            if (pr.baseRefName) {
+              reviewBaseBranch = pr.baseRefName;
+            }
+          } catch {
+            // No PR or gh CLI unavailable — fall through to existing fallback.
+          }
+        }
+
         const allowUpstreamFallback = reviewBaseBranch == null;
         await refreshRemoteBaseRef(parentCwd, reviewBaseBranch, {
           runCommand,
