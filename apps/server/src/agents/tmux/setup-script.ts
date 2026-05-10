@@ -308,7 +308,18 @@ export function generateSetupScript(
     });
     lines.push(
       `# --- Configure Cursor MCP ---`,
+      `# Guard against symlinked .cursor directory escaping the worktree.`,
+      `if [ -L "$EFFECTIVE_CWD/.cursor" ]; then`,
+      `  echo "ERROR: $EFFECTIVE_CWD/.cursor is a symlink — refusing to write config outside the worktree" >&2`,
+      `  exit 1`,
+      `fi`,
       `mkdir -p "$EFFECTIVE_CWD/.cursor/rules"`,
+      `CURSOR_REAL=$(cd "$EFFECTIVE_CWD/.cursor" && pwd -P)`,
+      `EFFECTIVE_REAL=$(cd "$EFFECTIVE_CWD" && pwd -P)`,
+      `case "$CURSOR_REAL" in "$EFFECTIVE_REAL"/*) ;; *)`,
+      `  echo "ERROR: .cursor resolved to $CURSOR_REAL which is outside $EFFECTIVE_REAL — refusing to write" >&2`,
+      `  exit 1`,
+      `esac`,
       `CURSOR_MCP_CFG="$EFFECTIVE_CWD/.cursor/mcp.json"`,
       `MCP_ENTRY=${shellEscape(mcpEntry)}`,
       `node --input-type=module -e 'import { readFileSync, renameSync, writeFileSync } from "node:fs"; const [configPath, mcpEntryJson] = process.argv.slice(1); const mcpEntry = JSON.parse(mcpEntryJson); let cfg = {}; try { cfg = JSON.parse(readFileSync(configPath, "utf8")); } catch (error) { if (error?.code !== "ENOENT") throw error; } cfg.mcpServers = { ...(cfg.mcpServers ?? {}), dispatch: mcpEntry }; const tmpPath = \`\${configPath}.tmp-\${process.pid}\`; writeFileSync(tmpPath, JSON.stringify(cfg, null, 2) + "\\n"); renameSync(tmpPath, configPath);' "$CURSOR_MCP_CFG" "$MCP_ENTRY"`,
