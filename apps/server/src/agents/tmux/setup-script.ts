@@ -317,11 +317,12 @@ export function generateSetupScript(
     );
 
     if (params.cursorRulesContent) {
+      const b64 = Buffer.from(params.cursorRulesContent, "utf-8").toString(
+        "base64"
+      );
       lines.push(
         `# --- Write Cursor rules file ---`,
-        `cat > "$EFFECTIVE_CWD/.cursor/rules/dispatch.mdc" <<'DISPATCH_RULES_EOF'`,
-        params.cursorRulesContent,
-        `DISPATCH_RULES_EOF`,
+        `echo ${shellEscape(b64)} | base64 -d > "$EFFECTIVE_CWD/.cursor/rules/dispatch.mdc"`,
         `ok "Wrote dispatch guidance to .cursor/rules/dispatch.mdc"`,
         ``
       );
