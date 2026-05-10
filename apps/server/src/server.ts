@@ -89,6 +89,7 @@ import { CopyModeAssistManager } from "./terminal/copy-mode-assist-manager.js";
 import { TerminalTokenStore } from "./terminal/token-store.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
+import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
   packageVersion,
@@ -100,6 +101,7 @@ import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerJobRoutes } from "./routes/jobs.js";
+import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
@@ -169,6 +171,7 @@ const copyModeObserverManager = new CopyModeObserverManager((event) =>
 );
 const copyModeAssistManager = new CopyModeAssistManager();
 const jobService = new JobService(pool, agentManager, app.log, config);
+const templateService = new TemplateService(pool, agentManager, app.log);
 const jobNotifier = new JobNotifier(pool, app.log);
 const streamManager = new StreamManager(
   (agentId, event) => {
@@ -423,6 +426,11 @@ async function registerRoutes() {
 
   await registerJobRoutes(app, {
     jobService,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  });
+
+  await registerTemplateRoutes(app, {
+    templateService,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 

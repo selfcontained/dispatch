@@ -53,6 +53,8 @@ export type Job = {
   autoArchive: boolean;
   callable: boolean;
   singleton: boolean;
+  templateId: string | null;
+  defaultArgs: Record<string, string>;
   createdAt: string;
   updatedAt: string;
   lastRunId: string | null;

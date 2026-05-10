@@ -282,7 +282,7 @@ export function JobsProvider({
   const selectJob = (job: Job) => {
     setIsAddingJob(false);
     setJustAddedJobId(null);
-    navigate(`/jobs/${job.id}`);
+    navigate(`/automations/jobs/${job.id}`);
   };
 
   const openAddJob = () => {
@@ -331,7 +331,7 @@ export function JobsProvider({
             const added = await addJob.mutateAsync(job);
             setIsAddingJob(false);
             setJustAddedJobId(added.id);
-            navigate(`/jobs/${added.id}`);
+            navigate(`/automations/jobs/${added.id}`);
           }}
           isAdding={addJob.isPending}
           enabledAgentTypes={enabledAgentTypes}
@@ -411,7 +411,7 @@ export function JobListContent({
                 showOverview && "border-r-primary bg-muted/60"
               )}
               onClick={() => {
-                navigate("/jobs/overview");
+                navigate("/automations/jobs/overview");
                 onItemSelect?.();
               }}
             >
@@ -533,7 +533,7 @@ export function JobDetailPane(): JSX.Element {
               tab={tab}
               onTabChange={(nextTab) => {
                 navigate(
-                  `/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
+                  `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
                 );
               }}
               history={history.data?.runs ?? []}
@@ -542,8 +542,8 @@ export function JobDetailPane(): JSX.Element {
               onSelectRun={(runId) => {
                 navigate(
                   runId
-                    ? `/jobs/${selectedJob.id}/history/${runId}`
-                    : `/jobs/${selectedJob.id}/history`
+                    ? `/automations/jobs/${selectedJob.id}/history/${runId}`
+                    : `/automations/jobs/${selectedJob.id}/history`
                 );
               }}
               attachedAgent={attachedAgent}
@@ -560,7 +560,7 @@ export function JobDetailPane(): JSX.Element {
               }}
               onRemoveJob={async (job) => {
                 await removeJob.mutateAsync(job);
-                navigate("/jobs");
+                navigate("/automations/jobs");
               }}
               isUpdating={updateJob.isPending}
               isRemoving={removeJob.isPending}
@@ -576,7 +576,7 @@ export function JobDetailPane(): JSX.Element {
               statsLoading={jobStats.isLoading}
               onSelectJob={selectJob}
               onSelectRun={(jobId, runId) =>
-                navigate(`/jobs/${jobId}/history/${runId}`)
+                navigate(`/automations/jobs/${jobId}/history/${runId}`)
               }
             />
           </div>

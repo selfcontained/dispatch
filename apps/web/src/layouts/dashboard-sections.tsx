@@ -5,10 +5,9 @@ import { BarChart3, History, PanelRightOpen } from "lucide-react";
 import { AgentsView } from "@/components/app/agents-view";
 import { ActivityPane } from "@/components/app/activity-pane";
 import {
-  JobsProvider,
-  JobListContent,
-  JobDetailPane,
-} from "@/components/app/jobs-pane";
+  AutomationsSidebarContent,
+  AutomationsDetailContent,
+} from "@/components/app/automations-pane";
 import {
   SettingsContent,
   SettingsNavContent,
@@ -21,7 +20,6 @@ import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/App";
-import { agentRoute } from "@/lib/agent-routes";
 
 function serviceDotClass(state: ServiceState): string {
   if (state === "ok") return "bg-status-working";
@@ -137,35 +135,27 @@ export function AgentsRoute(): JSX.Element {
   );
 }
 
-export function JobsRoute(): JSX.Element {
-  const navigate = useNavigate();
+export function AutomationsRoute(): JSX.Element {
   const { agents, enabledAgentTypes, isMobile, setMobileLeftOpen } =
     useDashboardContext();
-  const openAgent = useCallback(
-    async (agent: (typeof agents)[number]) => {
-      navigate(agentRoute(agent.id));
-    },
-    [navigate]
-  );
 
   return (
-    <JobsProvider
-      open={true}
-      agents={agents}
-      onOpenAgent={openAgent}
-      enabledAgentTypes={enabledAgentTypes}
+    <SectionShell
+      activeSection="automations"
+      sidebar={
+        <AutomationsSidebarContent
+          agents={agents}
+          enabledAgentTypes={enabledAgentTypes}
+          isMobile={isMobile}
+          closeSidebar={() => setMobileLeftOpen(false)}
+        />
+      }
     >
-      <SectionShell
-        activeSection="jobs"
-        sidebar={
-          <JobListContent
-            onItemSelect={isMobile ? () => setMobileLeftOpen(false) : undefined}
-          />
-        }
-      >
-        <JobDetailPane />
-      </SectionShell>
-    </JobsProvider>
+      <AutomationsDetailContent
+        agents={agents}
+        enabledAgentTypes={enabledAgentTypes}
+      />
+    </SectionShell>
   );
 }
 

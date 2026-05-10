@@ -20,13 +20,13 @@ function initGitRepo(dir: string): void {
   );
 }
 
-test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
-  const jobDir = join(tmpdir(), `dispatch-e2e-callable-${Date.now()}`);
-  initGitRepo(jobDir);
-  const jobName = `e2e-callable-${Date.now()}`;
+test.describe("Callable templates — Cmd+K launch lifecycle", () => {
+  const templateDir = join(tmpdir(), `dispatch-e2e-callable-${Date.now()}`);
+  initGitRepo(templateDir);
+  const templateName = `e2e-callable-${Date.now()}`;
+  let templateId: string | null = null;
 
   test.afterEach(async ({ request }) => {
-    // Clean up any agents spawned by the job
     const listRes = await request.get("/api/v1/agents", {
       headers: AUTH_HEADER,
     });
@@ -34,7 +34,7 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
       agents: Array<{ id: string; name: string; status: string }>;
     };
     for (const agent of agents) {
-      if (agent.name.startsWith("job-e2e-callable-")) {
+      if (agent.name.startsWith("e2e-callable-")) {
         if (agent.status !== "stopped") {
           await request.post(`/api/v1/agents/${agent.id}/stop`, {
             headers: AUTH_HEADER,
@@ -47,33 +47,35 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
       }
     }
 
-    // Clean up the job (need to clear active runs first)
-    await request.delete("/api/v1/jobs", {
-      headers: HEADERS,
-      data: { name: jobName, directory: jobDir },
-    });
+    if (templateId) {
+      await request.delete(`/api/v1/templates/${templateId}`, {
+        headers: AUTH_HEADER,
+      });
+      templateId = null;
+    }
 
     await cleanupE2EAgents(request);
   });
 
-  test("launching a callable job from Cmd+K shows agent in sidebar and navigates to it", async ({
+  test("launching a callable template from Cmd+K shows agent in sidebar and navigates to it", async ({
     page,
     request,
   }) => {
-    // 1. Create a callable job via API
-    const createRes = await request.post("/api/v1/jobs", {
+    // 1. Create a callable template via API
+    const createRes = await request.post("/api/v1/templates", {
       headers: HEADERS,
       data: {
-        name: jobName,
-        directory: jobDir,
-        prompt: "Say hello and call job_complete.",
+        name: templateName,
+        directory: templateDir,
+        prompt: "Say hello and stop.",
         callable: true,
         agentType: "claude",
-        autoArchive: true,
         useWorktree: true,
       },
     });
     expect(createRes.ok()).toBeTruthy();
+    const created = (await createRes.json()) as { id: string };
+    templateId = created.id;
 
     // 2. Load the app
     await loadApp(page);
@@ -83,22 +85,20 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible({ timeout: 3_000 });
 
-    // 4. Type the job name to filter
+    // 4. Type the template name to filter
     const input = palette.getByRole("combobox");
     await input.pressSequentially("e2e-callable", { delay: 30 });
 
-    // 5. Verify only the job shows (Commands group hidden)
-    await expect(palette.getByText(jobName)).toBeVisible();
+    // 5. Verify only the template shows (Commands group hidden)
+    await expect(palette.getByText(templateName)).toBeVisible();
     await expect(palette.getByText("Commands")).not.toBeVisible();
 
-    // 6. Press Enter to select the job
+    // 6. Press Enter to select the template
     await page.keyboard.press("Enter");
 
-    // 7. Confirmation step appears — verify it shows the job name and launch button
+    // 7. Confirmation step appears
     await expect(palette.getByText("This will create a new agent")).toBeVisible(
-      {
-        timeout: 3_000,
-      }
+      { timeout: 3_000 }
     );
     const launchOption = palette.getByRole("option", { name: "Launch" });
     await expect(launchOption).toBeVisible();
@@ -111,9 +111,9 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
 
     // 10. Wait for the agent to appear in the sidebar (via SSE, no refresh)
     const sidebar = page.getByTestId("agent-sidebar");
-    await expect(
-      sidebar.getByText(new RegExp(`job-e2e-callable-`))
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.getByText(new RegExp(`e2e-callable-`))).toBeVisible({
+      timeout: 10_000,
+    });
 
     // 11. Verify URL navigated to the new agent (worktree setup adds latency)
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });

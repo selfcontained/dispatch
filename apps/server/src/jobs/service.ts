@@ -16,6 +16,11 @@ import {
   type JobWithLatestRun,
 } from "./store.js";
 import {
+  TemplateStore,
+  substituteArgs,
+  type TemplateRecord,
+} from "../templates/store.js";
+import {
   getNextRun,
   validateCronExpression,
   validateCronInterval,
@@ -46,6 +51,7 @@ export type AddJobInput = {
   autoArchive?: boolean;
   callable?: boolean;
   singleton?: boolean;
+  defaultArgs?: Record<string, string>;
   enabled?: boolean;
 };
 
@@ -75,6 +81,7 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 export class JobService {
   private readonly store: JobStore;
+  private readonly templateStore: TemplateStore;
   private readonly monitors = new Map<string, Promise<JobRunRecord>>();
   private readonly schedulers = new Map<string, Cron>();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
@@ -87,6 +94,7 @@ export class JobService {
     private readonly config: AppConfig
   ) {
     this.store = new JobStore(pool);
+    this.templateStore = new TemplateStore(pool);
   }
 
   /** Register a callback that fires when a job run reaches a notable state. */
@@ -110,10 +118,28 @@ export class JobService {
   async runJob(input: RunJobInput): Promise<RunJobResult> {
     const job = await this.getJobOrThrow(input.directory, input.name);
 
-    if (!job.prompt) {
+    // Resolve agent config from backing template (fallback to job for legacy rows)
+    const template = job.templateId
+      ? await this.templateStore.getTemplate(job.templateId)
+      : null;
+    const agentConfig = template ?? job;
+
+    const rawPrompt = agentConfig.prompt;
+    if (!rawPrompt) {
       throw new Error(
         `Job "${job.name}" has no prompt configured. Add a prompt in the job settings.`
       );
+    }
+
+    // Substitute default args into prompt if the template has placeholders
+    let resolvedPrompt: string;
+    try {
+      resolvedPrompt =
+        template && Object.keys(job.defaultArgs).length > 0
+          ? substituteArgs(rawPrompt, job.defaultArgs)
+          : rawPrompt;
+    } catch {
+      resolvedPrompt = rawPrompt;
     }
 
     if (job.singleton) {
@@ -125,24 +151,29 @@ export class JobService {
       }
     }
 
-    // Everything below reads from the DB record only
     let run = await this.store.createRun(
       job.id,
       buildRunConfig(job, input.triggerSource ?? "manual")
     );
     this.emitRunStateChange(run);
-    const prompt = buildJobPrompt(job, run.id);
+
+    const jobLikeForPrompt = { ...job, prompt: resolvedPrompt };
+    const prompt = buildJobPrompt(jobLikeForPrompt, run.id);
 
     try {
       const agent = await this.agentManager.createAgent({
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-        type: job.agentType,
+        type: agentConfig.agentType,
         cwd: job.directory,
-        agentArgs: buildAgentArgs(job.agentType, prompt, job.fullAccess),
-        fullAccess: job.fullAccess,
-        useWorktree: job.useWorktree,
-        baseBranch: job.baseBranch ?? undefined,
-        worktreeBranch: job.branchName ?? undefined,
+        agentArgs: buildAgentArgs(
+          agentConfig.agentType,
+          prompt,
+          agentConfig.fullAccess
+        ),
+        fullAccess: agentConfig.fullAccess,
+        useWorktree: agentConfig.useWorktree,
+        baseBranch: agentConfig.baseBranch ?? undefined,
+        worktreeBranch: agentConfig.branchName ?? undefined,
         jobRunId: run.id,
       });
       run = await this.store.attachAgent(run.id, agent.id);
@@ -238,6 +269,19 @@ export class JobService {
       );
     }
 
+    // Create a backing template for this job (hidden from Cmd+K by default)
+    const template = await this.templateStore.createTemplate({
+      name: displayName,
+      directory: input.directory,
+      prompt: input.prompt ?? null,
+      agentType: input.agentType ?? "claude",
+      useWorktree: input.useWorktree ?? false,
+      baseBranch: input.baseBranch ?? null,
+      branchName: input.branchName ?? null,
+      fullAccess: input.fullAccess ?? false,
+      callable: false,
+    });
+
     const job = await this.store.createJob({
       name: displayName,
       directory: input.directory,
@@ -254,6 +298,8 @@ export class JobService {
       autoArchive: input.autoArchive ?? true,
       callable: input.callable ?? false,
       singleton: input.singleton ?? true,
+      templateId: template.id,
+      defaultArgs: {},
       enabled: input.enabled ?? false,
     });
 
@@ -313,6 +359,39 @@ export class JobService {
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
+
+    // Propagate agent-config changes to the backing template
+    if (updated.templateId) {
+      const templateUpdates: Record<string, unknown> = {};
+      if (input.prompt !== undefined) templateUpdates.prompt = input.prompt;
+      if (input.agentType !== undefined)
+        templateUpdates.agentType = input.agentType;
+      if (input.useWorktree !== undefined)
+        templateUpdates.useWorktree = input.useWorktree;
+      if (input.baseBranch !== undefined)
+        templateUpdates.baseBranch = input.baseBranch;
+      if (input.branchName !== undefined)
+        templateUpdates.branchName = input.branchName;
+      if (input.fullAccess !== undefined)
+        templateUpdates.fullAccess = input.fullAccess;
+      if (displayName !== undefined && displayName !== existing.name) {
+        templateUpdates.name = displayName;
+      }
+      if (Object.keys(templateUpdates).length > 0) {
+        await this.templateStore
+          .updateTemplate(
+            updated.templateId,
+            templateUpdates as Parameters<TemplateStore["updateTemplate"]>[1]
+          )
+          .catch((err) => {
+            this.logger.warn(
+              { err, templateId: updated.templateId },
+              "Failed to propagate update to backing template"
+            );
+          });
+      }
+    }
+
     if (updated.enabled && updated.schedule) {
       this.scheduleJob(updated);
     } else {
@@ -379,6 +458,24 @@ export class JobService {
     }
     this.stopScheduler(job.id);
     const removed = await this.store.deleteJob(job.id);
+
+    // Clean up the backing template if no other jobs reference it
+    if (removed.templateId) {
+      const hasOtherJobs = await this.templateStore.hasJobsReferencing(
+        removed.templateId
+      );
+      if (!hasOtherJobs) {
+        await this.templateStore
+          .deleteTemplate(removed.templateId)
+          .catch((err) => {
+            this.logger.warn(
+              { err, templateId: removed.templateId },
+              "Failed to clean up backing template"
+            );
+          });
+      }
+    }
+
     this.logger.info(
       { jobId: removed.id, name: removed.name },
       "Job removed from configuration"

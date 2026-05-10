@@ -19,7 +19,7 @@ import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
 
-export type NavSection = "agents" | "jobs" | "activity" | "settings";
+export type NavSection = "agents" | "automations" | "activity" | "settings";
 
 type SidebarNavBarProps = {
   activeSection?: NavSection;
@@ -51,7 +51,7 @@ export function SidebarNavBar({
 
   const items: Array<{ id: NavSection; icon: typeof Bot; label: string }> = [
     { id: "agents", icon: Bot, label: "Agents" },
-    { id: "jobs", icon: AlarmClock, label: "Jobs" },
+    { id: "automations", icon: AlarmClock, label: "Automations" },
     { id: "activity", icon: Activity, label: "Activity" },
     { id: "settings", icon: Settings, label: "Settings" },
   ];

@@ -32,6 +32,7 @@ export type UiEvent =
       feedback: FeedbackRecord;
     }
   | { type: "job.changed" }
+  | { type: "template.changed" }
   | {
       type: "notification";
       notificationId: string;

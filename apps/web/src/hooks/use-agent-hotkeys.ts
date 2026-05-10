@@ -19,7 +19,11 @@ import {
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
-import { useJobs, useJobActions } from "@/hooks/use-jobs";
+import {
+  useTemplates,
+  useTemplateActions,
+  parseTemplateArgs,
+} from "@/hooks/use-templates";
 import { useQueryClient } from "@tanstack/react-query";
 
 type UseAgentHotkeysArgs = {
@@ -60,8 +64,8 @@ export function useAgentHotkeys({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { data: jobs = [] } = useJobs();
-  const { runNow } = useJobActions();
+  const { data: templates = [] } = useTemplates();
+  const { launchTemplate } = useTemplateActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
@@ -154,36 +158,47 @@ export function useAgentHotkeys({
   );
 
   const paletteGroups = useMemo<CommandGroup[]>(() => {
-    const callableJobs = jobs.filter((j) => j.callable);
-    if (callableJobs.length === 0) return [];
+    const callableTemplates = templates.filter((t) => t.callable);
+    if (callableTemplates.length === 0) return [];
     return [
       {
-        label: "Jobs",
-        actions: callableJobs.map((job) => ({
-          id: `job-${job.id}`,
-          title: job.name,
-          keywords: ["job", "run", "launch"],
-          icon: Play,
-          confirm: {
-            description: "This will create a new agent and run this job.",
-          },
-          run: () => {
-            runNow
-              .mutateAsync(job)
-              .then(async (result) => {
-                await queryClient.invalidateQueries({ queryKey: ["agents"] });
-                if (result.agentId) {
+        label: "Templates",
+        actions: callableTemplates.map((template) => {
+          const args = parseTemplateArgs(template.prompt ?? "");
+          const hasArgs = args.length > 0;
+          return {
+            id: `template-${template.id}`,
+            title: template.name,
+            keywords: ["template", "launch", "run"],
+            icon: Play,
+            confirm: hasArgs
+              ? undefined
+              : {
+                  description:
+                    "This will create a new agent from this template.",
+                },
+            run: () => {
+              if (hasArgs) {
+                navigate(`/automations/templates/${template.id}`);
+                return;
+              }
+              launchTemplate
+                .mutateAsync({ id: template.id })
+                .then(async (result) => {
+                  await queryClient.invalidateQueries({
+                    queryKey: ["agents"],
+                  });
                   navigate(agentRoute(result.agentId));
-                }
-              })
-              .catch((err: Error) => {
-                toast.error(`Failed to launch job: ${err.message}`);
-              });
-          },
-        })),
+                })
+                .catch((err: Error) => {
+                  toast.error(`Failed to launch template: ${err.message}`);
+                });
+            },
+          };
+        }),
       },
     ];
-  }, [jobs, runNow, navigate, queryClient]);
+  }, [templates, launchTemplate, navigate, queryClient]);
 
   return { paletteOpen, setPaletteOpen, paletteActions, paletteGroups };
 }

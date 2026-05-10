@@ -201,7 +201,7 @@ export function DashboardLayout(): JSX.Element {
   const handleSidebarNavigate = useCallback(
     (section: NavSection) => {
       if (section === "agents") navigate("/agents");
-      else if (section === "jobs") navigate("/jobs");
+      else if (section === "automations") navigate("/automations");
       else if (section === "activity") navigate("/activity/metrics");
       else if (section === "settings") navigate("/settings");
     },
