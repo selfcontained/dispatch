@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   AlarmClock,
+  Check,
+  ChevronDown,
   FileText,
-  Pencil,
+  GitBranch,
   Play,
   Plus,
   Trash2,
@@ -17,10 +19,19 @@ import {
   JobListContent,
   JobDetailPane,
 } from "@/components/app/jobs-pane";
+import { BranchSelect } from "@/components/app/branch-select";
 import { PathInput } from "@/components/app/path-input";
 import type { AgentType } from "@/lib/agent-types";
 import { type Agent } from "@/components/app/types";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Command,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +40,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   useTemplates,
   useTemplateActions,
@@ -42,6 +52,8 @@ import {
   type CliAgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
+import { useClickOutside } from "@/hooks/use-click-outside";
+import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 
@@ -64,10 +76,12 @@ function resolveTab(pathname: string): AutomationsTab {
 function AutomationsSidebar({
   activeTab,
   onTabChange,
+  enabledAgentTypes,
   onItemSelect,
 }: {
   activeTab: AutomationsTab;
   onTabChange: (tab: AutomationsTab) => void;
+  enabledAgentTypes: AgentType[];
   onItemSelect?: () => void;
 }): JSX.Element {
   return (
@@ -89,7 +103,10 @@ function AutomationsSidebar({
         </div>
       </div>
       {activeTab === "templates" ? (
-        <TemplateListContent onItemSelect={onItemSelect} />
+        <TemplateListContent
+          enabledAgentTypes={enabledAgentTypes}
+          onItemSelect={onItemSelect}
+        />
       ) : (
         <JobListContent onItemSelect={onItemSelect} />
       )}
@@ -130,8 +147,10 @@ function TabButton({
 // ---------------------------------------------------------------------------
 
 function TemplateListContent({
+  enabledAgentTypes,
   onItemSelect,
 }: {
+  enabledAgentTypes: AgentType[];
   onItemSelect?: () => void;
 }): JSX.Element {
   const navigate = useNavigate();
@@ -181,7 +200,11 @@ function TemplateListContent({
           </div>
         )}
       </div>
-      <CreateTemplateDialog open={showCreate} onOpenChange={setShowCreate} />
+      <CreateTemplateDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        enabledAgentTypes={enabledAgentTypes}
+      />
     </>
   );
 }
@@ -259,7 +282,11 @@ function TemplateListItem({
 // Template detail pane
 // ---------------------------------------------------------------------------
 
-export function TemplateDetailPane(): JSX.Element {
+export function TemplateDetailPane({
+  enabledAgentTypes,
+}: {
+  enabledAgentTypes: AgentType[];
+}): JSX.Element {
   const { templateId } = useParams<{ templateId?: string }>();
   const { data: templates = [] } = useTemplates();
   const template = useMemo(
@@ -275,26 +302,104 @@ export function TemplateDetailPane(): JSX.Element {
     );
   }
 
-  return <TemplateDetail template={template} />;
+  return (
+    <TemplateDetail template={template} enabledAgentTypes={enabledAgentTypes} />
+  );
 }
 
-function TemplateDetail({ template }: { template: Template }): JSX.Element {
+function TemplateDetail({
+  template,
+  enabledAgentTypes,
+}: {
+  template: Template;
+  enabledAgentTypes: AgentType[];
+}): JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { launchTemplate, removeTemplate } = useTemplateActions();
-  const [showEdit, setShowEdit] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
+  const { launchTemplate, updateTemplate, removeTemplate } =
+    useTemplateActions();
 
-  const args = useMemo(
+  // Launch arg values
+  const launchArgs = useMemo(
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
     [template.prompt]
   );
   const [argValues, setArgValues] = useState<Record<string, string>>({});
 
+  // Editable form state — reset when template changes
+  const [displayName, setDisplayName] = useState(template.name);
+  const [directory, setDirectory] = useState(template.directory);
+  const [prompt, setPrompt] = useState(template.prompt ?? "");
+  const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
+  const [useWorktree, setUseWorktree] = useState(template.useWorktree);
+  const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "main");
+  const [branchName, setBranchName] = useState(template.branchName ?? "");
+  const [fullAccess, setFullAccess] = useState(template.fullAccess);
+  const [callable, setCallable] = useState(template.callable);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(template.name);
+    setDirectory(template.directory);
+    setPrompt(template.prompt ?? "");
+    setAgentType(template.agentType);
+    setUseWorktree(template.useWorktree);
+    setBaseBranch(template.baseBranch ?? "main");
+    setBranchName(template.branchName ?? "");
+    setFullAccess(template.fullAccess);
+    setCallable(template.callable);
+    setSaveError(null);
+    setSaved(false);
+    setRemoveDialogOpen(false);
+    setArgValues({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template.id]);
+
+  const detectedArgs = useMemo(
+    () => (prompt ? parseTemplateArgs(prompt) : []),
+    [prompt]
+  );
+
+  const canSave = !!displayName.trim() && !!directory.trim();
+
+  const handleSave = useCallback(() => {
+    setSaveError(null);
+    setSaved(false);
+    updateTemplate
+      .mutateAsync({
+        id: template.id,
+        name: displayName.trim(),
+        directory: directory.trim(),
+        prompt: prompt || null,
+        agentType,
+        useWorktree,
+        baseBranch: useWorktree ? baseBranch : null,
+        branchName: useWorktree ? branchName || null : null,
+        fullAccess,
+        callable,
+      })
+      .then(() => setSaved(true))
+      .catch((err: Error) => setSaveError(err.message));
+  }, [
+    updateTemplate,
+    template.id,
+    displayName,
+    directory,
+    prompt,
+    agentType,
+    useWorktree,
+    baseBranch,
+    branchName,
+    fullAccess,
+    callable,
+  ]);
+
   const handleLaunch = useCallback(() => {
-    const launchArgs = args.length > 0 ? argValues : undefined;
+    const args = launchArgs.length > 0 ? argValues : undefined;
     launchTemplate
-      .mutateAsync({ id: template.id, args: launchArgs })
+      .mutateAsync({ id: template.id, args })
       .then(async (result) => {
         await queryClient.invalidateQueries({ queryKey: ["agents"] });
         navigate(agentRoute(result.agentId));
@@ -302,7 +407,14 @@ function TemplateDetail({ template }: { template: Template }): JSX.Element {
       .catch((err: Error) => {
         toast.error(`Failed to launch: ${err.message}`);
       });
-  }, [args, argValues, launchTemplate, navigate, queryClient, template.id]);
+  }, [
+    launchArgs,
+    argValues,
+    launchTemplate,
+    navigate,
+    queryClient,
+    template.id,
+  ]);
 
   const handleDelete = useCallback(() => {
     removeTemplate
@@ -314,55 +426,36 @@ function TemplateDetail({ template }: { template: Template }): JSX.Element {
       .catch((err: Error) => {
         toast.error(`Failed to delete: ${err.message}`);
       });
-    setShowDelete(false);
+    setRemoveDialogOpen(false);
   }, [removeTemplate, template, navigate]);
 
   const allArgsFilled =
-    args.length === 0 || args.every((a) => argValues[a.key]?.trim());
+    launchArgs.length === 0 ||
+    launchArgs.every((a) => argValues[a.key]?.trim());
+
+  const cliAgentTypes = useMemo(
+    () => enabledAgentTypes.filter(isCliAgentType),
+    [enabledAgentTypes]
+  );
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      {/* Header with launch */}
       <div className="border-b border-border px-6 py-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {template.name}
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {shortPath(template.directory)}
-            </p>
-          </div>
-          <div className="flex gap-1.5">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="gap-1"
-              onClick={() => setShowEdit(true)}
-            >
-              <Pencil className="h-3 w-3" />
-              Edit
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="gap-1 text-destructive hover:text-destructive"
-              onClick={() => setShowDelete(true)}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
-      </div>
+        <h2 className="text-lg font-semibold text-foreground">
+          {template.name}
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {shortPath(template.directory)}
+        </p>
 
-      {/* Launch form */}
-      <div className="flex-1 px-6 py-5">
-        {args.length > 0 ? (
-          <div className="mb-5">
-            <h3 className="mb-3 text-sm font-medium text-foreground">
+        {launchArgs.length > 0 ? (
+          <div className="mt-4">
+            <div className="mb-3 text-sm font-medium text-foreground">
               Arguments
-            </h3>
+            </div>
             <div className="flex flex-col gap-3">
-              {args.map((arg) => (
+              {launchArgs.map((arg) => (
                 <ArgInput
                   key={arg.key}
                   arg={arg}
@@ -377,52 +470,163 @@ function TemplateDetail({ template }: { template: Template }): JSX.Element {
         ) : null}
 
         <Button
-          className="gap-1.5"
+          className="mt-4 gap-1.5"
           onClick={handleLaunch}
           disabled={!allArgsFilled || launchTemplate.isPending}
         >
-          <Play className="h-3.5 w-3.5 fill-current" />
+          {launchTemplate.isPending ? (
+            <ActivityBars size={16} className="mr-1" />
+          ) : (
+            <Play className="h-3.5 w-3.5 fill-current" />
+          )}
           Launch
         </Button>
-
-        {/* Config summary */}
-        <div className="mt-8 space-y-2 text-xs text-muted-foreground">
-          <div>
-            Agent type:{" "}
-            <span className="text-foreground">
-              {AGENT_TYPE_LABELS[template.agentType] ?? template.agentType}
-            </span>
-          </div>
-          {template.useWorktree ? (
-            <div>
-              Worktree:{" "}
-              <span className="text-foreground">
-                {template.baseBranch ?? "default branch"}
-              </span>
-            </div>
-          ) : null}
-          {template.fullAccess ? (
-            <div className="text-amber-500/80">Full access enabled</div>
-          ) : null}
-        </div>
-
-        {template.prompt ? (
-          <div className="mt-6">
-            <h3 className="mb-2 text-sm font-medium text-foreground">Prompt</h3>
-            <pre className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-md bg-white/[0.04] p-3 text-xs text-muted-foreground">
-              {template.prompt}
-            </pre>
-          </div>
-        ) : null}
       </div>
 
-      <EditTemplateDialog
-        template={template}
-        open={showEdit}
-        onOpenChange={setShowEdit}
-      />
+      {/* Inline-editable config form */}
+      <div className="flex-1 px-6 py-5">
+        <div className="grid gap-4">
+          <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+            <div className="text-sm font-medium">Template configuration</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Agent launch settings for this template.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm text-muted-foreground">Name</label>
+                <Input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm text-muted-foreground">
+                  Working directory
+                </label>
+                <PathInput
+                  value={directory}
+                  onChange={setDirectory}
+                  placeholder="/path/to/repo"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm text-muted-foreground">
+                  Agent type
+                </label>
+                <AgentTypeCombobox
+                  value={agentType}
+                  onChange={setAgentType}
+                  agentTypes={cliAgentTypes}
+                />
+              </div>
+            </div>
 
-      <Dialog open={showDelete} onOpenChange={setShowDelete}>
+            <div className="mt-4 grid gap-3">
+              <TemplateWorktreeOption
+                checked={useWorktree}
+                cwd={directory}
+                baseBranch={baseBranch}
+                branchName={branchName}
+                onCheckedChange={setUseWorktree}
+                onBaseBranchChange={setBaseBranch}
+                onBranchNameChange={setBranchName}
+              />
+              <TemplateFullAccessOption
+                checked={fullAccess}
+                onCheckedChange={setFullAccess}
+              />
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                <Checkbox
+                  checked={callable}
+                  onCheckedChange={() => setCallable((c) => !c)}
+                  className="mt-0.5"
+                />
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    Show in command palette
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Launch this template from the {"⌘"}K palette.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            <div className="mt-4 space-y-1 md:col-span-2">
+              <label className="text-sm text-muted-foreground">Prompt</label>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe what the agent should do..."
+                className={cn(
+                  "flex min-h-[120px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                  "ring-offset-background placeholder:text-muted-foreground",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                )}
+              />
+              {detectedArgs.length > 0 ? (
+                <div className="mt-1.5 text-xs text-muted-foreground">
+                  Detected arguments:{" "}
+                  {detectedArgs.map((a) => (
+                    <span
+                      key={a.key}
+                      className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                    >
+                      {a.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {saveError ? (
+              <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+                {saveError}
+              </div>
+            ) : null}
+            {saved ? (
+              <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
+                Settings saved.
+              </div>
+            ) : null}
+            <div className="mt-4 flex justify-end">
+              <Button
+                variant="primary"
+                disabled={!canSave || updateTemplate.isPending}
+                onClick={handleSave}
+              >
+                {updateTemplate.isPending ? (
+                  <ActivityBars size={16} className="mr-2" />
+                ) : null}
+                Save
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
+            <div className="text-sm font-medium text-status-blocked">
+              Delete template
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Permanently remove this template. Jobs that reference it will lose
+              their backing template.
+            </p>
+            <div className="mt-3 flex justify-end">
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={removeTemplate.isPending}
+                onClick={() => setRemoveDialogOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete template</DialogTitle>
@@ -432,7 +636,7 @@ function TemplateDetail({ template }: { template: Template }): JSX.Element {
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowDelete(false)}>
+            <Button variant="ghost" onClick={() => setRemoveDialogOpen(false)}>
               Cancel
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
@@ -470,15 +674,36 @@ function ArgInput({
 }
 
 // ---------------------------------------------------------------------------
-// Create / Edit template dialogs
+// Create template dialog (mirrors create-agent-dialog components)
 // ---------------------------------------------------------------------------
 
 function CreateTemplateDialog({
   open,
   onOpenChange,
+  enabledAgentTypes,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  enabledAgentTypes: AgentType[];
+}): JSX.Element {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {open ? (
+        <CreateTemplateDialogContent
+          onOpenChange={onOpenChange}
+          enabledAgentTypes={enabledAgentTypes}
+        />
+      ) : null}
+    </Dialog>
+  );
+}
+
+function CreateTemplateDialogContent({
+  onOpenChange,
+  enabledAgentTypes,
+}: {
+  onOpenChange: (open: boolean) => void;
+  enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const { addTemplate } = useTemplateActions();
   const [name, setName] = useState("");
@@ -486,8 +711,15 @@ function CreateTemplateDialog({
   const [prompt, setPrompt] = useState("");
   const [agentType, setAgentType] = useState<CliAgentType>("claude");
   const [useWorktree, setUseWorktree] = useState(false);
-  const [baseBranch, setBaseBranch] = useState("");
+  const [baseBranch, setBaseBranch] = useState("main");
+  const [branchName, setBranchName] = useState("");
   const [fullAccess, setFullAccess] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const cliAgentTypes = useMemo(
+    () => enabledAgentTypes.filter(isCliAgentType),
+    [enabledAgentTypes]
+  );
 
   const detectedArgs = useMemo(
     () => (prompt ? parseTemplateArgs(prompt) : []),
@@ -495,6 +727,7 @@ function CreateTemplateDialog({
   );
 
   const handleCreate = useCallback(() => {
+    setCreating(true);
     addTemplate
       .mutateAsync({
         name,
@@ -502,24 +735,19 @@ function CreateTemplateDialog({
         prompt: prompt || null,
         agentType,
         useWorktree,
-        baseBranch: baseBranch || null,
+        baseBranch: useWorktree ? baseBranch : null,
+        branchName: useWorktree ? branchName || null : null,
         fullAccess,
         callable: true,
       })
       .then(() => {
         onOpenChange(false);
-        setName("");
-        setDirectory("");
-        setPrompt("");
-        setAgentType("claude");
-        setUseWorktree(false);
-        setBaseBranch("");
-        setFullAccess(false);
         toast.success("Template created.");
       })
       .catch((err: Error) => {
         toast.error(`Failed to create template: ${err.message}`);
-      });
+      })
+      .finally(() => setCreating(false));
   }, [
     addTemplate,
     name,
@@ -528,6 +756,7 @@ function CreateTemplateDialog({
     agentType,
     useWorktree,
     baseBranch,
+    branchName,
     fullAccess,
     onOpenChange,
   ]);
@@ -535,43 +764,76 @@ function CreateTemplateDialog({
   const canCreate = name.trim() && directory.trim();
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create template</DialogTitle>
-          <DialogDescription>
-            A reusable agent launch configuration. Use{" "}
-            <code className="rounded bg-white/[0.08] px-1 text-xs">
-              {"{{D:Arg Name}}"}
-            </code>{" "}
-            in the prompt for runtime arguments.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium">Name</label>
+    <DialogContent
+      onEscapeKeyDown={(e) => {
+        swallowEscapeFromCombobox(e);
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>Create Template</DialogTitle>
+        <DialogDescription>
+          A reusable agent launch configuration. Use{" "}
+          <code className="rounded bg-white/[0.08] px-1 text-xs">
+            {"{{D:Arg Name}}"}
+          </code>{" "}
+          in the prompt for runtime arguments.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-1">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Agent type</label>
+            <AgentTypeCombobox
+              value={agentType}
+              onChange={setAgentType}
+              agentTypes={cliAgentTypes}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Name</label>
             <Input
+              autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My template"
-              className="h-8"
+              placeholder="template name"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Directory</label>
-            <PathInput
-              value={directory}
-              onChange={setDirectory}
-              placeholder="/path/to/repo"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Prompt</label>
+
+          <PathInput
+            value={directory}
+            onChange={setDirectory}
+            label="Working directory"
+            placeholder="/path/to/repo"
+          />
+
+          <TemplateWorktreeOption
+            checked={useWorktree}
+            cwd={directory}
+            baseBranch={baseBranch}
+            branchName={branchName}
+            onCheckedChange={setUseWorktree}
+            onBaseBranchChange={setBaseBranch}
+            onBranchNameChange={setBranchName}
+          />
+
+          <TemplateFullAccessOption
+            checked={fullAccess}
+            onCheckedChange={setFullAccess}
+          />
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Prompt</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe what the agent should do..."
-              className="min-h-[100px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className={cn(
+                "flex min-h-[120px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                "ring-offset-background placeholder:text-muted-foreground",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              )}
             />
             {detectedArgs.length > 0 ? (
               <div className="mt-1.5 text-xs text-muted-foreground">
@@ -587,252 +849,195 @@ function CreateTemplateDialog({
               </div>
             ) : null}
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Agent type</label>
-            <select
-              value={agentType}
-              onChange={(e) => {
-                if (isCliAgentType(e.target.value))
-                  setAgentType(e.target.value);
-              }}
-              className="h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-            >
-              {Object.entries(AGENT_TYPE_LABELS)
-                .filter(([key]) => isCliAgentType(key))
-                .map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={useWorktree}
-              onCheckedChange={(checked) => setUseWorktree(checked === true)}
-              id="create-template-worktree"
-            />
-            <label
-              htmlFor="create-template-worktree"
-              className="text-sm text-foreground"
-            >
-              Use worktree
-            </label>
-          </div>
-          {useWorktree ? (
-            <div>
-              <label className="mb-1 block text-xs font-medium">
-                Base branch
-              </label>
-              <Input
-                value={baseBranch}
-                onChange={(e) => setBaseBranch(e.target.value)}
-                placeholder="main"
-                className="h-8"
-              />
-            </div>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={fullAccess}
-              onCheckedChange={(checked) => setFullAccess(checked === true)}
-              id="create-template-full-access"
-            />
-            <label
-              htmlFor="create-template-full-access"
-              className="text-sm text-foreground"
-            >
-              Full access
-            </label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} disabled={!canCreate}>
-              Create
-            </Button>
-          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-3">
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          onClick={handleCreate}
+          disabled={!canCreate || creating}
+        >
+          {creating ? <ActivityBars size={16} className="mr-1.5" /> : null}
+          Create
+        </Button>
+      </div>
+    </DialogContent>
   );
 }
 
-function EditTemplateDialog({
-  template,
-  open,
-  onOpenChange,
+// ---------------------------------------------------------------------------
+// Shared form components for create & edit
+// ---------------------------------------------------------------------------
+
+function AgentTypeCombobox({
+  value,
+  onChange,
+  agentTypes,
 }: {
-  template: Template;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  value: CliAgentType;
+  onChange: (value: CliAgentType) => void;
+  agentTypes: CliAgentType[];
 }): JSX.Element {
-  const { updateTemplate } = useTemplateActions();
-  const [name, setName] = useState(template.name);
-  const [prompt, setPrompt] = useState(template.prompt ?? "");
-  const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
-  const [useWorktree, setUseWorktree] = useState(template.useWorktree);
-  const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "");
-  const [fullAccess, setFullAccess] = useState(template.fullAccess);
-  const [callable, setCallable] = useState(template.callable);
-
-  const detectedArgs = useMemo(
-    () => (prompt ? parseTemplateArgs(prompt) : []),
-    [prompt]
-  );
-
-  const handleSave = useCallback(() => {
-    updateTemplate
-      .mutateAsync({
-        id: template.id,
-        name,
-        prompt: prompt || null,
-        agentType,
-        useWorktree,
-        baseBranch: baseBranch || null,
-        fullAccess,
-        callable,
-      })
-      .then(() => {
-        onOpenChange(false);
-        toast.success("Template updated.");
-      })
-      .catch((err: Error) => {
-        toast.error(`Failed to update: ${err.message}`);
-      });
-  }, [
-    updateTemplate,
-    template.id,
-    name,
-    prompt,
-    agentType,
-    useWorktree,
-    baseBranch,
-    fullAccess,
-    callable,
-    onOpenChange,
-  ]);
+  const [open, setOpen] = useState(false);
+  const cmdRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(cmdRef, open, close);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Edit template</DialogTitle>
-          <DialogDescription>
-            Modify the template configuration.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium">Name</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-8"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Prompt</label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              className="min-h-[100px] w-full rounded-md border border-border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-            />
-            {detectedArgs.length > 0 ? (
-              <div className="mt-1.5 text-xs text-muted-foreground">
-                Detected arguments:{" "}
-                {detectedArgs.map((a) => (
-                  <span
-                    key={a.key}
-                    className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+    <div className="relative" ref={cmdRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        role="combobox"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (!open) setOpen(true);
+          }
+        }}
+        className={cn(
+          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+          "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+        )}
+      >
+        {AGENT_TYPE_LABELS[value]}
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+          <Command
+            shouldFilter={false}
+            ref={(el) => {
+              if (el) requestAnimationFrame(() => el.focus());
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setOpen(false);
+                requestAnimationFrame(() => triggerRef.current?.focus());
+              }
+            }}
+          >
+            <CommandList>
+              <CommandGroup>
+                {agentTypes.map((t) => (
+                  <CommandItem
+                    key={t}
+                    value={t}
+                    onSelect={() => {
+                      onChange(t);
+                      setOpen(false);
+                      requestAnimationFrame(() => triggerRef.current?.focus());
+                    }}
                   >
-                    {a.name}
-                  </span>
+                    <Check
+                      className={cn(
+                        "mr-2 h-3 w-3 shrink-0",
+                        t === value ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    {AGENT_TYPE_LABELS[t]}
+                  </CommandItem>
                 ))}
-              </div>
-            ) : null}
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">Agent type</label>
-            <select
-              value={agentType}
-              onChange={(e) => {
-                if (isCliAgentType(e.target.value))
-                  setAgentType(e.target.value);
-              }}
-              className="h-8 w-full rounded-md border border-border bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-            >
-              {Object.entries(AGENT_TYPE_LABELS)
-                .filter(([key]) => isCliAgentType(key))
-                .map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={useWorktree}
-              onCheckedChange={(checked) => setUseWorktree(checked === true)}
-              id="edit-template-worktree"
-            />
-            <label
-              htmlFor="edit-template-worktree"
-              className="text-sm text-foreground"
-            >
-              Use worktree
-            </label>
-          </div>
-          {useWorktree ? (
-            <div>
-              <label className="mb-1 block text-xs font-medium">
-                Base branch
-              </label>
-              <Input
-                value={baseBranch}
-                onChange={(e) => setBaseBranch(e.target.value)}
-                placeholder="main"
-                className="h-8"
-              />
-            </div>
-          ) : null}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={fullAccess}
-              onCheckedChange={(checked) => setFullAccess(checked === true)}
-              id="edit-template-full-access"
-            />
-            <label
-              htmlFor="edit-template-full-access"
-              className="text-sm text-foreground"
-            >
-              Full access
-            </label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={callable}
-              onCheckedChange={(checked) => setCallable(checked === true)}
-              id="edit-template-callable"
-            />
-            <label
-              htmlFor="edit-template-callable"
-              className="text-sm text-foreground"
-            >
-              Show in Cmd+K
-            </label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave}>Save</Button>
-          </div>
+              </CommandGroup>
+            </CommandList>
+          </Command>
         </div>
-      </DialogContent>
-    </Dialog>
+      ) : null}
+    </div>
+  );
+}
+
+function TemplateWorktreeOption({
+  checked,
+  cwd,
+  baseBranch,
+  branchName,
+  onCheckedChange,
+  onBaseBranchChange,
+  onBranchNameChange,
+}: {
+  checked: boolean;
+  cwd: string;
+  baseBranch: string;
+  branchName: string;
+  onCheckedChange: (checked: boolean) => void;
+  onBaseBranchChange: (value: string) => void;
+  onBranchNameChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+      <label className="flex cursor-pointer items-start gap-3">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={() => onCheckedChange(!checked)}
+          className="mt-0.5"
+          title="Toggle git worktree"
+        />
+        <span className="space-y-1">
+          <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <GitBranch className="h-3.5 w-3.5" />
+            Run in a git worktree
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            Creates an isolated worktree when this template is launched.
+          </span>
+        </span>
+      </label>
+      {checked ? (
+        <div className="ml-8 w-[calc(100%-2rem)]">
+          <BranchSelect
+            cwd={cwd}
+            baseBranch={baseBranch}
+            onBaseBranchChange={onBaseBranchChange}
+            worktreeBranch={branchName}
+            onWorktreeBranchChange={onBranchNameChange}
+            testIdPrefix="template-worktree"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TemplateFullAccessOption({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}): JSX.Element {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={() => onCheckedChange(!checked)}
+        className="mt-0.5"
+        title="Toggle full access"
+      />
+      <span className="space-y-1">
+        <span className="block text-sm font-medium text-foreground">
+          Start in full access mode
+        </span>
+        <span className="block text-xs text-muted-foreground">
+          Starts the selected agent with its most permissive supported execution
+          mode.
+        </span>
+      </span>
+    </label>
   );
 }
 
@@ -898,6 +1103,7 @@ export function AutomationsSidebarContent({
         <AutomationsSidebar
           activeTab={activeTab}
           onTabChange={handleTabChange}
+          enabledAgentTypes={enabledAgentTypes}
           onItemSelect={isMobile ? closeSidebar : undefined}
         />
       </JobsProvider>
@@ -908,6 +1114,7 @@ export function AutomationsSidebarContent({
     <AutomationsSidebar
       activeTab={activeTab}
       onTabChange={handleTabChange}
+      enabledAgentTypes={enabledAgentTypes}
       onItemSelect={isMobile ? closeSidebar : undefined}
     />
   );
@@ -932,7 +1139,7 @@ export function AutomationsDetailContent({
   );
 
   if (activeTab === "templates") {
-    return <TemplateDetailPane />;
+    return <TemplateDetailPane enabledAgentTypes={enabledAgentTypes} />;
   }
 
   return (
