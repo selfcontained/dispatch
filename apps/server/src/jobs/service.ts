@@ -44,6 +44,8 @@ export type AddJobInput = {
   branchName?: string | null;
   fullAccess?: boolean;
   autoArchive?: boolean;
+  callable?: boolean;
+  singleton?: boolean;
   enabled?: boolean;
 };
 
@@ -114,13 +116,13 @@ export class JobService {
       );
     }
 
-    // Pre-check for user-friendly error message. The DB unique index
-    // (idx_job_runs_one_active_per_job) is the real guard against concurrent races.
-    const activeRun = await this.store.findActiveRun(job.id);
-    if (activeRun) {
-      throw new Error(
-        `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
-      );
+    if (job.singleton) {
+      const activeRun = await this.store.findActiveRun(job.id);
+      if (activeRun) {
+        throw new Error(
+          `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
+        );
+      }
     }
 
     // Everything below reads from the DB record only
@@ -250,6 +252,8 @@ export class JobService {
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       autoArchive: input.autoArchive ?? true,
+      callable: input.callable ?? false,
+      singleton: input.singleton ?? true,
       enabled: input.enabled ?? false,
     });
 
@@ -304,6 +308,8 @@ export class JobService {
     if (branchName !== undefined) config.branchName = branchName;
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
     if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
+    if (input.callable !== undefined) config.callable = input.callable;
+    if (input.singleton !== undefined) config.singleton = input.singleton;
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
@@ -477,13 +483,15 @@ export class JobService {
         const current = await this.store.getJob(jobId);
         if (!current || !current.enabled) return;
 
-        const activeRun = await this.store.findActiveRun(jobId);
-        if (activeRun) {
-          this.logger.info(
-            { jobId, name: current.name, activeRunId: activeRun.id },
-            "Skipping scheduled run — job already has an active run"
-          );
-          return;
+        if (current.singleton) {
+          const activeRun = await this.store.findActiveRun(jobId);
+          if (activeRun) {
+            this.logger.info(
+              { jobId, name: current.name, activeRunId: activeRun.id },
+              "Skipping scheduled run — job already has an active run"
+            );
+            return;
+          }
         }
         await this.runJob({
           name: current.name,

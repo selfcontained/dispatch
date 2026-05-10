@@ -473,17 +473,18 @@ export function AgentsView({
     setCreateOpen(true);
   }, []);
 
-  const { paletteOpen, setPaletteOpen, paletteActions } = useAgentHotkeys({
-    agents,
-    isMobile,
-    sidebarAgentId,
-    validatedSelectedAgentId,
-    mediaOpen,
-    setMediaOpen,
-    leftPanelOpen,
-    handleSetLeftPanelOpen,
-    openCreateDialog,
-  });
+  const { paletteOpen, setPaletteOpen, paletteActions, paletteGroups } =
+    useAgentHotkeys({
+      agents,
+      isMobile,
+      sidebarAgentId,
+      validatedSelectedAgentId,
+      mediaOpen,
+      setMediaOpen,
+      leftPanelOpen,
+      handleSetLeftPanelOpen,
+      openCreateDialog,
+    });
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
@@ -964,6 +965,7 @@ export function AgentsView({
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         actions={paletteActions}
+        groups={paletteGroups}
       />
 
       <CreateAgentDialog

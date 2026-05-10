@@ -38,6 +38,8 @@ describe("JobStore", () => {
       baseBranch: null,
       branchName: null,
       autoArchive: true,
+      callable: false,
+      singleton: true,
       enabled: false,
     });
     const run = await store.createRun(job.id, {
@@ -48,16 +50,7 @@ describe("JobStore", () => {
       needsInputTimeoutMs: 1_000,
       notify: { onComplete: [], onError: [], onNeedsInput: [] },
     });
-    await expect(
-      store.createRun(job.id, {
-        directory: "/tmp/repo",
-        name: "janitor",
-        schedule: null,
-        timeoutMs: 1_000,
-        needsInputTimeoutMs: 1_000,
-        notify: { onComplete: [], onError: [], onNeedsInput: [] },
-      })
-    ).rejects.toThrow(`Job already has active run ${run.id}.`);
+    // Singleton enforcement moved to service layer — store allows concurrent runs
     await pool.query(
       `INSERT INTO agents (id, name, status, cwd) VALUES ('agent-1', 'Job Agent', 'running', '/tmp/repo')`
     );

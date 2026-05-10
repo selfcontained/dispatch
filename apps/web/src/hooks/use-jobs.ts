@@ -51,6 +51,8 @@ export type Job = {
   branchName: string | null;
   fullAccess: boolean;
   autoArchive: boolean;
+  callable: boolean;
+  singleton: boolean;
   createdAt: string;
   updatedAt: string;
   lastRunId: string | null;
@@ -99,7 +101,17 @@ export type AddJobConfig = {
   branchName?: string | null;
   fullAccess?: boolean;
   autoArchive?: boolean;
+  callable?: boolean;
+  singleton?: boolean;
   enabled?: boolean;
+};
+
+export type RunJobResult = {
+  jobId: string;
+  runId: string;
+  agentId: string;
+  status: JobRunStatus;
+  report: JobReport | null;
 };
 
 type JobIdentity = Pick<Job, "name" | "directory">;
@@ -177,7 +189,7 @@ export function useJobActions() {
 
   const runNow = useMutation({
     mutationFn: (job: JobIdentity) =>
-      api("/api/v1/jobs/run", {
+      api<RunJobResult>("/api/v1/jobs/run", {
         method: "POST",
         body: JSON.stringify({
           name: job.name,

@@ -199,6 +199,8 @@ export class AgentManager {
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
+  private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
+    [];
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -223,6 +225,11 @@ export class AgentManager {
   /** Register a callback invoked after every upsertLatestEvent. */
   onLatestEvent(listener: AgentEventListener): void {
     this.eventBus.subscribe(listener);
+  }
+
+  /** Register a callback invoked immediately after an agent record is INSERTed. */
+  onAgentCreated(listener: (agent: AgentRecord) => void): void {
+    this.agentCreatedListeners.push(listener);
   }
 
   /**
@@ -448,6 +455,19 @@ export class AgentManager {
         JSON.stringify(initialPins),
       ]
     );
+
+    // Notify listeners immediately so the UI can show the agent in
+    // "creating" status before potentially slow worktree setup.
+    const createdAgent = await this.getAgent(id);
+    if (createdAgent) {
+      for (const listener of this.agentCreatedListeners) {
+        try {
+          listener(createdAgent);
+        } catch {
+          /* listener errors must not break creation */
+        }
+      }
+    }
 
     let initialMedia: Array<{
       fileName: string;

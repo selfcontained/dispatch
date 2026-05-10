@@ -7,13 +7,20 @@ import {
   PanelLeftOpen,
   PanelRight,
   PanelRightOpen,
+  Play,
   Plus,
 } from "lucide-react";
+import { toast } from "sonner";
 
-import { type CommandAction } from "@/components/app/command-palette";
+import {
+  type CommandAction,
+  type CommandGroup,
+} from "@/components/app/command-palette";
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { useJobs, useJobActions } from "@/hooks/use-jobs";
+import { useQueryClient } from "@tanstack/react-query";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
@@ -31,6 +38,7 @@ export type UseAgentHotkeysResult = {
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
   paletteActions: CommandAction[];
+  paletteGroups: CommandGroup[];
 };
 
 /**
@@ -50,7 +58,10 @@ export function useAgentHotkeys({
   openCreateDialog,
 }: UseAgentHotkeysArgs): UseAgentHotkeysResult {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { data: jobs = [] } = useJobs();
+  const { runNow } = useJobActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
@@ -142,5 +153,37 @@ export function useAgentHotkeys({
     ]
   );
 
-  return { paletteOpen, setPaletteOpen, paletteActions };
+  const paletteGroups = useMemo<CommandGroup[]>(() => {
+    const callableJobs = jobs.filter((j) => j.callable);
+    if (callableJobs.length === 0) return [];
+    return [
+      {
+        label: "Jobs",
+        actions: callableJobs.map((job) => ({
+          id: `job-${job.id}`,
+          title: job.name,
+          keywords: ["job", "run", "launch"],
+          icon: Play,
+          confirm: {
+            description: "This will create a new agent and run this job.",
+          },
+          run: () => {
+            runNow
+              .mutateAsync(job)
+              .then(async (result) => {
+                await queryClient.invalidateQueries({ queryKey: ["agents"] });
+                if (result.agentId) {
+                  navigate(agentRoute(result.agentId));
+                }
+              })
+              .catch((err: Error) => {
+                toast.error(`Failed to launch job: ${err.message}`);
+              });
+          },
+        })),
+      },
+    ];
+  }, [jobs, runNow, navigate, queryClient]);
+
+  return { paletteOpen, setPaletteOpen, paletteActions, paletteGroups };
 }

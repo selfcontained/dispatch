@@ -62,6 +62,8 @@ function makeJob(
     baseBranch: null,
     branchName: null,
     autoArchive: true,
+    callable: false,
+    singleton: true,
     enabled: false,
   });
 }

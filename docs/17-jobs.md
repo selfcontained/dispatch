@@ -22,6 +22,9 @@ Jobs are uniquely identified by (`directory`, `name`). Each job has:
 | `fullAccess`          | Pass the agent CLI's full-access/bypass-approvals flag                               |
 | `timeoutMs`           | Max wall-clock for a run (default 30 min)                                            |
 | `needsInputTimeoutMs` | Max time a run may sit in `needs_input` (default 24 h)                               |
+| `callable`            | If true, the job appears in the Cmd+K command palette for quick launch               |
+| `singleton`           | If true (default), only one run can be active at a time                              |
+| `autoArchive`         | If true, the spawned agent is auto-archived when the run completes                   |
 | `enabled`             | If false, the cron schedule is skipped but manual runs still work                    |
 
 ## Run Lifecycle
@@ -30,7 +33,7 @@ States: `started` → `running` → (`completed` | `failed` | `needs_input` | `t
 
 - The runner creates an agent named `job-<slug>-<runId[:8]>` and waits for a terminal MCP call from it (`job_complete` or `job_failed`).
 - A run that calls `job_needs_input` transitions to `needs_input` and pauses. Answering it (via the UI or deleting the run) resumes or ends it; an unanswered `needs_input` times out per `needsInputTimeoutMs`.
-- Only one run per job can be active at a time. The DB enforces this via a unique index on (jobId, active status).
+- Singleton jobs (the default) only allow one active run at a time. Attempting to launch a second run while one is active returns an error.
 
 ## Report Shape
 
@@ -93,6 +96,16 @@ Job agents are given a narrowed MCP toolset (see `JOB_TOOLS` in `apps/server/src
 | `job_log`         | Append a progress log to a named task.      |
 
 Job agents may also call analytics tools (`get_activity_summary`, `get_agent_history`, `get_feedback_summary`), lister tools (`list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`), and `create_pr` / `get_pr_status` / `dispatch_event` / `dispatch_rename_session` / `dispatch_notify`.
+
+## Command Palette (Cmd+K)
+
+Jobs with `callable: true` appear in the Cmd+K command palette under a "Jobs" group, separate from the built-in commands. This lets users launch jobs with a few keystrokes without navigating to the jobs pane.
+
+The launch flow includes a confirmation step — selecting a callable job shows the job name with Launch/Cancel options. Launch is pre-selected, so pressing Enter twice (once to select, once to confirm) triggers the job immediately.
+
+After launch, the new agent appears in the sidebar via SSE and the URL navigates to it automatically. If the job is a singleton and already has an active run, the launch fails with an error toast.
+
+To make a job callable, toggle "Show in command palette" in the job's create or settings form, or set `callable: true` in the API.
 
 ## UI
 

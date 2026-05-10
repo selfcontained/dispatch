@@ -58,8 +58,8 @@ export function useAgents(
 
   const agentVisualState = useCallback(
     (agent: Agent): AgentVisualState => {
-      if (agent.status === "creating") return "active";
-      if (agent.status !== "running") return "stopped";
+      if (agent.status !== "running" && agent.status !== "creating")
+        return "stopped";
       if (connState === "connected" && connectedAgentId === agent.id)
         return "active";
       return "idle";

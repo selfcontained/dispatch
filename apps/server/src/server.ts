@@ -273,6 +273,12 @@ const injectAgentPrompt = createPromptInjector(agentManager, app.log);
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
 );
+agentManager.onAgentCreated((agent) => {
+  uiEventBroker.publish({
+    type: "agent.upsert",
+    agent: withStreamFlag(agent),
+  });
+});
 const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,

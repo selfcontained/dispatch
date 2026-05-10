@@ -32,6 +32,8 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   autoArchive: z.boolean().optional(),
+  callable: z.boolean().optional(),
+  singleton: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
 const JobHistoryParamsSchema = z.object({
@@ -62,7 +64,8 @@ export async function registerJobRoutes(
     }
 
     try {
-      return await deps.jobService.runJob(parsed.data);
+      const result = await deps.jobService.runJob(parsed.data);
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.code(500).send({ error: message });
