@@ -224,11 +224,18 @@ function TemplateListItem({
   );
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
-        "group flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+        "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
         selected
           ? "border border-primary/20 bg-primary/10 text-foreground"
           : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
@@ -244,7 +251,7 @@ function TemplateListItem({
       >
         <Play className="h-3 w-3 fill-current" />
       </button>
-    </button>
+    </div>
   );
 }
 
