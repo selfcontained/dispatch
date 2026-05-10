@@ -150,7 +150,7 @@ export function CommandPalette({
               />
             </div>
 
-            <Command.List className="max-h-[360px] p-1">
+            <Command.List className="max-h-[300px] overflow-y-auto overflow-x-hidden">
               {page === "confirm" && pendingAction ? (
                 <ConfirmPage
                   action={pendingAction}
@@ -162,7 +162,7 @@ export function CommandPalette({
                   <Command.Empty className="px-2 py-4 text-center text-xs text-muted-foreground">
                     No commands found.
                   </Command.Empty>
-                  <Command.Group heading="Commands" className="text-foreground">
+                  <Command.Group heading="Commands" className={groupClassName}>
                     {actions.map((action) => (
                       <CommandPaletteItem
                         key={action.id}
@@ -177,7 +177,7 @@ export function CommandPalette({
                         <Command.Group
                           key={group.label}
                           heading={group.label}
-                          className="text-foreground"
+                          className={groupClassName}
                         >
                           {group.actions.map((action) => (
                             <CommandPaletteItem
@@ -224,29 +224,31 @@ function ConfirmPage({
         </div>
       </div>
 
-      <Command.Group forceMount className="text-foreground">
+      <Command.Group forceMount className={groupClassName}>
         <Command.Item
           value="confirm-launch"
           keywords={["launch", "confirm", "run"]}
           onSelect={onConfirm}
           forceMount
-          className={cn(itemClassName, "data-[selected=true]:bg-primary/10")}
+          className={cn(
+            itemClassName,
+            "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground"
+          )}
         >
-          <span aria-hidden className={accentClassName} />
           <CornerDownLeft className={iconClassName} aria-hidden />
-          <span className="flex-1 truncate text-foreground/80 data-[selected=true]:text-foreground">
-            Launch
-          </span>
+          <span className="flex-1 truncate">Launch</span>
         </Command.Item>
         <Command.Item
           value="confirm-cancel"
           keywords={["cancel", "back"]}
           onSelect={onBack}
           forceMount
-          className={cn(itemClassName, "data-[selected=true]:bg-primary/10")}
+          className={cn(
+            itemClassName,
+            "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground"
+          )}
         >
-          <span aria-hidden className={accentClassName} />
-          <span className="flex-1 truncate pl-6 text-muted-foreground group-data-[selected=true]:text-foreground">
+          <span className="flex-1 truncate pl-6 text-muted-foreground group-data-[selected=true]:text-accent-foreground">
             Cancel
           </span>
         </Command.Item>
@@ -258,36 +260,23 @@ function ConfirmPage({
 function HotkeyBadge({ id }: { id: HotkeyId }): JSX.Element {
   const { modifiers, key } = formatHotkeyForKbd(id);
   return (
-    <kbd
-      className={cn(
-        "ml-2 inline-flex h-5 items-center justify-center rounded px-1.5",
-        "bg-white/[0.06]",
-        "font-mono text-[10px] font-medium leading-none tracking-wide text-muted-foreground/60",
-        "transition-colors duration-100",
-        "group-data-[selected=true]:bg-primary/10 group-data-[selected=true]:text-primary/80"
-      )}
-    >
-      {modifiers ? (
-        <>
-          <span>{modifiers}</span>
-          <span className="mx-1.5 text-muted-foreground/60 group-data-[selected=true]:text-primary/70">
-            +
-          </span>
-        </>
-      ) : null}
-      <span>{key}</span>
+    <kbd className="ml-auto font-mono text-xs tracking-widest text-muted-foreground/50">
+      {modifiers}
+      {key}
     </kbd>
   );
 }
 
+const groupClassName = cn(
+  "overflow-hidden p-1 text-foreground",
+  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
+  "[&+[cmdk-group]]:border-t [&+[cmdk-group]]:border-border"
+);
+
 const itemClassName =
-  "group relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors duration-100";
+  "group relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none";
 
-const accentClassName =
-  "absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-primary opacity-0 transition-opacity group-data-[selected=true]:opacity-100";
-
-const iconClassName =
-  "h-4 w-4 shrink-0 text-muted-foreground/70 transition-colors duration-100 group-data-[selected=true]:text-primary";
+const iconClassName = "h-4 w-4 shrink-0 text-muted-foreground";
 
 function CommandPaletteItem({
   action,
@@ -306,17 +295,13 @@ function CommandPaletteItem({
       disabled={action.disabled}
       className={cn(
         itemClassName,
-        "data-[selected=true]:bg-primary/10",
+        "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50"
       )}
     >
-      <span aria-hidden className={accentClassName} />
-
       {Icon ? <Icon className={iconClassName} aria-hidden /> : null}
 
-      <span className="flex-1 truncate text-foreground/80 group-data-[selected=true]:text-foreground">
-        {action.title}
-      </span>
+      <span className="flex-1 truncate">{action.title}</span>
 
       {action.hotkey ? <HotkeyBadge id={action.hotkey} /> : null}
     </Command.Item>
