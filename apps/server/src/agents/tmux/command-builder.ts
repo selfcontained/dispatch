@@ -13,11 +13,12 @@ import { agentIdFromSessionName } from "./session-name.js";
 
 const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
-  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin">
+  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin">
 > = {
   codex: "codexBin",
   claude: "claudeBin",
   opencode: "opencodeBin",
+  cursor: "cursorBin",
 };
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
@@ -127,46 +128,17 @@ export function buildStartupPrompt(
 }
 
 /**
- * Build the bash invocation that launches the agent CLI inside its tmux
- * session. Returns a shell-ready string.
- *
- * Encodes the per-CLI launch quirks (claude/opencode/codex MCP wiring,
- * resume vs. new session flags, terminal-only fallback to `bash -il`).
- *
- * Reads from the host environment (not threaded through `AppConfig`):
- * - `process.env.HOME` — appended to PATH so the agent can find tools in
- *   `~/.local/bin`. Falls back gracefully when unset.
- * - `process.platform` + `process.env.DISPATCH_COPY_DISPLAY` — Linux only;
- *   forwards the X display so xclip can paste browser-clipboard images.
- * - `process.env.TLS_CA` — when TLS is enabled, sets `NODE_EXTRA_CA_CERTS`
- *   so the agent's MCP loopback connection trusts the server cert.
- *
- * These are stubbable via `vi.stubEnv` for testing.
- *
- * Security note: every interpolated value flows through `shellEscape`,
- * since this string lands directly in `tmux new-session … bash -c …`.
+ * Build the numbered launch guidance text shared by all CLI agent types.
  */
-export function buildAgentCommand(
-  config: AppConfig,
-  type: AgentType,
-  role: AgentRole,
-  args: string[],
-  mediaDir: string,
-  sessionName: string,
-  fullAccess: boolean,
-  cliSessionId?: string,
-  resume?: boolean,
-  jobRunId?: string,
-  suggestSessionRename?: boolean,
-  autoReview?: boolean,
-  initialPrompt?: string,
-  personalityPrompt?: string | null
+export function buildLaunchGuidance(
+  agentId: string,
+  opts: {
+    jobRunId?: string;
+    suggestSessionRename?: boolean;
+    autoReview?: boolean;
+  }
 ): string {
-  const agentId = agentIdFromSessionName(sessionName);
-  // Lean startup guidance shared by both agent types. Full behavioral specs live in
-  // AGENTS.md (auto-loaded by Codex) and CLAUDE.md (auto-loaded by Claude Code).
-  // Rules are built as an array and numbered on output so the agent sees a scannable
-  // list rather than a run-on paragraph.
+  const { jobRunId, suggestSessionRename, autoReview } = opts;
   const rules: string[] = [];
 
   if (jobRunId) {
@@ -215,7 +187,73 @@ export function buildAgentCommand(
   const header = jobRunId
     ? "Dispatch job startup rules:"
     : "Dispatch startup rules:";
-  const launchGuidance = `[dispatch:${agentId}] ${header}\n${numbered}`;
+  return `[dispatch:${agentId}] ${header}\n${numbered}`;
+}
+
+/**
+ * Build the `.cursor/rules/dispatch.mdc` content for Cursor agents.
+ * Contains the same launch guidance and personality that other agent types
+ * receive via CLI flags, formatted as a Cursor rules file.
+ */
+export function buildCursorRulesFile(
+  launchGuidance: string,
+  personalityPrompt?: string | null
+): string {
+  const sections = [launchGuidance, personalityPrompt].filter(Boolean);
+  const body = sections.join("\n\n");
+  return [
+    "---",
+    "description: Dispatch agent guidance",
+    "alwaysApply: true",
+    "---",
+    "",
+    body,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Build the bash invocation that launches the agent CLI inside its tmux
+ * session. Returns a shell-ready string.
+ *
+ * Encodes the per-CLI launch quirks (claude/opencode/codex MCP wiring,
+ * resume vs. new session flags, terminal-only fallback to `bash -il`).
+ *
+ * Reads from the host environment (not threaded through `AppConfig`):
+ * - `process.env.HOME` — appended to PATH so the agent can find tools in
+ *   `~/.local/bin`. Falls back gracefully when unset.
+ * - `process.platform` + `process.env.DISPATCH_COPY_DISPLAY` — Linux only;
+ *   forwards the X display so xclip can paste browser-clipboard images.
+ * - `process.env.TLS_CA` — when TLS is enabled, sets `NODE_EXTRA_CA_CERTS`
+ *   so the agent's MCP loopback connection trusts the server cert.
+ *
+ * These are stubbable via `vi.stubEnv` for testing.
+ *
+ * Security note: every interpolated value flows through `shellEscape`,
+ * since this string lands directly in `tmux new-session … bash -c …`.
+ */
+export function buildAgentCommand(
+  config: AppConfig,
+  type: AgentType,
+  role: AgentRole,
+  args: string[],
+  mediaDir: string,
+  sessionName: string,
+  fullAccess: boolean,
+  cliSessionId?: string,
+  resume?: boolean,
+  jobRunId?: string,
+  suggestSessionRename?: boolean,
+  autoReview?: boolean,
+  initialPrompt?: string,
+  personalityPrompt?: string | null
+): string {
+  const agentId = agentIdFromSessionName(sessionName);
+  const launchGuidance = buildLaunchGuidance(agentId, {
+    jobRunId,
+    suggestSessionRename,
+    autoReview,
+  });
 
   const userLocalBin = process.env.HOME
     ? path.join(process.env.HOME, ".local/bin")
@@ -366,6 +404,33 @@ export function buildAgentCommand(
     }
     const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
     return `${envPrefix} ${shellEscape(cliBin)} ${escaped} ${flagParts}`;
+  }
+
+  if (type === "cursor") {
+    // MCP + guidance are handled via files written in the setup script
+    // (.cursor/mcp.json and .cursor/rules/dispatch.mdc), not CLI flags.
+    const flagParts: string[] = [];
+    if (fullAccess) {
+      flagParts.push("--force", "--approve-mcps");
+    }
+    if (resume && cliSessionId) {
+      flagParts.push("--resume", shellEscape(cliSessionId));
+    }
+    const cursorPromptParts = [appendedSystemPrompt, initialPrompt].filter(
+      Boolean
+    );
+    const startupPrompt = cursorPromptParts.join("\n\n");
+    if (passthroughArgs.length > 0) {
+      const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+      flagParts.push(escaped);
+    }
+    if (startupPrompt) {
+      return `${envPrefix} ${shellEscape(cliBin)} ${flagParts.join(" ")} ${shellEscape(startupPrompt)}`.trim();
+    }
+    const flags = flagParts.join(" ");
+    return flags
+      ? `${envPrefix} ${shellEscape(cliBin)} ${flags}`
+      : `${envPrefix} ${shellEscape(cliBin)}`;
   }
 
   // Codex: positional arg — AGENTS.md is auto-loaded by Codex CLI and provides authority.

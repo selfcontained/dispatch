@@ -140,7 +140,12 @@ export type JobTools = {
   }) => Promise<Record<string, unknown>>;
 };
 
-const LAUNCH_PERSONA_AGENT_TYPES = ["codex", "claude", "opencode"] as const;
+const LAUNCH_PERSONA_AGENT_TYPES = [
+  "codex",
+  "claude",
+  "opencode",
+  "cursor",
+] as const;
 type LaunchPersonaAgentType = (typeof LAUNCH_PERSONA_AGENT_TYPES)[number];
 
 // ── Tool sets per agent type ──────────────────────────────────────────

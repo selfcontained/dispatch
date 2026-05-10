@@ -9,6 +9,8 @@ import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { DiffStatsRefresher } from "../agents/diff-stats-refresher.js";
 import { getCopyModeAssistEnabled } from "../copy-mode-assist-settings.js";
 import {
+  AGENT_TYPES,
+  type AgentType,
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
@@ -515,14 +517,10 @@ export async function registerAgentRoutes(
 
     if (
       body.type !== undefined &&
-      body.type !== "codex" &&
-      body.type !== "claude" &&
-      body.type !== "opencode" &&
-      body.type !== "terminal"
+      !AGENT_TYPES.includes(body.type as AgentType)
     ) {
       return reply.code(400).send({
-        error:
-          "type must be codex, claude, opencode, or terminal when provided.",
+        error: `type must be ${AGENT_TYPES.join(", ")} when provided.`,
       });
     }
 
@@ -559,14 +557,10 @@ export async function registerAgentRoutes(
       });
     }
 
-    const agentType =
-      body.type === "claude"
-        ? "claude"
-        : body.type === "opencode"
-          ? "opencode"
-          : body.type === "terminal"
-            ? "terminal"
-            : "codex";
+    const agentType: AgentType =
+      body.type && AGENT_TYPES.includes(body.type as AgentType)
+        ? (body.type as AgentType)
+        : "codex";
     const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
     if (!enabledAgentTypes.includes(agentType)) {
       return reply

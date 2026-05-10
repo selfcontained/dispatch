@@ -21,6 +21,7 @@ export type AppConfig = {
   codexBin: string;
   claudeBin: string;
   opencodeBin: string;
+  cursorBin: string;
   agentRuntime: "tmux" | "inert";
   sessionPrefix: string;
   tls: TlsConfig | null;
@@ -87,6 +88,8 @@ export function loadConfig(): AppConfig {
       process.env.DISPATCH_OPENCODE_BIN ??
       process.env.OPENCODE_BIN ??
       "opencode",
+    cursorBin:
+      process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
     agentRuntime: resolveAgentRuntime(),
     sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),

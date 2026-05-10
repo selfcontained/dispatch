@@ -7,7 +7,7 @@ export type AgentStatus =
   | "error"
   | "unknown";
 
-export type AgentType = "codex" | "claude" | "opencode" | "terminal";
+export type AgentType = "codex" | "claude" | "opencode" | "cursor" | "terminal";
 
 export type AgentRole = "standard" | "assisted_update";
 

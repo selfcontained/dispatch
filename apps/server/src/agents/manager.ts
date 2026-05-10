@@ -40,6 +40,8 @@ import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
   buildAgentCommand,
+  buildCursorRulesFile,
+  buildLaunchGuidance,
   buildStartupPrompt,
 } from "./tmux/command-builder.js";
 import {
@@ -572,6 +574,26 @@ export class AgentManager {
           startupPrompt,
           personality?.prompt ?? null
         );
+        // For cursor agents, build the rules file content that the setup
+        // script writes to .cursor/rules/dispatch.mdc. This carries the same
+        // launch guidance + personality that other agent types receive via CLI flags.
+        let cursorRulesContent: string | undefined;
+        if (type === "cursor") {
+          const guidance = buildLaunchGuidance(id, {
+            jobRunId: input.jobRunId,
+            suggestSessionRename: shouldSuggestSessionRename(name, id, {
+              persona: input.persona,
+              jobRunId: input.jobRunId,
+            }),
+            autoReview:
+              !input.persona && !input.jobRunId && (input.autoReview ?? false),
+          });
+          cursorRulesContent = buildCursorRulesFile(
+            guidance,
+            personality?.prompt ?? null
+          );
+        }
+
         // Generate a setup script that handles worktree creation, env copy,
         // dep install, and then exec's into the agent CLI — all visible in the terminal.
         // Stderr/exit-capture wrapping is applied by the runtime, not the script.
@@ -587,6 +609,7 @@ export class AgentManager {
           agentName: name,
           agentCommand,
           jobRunId: input.jobRunId,
+          cursorRulesContent,
         });
 
         await this.runtime.launch({

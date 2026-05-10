@@ -10,7 +10,7 @@ export type JobRunStatus =
   | "needs_input"
   | "timed_out"
   | "crashed";
-export type JobAgentType = "claude" | "codex" | "opencode";
+export type JobAgentType = "claude" | "codex" | "opencode" | "cursor";
 export type JobRunTriggerSource = "manual" | "scheduled";
 
 export type JobNotifyConfig = {
