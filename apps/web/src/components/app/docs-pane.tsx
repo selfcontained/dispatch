@@ -323,6 +323,13 @@ const SECTIONS: SectionDef[] = [
             </li>
           </ul>
           <P>
+            Jobs with <strong>Show in command palette</strong> enabled appear in
+            a separate <em>Jobs</em> group below the built-in commands.
+            Selecting a job shows a confirmation step with{" "}
+            <strong>Launch</strong> / <strong>Cancel</strong> — press Enter
+            twice to launch immediately.
+          </P>
+          <P>
             Each action shows its hotkey badge inline so you can learn the
             shortcut as you use the palette.
           </P>
@@ -722,6 +729,16 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               agent is auto-archived once a run reaches a terminal state. Check
               this to leave the agent (and its worktree) around for inspection.
             </li>
+            <li>
+              <strong>Show in command palette</strong> — makes the job
+              launchable from the <Code>Mod+K</Code> palette. See{" "}
+              <strong>Keyboard Shortcuts → Command palette</strong> for details.
+            </li>
+            <li>
+              <strong>Single instance</strong> — when on (the default), only one
+              run can be active at a time. Turn off to allow overlapping runs of
+              the same job.
+            </li>
           </ul>
         </Section>
 
@@ -731,8 +748,10 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             Every job has a <strong>Run now</strong> button on its detail pane.
             This spawns a run immediately with{" "}
             <Code>triggerSource: "manual"</Code> — useful for both
-            on-demand-only jobs and for kicking a scheduled job off-cycle. Only
-            one run can be active per job at a time.
+            on-demand-only jobs and for kicking a scheduled job off-cycle. When{" "}
+            <strong>Single instance</strong> is on (the default), only one run
+            can be active per job at a time; with it off, overlapping runs are
+            allowed.
           </P>
         </Section>
 
