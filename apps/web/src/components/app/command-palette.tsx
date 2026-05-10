@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import { CornerDownLeft, Search, type LucideIcon } from "lucide-react";
+import { Play, Search, type LucideIcon } from "lucide-react";
 import { glassOverlay } from "@/lib/glass";
 import { formatHotkeyForKbd } from "@/lib/hotkeys/format";
 import { type HotkeyId } from "@/lib/hotkeys/keymap";
@@ -42,6 +42,7 @@ export function CommandPalette({
   const [pendingAction, setPendingAction] = useState<CommandAction | null>(
     null
   );
+  const [selectedValue, setSelectedValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const page = pages[pages.length - 1];
 
@@ -68,6 +69,7 @@ export function CommandPalette({
         setPendingAction(action);
         setPages(["confirm"]);
         setSearch("");
+        setSelectedValue("confirm-launch");
       } else {
         handleOpenChange(false);
         action.run();
@@ -116,7 +118,9 @@ export function CommandPalette({
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Command
             filter={filter}
-            loop={page === "confirm"}
+            loop
+            value={selectedValue}
+            onValueChange={setSelectedValue}
             className="bg-transparent"
             onKeyDown={(e) => {
               if (pages.length > 0 && e.key === "Backspace" && !search) {
@@ -208,35 +212,34 @@ function ConfirmPage({
   onConfirm: () => void;
   onBack: () => void;
 }): JSX.Element {
-  const Icon = action.icon;
-
   return (
-    <div className="flex flex-col gap-2 px-3 py-3">
-      <div className="flex items-center gap-2.5">
-        {Icon && <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />}
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium text-foreground">
-            {action.title}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {action.confirm?.description}
-          </span>
-        </div>
+    <div className="flex flex-col gap-3 p-3">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium text-foreground">
+          {action.title}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {action.confirm?.description}
+        </span>
       </div>
 
-      <Command.Group forceMount className={groupClassName}>
+      <Command.Group
+        forceMount
+        className="flex flex-col gap-1 overflow-hidden p-0"
+      >
         <Command.Item
           value="confirm-launch"
           keywords={["launch", "confirm", "run"]}
           onSelect={onConfirm}
           forceMount
           className={cn(
-            itemClassName,
-            "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground"
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none",
+            "text-primary/70",
+            "data-[selected=true]:bg-primary/20 data-[selected=true]:text-primary"
           )}
         >
-          <CornerDownLeft className={iconClassName} aria-hidden />
-          <span className="flex-1 truncate">Launch</span>
+          <Play className="h-3.5 w-3.5 fill-current" aria-hidden />
+          Launch
         </Command.Item>
         <Command.Item
           value="confirm-cancel"
@@ -244,13 +247,12 @@ function ConfirmPage({
           onSelect={onBack}
           forceMount
           className={cn(
-            itemClassName,
-            "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground"
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm outline-none",
+            "text-muted-foreground",
+            "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-foreground"
           )}
         >
-          <span className="flex-1 truncate pl-6 text-muted-foreground group-data-[selected=true]:text-accent-foreground">
-            Cancel
-          </span>
+          Cancel
         </Command.Item>
       </Command.Group>
     </div>
