@@ -4,19 +4,67 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  AGENT_TYPES,
   AGENT_TYPE_LABELS,
   type AgentType,
+  CLI_AGENT_TYPES,
 } from "@/lib/agent-types";
 
 type AgentTypeSettingsResponse = {
   enabledAgentTypes: AgentType[];
 };
 
+const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
+  claude: "Claude Code CLI by Anthropic.",
+  codex: "Codex CLI by OpenAI.",
+  cursor: "Cursor Agent CLI by Anysphere.",
+  opencode: "OpenCode CLI — open-source terminal agent.",
+  terminal: "Raw shell session with no AI agent.",
+};
+
 type AgentTypeSettingsProps = {
   enabledAgentTypes: AgentType[];
   onChange: (agentTypes: AgentType[]) => void;
 };
+
+function AgentTypeRow({
+  agentType,
+  checked,
+  disabled,
+  onToggle,
+}: {
+  agentType: AgentType;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
+        disabled
+          ? "cursor-not-allowed opacity-60"
+          : "cursor-pointer hover:bg-muted/50"
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onToggle}
+        data-testid={`agent-type-toggle-${agentType}`}
+      />
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">
+          {AGENT_TYPE_LABELS[agentType]}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {disabled
+            ? "At least one type must stay enabled."
+            : AGENT_TYPE_DESCRIPTIONS[agentType]}
+        </div>
+      </div>
+    </label>
+  );
+}
 
 export function AgentTypeSettings({
   enabledAgentTypes,
@@ -110,38 +158,34 @@ export function AgentTypeSettings({
       </div>
 
       <div className="max-w-lg space-y-2">
-        {AGENT_TYPES.map((agentType) => {
+        {CLI_AGENT_TYPES.map((agentType) => {
           const checked = agentTypes.includes(agentType);
           const disabled = checked && agentTypes.length === 1;
           return (
-            <label
+            <AgentTypeRow
               key={agentType}
-              className={cn(
-                "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
-                disabled
-                  ? "cursor-not-allowed opacity-60"
-                  : "cursor-pointer hover:bg-muted/50"
-              )}
-            >
-              <Checkbox
-                checked={checked}
-                disabled={disabled}
-                onCheckedChange={() => void toggleAgentType(agentType)}
-                data-testid={`agent-type-toggle-${agentType}`}
-              />
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
-                  {AGENT_TYPE_LABELS[agentType]}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {disabled
-                    ? "At least one agent type must stay enabled."
-                    : "Available in the create-agent dialog."}
-                </div>
-              </div>
-            </label>
+              agentType={agentType}
+              checked={checked}
+              disabled={disabled}
+              onToggle={() => void toggleAgentType(agentType)}
+            />
           );
         })}
+      </div>
+
+      <div>
+        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+          Other
+        </div>
+      </div>
+
+      <div className="max-w-lg space-y-2">
+        <AgentTypeRow
+          agentType="terminal"
+          checked={agentTypes.includes("terminal")}
+          disabled={agentTypes.includes("terminal") && agentTypes.length === 1}
+          onToggle={() => void toggleAgentType("terminal")}
+        />
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}

@@ -23,25 +23,25 @@ test.describe("Create agent dialog", () => {
     const form = page.getByTestId("create-agent-form");
     await expect(form).toBeVisible();
 
-    // The type select should default to "Codex"
+    // The type select should default to "Claude" (first alphabetically)
     const typeTrigger = form.getByRole("combobox").first();
-    await expect(typeTrigger).toContainText("Codex");
+    await expect(typeTrigger).toContainText("Claude");
 
     // Click to open the dropdown
     await typeTrigger.click();
 
     // The dropdown options should be visible
-    const claudeOption = page.getByRole("option", { name: "Claude" });
-    await expect(claudeOption).toBeVisible({ timeout: 3_000 });
+    const codexOption = page.getByRole("option", { name: "Codex" });
+    await expect(codexOption).toBeVisible({ timeout: 3_000 });
     await expect(page.getByRole("option", { name: "OpenCode" })).toBeVisible({
       timeout: 3_000,
     });
 
-    // Select "Claude"
-    await claudeOption.click();
+    // Select "Codex"
+    await codexOption.click();
 
-    // The trigger should now show "Claude"
-    await expect(typeTrigger).toContainText("Claude");
+    // The trigger should now show "Codex"
+    await expect(typeTrigger).toContainText("Codex");
 
     // Close dialog
     await page.getByTestId("create-agent-cancel").click();

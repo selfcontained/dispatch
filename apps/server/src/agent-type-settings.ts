@@ -3,10 +3,10 @@ import type { Pool } from "pg";
 import { getSetting, setSetting } from "./db/settings.js";
 
 export const AGENT_TYPES = [
-  "codex",
   "claude",
-  "opencode",
+  "codex",
   "cursor",
+  "opencode",
   "terminal",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
@@ -14,10 +14,10 @@ export type AgentType = (typeof AGENT_TYPES)[number];
 // Agent types that run an AI CLI — eligible for jobs, review assignment, and
 // persona launches. Terminal agents are excluded because they don't run a CLI.
 export const CLI_AGENT_TYPES = [
-  "codex",
   "claude",
-  "opencode",
+  "codex",
   "cursor",
+  "opencode",
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 

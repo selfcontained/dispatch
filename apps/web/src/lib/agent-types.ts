@@ -1,28 +1,28 @@
 export const AGENT_TYPES = [
-  "codex",
   "claude",
-  "opencode",
+  "codex",
   "cursor",
+  "opencode",
   "terminal",
 ] as const;
 
 export type AgentType = (typeof AGENT_TYPES)[number];
 
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
-  codex: "Codex",
   claude: "Claude",
-  opencode: "OpenCode",
+  codex: "Codex",
   cursor: "Cursor",
+  opencode: "OpenCode",
   terminal: "Terminal",
 };
 
 // Agent types that run an AI CLI — eligible for reviews, jobs, and personas.
 // Terminal agents are excluded because there's no CLI to drive them.
 export const CLI_AGENT_TYPES = [
-  "codex",
   "claude",
-  "opencode",
+  "codex",
   "cursor",
+  "opencode",
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 

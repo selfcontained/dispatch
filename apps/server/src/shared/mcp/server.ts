@@ -141,10 +141,10 @@ export type JobTools = {
 };
 
 const LAUNCH_PERSONA_AGENT_TYPES = [
-  "codex",
   "claude",
-  "opencode",
+  "codex",
   "cursor",
+  "opencode",
 ] as const;
 type LaunchPersonaAgentType = (typeof LAUNCH_PERSONA_AGENT_TYPES)[number];
 
