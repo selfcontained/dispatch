@@ -10,6 +10,10 @@ const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
 };
 
+function pathnameTerminalTokenMatch(pathname: string): boolean {
+  return /\/api\/v1\/agents\/[^/]+\/terminal\/token$/u.test(pathname);
+}
+
 test.describe("Agent CRUD", () => {
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
@@ -84,17 +88,50 @@ test.describe("Agent CRUD", () => {
       timeout: 5_000,
     });
 
-    // Submit
+    // Wait for lifecycle network work up front: the sidebar can show the agent
+    // before React Query validates the `/agents/:id` route against the cached
+    // list — that briefly redirects to `/agents` and leaves the terminal
+    // disconnected unless we synchronize on the attach handshake.
+    const createResponsePromise = page.waitForResponse(
+      (resp) =>
+        resp.request().method() === "POST" &&
+        new URL(resp.url()).pathname === "/api/v1/agents" &&
+        resp.status() === 201,
+      { timeout: 15_000 }
+    );
+    const terminalTokenPromise = page.waitForResponse(
+      (resp) =>
+        resp.request().method() === "POST" &&
+        pathnameTerminalTokenMatch(new URL(resp.url()).pathname) &&
+        resp.ok(),
+      { timeout: 30_000 }
+    );
+
     await page.getByTestId("create-agent-submit").click();
+
+    const createResponse = await createResponsePromise;
+    const { agent: createdAgent } = (await createResponse.json()) as {
+      agent: { id: string };
+    };
+    await terminalTokenPromise;
 
     // Dialog should close
     await expect(form).not.toBeVisible({ timeout: 5_000 });
 
     // Agent should appear in the sidebar
     const sidebar = page.getByTestId("agent-sidebar");
-    await expect(sidebar.getByText(agentName)).toBeVisible({ timeout: 5_000 });
+    await expect(sidebar.getByText(agentName)).toBeVisible({ timeout: 10_000 });
+
+    const escapedAgentId = createdAgent.id.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&"
+    );
+    await expect(page).toHaveURL(new RegExp(`/agents/${escapedAgentId}`), {
+      timeout: 15_000,
+    });
+
     await expect(page.getByTestId("terminal-inert-state")).toBeVisible({
-      timeout: 5_000,
+      timeout: 10_000,
     });
     await expect(page.getByTestId("terminal-inert-state")).toContainText(
       "Agent running in inert mode"
