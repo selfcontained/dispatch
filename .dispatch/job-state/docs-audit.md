@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-07
+updated_at: 2026-05-09
 ---
 
 # docs-audit — state handoff
@@ -9,25 +9,17 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`f908a64f80a6e899267a36c1d572810d95cc5347` — HEAD at the start of the 2026-05-07 run. v0.19.7 release tag.
+`e7838799ed00b95583bbf4575c38eef47b4407e4` — HEAD at the start of the 2026-05-09 run. v0.20.0 release tag.
 
 ## next_focus
 
-**Audit docs-pane "Agents" section against recent agent-history and base-ref changes.** PRs #503/#506/#507 changed user-visible behavior:
-
-- History tab now defaults to sort by `updated_at` (desc) and column header reads "Finished" instead of "Created".
-- History only shows archived (finished) agents — not active ones.
-- Review base branch resolution now always refreshes the remote tracking ref before generating the diff (`refreshRemoteBaseRef` in `base-ref.ts`). Worktree agents default to `baseBranch = "main"` if none is set explicitly.
-- These are backend/UX changes that may warrant a mention in the Agents or Reviewers docs-pane sections if users ask "why doesn't my active agent show in history?" or "how does the review diff pick its base?"
-
-This is a targeted pass: check whether the docs-pane claims about history behavior and review diffing are still accurate.
+**Audit docs-pane "Agents" section sidebar badges enumeration.** The backlog item from prior runs notes that `agent-card.tsx` renders several conditional badges (Job, Update, Attention, full-access) that aren't enumerated in the docs. Check `agent-card.tsx` for the full badge list and compare against the "Agent details" subsection in docs-pane. A single "Sidebar badges" subsection would close the gap.
 
 ## backlog
 
 Items noticed during prior passes but left for later runs. Pick the most relevant one when `next_focus` is empty or already done.
 
 - **docs-pane "Reviewers" section — resolution capture UI surfaces.** PR #374 (`8ad64b9`) added resolution reasons + parent summary rendering in `feedback-panel.tsx` (`ResolutionInfoBlock` at line 735, resolution `summary` at lines 1179 / 1570). The docs don't describe what the human sees in the Feedback panel for resolved items; could be a one-paragraph addition to "Submitting findings" or "Round-trip reviews".
-- **docs-pane "Agents" section — sidebar badges enumeration.** The Agents section under "Status indicators" / "Agent details" doesn't enumerate every conditional badge that `agent-card.tsx` renders (Job, Update, Attention, full-access). A single "Sidebar badges" subsection in Agents that enumerates them all would close the cross-reference gap.
 - **docs-pane "Updates" section — `ASSISTED_UPDATE_METADATA_INVALID`.** Low-impact but worth a sentence if the section gets revisited.
 - **docs-pane "Updates" section — release-channel deep mechanics.** PR #487 (2026-05-03) may have introduced new user-visible release-detection state — spot-check `release-manager.tsx` next time the Updates section is touched.
 - **docs-pane "Status Events" section — `metadata` parameter** — `dispatch_event` accepts an optional `metadata` (Record<string, unknown>) param. Currently undocumented in docs-pane. Revisit only if a feature starts using metadata in a user-visible way.
@@ -36,6 +28,7 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`docs/04-agent-lifecycle.md` — round-trip back from in-app docs.** If the in-app docs-pane gains a "Lifecycle" or "Architecture" section, link to this doc rather than re-explaining the state machine.
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
 - **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
+- **`docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields. Consider adding a body schema subsection next time the api-spec is touched.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 
 ## drift_patterns
@@ -60,12 +53,12 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Repo tool prefix is `repo_`, not `repo.`.** MCP clients don't support dots in tool names.
 - **Push-based prompt injection makes some "what the agent sees" claims wrong.** Cross-check the docs whenever injection-prompts.ts is edited.
 - **Media sidebar has two layout modes (drawer / pinned).** Docs claims about "opening the sidebar" should specify which mode is the default (drawer). The pin/unpin toggle and its layout effects are a frequent source of confusion.
-- **Automatic update check introduced a new SSE event.** `release-info` as an SSE event type is undocumented in the SSE schema surface. — **Closed:** SSE event types are now enumerated in `docs/03-api-spec.md`.
 - **Per-install state files live outside the repo checkout.** `~/.dispatch/release.json`, `~/.dispatch/assisted-update.json`, `~/.dispatch/applied-migrations.json`, `~/.dispatch/cache/release-<tag>.tar.gz`.
 - **MCP tool params accrete without docs updates.** `includeDiff` on `dispatch_launch_persona` (PR #496) defaulted to true and wasn't in the docs until this run. Watch for new optional params on existing tools.
 - **README MCP tool lists go stale when tool sets expand.** JOB_TOOLS gained review round-trip tools without a README update; cross-check `AGENT_TOOLS`/`JOB_TOOLS`/`PERSONA_TOOLS` in `apps/server/src/shared/mcp/server.ts` whenever the README tools section is touched.
 - **API-spec endpoint tables go stale when new route files are added.** Personalities CRUD was added without an api-spec section. When a new route file appears in `apps/server/src/routes/`, check whether its endpoints are in the spec.
 - **History endpoint query params change without docs updates.** The `sort` values changed from `recent|oldest` to `created_at|name|updated_at` and an `order` param was added, but the api-spec wasn't updated. Grep the actual query parsing in the route handler.
+- **Job form accretes advanced settings without docs updates.** PR #510 added callable/singleton toggles to both the create and settings forms. The in-app docs Jobs section needs to mirror these whenever the form gains a new field.
 
 ## Notes for the next run
 
@@ -100,3 +93,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-05** (Reviewers includeDiff + Media sidebar modes + History pins) — Updated Reviewers "How personas work" to document `includeDiff` param (PR #496). Updated Media sidebar section to describe drawer vs. pinned modes and the pin toggle (next_focus from PR #468). Noted Pins tab in Agent History detail view (PR #499).
 - **2026-05-06** (Size-adaptive review diffs + README audit) — Updated Reviewers "How personas work" to document size-adaptive diff behavior (PR #501: diffs >15KB get file-level summaries + git commands instead of inline). Updated README.md: added "shortcuts" and "personalities" to docs section list, added personalities and keyboard shortcuts to features list, fixed JOB_TOOLS list (added 6 missing review round-trip tools).
 - **2026-05-07** (API spec v2) — Closed the api-spec `next_focus`. Added: release auto-check endpoints (auto-update-mode, cached-info), SSE event type enumeration (15 types), Personalities CRUD section, diff-stats and prompt-rename agent endpoints. Fixed: History query params (sort values, added search/order, archived-only behavior), Media POST source field, Settings endpoint description.
+- **2026-05-09** (Jobs — callable + singleton) — Pivoted from next_focus (Agents history/base-ref) to diff-driven update for PR #510. Added "Show in command palette" and "Single instance" to Jobs advanced settings list. Updated "On-demand runs" to reflect singleton-gated concurrency. Added callable-jobs paragraph to Keyboard Shortcuts command palette section.
