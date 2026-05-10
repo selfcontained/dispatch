@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { useAtom } from "jotai";
 
@@ -40,6 +41,7 @@ import {
   agentRoute,
 } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
+import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
@@ -117,6 +119,7 @@ export function AgentsView({
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { agentId: routeAgentId, itemId, summaryAgentId } = useParams();
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
@@ -602,12 +605,31 @@ export function AgentsView({
       setCreateOpen(false);
       setRequestedCreateType(null);
       setLastUsedAgentType(agentType);
+      // Align with SSE `agent.upsert`: the POST already finished, but the next
+      // render can briefly see `/agents/:id` before the SSE round-trip updates
+      // React Query — that used to satisfy the "unknown agent" redirect effect.
+      queryClient.setQueryData<Agent[]>(["agents"], (old) => {
+        if (!old) return [agent];
+        const index = old.findIndex((a) => a.id === agent.id);
+        if (index === -1) {
+          return sortAgentsByCreatedAtDesc([agent, ...old]);
+        }
+        const next = [...old];
+        next[index] = agent;
+        return sortAgentsByCreatedAtDesc(next);
+      });
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.id);
       refreshMedia(agent.id);
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [
+      ensureAuxExpanded,
+      ensureTerminalConnected,
+      navigate,
+      queryClient,
+      refreshMedia,
+    ]
   );
 
   const handleCreateOpenChange = useCallback((open: boolean) => {

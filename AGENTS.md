@@ -19,7 +19,6 @@
 - **Hard requirements:**
   - Do not send a final response unless `done`, `waiting_user`, `blocked`, or `idle` has been emitted in the same turn.
   - If `dispatch_event` fails, report that failure explicitly in the response.
-  - Include a `Status log` section in the final response with the result from each `dispatch_event` call.
   - Keep messages short (under ~80 chars) — they are displayed in a narrow sidebar.
 
 ## UI Validation
