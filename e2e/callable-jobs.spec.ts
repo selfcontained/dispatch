@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "child_process";
 import { mkdirSync } from "fs";
-import { tmpdir } from "os";
+import { tmpdir, platform } from "os";
 import { join } from "path";
 import { loadApp, cleanupE2EAgents } from "./helpers";
+
+const MOD_KEY = platform() === "darwin" ? "Meta" : "Control";
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -77,7 +79,7 @@ test.describe("Callable jobs — Cmd+K launch lifecycle", () => {
     await loadApp(page);
 
     // 3. Open Cmd+K palette
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press(`${MOD_KEY}+k`);
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible({ timeout: 3_000 });
 
