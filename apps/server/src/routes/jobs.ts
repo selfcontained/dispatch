@@ -5,7 +5,6 @@ import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
-import type { AgentRecord } from "../agents/types.js";
 import type { JobService } from "../jobs/service.js";
 
 const directoryField = z
@@ -52,10 +51,6 @@ function resolveTilde(value: string): string {
 type JobsRouteDeps = {
   jobService: JobService;
   publishUiEvent: (event: unknown) => void;
-  getAgent: (id: string) => Promise<AgentRecord | null>;
-  withStreamFlag: <T extends AgentRecord>(
-    agent: T
-  ) => T & { hasStream: boolean };
 };
 
 export async function registerJobRoutes(
@@ -70,13 +65,6 @@ export async function registerJobRoutes(
 
     try {
       const result = await deps.jobService.runJob(parsed.data);
-      const agent = await deps.getAgent(result.agentId);
-      if (agent) {
-        deps.publishUiEvent({
-          type: "agent.upsert",
-          agent: deps.withStreamFlag(agent),
-        });
-      }
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

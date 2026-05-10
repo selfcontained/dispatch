@@ -46,7 +46,6 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import { useJobs } from "@/hooks/use-jobs";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {
@@ -474,11 +473,9 @@ export function AgentsView({
     setCreateOpen(true);
   }, []);
 
-  const { data: jobs = [] } = useJobs();
   const { paletteOpen, setPaletteOpen, paletteActions, paletteGroups } =
     useAgentHotkeys({
       agents,
-      jobs,
       isMobile,
       sidebarAgentId,
       validatedSelectedAgentId,

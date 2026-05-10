@@ -424,8 +424,6 @@ async function registerRoutes() {
   await registerJobRoutes(app, {
     jobService,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-    getAgent: (id) => agentManager.getAgent(id),
-    withStreamFlag,
   });
 
   await registerMcpRoutes(app, {

@@ -19,12 +19,11 @@ import {
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
-import { type Job, useJobActions } from "@/hooks/use-jobs";
+import { useJobs, useJobActions } from "@/hooks/use-jobs";
 import { useQueryClient } from "@tanstack/react-query";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
-  jobs: Job[];
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
@@ -49,7 +48,6 @@ export type UseAgentHotkeysResult = {
  */
 export function useAgentHotkeys({
   agents,
-  jobs,
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
@@ -62,6 +60,7 @@ export function useAgentHotkeys({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { data: jobs = [] } = useJobs();
   const { runNow } = useJobActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
