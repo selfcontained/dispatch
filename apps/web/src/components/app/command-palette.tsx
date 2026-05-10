@@ -43,12 +43,16 @@ export function CommandPalette({
     null
   );
   const [selectedValue, setSelectedValue] = useState("");
+  const savedSearchRef = useRef("");
+  const savedSelectionRef = useRef("");
   const inputRef = useRef<HTMLInputElement>(null);
   const page = pages[pages.length - 1];
 
   const popPage = useCallback(() => {
     setPages((prev) => prev.slice(0, -1));
     setPendingAction(null);
+    setSearch(savedSearchRef.current);
+    setSelectedValue(savedSelectionRef.current);
   }, []);
 
   const handleOpenChange = useCallback(
@@ -66,6 +70,8 @@ export function CommandPalette({
   const handleSelect = useCallback(
     (action: CommandAction) => {
       if (action.confirm) {
+        savedSearchRef.current = search;
+        savedSelectionRef.current = action.title;
         setPendingAction(action);
         setPages(["confirm"]);
         setSearch("");
@@ -75,7 +81,7 @@ export function CommandPalette({
         action.run();
       }
     },
-    [handleOpenChange]
+    [handleOpenChange, search]
   );
 
   const handleConfirm = useCallback(() => {
@@ -89,9 +95,12 @@ export function CommandPalette({
     ((value: string, search: string, keywords?: string[]) => number) | undefined
   >(() => {
     if (page === "confirm") return () => 1;
-    return (value, search) => {
-      const words = value.toLowerCase().split(/\s+/);
+    return (value, search, keywords) => {
       const term = search.toLowerCase();
+      const words = value.toLowerCase().split(/\s+/);
+      if (keywords) {
+        for (const kw of keywords) words.push(kw.toLowerCase());
+      }
       return words.some((w) => w.startsWith(term)) ? 1 : 0;
     };
   }, [page]);
