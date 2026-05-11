@@ -60,6 +60,11 @@ describe("TmuxTerminal.sendCommand", () => {
 
     expect(runCommandMock).toHaveBeenCalledWith(
       "tmux",
+      ["display-message", "-p", "-t", "session-x", "#{pane_id}"],
+      { allowedExitCodes: [0, 1] }
+    );
+    expect(runCommandMock).toHaveBeenCalledWith(
+      "tmux",
       ["copy-mode", "-q", "-t", "session-x"],
       { allowedExitCodes: [0, 1] }
     );

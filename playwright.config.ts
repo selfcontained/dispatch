@@ -38,7 +38,7 @@ export default defineConfig({
       DATABASE_URL: databaseUrl,
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
-      DISPATCH_AGENT_RUNTIME: "inert",
+      DISPATCH_AGENT_RUNTIME: process.env.DISPATCH_AGENT_RUNTIME ?? "inert",
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,

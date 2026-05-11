@@ -75,6 +75,17 @@ function cleanCopiedText(text: string): string {
   return text;
 }
 
+function focusTerminalSurface(term: XTerm | null): void {
+  if (!term) return;
+  term.focus();
+  requestAnimationFrame(() => {
+    term.focus();
+    window.setTimeout(() => {
+      term.focus();
+    }, 0);
+  });
+}
+
 export function useTerminal(args: {
   authState: AuthState;
   agents: Agent[];
@@ -565,7 +576,7 @@ export function useTerminal(args: {
             }
             markSocketHealthy("open");
             restoreConnectedState(agent, "tmux");
-            terminalRef.current?.focus();
+            focusTerminalSurface(terminalRef.current);
             void queryClient.invalidateQueries({
               queryKey: ["terminal-state", agent.id],
               exact: true,
@@ -751,6 +762,7 @@ export function useTerminal(args: {
     }
 
     setExitPending(true);
+    copyModeRef.current = "exiting";
     terminalRef.current?.focus();
     requestAnimationFrame(() => {
       terminalRef.current?.focus();
@@ -942,8 +954,10 @@ export function useTerminal(args: {
     }
 
     const disposable = term.onData((data) => {
-      if (copyModeRef.current === "copy" && data === "\x1b") {
-        void exitCopyModeRef.current();
+      if (copyModeRef.current !== "live") {
+        if (copyModeRef.current === "copy" && data === "\x1b") {
+          void exitCopyModeRef.current();
+        }
         return;
       }
       const ws = wsRef.current;
@@ -1020,6 +1034,7 @@ export function useTerminal(args: {
       const targetAgentId =
         connectedAgentIdRef.current ?? selectedAgentId ?? undefined;
       if (!targetAgentId) return;
+      if (hasFreshSocket(targetAgentId)) return;
       const now = Date.now();
       if (now - lastResumeTriggerAtRef.current < RESUME_RECONNECT_DEDUPE_MS) {
         return;
@@ -1048,7 +1063,7 @@ export function useTerminal(args: {
         active !== document.documentElement &&
         !host.contains(active);
       if (focusElsewhere) return;
-      term.focus();
+      focusTerminalSurface(term);
     };
 
     const onVisible = () => {
@@ -1084,6 +1099,7 @@ export function useTerminal(args: {
   }, [
     clearReconnectTimer,
     ensureTerminalConnected,
+    hasFreshSocket,
     isMobile,
     selectedAgentId,
     terminalMode,
