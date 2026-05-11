@@ -31,7 +31,7 @@ function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(
-      `${name} is not set. Production: set it in .env. Development: use dispatch-dev to start an isolated environment.`
+      `${name} is not set or is empty. Production: set it in .env. Development: use dispatch-dev to start an isolated environment.`
     );
   }
   return value;
