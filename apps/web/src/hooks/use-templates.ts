@@ -2,11 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import type { CliAgentType } from "@/lib/agent-types";
+import type { Agent } from "@/components/app/types";
+import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 
 export type Template = {
   id: string;
   directory: string;
   name: string;
+  description: string | null;
   prompt: string | null;
   agentType: CliAgentType;
   useWorktree: boolean;
@@ -27,6 +30,7 @@ export type TemplateArg = {
 export type AddTemplateConfig = {
   name: string;
   directory: string;
+  description?: string | null;
   prompt?: string | null;
   agentType?: CliAgentType;
   useWorktree?: boolean;
@@ -37,9 +41,7 @@ export type AddTemplateConfig = {
 };
 
 export type LaunchResult = {
-  agentId: string;
-  templateId: string;
-  templateName: string;
+  agent: Agent;
 };
 
 const ARG_REGEX = /\{\{D:([^}]+)\}\}/g;
@@ -109,7 +111,11 @@ export function useTemplateActions() {
         method: "POST",
         body: JSON.stringify({ args }),
       }),
-    onSuccess: invalidate,
+    onSuccess: (result) => {
+      queryClient.setQueryData<Agent[]>(["agents"], (old) =>
+        sortAgentsByCreatedAtDesc([...(old ?? []), result.agent])
+      );
+    },
   });
 
   return { addTemplate, updateTemplate, removeTemplate, launchTemplate };

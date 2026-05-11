@@ -221,7 +221,7 @@ test.describe("Overflow layout", () => {
 
     await expect(jobsSidebar).toBeVisible();
     await expect(jobsSidebarScroll).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jobs" })).toBeVisible();
     await expect(page.getByTestId("agents-button")).toBeVisible();
     await expect(page.getByTestId("settings-button")).toBeVisible();
 

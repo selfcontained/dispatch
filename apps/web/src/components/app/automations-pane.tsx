@@ -4,15 +4,13 @@ import {
   AlarmClock,
   Check,
   ChevronDown,
-  FileText,
   GitBranch,
   Play,
-  Plus,
   Trash2,
   Zap,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
 
 import {
   JobsProvider,
@@ -108,7 +106,7 @@ function AutomationsSidebar({
           onItemSelect={onItemSelect}
         />
       ) : (
-        <JobListContent onItemSelect={onItemSelect} />
+        <JobListContent onItemSelect={onItemSelect} hideHeader />
       )}
     </div>
   );
@@ -130,14 +128,21 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        active
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:text-foreground"
+        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        active ? "text-primary" : "text-muted-foreground hover:text-foreground"
       )}
     >
-      {icon}
-      {label}
+      {active ? (
+        <motion.div
+          layoutId="automations-tab-indicator"
+          className="absolute inset-0 rounded-md bg-primary/15"
+          transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+        />
+      ) : null}
+      <span className="relative z-10 flex items-center gap-1.5">
+        {icon}
+        {label}
+      </span>
     </button>
   );
 }
@@ -164,28 +169,32 @@ function TemplateListContent({
   );
 
   return (
-    <>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-2">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Templates
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 gap-1 px-2 text-xs"
-            onClick={() => setShowCreate(true)}
-          >
-            <Plus className="h-3 w-3" />
-            Create
-          </Button>
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-end px-3 py-2">
+        <Button
+          size="sm"
+          variant="default"
+          className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+          onClick={() => setShowCreate(true)}
+        >
+          <Zap className="mr-1 h-4 w-4" />
+          Create
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {callableTemplates.length === 0 ? (
-          <div className="px-2 py-8 text-center text-xs text-muted-foreground">
-            No templates yet. Create one to get started.
+          <div className="p-4 text-sm text-muted-foreground">
+            <div className="rounded-md border border-dashed border-border p-4">
+              <div className="font-medium text-foreground">
+                No templates yet.
+              </div>
+              <div className="mt-1 text-xs">
+                Create a template to launch agents from the command palette.
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-0.5">
+          <div>
             {callableTemplates.map((template) => (
               <TemplateListItem
                 key={template.id}
@@ -205,7 +214,7 @@ function TemplateListContent({
         onOpenChange={setShowCreate}
         enabledAgentTypes={enabledAgentTypes}
       />
-    </>
+    </div>
   );
 }
 
@@ -219,8 +228,8 @@ function TemplateListItem({
   onSelect: () => void;
 }): JSX.Element {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { launchTemplate } = useTemplateActions();
+  const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
   const args = useMemo(
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
     [template.prompt]
@@ -230,51 +239,72 @@ function TemplateListItem({
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (args.length > 0) {
-        navigate(`/automations/templates/${template.id}`);
+        setLaunchDialogOpen(true);
         return;
       }
       launchTemplate
         .mutateAsync({ id: template.id })
-        .then(async (result) => {
-          await queryClient.invalidateQueries({ queryKey: ["agents"] });
-          navigate(agentRoute(result.agentId));
+        .then((result) => {
+          navigate(agentRoute(result.agent.id));
         })
         .catch((err: Error) => {
           toast.error(`Failed to launch: ${err.message}`);
         });
     },
-    [args.length, launchTemplate, navigate, queryClient, template.id]
+    [args.length, launchTemplate, navigate, template.id]
   );
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      className={cn(
-        "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
-        selected
-          ? "border border-primary/20 bg-primary/10 text-foreground"
-          : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
-      )}
-    >
-      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate">{template.name}</span>
-      <button
-        type="button"
-        onClick={handleLaunch}
-        title="Launch template"
-        className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100"
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+        className={cn(
+          "group w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
+          selected && "border-r-primary bg-muted/60"
+        )}
       >
-        <Play className="h-3 w-3 fill-current" />
-      </button>
-    </div>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold leading-5">
+              {template.name}
+            </div>
+            {template.description ? (
+              <div className="truncate text-xs text-muted-foreground">
+                {template.description}
+              </div>
+            ) : (
+              <div
+                className="truncate font-mono text-[11px] text-muted-foreground"
+                title={template.directory}
+              >
+                {shortPath(template.directory)}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleLaunch}
+            title="Launch template"
+            className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100"
+          >
+            <Play className="h-3 w-3 fill-current" />
+          </button>
+        </div>
+      </div>
+      <LaunchTemplateDialog
+        template={template}
+        open={launchDialogOpen}
+        onOpenChange={setLaunchDialogOpen}
+      />
+    </>
   );
 }
 
@@ -315,19 +345,11 @@ function TemplateDetail({
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { launchTemplate, updateTemplate, removeTemplate } =
-    useTemplateActions();
-
-  // Launch arg values
-  const launchArgs = useMemo(
-    () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
-    [template.prompt]
-  );
-  const [argValues, setArgValues] = useState<Record<string, string>>({});
+  const { updateTemplate, removeTemplate } = useTemplateActions();
 
   // Editable form state — reset when template changes
   const [displayName, setDisplayName] = useState(template.name);
+  const [description, setDescription] = useState(template.description ?? "");
   const [directory, setDirectory] = useState(template.directory);
   const [prompt, setPrompt] = useState(template.prompt ?? "");
   const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
@@ -339,9 +361,11 @@ function TemplateDetail({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+  const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
     setDisplayName(template.name);
+    setDescription(template.description ?? "");
     setDirectory(template.directory);
     setPrompt(template.prompt ?? "");
     setAgentType(template.agentType);
@@ -353,7 +377,7 @@ function TemplateDetail({
     setSaveError(null);
     setSaved(false);
     setRemoveDialogOpen(false);
-    setArgValues({});
+    setLaunchDialogOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template.id]);
 
@@ -371,6 +395,7 @@ function TemplateDetail({
       .mutateAsync({
         id: template.id,
         name: displayName.trim(),
+        description: description.trim() || null,
         directory: directory.trim(),
         prompt: prompt || null,
         agentType,
@@ -386,6 +411,7 @@ function TemplateDetail({
     updateTemplate,
     template.id,
     displayName,
+    description,
     directory,
     prompt,
     agentType,
@@ -394,26 +420,6 @@ function TemplateDetail({
     branchName,
     fullAccess,
     callable,
-  ]);
-
-  const handleLaunch = useCallback(() => {
-    const args = launchArgs.length > 0 ? argValues : undefined;
-    launchTemplate
-      .mutateAsync({ id: template.id, args })
-      .then(async (result) => {
-        await queryClient.invalidateQueries({ queryKey: ["agents"] });
-        navigate(agentRoute(result.agentId));
-      })
-      .catch((err: Error) => {
-        toast.error(`Failed to launch: ${err.message}`);
-      });
-  }, [
-    launchArgs,
-    argValues,
-    launchTemplate,
-    navigate,
-    queryClient,
-    template.id,
   ]);
 
   const handleDelete = useCallback(() => {
@@ -429,10 +435,6 @@ function TemplateDetail({
     setRemoveDialogOpen(false);
   }, [removeTemplate, template, navigate]);
 
-  const allArgsFilled =
-    launchArgs.length === 0 ||
-    launchArgs.every((a) => argValues[a.key]?.trim());
-
   const cliAgentTypes = useMemo(
     () => enabledAgentTypes.filter(isCliAgentType),
     [enabledAgentTypes]
@@ -445,40 +447,20 @@ function TemplateDetail({
         <h2 className="text-lg font-semibold text-foreground">
           {template.name}
         </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        {template.description ? (
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {template.description}
+          </p>
+        ) : null}
+        <p className="mt-0.5 text-xs text-muted-foreground/70">
           {shortPath(template.directory)}
         </p>
 
-        {launchArgs.length > 0 ? (
-          <div className="mt-4">
-            <div className="mb-3 text-sm font-medium text-foreground">
-              Arguments
-            </div>
-            <div className="flex flex-col gap-3">
-              {launchArgs.map((arg) => (
-                <ArgInput
-                  key={arg.key}
-                  arg={arg}
-                  value={argValues[arg.key] ?? ""}
-                  onChange={(value) =>
-                    setArgValues((prev) => ({ ...prev, [arg.key]: value }))
-                  }
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <Button
           className="mt-4 gap-1.5"
-          onClick={handleLaunch}
-          disabled={!allArgsFilled || launchTemplate.isPending}
+          onClick={() => setLaunchDialogOpen(true)}
         >
-          {launchTemplate.isPending ? (
-            <ActivityBars size={16} className="mr-1" />
-          ) : (
-            <Play className="h-3.5 w-3.5 fill-current" />
-          )}
+          <Play className="h-3.5 w-3.5 fill-current" />
           Launch
         </Button>
       </div>
@@ -493,10 +475,30 @@ function TemplateDetail({
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
+                <label className="text-sm text-muted-foreground">
+                  Agent type
+                </label>
+                <AgentTypeCombobox
+                  value={agentType}
+                  onChange={setAgentType}
+                  agentTypes={cliAgentTypes}
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
                 <label className="text-sm text-muted-foreground">Name</label>
                 <Input
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm text-muted-foreground">
+                  Description
+                </label>
+                <Input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional short description"
                 />
               </div>
               <div className="space-y-1 md:col-span-2">
@@ -507,16 +509,6 @@ function TemplateDetail({
                   value={directory}
                   onChange={setDirectory}
                   placeholder="/path/to/repo"
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground">
-                  Agent type
-                </label>
-                <AgentTypeCombobox
-                  value={agentType}
-                  onChange={setAgentType}
-                  agentTypes={cliAgentTypes}
                 />
               </div>
             </div>
@@ -645,6 +637,12 @@ function TemplateDetail({
           </div>
         </DialogContent>
       </Dialog>
+
+      <LaunchTemplateDialog
+        template={template}
+        open={launchDialogOpen}
+        onOpenChange={setLaunchDialogOpen}
+      />
     </div>
   );
 }
@@ -670,6 +668,110 @@ function ArgInput({
         className="h-8 text-sm"
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Launch template dialog (modal with args + launch)
+// ---------------------------------------------------------------------------
+
+export function LaunchTemplateDialog({
+  template,
+  open,
+  onOpenChange,
+}: {
+  template: Template;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}): JSX.Element {
+  const navigate = useNavigate();
+  const { launchTemplate } = useTemplateActions();
+
+  const args = useMemo(
+    () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
+    [template.prompt]
+  );
+  const [argValues, setArgValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open) setArgValues({});
+  }, [open]);
+
+  const allArgsFilled =
+    args.length === 0 || args.every((a) => argValues[a.key]?.trim());
+
+  const handleLaunch = useCallback(() => {
+    const launchArgs = args.length > 0 ? argValues : undefined;
+    launchTemplate
+      .mutateAsync({ id: template.id, args: launchArgs })
+      .then((result) => {
+        onOpenChange(false);
+        navigate(agentRoute(result.agent.id));
+      })
+      .catch((err: Error) => {
+        toast.error(`Failed to launch: ${err.message}`);
+      });
+  }, [args, argValues, launchTemplate, navigate, onOpenChange, template.id]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{template.name}</DialogTitle>
+          {template.description ? (
+            <DialogDescription>{template.description}</DialogDescription>
+          ) : (
+            <DialogDescription>
+              This will create a new agent from this template.
+            </DialogDescription>
+          )}
+        </DialogHeader>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
+          }}
+        >
+          {args.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {args.map((arg) => (
+                <ArgInput
+                  key={arg.key}
+                  arg={arg}
+                  value={argValues[arg.key] ?? ""}
+                  onChange={(value) =>
+                    setArgValues((prev) => ({ ...prev, [arg.key]: value }))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <div className="flex flex-row-reverse justify-start gap-2 pt-3">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!allArgsFilled || launchTemplate.isPending}
+            >
+              {launchTemplate.isPending ? (
+                <ActivityBars size={16} className="mr-1.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5 mr-1.5 fill-current" />
+              )}
+              Launch
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -707,6 +809,7 @@ function CreateTemplateDialogContent({
 }): JSX.Element {
   const { addTemplate } = useTemplateActions();
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
   const [prompt, setPrompt] = useState("");
   const [agentType, setAgentType] = useState<CliAgentType>("claude");
@@ -731,6 +834,7 @@ function CreateTemplateDialogContent({
     addTemplate
       .mutateAsync({
         name,
+        description: description.trim() || null,
         directory,
         prompt: prompt || null,
         agentType,
@@ -751,6 +855,7 @@ function CreateTemplateDialogContent({
   }, [
     addTemplate,
     name,
+    description,
     directory,
     prompt,
     agentType,
@@ -798,6 +903,15 @@ function CreateTemplateDialogContent({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="template name"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Description</label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional short description"
             />
           </div>
 

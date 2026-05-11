@@ -9,6 +9,7 @@ export type TemplateRecord = {
   id: string;
   directory: string;
   name: string;
+  description: string | null;
   prompt: string | null;
   agentType: JobAgentType;
   useWorktree: boolean;
@@ -22,6 +23,8 @@ export type TemplateRecord = {
 
 export type TemplateConfigUpdate = {
   name?: string;
+  description?: string | null;
+  directory?: string;
   prompt?: string | null;
   agentType?: JobAgentType;
   useWorktree?: boolean;
@@ -78,6 +81,7 @@ export class TemplateStore {
   async createTemplate(input: {
     name: string;
     directory: string;
+    description: string | null;
     prompt: string | null;
     agentType: JobAgentType;
     useWorktree: boolean;
@@ -90,14 +94,15 @@ export class TemplateStore {
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, prompt, agent_type, use_worktree, base_branch, branch_name, full_access, callable)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, use_worktree, base_branch, branch_name, full_access, callable)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING ${this.columns()}
         `,
         [
           id,
           path.resolve(input.directory),
           input.name,
+          input.description,
           input.prompt,
           input.agentType,
           input.useWorktree,
@@ -156,17 +161,35 @@ export class TemplateStore {
     input: TemplateConfigUpdate
   ): Promise<TemplateRecord> {
     try {
+      const hasDescription = Object.prototype.hasOwnProperty.call(
+        input,
+        "description"
+      );
+      const hasPrompt = Object.prototype.hasOwnProperty.call(input, "prompt");
+      const hasBaseBranch = Object.prototype.hasOwnProperty.call(
+        input,
+        "baseBranch"
+      );
+      const hasBranchName = Object.prototype.hasOwnProperty.call(
+        input,
+        "branchName"
+      );
+      const resolvedDir = input.directory
+        ? path.resolve(input.directory)
+        : undefined;
       const result = await this.pool.query(
         `
         UPDATE templates
         SET name = COALESCE($2, name),
-            prompt = CASE WHEN $3 THEN $4 ELSE prompt END,
-            agent_type = COALESCE($5, agent_type),
-            use_worktree = COALESCE($6, use_worktree),
-            base_branch = CASE WHEN $7 THEN $8 ELSE base_branch END,
-            branch_name = CASE WHEN $9 THEN $10 ELSE branch_name END,
-            full_access = COALESCE($11, full_access),
-            callable = COALESCE($12, callable),
+            description = CASE WHEN $3 THEN $4 ELSE description END,
+            directory = COALESCE($5, directory),
+            prompt = CASE WHEN $6 THEN $7 ELSE prompt END,
+            agent_type = COALESCE($8, agent_type),
+            use_worktree = COALESCE($9, use_worktree),
+            base_branch = CASE WHEN $10 THEN $11 ELSE base_branch END,
+            branch_name = CASE WHEN $12 THEN $13 ELSE branch_name END,
+            full_access = COALESCE($14, full_access),
+            callable = COALESCE($15, callable),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.columns()}
@@ -174,13 +197,16 @@ export class TemplateStore {
         [
           id,
           input.name,
-          Object.prototype.hasOwnProperty.call(input, "prompt"),
+          hasDescription,
+          input.description ?? null,
+          resolvedDir,
+          hasPrompt,
           input.prompt ?? null,
           input.agentType,
           input.useWorktree,
-          Object.prototype.hasOwnProperty.call(input, "baseBranch"),
+          hasBaseBranch,
           input.baseBranch ?? null,
-          Object.prototype.hasOwnProperty.call(input, "branchName"),
+          hasBranchName,
           input.branchName ?? null,
           input.fullAccess,
           input.callable,
@@ -224,6 +250,7 @@ export class TemplateStore {
       id,
       directory,
       name,
+      description,
       prompt,
       agent_type AS "agentType",
       use_worktree AS "useWorktree",

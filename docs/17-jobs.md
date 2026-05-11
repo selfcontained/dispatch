@@ -19,6 +19,7 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 | Field         | Description                                                |
 | ------------- | ---------------------------------------------------------- |
 | `name`        | Display name, unique within its `directory`                |
+| `description` | Optional short description shown in Cmd+K and launch views |
 | `directory`   | Absolute path of the repo the template runs against        |
 | `prompt`      | User-supplied prompt used as the agent's first turn        |
 | `agentType`   | One of `claude`, `codex`, `opencode`                       |
@@ -45,9 +46,9 @@ This creates two input fields: "PR URL" and "Review Focus".
 Templates with `callable: true` appear in the Cmd+K command palette under a "Templates" group.
 
 - Templates **without** arguments show a confirmation step — pressing Enter twice (select → confirm) launches immediately.
-- Templates **with** arguments navigate to the template detail page (`/automations/templates/:id`) where you fill in the argument values before launching.
+- Templates **with** arguments open a launch dialog where you fill in the argument values before launching.
 
-After launch, the new agent appears in the sidebar via SSE and the URL navigates to it automatically.
+After launch, the agent record is optimistically added to the sidebar cache and the URL navigates to it immediately. The launch endpoint returns the full agent record (matching the create-agent response shape).
 
 ### API
 
@@ -60,7 +61,7 @@ After launch, the new agent appears in the sidebar via SSE and the URL navigates
 | DELETE | `/api/v1/templates/:id`        | Delete template     |
 | POST   | `/api/v1/templates/:id/launch` | Launch template     |
 
-The launch endpoint accepts `{ args?: Record<string, string> }` for runtime arguments.
+The launch endpoint accepts `{ args?: Record<string, string> }` for runtime arguments and returns `{ agent }` with the full agent record.
 
 ## Jobs
 
@@ -155,7 +156,9 @@ Job agents may also call analytics tools (`get_activity_summary`, `get_agent_his
 
 The Automations pane (`/automations`) has a tabbed sidebar with **Templates** and **Jobs** tabs.
 
-- The Templates tab lists callable templates with inline launch buttons. Selecting a template shows its detail view with argument inputs and a Launch button.
-- The Jobs tab lists configured jobs with their latest run status. Drill-down views show run history, per-run reports, and the MCP log stream. A run blocked on `needs_input` exposes an answer box that resumes the agent.
+The sidebar has a tabbed layout with a sliding indicator that animates between tabs. Both tabs use consistent flat-list styling with border separators and a right-aligned Create button.
+
+- The **Templates** tab lists callable templates with inline play buttons for quick launch. Templates with arguments open a launch dialog; templates without arguments launch directly. Selecting a template shows its detail view with a Launch button and an editable configuration form.
+- The **Jobs** tab lists configured jobs with their latest run status and an Overview dashboard with stats and charts. Drill-down views show run history, per-run reports, and the MCP log stream. A run blocked on `needs_input` exposes an answer box that resumes the agent.
 
 Legacy `/jobs` URLs redirect to `/automations/jobs`.

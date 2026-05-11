@@ -16,6 +16,7 @@ const directoryField = z
 const AddTemplateBodySchema = z.object({
   name: z.string().min(1, "Template name is required."),
   directory: directoryField,
+  description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
@@ -27,6 +28,8 @@ const AddTemplateBodySchema = z.object({
 
 const UpdateTemplateBodySchema = z.object({
   name: z.string().min(1).optional(),
+  directory: directoryField.optional(),
+  description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
@@ -138,7 +141,11 @@ export async function registerTemplateRoutes(
           templateId: request.params.id,
           ...parsed.data,
         });
-        return result;
+        deps.publishUiEvent({
+          type: "agent.upsert",
+          agent: result.agent,
+        });
+        return { agent: result.agent };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return reply.code(500).send({ error: message });

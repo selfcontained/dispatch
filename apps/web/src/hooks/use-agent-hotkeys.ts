@@ -24,7 +24,6 @@ import {
   useTemplateActions,
   parseTemplateArgs,
 } from "@/hooks/use-templates";
-import { useQueryClient } from "@tanstack/react-query";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
@@ -43,6 +42,8 @@ export type UseAgentHotkeysResult = {
   setPaletteOpen: (open: boolean) => void;
   paletteActions: CommandAction[];
   paletteGroups: CommandGroup[];
+  launchTemplateId: string | null;
+  setLaunchTemplateId: (id: string | null) => void;
 };
 
 /**
@@ -62,8 +63,8 @@ export function useAgentHotkeys({
   openCreateDialog,
 }: UseAgentHotkeysArgs): UseAgentHotkeysResult {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const { data: templates = [] } = useTemplates();
   const { launchTemplate } = useTemplateActions();
 
@@ -175,20 +176,19 @@ export function useAgentHotkeys({
               ? undefined
               : {
                   description:
+                    template.description ||
                     "This will create a new agent from this template.",
                 },
             run: () => {
               if (hasArgs) {
-                navigate(`/automations/templates/${template.id}`);
+                setPaletteOpen(false);
+                setLaunchTemplateId(template.id);
                 return;
               }
               launchTemplate
                 .mutateAsync({ id: template.id })
-                .then(async (result) => {
-                  await queryClient.invalidateQueries({
-                    queryKey: ["agents"],
-                  });
-                  navigate(agentRoute(result.agentId));
+                .then((result) => {
+                  navigate(agentRoute(result.agent.id));
                 })
                 .catch((err: Error) => {
                   toast.error(`Failed to launch template: ${err.message}`);
@@ -198,7 +198,14 @@ export function useAgentHotkeys({
         }),
       },
     ];
-  }, [templates, launchTemplate, navigate, queryClient]);
+  }, [templates, launchTemplate, navigate, setPaletteOpen]);
 
-  return { paletteOpen, setPaletteOpen, paletteActions, paletteGroups };
+  return {
+    paletteOpen,
+    setPaletteOpen,
+    paletteActions,
+    paletteGroups,
+    launchTemplateId,
+    setLaunchTemplateId,
+  };
 }

@@ -46,8 +46,10 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { LaunchTemplateDialog } from "@/components/app/automations-pane";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
+import { useTemplates } from "@/hooks/use-templates";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -473,18 +475,30 @@ export function AgentsView({
     setCreateOpen(true);
   }, []);
 
-  const { paletteOpen, setPaletteOpen, paletteActions, paletteGroups } =
-    useAgentHotkeys({
-      agents,
-      isMobile,
-      sidebarAgentId,
-      validatedSelectedAgentId,
-      mediaOpen,
-      setMediaOpen,
-      leftPanelOpen,
-      handleSetLeftPanelOpen,
-      openCreateDialog,
-    });
+  const {
+    paletteOpen,
+    setPaletteOpen,
+    paletteActions,
+    paletteGroups,
+    launchTemplateId,
+    setLaunchTemplateId,
+  } = useAgentHotkeys({
+    agents,
+    isMobile,
+    sidebarAgentId,
+    validatedSelectedAgentId,
+    mediaOpen,
+    setMediaOpen,
+    leftPanelOpen,
+    handleSetLeftPanelOpen,
+    openCreateDialog,
+  });
+
+  const { data: templates = [] } = useTemplates();
+  const launchTemplate = useMemo(
+    () => templates.find((t) => t.id === launchTemplateId) ?? null,
+    [templates, launchTemplateId]
+  );
 
   const closeFeedbackDetail = useCallback(() => {
     if (validatedSelectedAgentId) {
@@ -967,6 +981,16 @@ export function AgentsView({
         actions={paletteActions}
         groups={paletteGroups}
       />
+
+      {launchTemplate ? (
+        <LaunchTemplateDialog
+          template={launchTemplate}
+          open={!!launchTemplateId}
+          onOpenChange={(open) => {
+            if (!open) setLaunchTemplateId(null);
+          }}
+        />
+      ) : null}
 
       <CreateAgentDialog
         open={createOpen}

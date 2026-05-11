@@ -63,6 +63,11 @@ export type CleanupGitWorktreeInput = {
   updateBaseBranch?: boolean;
   deleteBranch?: boolean;
   force?: boolean;
+  /** The branch originally created for this worktree (from DB). If the agent
+   *  switched branches, this may differ from the current HEAD branch. When set
+   *  and different from the current branch, cleanup will also delete it — but
+   *  only if it has no commits beyond its upstream (no work to lose). */
+  originalBranch?: string | null;
 };
 
 export type CleanupGitWorktreeResult = {
@@ -263,6 +268,52 @@ export async function cleanupGitWorktree(
       branchName,
     ]);
     deletedBranch = true;
+  }
+
+  // If the agent switched branches, the originally-created worktree branch
+  // is still sitting around. Delete it too, but only if it has zero commits
+  // ahead of its upstream so we never destroy actual work.
+  const originalBranch = input.originalBranch?.trim() || null;
+  if (
+    originalBranch &&
+    originalBranch !== branchName &&
+    (input.deleteBranch ?? false)
+  ) {
+    const exists = await commandRunner(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/heads/${originalBranch}`,
+      ],
+      { allowedExitCodes: [0, 1] }
+    );
+    if (exists.exitCode === 0) {
+      const ahead = await commandRunner(
+        "git",
+        [
+          "-C",
+          repoRoot,
+          "rev-list",
+          "--count",
+          `${originalBranch}@{upstream}..${originalBranch}`,
+        ],
+        { allowedExitCodes: [0, 128] }
+      );
+      const commitCount = parseInt(ahead.stdout || "0", 10);
+      if (ahead.exitCode === 0 && commitCount === 0) {
+        await commandRunner("git", [
+          "-C",
+          repoRoot,
+          "branch",
+          "-d",
+          originalBranch,
+        ]);
+      }
+    }
   }
 
   return {

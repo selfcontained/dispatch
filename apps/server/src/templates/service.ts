@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import type { AgentRecord } from "../agents/types.js";
 import type { JobAgentType } from "../jobs/store.js";
 import {
   TemplateStore,
@@ -13,6 +14,7 @@ import {
 export type AddTemplateInput = {
   name: string;
   directory: string;
+  description?: string | null;
   prompt?: string | null;
   agentType?: JobAgentType;
   useWorktree?: boolean;
@@ -29,7 +31,7 @@ export type LaunchTemplateInput = {
 };
 
 export type LaunchResult = {
-  agentId: string;
+  agent: AgentRecord;
   templateId: string;
   templateName: string;
 };
@@ -49,6 +51,7 @@ export class TemplateService {
     const template = await this.store.createTemplate({
       name: input.name.trim(),
       directory: input.directory,
+      description: input.description ?? null,
       prompt: input.prompt ?? null,
       agentType: input.agentType ?? "claude",
       useWorktree: input.useWorktree ?? false,
@@ -70,6 +73,9 @@ export class TemplateService {
   ): Promise<TemplateRecord> {
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.name !== undefined) updates.name = input.name.trim();
+    if (input.description !== undefined)
+      updates.description = input.description;
+    if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     if (input.agentType !== undefined) updates.agentType = input.agentType;
     if (input.useWorktree !== undefined)
@@ -164,7 +170,7 @@ export class TemplateService {
     );
 
     return {
-      agentId: agent.id,
+      agent,
       templateId: template.id,
       templateName: template.name,
     };

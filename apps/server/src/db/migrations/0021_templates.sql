@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS templates (
   id TEXT PRIMARY KEY,
   directory TEXT NOT NULL,
   name TEXT NOT NULL,
+  description TEXT,
   prompt TEXT,
   agent_type TEXT NOT NULL DEFAULT 'claude',
   use_worktree BOOLEAN NOT NULL DEFAULT false,

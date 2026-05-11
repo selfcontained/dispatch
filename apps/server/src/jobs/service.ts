@@ -273,6 +273,7 @@ export class JobService {
     const template = await this.templateStore.createTemplate({
       name: displayName,
       directory: input.directory,
+      description: null,
       prompt: input.prompt ?? null,
       agentType: input.agentType ?? "claude",
       useWorktree: input.useWorktree ?? false,
