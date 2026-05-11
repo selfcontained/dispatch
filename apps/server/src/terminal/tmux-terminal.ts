@@ -46,9 +46,10 @@ export class TmuxTerminal {
     inCopyMode: boolean;
   }> {
     try {
+      const paneTarget = await this.resolvePaneTarget();
       const result = await runCommand(
         "tmux",
-        ["display-message", "-p", "-t", this.sessionName, "#{pane_in_mode}"],
+        ["display-message", "-p", "-t", paneTarget, "#{pane_in_mode}"],
         { allowedExitCodes: [0, 1] }
       );
 
@@ -65,7 +66,8 @@ export class TmuxTerminal {
   }
 
   async exitCopyMode(): Promise<void> {
-    await runCommand("tmux", ["copy-mode", "-q", "-t", this.sessionName], {
+    const paneTarget = await this.resolvePaneTarget();
+    await runCommand("tmux", ["copy-mode", "-q", "-t", paneTarget], {
       allowedExitCodes: [0, 1],
     });
   }
@@ -93,6 +95,16 @@ export class TmuxTerminal {
       ["set-option", "-t", this.sessionName, "mouse", mode],
       { allowedExitCodes: [0, 1] }
     );
+  }
+
+  private async resolvePaneTarget(): Promise<string> {
+    const result = await runCommand(
+      "tmux",
+      ["display-message", "-p", "-t", this.sessionName, "#{pane_id}"],
+      { allowedExitCodes: [0, 1] }
+    );
+    const paneId = result.stdout.trim();
+    return result.exitCode === 0 && paneId ? paneId : this.sessionName;
   }
 
   private findLastPasteMarker(paneText: string): string | null {

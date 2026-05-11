@@ -14,6 +14,8 @@ const databaseUrl =
   "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch_dev";
 const mediaRoot =
   process.env.MEDIA_ROOT ?? `${process.env.HOME}/.dispatch/media-dev`;
+const agentRuntime =
+  process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -38,7 +40,7 @@ export default defineConfig({
       DATABASE_URL: databaseUrl,
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
-      DISPATCH_AGENT_RUNTIME: "inert",
+      DISPATCH_AGENT_RUNTIME: agentRuntime,
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
