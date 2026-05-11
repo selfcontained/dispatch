@@ -11,7 +11,7 @@ const protocol = process.env.TLS_CERT ? "https" : "http";
 const baseURL = `${protocol}://127.0.0.1:${devPort}`;
 const databaseUrl =
   process.env.DATABASE_URL ??
-  "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch_dev";
+  "postgres://dispatch:dispatch@127.0.0.1:5433/dispatch_dev";
 const mediaRoot =
   process.env.MEDIA_ROOT ?? `${process.env.HOME}/.dispatch/media-dev`;
 const agentRuntime =
