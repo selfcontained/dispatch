@@ -365,9 +365,7 @@ function TemplateDetail({
   const [callable, setCallable] = useState(template.callable);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
-  const [launchArgValues, setLaunchArgValues] = useState<
-    Record<string, string>
-  >({});
+  const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
     setDisplayName(template.name);
@@ -382,7 +380,7 @@ function TemplateDetail({
     setCallable(template.callable);
     setSaveError(null);
     setRemoveDialogOpen(false);
-    setLaunchArgValues({});
+    setLaunchDialogOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template.id]);
 
@@ -396,21 +394,20 @@ function TemplateDetail({
     [template.prompt]
   );
 
-  const allLaunchArgsFilled =
-    savedArgs.length === 0 ||
-    savedArgs.every((a) => launchArgValues[a.key]?.trim());
-
-  const handleInlineLaunch = useCallback(() => {
-    const args = savedArgs.length > 0 ? launchArgValues : undefined;
+  const handleLaunch = useCallback(() => {
+    if (savedArgs.length > 0) {
+      setLaunchDialogOpen(true);
+      return;
+    }
     launchTemplate
-      .mutateAsync({ id: template.id, args })
+      .mutateAsync({ id: template.id })
       .then((result) => {
         navigate(agentRoute(result.agent.id));
       })
       .catch((err: Error) => {
         toast.error(`Failed to launch: ${err.message}`);
       });
-  }, [savedArgs, launchArgValues, launchTemplate, template.id, navigate]);
+  }, [savedArgs.length, launchTemplate, template.id, navigate]);
 
   const canSave = !!displayName.trim() && !!directory.trim();
 
@@ -483,51 +480,32 @@ function TemplateDetail({
         </p>
 
         {savedArgs.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            {savedArgs.map((arg) => (
-              <div key={arg.key} className="space-y-1">
-                <label className="text-xs text-muted-foreground">
-                  {arg.name}
-                </label>
-                <Input
-                  placeholder={arg.name}
-                  value={launchArgValues[arg.key] ?? ""}
-                  onChange={(e) =>
-                    setLaunchArgValues((prev) => ({
-                      ...prev,
-                      [arg.key]: e.target.value,
-                    }))
-                  }
-                />
-              </div>
+          <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Required arguments:
+            </span>{" "}
+            {savedArgs.map((a, i) => (
+              <span key={a.key}>
+                {i > 0 ? ", " : ""}
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+                  {a.name}
+                </span>
+              </span>
             ))}
-            <Button
-              className="gap-1.5"
-              disabled={!allLaunchArgsFilled || launchTemplate.isPending}
-              onClick={handleInlineLaunch}
-            >
-              {launchTemplate.isPending ? (
-                <ActivityBars size={16} className="mr-1" />
-              ) : (
-                <Play className="h-3.5 w-3.5 fill-current" />
-              )}
-              Launch
-            </Button>
           </div>
-        ) : (
-          <Button
-            className="mt-4 gap-1.5"
-            disabled={launchTemplate.isPending}
-            onClick={handleInlineLaunch}
-          >
-            {launchTemplate.isPending ? (
-              <ActivityBars size={16} className="mr-1" />
-            ) : (
-              <Play className="h-3.5 w-3.5 fill-current" />
-            )}
-            Launch
-          </Button>
-        )}
+        ) : null}
+        <Button
+          className="mt-4 gap-1.5"
+          disabled={launchTemplate.isPending}
+          onClick={handleLaunch}
+        >
+          {launchTemplate.isPending ? (
+            <ActivityBars size={16} className="mr-1" />
+          ) : (
+            <Play className="h-3.5 w-3.5 fill-current" />
+          )}
+          Launch
+        </Button>
       </div>
 
       {/* Inline-editable config form */}
@@ -705,6 +683,11 @@ function TemplateDetail({
           </div>
         </DialogContent>
       </Dialog>
+      <LaunchTemplateDialog
+        template={template}
+        open={launchDialogOpen}
+        onOpenChange={setLaunchDialogOpen}
+      />
     </div>
   );
 }
