@@ -94,7 +94,7 @@ const SECTIONS: SectionDef[] = [
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
               <strong>Type</strong> — pick a CLI assistant (<Code>claude</Code>,{" "}
-              <Code>codex</Code>, <Code>opencode</Code>) or{" "}
+              <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>) or{" "}
               <Code>terminal</Code> for a plain tmux shell with no CLI attached.
               Disabled types can be enabled in Settings.
             </li>
@@ -398,8 +398,8 @@ const SECTIONS: SectionDef[] = [
             The active personality is appended at launch and on resume for every
             standard agent regardless of CLI: it goes into Claude's{" "}
             <Code>--append-system-prompt</Code> flag and into the launch prompt
-            for Codex and OpenCode. Terminal agents have no CLI to inject into,
-            so the personality is silently skipped.
+            for Codex, Cursor, and OpenCode. Terminal agents have no CLI to
+            inject into, so the personality is silently skipped.
           </P>
           <P>
             Three flows intentionally <em>don't</em> get the personality, since
@@ -702,7 +702,7 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-              <Code>codex</Code>, or <Code>opencode</Code>.
+              <Code>codex</Code>, <Code>cursor</Code>, or <Code>opencode</Code>.
             </li>
             <li>
               <strong>Use worktree</strong> — give each launch its own git
@@ -798,8 +798,8 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-              <Code>codex</Code>, or <Code>opencode</Code>. Terminal-type agents
-              can't run jobs.
+              <Code>codex</Code>, <Code>cursor</Code>, or <Code>opencode</Code>.
+              Terminal-type agents can't run jobs.
             </li>
             <li>
               <strong>Prompt</strong> — the instructions sent as the agent's
@@ -1121,7 +1121,7 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             media) where the git diff is not the review target.
           </P>
           <P>
-            Reviewers always run as a CLI-type agent (claude / codex /
+            Reviewers always run as a CLI-type agent (claude / codex / cursor /
             opencode); the launcher only offers types that have a CLI assistant,
             so terminal-type agents are not selectable as reviewers.
           </P>
