@@ -111,6 +111,7 @@ export class TemplateService {
 
   async listTemplates(filter?: {
     callable?: boolean;
+    excludeJobBacked?: boolean;
   }): Promise<TemplateRecord[]> {
     return await this.store.listTemplates(filter);
   }
