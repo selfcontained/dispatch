@@ -109,13 +109,17 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     // 9. Palette should close
     await expect(palette).not.toBeVisible({ timeout: 3_000 });
 
-    // 10. Wait for the agent to appear in the sidebar (via SSE, no refresh)
+    // 10. Verify URL navigated to the new agent (worktree setup adds latency)
+    await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
+
+    // 11. Wait for the specific launched agent row to appear in the sidebar.
+    const agentId = page.url().match(/\/agents\/(agt_[a-f0-9]{12})/)?.[1];
+    expect(agentId).toBeTruthy();
     const sidebar = page.getByTestId("agent-sidebar");
-    await expect(sidebar.getByText(new RegExp(`e2e-callable-`))).toBeVisible({
+    await expect(
+      sidebar.getByTestId(`agent-row-${agentId}`).first()
+    ).toBeVisible({
       timeout: 10_000,
     });
-
-    // 11. Verify URL navigated to the new agent (worktree setup adds latency)
-    await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
 });
