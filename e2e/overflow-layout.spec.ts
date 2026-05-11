@@ -214,14 +214,16 @@ test.describe("Overflow layout", () => {
 
     await loadApp(page);
     await page.getByTestId("automations-button").click();
-    await page.getByRole("button", { name: "Jobs" }).click();
+    await page.getByRole("button", { name: "Jobs", exact: true }).click();
 
     const jobsSidebar = page.getByTestId("jobs-sidebar");
     const jobsSidebarScroll = page.getByTestId("jobs-sidebar-scroll");
 
     await expect(jobsSidebar).toBeVisible();
     await expect(jobsSidebarScroll).toBeVisible();
-    await expect(page.getByRole("button", { name: "Jobs" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Jobs", exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId("agents-button")).toBeVisible();
     await expect(page.getByTestId("settings-button")).toBeVisible();
 
