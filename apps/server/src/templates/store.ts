@@ -41,13 +41,14 @@ export type ParsedArg = {
 };
 
 // Mirrored in apps/web/src/hooks/use-templates.ts for client-side preview
-const ARG_REGEX = /\{\{D:([^}]+)\}\}/g;
+const ARG_PATTERN = /\{\{D:([^}]+)\}\}/g;
 
 export function parseTemplateArgs(prompt: string): ParsedArg[] {
+  const regex = new RegExp(ARG_PATTERN.source, ARG_PATTERN.flags);
   const seen = new Set<string>();
   const args: ParsedArg[] = [];
   let match;
-  while ((match = ARG_REGEX.exec(prompt)) !== null) {
+  while ((match = regex.exec(prompt)) !== null) {
     const name = match[1].trim();
     const key = name.toLowerCase();
     if (!seen.has(key)) {
@@ -69,11 +70,14 @@ export function substituteArgs(
       `Missing required template arguments: ${missing.map((a) => a.name).join(", ")}`
     );
   }
-  return prompt.replace(ARG_REGEX, (_match, rawName: string) => {
-    const name = rawName.trim();
-    const key = name.toLowerCase();
-    return args[key] ?? args[name] ?? "";
-  });
+  return prompt.replace(
+    new RegExp(ARG_PATTERN.source, ARG_PATTERN.flags),
+    (_match, rawName: string) => {
+      const name = rawName.trim();
+      const key = name.toLowerCase();
+      return args[key] ?? args[name] ?? "";
+    }
+  );
 }
 
 export class TemplateStore {

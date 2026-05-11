@@ -50,6 +50,15 @@ function resolveTilde(value: string): string {
   return value;
 }
 
+function classifyErrorCode(message: string): number {
+  if (message.includes("not found")) return 404;
+  if (message.includes("already exists") || message.includes("referenced by"))
+    return 409;
+  if (message.includes("Missing required") || message.includes("no prompt"))
+    return 400;
+  return 500;
+}
+
 type TemplateRouteDeps = {
   templateService: TemplateService;
   publishUiEvent: (event: unknown) => void;
@@ -88,7 +97,7 @@ export async function registerTemplateRoutes(
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return reply.code(500).send({ error: message });
+      return reply.code(classifyErrorCode(message)).send({ error: message });
     }
   });
 
@@ -108,7 +117,7 @@ export async function registerTemplateRoutes(
         return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return reply.code(500).send({ error: message });
+        return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
   );
@@ -124,13 +133,7 @@ export async function registerTemplateRoutes(
         return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("not found")) {
-          return reply.code(404).send({ error: message });
-        }
-        if (message.includes("referenced by")) {
-          return reply.code(409).send({ error: message });
-        }
-        return reply.code(500).send({ error: message });
+        return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
   );
@@ -154,7 +157,7 @@ export async function registerTemplateRoutes(
         return { agent: result.agent };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return reply.code(500).send({ error: message });
+        return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
   );

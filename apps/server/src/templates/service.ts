@@ -141,7 +141,7 @@ export class TemplateService {
     }
 
     const initialPins = parsedArgs
-      .filter((a) => args[a.key] || args[a.name])
+      .filter((a) => args[a.key] != null || args[a.name] != null)
       .map((a) => ({
         label: a.name,
         value: args[a.key] ?? args[a.name],
