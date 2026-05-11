@@ -20,8 +20,6 @@ export type SetupScriptParams = {
   agentName: string;
   agentCommand: string;
   jobRunId?: string;
-  /** For cursor agents: the .cursor/rules/dispatch.mdc content. */
-  cursorRulesContent?: string;
 };
 
 /**
@@ -295,7 +293,7 @@ export function generateSetupScript(
     );
   }
 
-  // Cursor: write .cursor/mcp.json (MCP server) and .cursor/rules/dispatch.mdc (guidance).
+  // Cursor: write .cursor/mcp.json (MCP server) and pre-trust the workspace.
   if (agentType === "cursor") {
     const mcpUrl = dispatchMcpUrl(config, agentId, params.jobRunId);
     const dispatchMcpToken = params.jobRunId
@@ -313,7 +311,7 @@ export function generateSetupScript(
       `  echo "ERROR: $EFFECTIVE_CWD/.cursor is a symlink — refusing to write config outside the worktree" >&2`,
       `  exit 1`,
       `fi`,
-      `mkdir -p "$EFFECTIVE_CWD/.cursor/rules"`,
+      `mkdir -p "$EFFECTIVE_CWD/.cursor"`,
       `CURSOR_REAL=$(cd "$EFFECTIVE_CWD/.cursor" && pwd -P)`,
       `EFFECTIVE_REAL=$(cd "$EFFECTIVE_CWD" && pwd -P)`,
       `case "$CURSOR_REAL" in "$EFFECTIVE_REAL"/*) ;; *)`,
@@ -324,20 +322,18 @@ export function generateSetupScript(
       `MCP_ENTRY=${shellEscape(mcpEntry)}`,
       `node --input-type=module -e 'import { readFileSync, renameSync, writeFileSync } from "node:fs"; const [configPath, mcpEntryJson] = process.argv.slice(1); const mcpEntry = JSON.parse(mcpEntryJson); let cfg = {}; try { cfg = JSON.parse(readFileSync(configPath, "utf8")); } catch (error) { if (error?.code !== "ENOENT") throw error; } cfg.mcpServers = { ...(cfg.mcpServers ?? {}), dispatch: mcpEntry }; const tmpPath = \`\${configPath}.tmp-\${process.pid}\`; writeFileSync(tmpPath, JSON.stringify(cfg, null, 2) + "\\n"); renameSync(tmpPath, configPath);' "$CURSOR_MCP_CFG" "$MCP_ENTRY"`,
       `ok "Configured dispatch MCP in .cursor/mcp.json"`,
+      ``,
+      `# --- Pre-trust workspace for Cursor CLI ---`,
+      `# Cursor CLI prompts for workspace trust on first launch. Pre-create the`,
+      `# trust marker so the prompt is skipped automatically.`,
+      `CURSOR_PROJECTS_DIR="$HOME/.cursor/projects"`,
+      `TRUST_SLUG=$(echo "$EFFECTIVE_CWD" | sed 's|^/||; s|/|-|g')`,
+      `TRUST_DIR="$CURSOR_PROJECTS_DIR/$TRUST_SLUG"`,
+      `mkdir -p "$TRUST_DIR"`,
+      `printf '{"trustedAt":"%s","workspacePath":"%s"}\\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$EFFECTIVE_CWD" > "$TRUST_DIR/.workspace-trusted"`,
+      `ok "Pre-trusted workspace for Cursor CLI"`,
       ``
     );
-
-    if (params.cursorRulesContent) {
-      const b64 = Buffer.from(params.cursorRulesContent, "utf-8").toString(
-        "base64"
-      );
-      lines.push(
-        `# --- Write Cursor rules file ---`,
-        `echo ${shellEscape(b64)} | base64 -d > "$EFFECTIVE_CWD/.cursor/rules/dispatch.mdc"`,
-        `ok "Wrote dispatch guidance to .cursor/rules/dispatch.mdc"`,
-        ``
-      );
-    }
   }
 
   lines.push(
