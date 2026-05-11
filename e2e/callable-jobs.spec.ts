@@ -93,26 +93,27 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await expect(palette.getByText(templateName)).toBeVisible();
     await expect(palette.getByText("Commands")).not.toBeVisible();
 
-    // 6. Press Enter to select the template
+    // 6. Press Enter to open the launch form
     await page.keyboard.press("Enter");
 
-    // 7. Confirmation step appears
-    await expect(palette.getByText("This will create a new agent")).toBeVisible(
-      { timeout: 3_000 }
-    );
-    const launchOption = palette.getByRole("option", { name: "Launch" });
-    await expect(launchOption).toBeVisible();
-
-    // 8. Press Enter to confirm launch
-    await page.keyboard.press("Enter");
-
-    // 9. Palette should close
+    // 7. Launch dialog appears with agent type override controls
     await expect(palette).not.toBeVisible({ timeout: 3_000 });
+    const launchDialog = page.getByRole("dialog", { name: templateName });
+    await expect(launchDialog).toBeVisible({ timeout: 3_000 });
+    const agentTypeField = launchDialog.getByRole("combobox");
+    await expect(agentTypeField).toContainText("Claude");
+    await agentTypeField.click();
+    await page.getByRole("option", { name: "Codex" }).click();
+    await expect(agentTypeField).toContainText("Codex");
+    const launchButton = launchDialog.getByRole("button", { name: "Launch" });
 
-    // 10. Verify URL navigated to the new agent (worktree setup adds latency)
+    // 8. Launch the template with the override applied
+    await launchButton.click();
+
+    // 9. Verify URL navigated to the new agent (worktree setup adds latency)
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
 
-    // 11. Wait for the specific launched agent card to appear as a top-level
+    // 10. Wait for the specific launched agent card to appear as a top-level
     // sidebar entry. Scope to the scroll region so we don't match duplicated
     // descendant markup outside the owning list item.
     const agentId = page.url().match(/\/agents\/(agt_[a-f0-9]{12})/)?.[1];
@@ -125,5 +126,48 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await expect(launchedAgentCard).toBeVisible({
       timeout: 10_000,
     });
+
+    // 11. Verify the launch respected the selected override.
+    const listRes = await request.get("/api/v1/agents", {
+      headers: AUTH_HEADER,
+    });
+    const { agents } = (await listRes.json()) as {
+      agents: Array<{ id: string; type: string }>;
+    };
+    expect(agents.find((agent) => agent.id === agentId)?.type).toBe("codex");
+  });
+
+  test("no-arg callable template still supports fast Enter-to-launch from Cmd+K", async ({
+    page,
+  }) => {
+    const createRes = await page.request.post("/api/v1/templates", {
+      headers: HEADERS,
+      data: {
+        name: templateName,
+        directory: templateDir,
+        prompt: "Say hello and stop.",
+        callable: true,
+        agentType: "claude",
+        useWorktree: false,
+      },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const created = (await createRes.json()) as { id: string };
+    templateId = created.id;
+
+    await loadApp(page);
+    await page.keyboard.press(`${MOD_KEY}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible({ timeout: 3_000 });
+    await palette.getByRole("combobox").pressSequentially("e2e-callable", {
+      delay: 30,
+    });
+
+    await page.keyboard.press("Enter");
+    const launchDialog = page.getByRole("dialog", { name: templateName });
+    await expect(launchDialog).toBeVisible({ timeout: 3_000 });
+
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
 });

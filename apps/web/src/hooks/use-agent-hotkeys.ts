@@ -10,7 +10,6 @@ import {
   Play,
   Plus,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import {
   type CommandAction,
@@ -19,12 +18,7 @@ import {
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
-import {
-  useTemplates,
-  useTemplateActions,
-  parseTemplateArgs,
-  type Template,
-} from "@/hooks/use-templates";
+import { useTemplates, type Template } from "@/hooks/use-templates";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
@@ -67,7 +61,6 @@ export function useAgentHotkeys({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
   const { data: templates = [] } = useTemplates();
-  const { launchTemplate } = useTemplateActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
@@ -166,40 +159,20 @@ export function useAgentHotkeys({
       {
         label: "Templates",
         actions: callableTemplates.map((template) => {
-          const args = parseTemplateArgs(template.prompt ?? "");
-          const hasArgs = args.length > 0;
           return {
             id: `template-${template.id}`,
             title: template.name,
             keywords: ["template", "launch", "run"],
             icon: Play,
-            confirm: hasArgs
-              ? undefined
-              : {
-                  description:
-                    template.description ||
-                    "This will create a new agent from this template.",
-                },
             run: () => {
-              if (hasArgs) {
-                setPaletteOpen(false);
-                setLaunchTemplateId(template.id);
-                return;
-              }
-              launchTemplate
-                .mutateAsync({ id: template.id })
-                .then((result) => {
-                  navigate(agentRoute(result.agent.id));
-                })
-                .catch((err: Error) => {
-                  toast.error(`Failed to launch template: ${err.message}`);
-                });
+              setPaletteOpen(false);
+              setLaunchTemplateId(template.id);
             },
           };
         }),
       },
     ];
-  }, [templates, launchTemplate, navigate, setPaletteOpen]);
+  }, [templates, setPaletteOpen]);
 
   const resolvedLaunchTemplate = useMemo(
     () => templates.find((t) => t.id === launchTemplateId) ?? null,

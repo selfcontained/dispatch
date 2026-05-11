@@ -33,7 +33,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { api } from "@/lib/api";
-import { type AgentType, isAgentType } from "@/lib/agent-types";
+import { type AgentType, isAgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import {
   agentFeedbackRoute,
@@ -982,6 +982,7 @@ export function AgentsView({
           onOpenChange={(open) => {
             if (!open) setLaunchTemplateId(null);
           }}
+          agentTypes={enabledAgentTypes.filter(isCliAgentType)}
         />
       ) : null}
 

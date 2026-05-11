@@ -107,10 +107,18 @@ export function useTemplateActions() {
   });
 
   const launchTemplate = useMutation({
-    mutationFn: ({ id, args }: { id: string; args?: Record<string, string> }) =>
+    mutationFn: ({
+      id,
+      args,
+      agentType,
+    }: {
+      id: string;
+      args?: Record<string, string>;
+      agentType?: CliAgentType;
+    }) =>
       api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
         method: "POST",
-        body: JSON.stringify({ args }),
+        body: JSON.stringify({ args, agentType }),
       }),
     onSuccess: (result) => {
       queryClient.setQueryData<Agent[]>(["agents"], (old) => {
