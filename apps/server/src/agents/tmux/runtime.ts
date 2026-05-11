@@ -15,7 +15,13 @@ const STOP_GRACE_MS = 1200;
 const PROCESS_INSPECT_TIMEOUT_MS = 800;
 
 /** Basenames the cwd resolver recognises as "the agent CLI" (worth pid-walking into). */
-const AGENT_CLI_BASENAMES = new Set(["claude", "codex", "opencode"]);
+const AGENT_CLI_BASENAMES = new Set([
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+  "agent",
+]);
 
 // ── Path conventions (runtime-internal) ─────────────────────────────────
 //

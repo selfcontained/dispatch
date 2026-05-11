@@ -1,5 +1,5 @@
 import { Terminal as TerminalIcon } from "lucide-react";
-import { siClaude } from "simple-icons";
+import { siClaude, siCursor } from "simple-icons";
 
 import { cn } from "@/lib/utils";
 
@@ -25,12 +25,15 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "terminal" | "unknown" {
+): "codex" | "claude" | "opencode" | "cursor" | "terminal" | "unknown" {
   if (type === "claude") {
     return "claude";
   }
   if (type === "opencode") {
     return "opencode";
+  }
+  if (type === "cursor") {
+    return "cursor";
   }
   if (type === "terminal") {
     return "terminal";
@@ -52,9 +55,11 @@ export function AgentTypeIcon({
       ? "Claude"
       : normalizedType === "opencode"
         ? "OpenCode"
-        : normalizedType === "terminal"
-          ? "Terminal"
-          : "Codex";
+        : normalizedType === "cursor"
+          ? "Cursor"
+          : normalizedType === "terminal"
+            ? "Terminal"
+            : "Codex";
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
@@ -90,9 +95,15 @@ export function AgentTypeIcon({
   }
 
   const logoPath =
-    normalizedType === "claude" ? siClaude.path : CODEX_LOGO_PATH;
+    normalizedType === "claude"
+      ? siClaude.path
+      : normalizedType === "cursor"
+        ? siCursor.path
+        : CODEX_LOGO_PATH;
   const viewBox =
-    normalizedType === "claude" ? "0 0 24 24" : "0 0 158.7128 157.296";
+    normalizedType === "claude" || normalizedType === "cursor"
+      ? "0 0 24 24"
+      : "0 0 158.7128 157.296";
 
   return (
     <span

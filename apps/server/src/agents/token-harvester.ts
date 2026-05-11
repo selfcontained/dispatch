@@ -349,5 +349,5 @@ export async function harvestTokenUsage(
   } else if (agent.type === "claude") {
     await harvestClaudeTokenUsage(pool, agent, logger);
   }
-  // opencode: no token tracking support yet
+  // opencode, cursor: no token tracking support yet
 }

@@ -51,7 +51,7 @@ export type Agent = {
   persona?: string | null;
   parentAgentId?: string | null;
   personaContext?: string | null;
-  reviewAgentType?: "codex" | "claude" | "opencode" | null;
+  reviewAgentType?: "codex" | "claude" | "opencode" | "cursor" | null;
   review?: {
     status: string;
     message: string | null;
