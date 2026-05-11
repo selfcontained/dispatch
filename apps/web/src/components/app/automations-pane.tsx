@@ -349,7 +349,8 @@ function TemplateDetail({
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const navigate = useNavigate();
-  const { updateTemplate, removeTemplate } = useTemplateActions();
+  const { updateTemplate, removeTemplate, launchTemplate } =
+    useTemplateActions();
 
   // Editable form state — reset when template changes
   const [displayName, setDisplayName] = useState(template.name);
@@ -364,7 +365,9 @@ function TemplateDetail({
   const [callable, setCallable] = useState(template.callable);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
-  const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
+  const [launchArgValues, setLaunchArgValues] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     setDisplayName(template.name);
@@ -379,7 +382,7 @@ function TemplateDetail({
     setCallable(template.callable);
     setSaveError(null);
     setRemoveDialogOpen(false);
-    setLaunchDialogOpen(false);
+    setLaunchArgValues({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template.id]);
 
@@ -387,6 +390,27 @@ function TemplateDetail({
     () => (prompt ? parseTemplateArgs(prompt) : []),
     [prompt]
   );
+
+  const savedArgs = useMemo(
+    () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
+    [template.prompt]
+  );
+
+  const allLaunchArgsFilled =
+    savedArgs.length === 0 ||
+    savedArgs.every((a) => launchArgValues[a.key]?.trim());
+
+  const handleInlineLaunch = useCallback(() => {
+    const args = savedArgs.length > 0 ? launchArgValues : undefined;
+    launchTemplate
+      .mutateAsync({ id: template.id, args })
+      .then((result) => {
+        navigate(agentRoute(result.agent.id));
+      })
+      .catch((err: Error) => {
+        toast.error(`Failed to launch: ${err.message}`);
+      });
+  }, [savedArgs, launchArgValues, launchTemplate, template.id, navigate]);
 
   const canSave = !!displayName.trim() && !!directory.trim();
 
@@ -458,13 +482,52 @@ function TemplateDetail({
           {shortPath(template.directory)}
         </p>
 
-        <Button
-          className="mt-4 gap-1.5"
-          onClick={() => setLaunchDialogOpen(true)}
-        >
-          <Play className="h-3.5 w-3.5 fill-current" />
-          Launch
-        </Button>
+        {savedArgs.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            {savedArgs.map((arg) => (
+              <div key={arg.key} className="space-y-1">
+                <label className="text-xs text-muted-foreground">
+                  {arg.name}
+                </label>
+                <Input
+                  placeholder={arg.name}
+                  value={launchArgValues[arg.key] ?? ""}
+                  onChange={(e) =>
+                    setLaunchArgValues((prev) => ({
+                      ...prev,
+                      [arg.key]: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            ))}
+            <Button
+              className="gap-1.5"
+              disabled={!allLaunchArgsFilled || launchTemplate.isPending}
+              onClick={handleInlineLaunch}
+            >
+              {launchTemplate.isPending ? (
+                <ActivityBars size={16} className="mr-1" />
+              ) : (
+                <Play className="h-3.5 w-3.5 fill-current" />
+              )}
+              Launch
+            </Button>
+          </div>
+        ) : (
+          <Button
+            className="mt-4 gap-1.5"
+            disabled={launchTemplate.isPending}
+            onClick={handleInlineLaunch}
+          >
+            {launchTemplate.isPending ? (
+              <ActivityBars size={16} className="mr-1" />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" />
+            )}
+            Launch
+          </Button>
+        )}
       </div>
 
       {/* Inline-editable config form */}
@@ -642,12 +705,6 @@ function TemplateDetail({
           </div>
         </DialogContent>
       </Dialog>
-
-      <LaunchTemplateDialog
-        template={template}
-        open={launchDialogOpen}
-        onOpenChange={setLaunchDialogOpen}
-      />
     </div>
   );
 }
@@ -822,6 +879,7 @@ function CreateTemplateDialogContent({
   const [baseBranch, setBaseBranch] = useState("main");
   const [branchName, setBranchName] = useState("");
   const [fullAccess, setFullAccess] = useState(false);
+  const [callable, setCallable] = useState(true);
   const [creating, setCreating] = useState(false);
 
   const cliAgentTypes = useMemo(
@@ -847,7 +905,7 @@ function CreateTemplateDialogContent({
         baseBranch: useWorktree ? baseBranch : null,
         branchName: useWorktree ? branchName || null : null,
         fullAccess,
-        callable: true,
+        callable,
       })
       .then(() => {
         onOpenChange(false);
@@ -868,6 +926,7 @@ function CreateTemplateDialogContent({
     baseBranch,
     branchName,
     fullAccess,
+    callable,
     onOpenChange,
   ]);
 
@@ -941,6 +1000,22 @@ function CreateTemplateDialogContent({
             checked={fullAccess}
             onCheckedChange={setFullAccess}
           />
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+            <Checkbox
+              checked={callable}
+              onCheckedChange={() => setCallable((c) => !c)}
+              className="mt-0.5"
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-medium text-foreground">
+                Show in command palette
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Launch this template from the {"⌘"}K palette.
+              </span>
+            </span>
+          </label>
 
           <div className="space-y-1">
             <label className="text-sm text-muted-foreground">Prompt</label>
