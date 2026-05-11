@@ -954,12 +954,6 @@ export function useTerminal(args: {
     }
 
     const disposable = term.onData((data) => {
-      if (copyModeRef.current === "copy" || copyModeRef.current === "exiting") {
-        if (copyModeRef.current === "copy" && data === "\x1b") {
-          void exitCopyModeRef.current();
-        }
-        return;
-      }
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (ctrlPendingRef.current && data.length === 1) {
