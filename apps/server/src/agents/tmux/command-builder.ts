@@ -191,28 +191,6 @@ export function buildLaunchGuidance(
 }
 
 /**
- * Build the `.cursor/rules/dispatch.mdc` content for Cursor agents.
- * Contains the same launch guidance and personality that other agent types
- * receive via CLI flags, formatted as a Cursor rules file.
- */
-export function buildCursorRulesFile(
-  launchGuidance: string,
-  personalityPrompt?: string | null
-): string {
-  const sections = [launchGuidance, personalityPrompt].filter(Boolean);
-  const body = sections.join("\n\n");
-  return [
-    "---",
-    "description: Dispatch agent guidance",
-    "alwaysApply: true",
-    "---",
-    "",
-    body,
-    "",
-  ].join("\n");
-}
-
-/**
  * Build the bash invocation that launches the agent CLI inside its tmux
  * session. Returns a shell-ready string.
  *
@@ -407,8 +385,8 @@ export function buildAgentCommand(
   }
 
   if (type === "cursor") {
-    // MCP + guidance are handled via files written in the setup script
-    // (.cursor/mcp.json and .cursor/rules/dispatch.mdc), not CLI flags.
+    // MCP config is written via .cursor/mcp.json in the setup script.
+    // Guidance + personality are delivered as the initial prompt (same as Codex).
     const flagParts: string[] = [];
     if (fullAccess) {
       flagParts.push("--force", "--approve-mcps");
@@ -416,9 +394,12 @@ export function buildAgentCommand(
     if (resume && cliSessionId) {
       flagParts.push("--resume", shellEscape(cliSessionId));
     }
-    const cursorPromptParts = [appendedSystemPrompt, initialPrompt].filter(
-      Boolean
-    );
+    const cursorPromptParts = [
+      launchGuidance,
+      appendedSystemPrompt,
+      personalityPrompt || null,
+      initialPrompt,
+    ].filter(Boolean);
     const startupPrompt = cursorPromptParts.join("\n\n");
     if (passthroughArgs.length > 0) {
       const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
