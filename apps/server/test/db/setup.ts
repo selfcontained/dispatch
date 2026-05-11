@@ -10,7 +10,7 @@ import { runMigrations } from "../../src/db/migrate.js";
 
 const ADMIN_DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
-  "postgres://dispatch:dispatch@127.0.0.1:5432/postgres";
+  "postgres://dispatch:dispatch@127.0.0.1:5433/postgres";
 
 let testDbName: string;
 let adminPool: Pool;

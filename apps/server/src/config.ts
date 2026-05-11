@@ -27,6 +27,16 @@ export type AppConfig = {
   tls: TlsConfig | null;
 };
 
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set or is empty. Production: set it in .env. Development: use dispatch-dev to start an isolated environment.`
+    );
+  }
+  return value;
+}
+
 function expandHome(p: string): string {
   return p.startsWith("~/")
     ? path.join(process.env.HOME ?? "/tmp", p.slice(2))
@@ -72,9 +82,7 @@ export function loadConfig(): AppConfig {
   const config: AppConfig = {
     host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
-    databaseUrl:
-      process.env.DATABASE_URL ??
-      "postgres://dispatch:dispatch@127.0.0.1:5432/dispatch",
+    databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
     mediaRoot:
       process.env.MEDIA_ROOT ??
