@@ -112,13 +112,17 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     // 10. Verify URL navigated to the new agent (worktree setup adds latency)
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
 
-    // 11. Wait for the specific launched agent row to appear in the sidebar.
+    // 11. Wait for the specific launched agent card to appear as a top-level
+    // sidebar entry. Scope to the scroll region so we don't match duplicated
+    // descendant markup outside the owning list item.
     const agentId = page.url().match(/\/agents\/(agt_[a-f0-9]{12})/)?.[1];
     expect(agentId).toBeTruthy();
-    const sidebar = page.getByTestId("agent-sidebar");
-    await expect(
-      sidebar.getByTestId(`agent-row-${agentId}`).first()
-    ).toBeVisible({
+    const sidebarScroll = page.getByTestId("agent-sidebar-scroll");
+    const launchedAgentCard = sidebarScroll.locator(
+      `:scope > [data-testid="agent-card-${agentId}"]`
+    );
+    await expect(launchedAgentCard).toHaveCount(1, { timeout: 10_000 });
+    await expect(launchedAgentCard).toBeVisible({
       timeout: 10_000,
     });
   });

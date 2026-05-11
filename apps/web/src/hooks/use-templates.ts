@@ -113,9 +113,16 @@ export function useTemplateActions() {
         body: JSON.stringify({ args }),
       }),
     onSuccess: (result) => {
-      queryClient.setQueryData<Agent[]>(["agents"], (old) =>
-        sortAgentsByCreatedAtDesc([...(old ?? []), result.agent])
-      );
+      queryClient.setQueryData<Agent[]>(["agents"], (old) => {
+        if (!old) return [result.agent];
+        const index = old.findIndex((agent) => agent.id === result.agent.id);
+        if (index === -1) {
+          return sortAgentsByCreatedAtDesc([result.agent, ...old]);
+        }
+        const next = [...old];
+        next[index] = result.agent;
+        return sortAgentsByCreatedAtDesc(next);
+      });
     },
   });
 
