@@ -57,13 +57,19 @@ export function toSessionName(
  * - Persona agents: never suggest (the persona name is the meaningful one).
  * - Job runs: suggest only when the name still matches the auto-generated
  *   `job-…-<jobRunIdPrefix>` shape.
+ * - Template-launched agents: always suggest — the template name is a
+ *   launch-source label, not a user-chosen session name.
  * - Standard agents: suggest only when the name still matches the
  *   `agent-<last6>` placeholder generated when no name is supplied.
  */
 export function shouldSuggestSessionRename(
   agentName: string | null | undefined,
   agentId: string,
-  opts: { persona?: string | null; jobRunId?: string }
+  opts: {
+    persona?: string | null;
+    jobRunId?: string;
+    templateId?: string | null;
+  }
 ): boolean {
   if (opts.persona) {
     return false;
@@ -75,6 +81,10 @@ export function shouldSuggestSessionRename(
     return (
       !!trimmed && trimmed.startsWith("job-") && trimmed.endsWith(jobNameSuffix)
     );
+  }
+
+  if (opts.templateId) {
+    return true;
   }
 
   return trimmed === `agent-${agentId.slice(-6)}`;

@@ -159,6 +159,7 @@ export class TemplateService {
       baseBranch: template.baseBranch ?? undefined,
       worktreeBranch: template.branchName ?? undefined,
       initialPins,
+      templateId: template.id,
     });
 
     this.logger.info(

@@ -134,4 +134,21 @@ describe("shouldSuggestSessionRename", () => {
       false
     );
   });
+
+  it("suggests rename for template-launched agents regardless of name", () => {
+    expect(
+      shouldSuggestSessionRename("my_template", id, {
+        templateId: "tmpl_abc123",
+      })
+    ).toBe(true);
+  });
+
+  it("does not suggest rename for template-launched persona agents", () => {
+    expect(
+      shouldSuggestSessionRename("my_template", id, {
+        templateId: "tmpl_abc123",
+        persona: "security-review",
+      })
+    ).toBe(false);
+  });
 });

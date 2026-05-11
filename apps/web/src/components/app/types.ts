@@ -69,6 +69,7 @@ export type Agent = {
     } | null;
   } | null;
   baseBranch?: string | null;
+  templateId?: string | null;
   autoReview?: boolean;
   hasStream?: boolean;
   createdAt: string;

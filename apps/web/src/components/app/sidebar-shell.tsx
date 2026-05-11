@@ -1,11 +1,4 @@
-import {
-  Activity,
-  AlarmClock,
-  Bot,
-  ChevronLeft,
-  Settings,
-  X,
-} from "lucide-react";
+import { Activity, Zap, Bot, ChevronLeft, Settings, X } from "lucide-react";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -51,7 +44,7 @@ export function SidebarNavBar({
 
   const items: Array<{ id: NavSection; icon: typeof Bot; label: string }> = [
     { id: "agents", icon: Bot, label: "Agents" },
-    { id: "automations", icon: AlarmClock, label: "Automations" },
+    { id: "automations", icon: Zap, label: "Automations" },
     { id: "activity", icon: Activity, label: "Activity" },
     { id: "settings", icon: Settings, label: "Settings" },
   ];
