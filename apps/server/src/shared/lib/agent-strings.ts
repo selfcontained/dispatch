@@ -21,3 +21,7 @@ export function sanitizeAgentString(s: string | undefined): string | undefined {
     ? stripped.slice(0, MAX_NOTE_BYTES)
     : stripped;
 }
+
+export function sanitizeAgentName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
+}

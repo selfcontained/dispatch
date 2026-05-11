@@ -23,6 +23,7 @@ import {
   useTemplates,
   useTemplateActions,
   parseTemplateArgs,
+  type Template,
 } from "@/hooks/use-templates";
 
 type UseAgentHotkeysArgs = {
@@ -42,7 +43,7 @@ export type UseAgentHotkeysResult = {
   setPaletteOpen: (open: boolean) => void;
   paletteActions: CommandAction[];
   paletteGroups: CommandGroup[];
-  launchTemplateId: string | null;
+  launchTemplate: Template | null;
   setLaunchTemplateId: (id: string | null) => void;
 };
 
@@ -200,12 +201,17 @@ export function useAgentHotkeys({
     ];
   }, [templates, launchTemplate, navigate, setPaletteOpen]);
 
+  const resolvedLaunchTemplate = useMemo(
+    () => templates.find((t) => t.id === launchTemplateId) ?? null,
+    [templates, launchTemplateId]
+  );
+
   return {
     paletteOpen,
     setPaletteOpen,
     paletteActions,
     paletteGroups,
-    launchTemplateId,
+    launchTemplate: resolvedLaunchTemplate,
     setLaunchTemplateId,
   };
 }

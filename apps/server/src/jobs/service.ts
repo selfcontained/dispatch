@@ -6,6 +6,7 @@ import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
+import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
   JobStore,
@@ -269,7 +270,8 @@ export class JobService {
       );
     }
 
-    // Create a backing template for this job (hidden from Cmd+K by default)
+    // Create a backing template for this job (hidden from Cmd+K by default).
+    // If job creation fails, clean up the template to avoid orphans.
     const template = await this.templateStore.createTemplate({
       name: displayName,
       directory: input.directory,
@@ -283,26 +285,39 @@ export class JobService {
       callable: false,
     });
 
-    const job = await this.store.createJob({
-      name: displayName,
-      directory: input.directory,
-      prompt: input.prompt ?? null,
-      schedule,
-      timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      needsInputTimeoutMs:
-        input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
-      agentType: input.agentType ?? "claude",
-      useWorktree: input.useWorktree ?? false,
-      baseBranch: input.baseBranch ?? null,
-      branchName: input.branchName ?? null,
-      fullAccess: input.fullAccess ?? false,
-      autoArchive: input.autoArchive ?? true,
-      callable: input.callable ?? false,
-      singleton: input.singleton ?? true,
-      templateId: template.id,
-      defaultArgs: {},
-      enabled: input.enabled ?? false,
-    });
+    let job: JobRecord;
+    try {
+      job = await this.store.createJob({
+        name: displayName,
+        directory: input.directory,
+        prompt: input.prompt ?? null,
+        schedule,
+        timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        needsInputTimeoutMs:
+          input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
+        agentType: input.agentType ?? "claude",
+        useWorktree: input.useWorktree ?? false,
+        baseBranch: input.baseBranch ?? null,
+        branchName: input.branchName ?? null,
+        fullAccess: input.fullAccess ?? false,
+        autoArchive: input.autoArchive ?? true,
+        callable: input.callable ?? false,
+        singleton: input.singleton ?? true,
+        templateId: template.id,
+        defaultArgs: {},
+        enabled: input.enabled ?? false,
+      });
+    } catch (error) {
+      await this.templateStore
+        .deleteTemplate(template.id)
+        .catch((cleanupErr) =>
+          this.logger.warn(
+            { templateId: template.id, error: cleanupErr },
+            "Failed to clean up orphaned template after job creation failure"
+          )
+        );
+      throw error;
+    }
 
     if (job.enabled && job.schedule) {
       this.scheduleJob(job);
@@ -850,10 +865,6 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function sanitizeAgentName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
 }
 
 function normalizeOptionalString(

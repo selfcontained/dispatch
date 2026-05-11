@@ -1160,13 +1160,9 @@ function TemplateFullAccessOption({
 // ---------------------------------------------------------------------------
 
 function shortPath(value: string): string {
-  const home = "/Users/";
-  if (value.startsWith(home)) {
-    const afterHome = value.slice(home.length);
-    const slash = afterHome.indexOf("/");
-    return slash === -1 ? `~` : `~${afterHome.slice(slash)}`;
-  }
-  return value;
+  const parts = value.split("/").filter(Boolean);
+  if (parts.length <= 3) return value;
+  return `.../${parts.slice(-3).join("/")}`;
 }
 
 // ---------------------------------------------------------------------------

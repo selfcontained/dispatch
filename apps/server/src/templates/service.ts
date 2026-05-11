@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { JobAgentType } from "../jobs/store.js";
+import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import {
   TemplateStore,
   parseTemplateArgs,
@@ -175,8 +176,4 @@ export class TemplateService {
       templateName: template.name,
     };
   }
-}
-
-function sanitizeAgentName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
 }

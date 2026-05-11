@@ -44,6 +44,7 @@ export type LaunchResult = {
   agent: Agent;
 };
 
+// Mirrored in apps/server/src/templates/store.ts — keep in sync
 const ARG_REGEX = /\{\{D:([^}]+)\}\}/g;
 
 export function parseTemplateArgs(prompt: string): TemplateArg[] {

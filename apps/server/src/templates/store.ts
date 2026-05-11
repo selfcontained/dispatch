@@ -40,6 +40,7 @@ export type ParsedArg = {
   placeholder: string;
 };
 
+// Mirrored in apps/web/src/hooks/use-templates.ts for client-side preview
 const ARG_REGEX = /\{\{D:([^}]+)\}\}/g;
 
 export function parseTemplateArgs(prompt: string): ParsedArg[] {
