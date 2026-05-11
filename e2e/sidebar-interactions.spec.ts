@@ -67,8 +67,8 @@ test.describe("Sidebar interactions", () => {
 
     await page.getByTitle("Open sidebar").click();
     await expectMobileSidebarOpen(page);
-    await page.getByTestId("jobs-button").click();
-    await expect(page).toHaveURL(/\/jobs$/);
+    await page.getByTestId("automations-button").click();
+    await expect(page).toHaveURL(/\/automations$/);
 
     // Sidebar auto-opens on mobile when switching sections — wait for it
     await expect(page.getByTestId("agents-button")).toBeVisible({

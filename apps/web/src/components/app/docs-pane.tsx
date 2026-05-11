@@ -22,7 +22,7 @@ export type DocsSection =
   | "shortcuts"
   | "personalities"
   | "tools"
-  | "jobs"
+  | "automations"
   | "worktrees"
   | "personas"
   | "events"
@@ -323,11 +323,11 @@ const SECTIONS: SectionDef[] = [
             </li>
           </ul>
           <P>
-            Jobs with <strong>Show in command palette</strong> enabled appear in
-            a separate <em>Jobs</em> group below the built-in commands.
-            Selecting a job shows a confirmation step with{" "}
-            <strong>Launch</strong> / <strong>Cancel</strong> — press Enter
-            twice to launch immediately.
+            Templates with <strong>Show in command palette</strong> enabled
+            appear in a separate <em>Templates</em> group below the built-in
+            commands. Templates without arguments show a confirmation step —
+            press Enter twice to launch immediately. Templates with arguments
+            open a launch dialog where you fill in each value before launching.
           </P>
           <P>
             Each action shows its hotkey badge inline so you can learn the
@@ -655,23 +655,131 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
     ),
   },
   {
-    id: "jobs",
-    label: "Jobs",
+    id: "automations",
+    label: "Automations",
     icon: Briefcase,
-    title: "Jobs",
+    title: "Automations: Templates & Jobs",
     content: (
       <>
         <P>
-          Jobs are saved agent prompts that you can run on a cron schedule or on
-          demand. Each run spawns a fresh agent that works in its own worktree
-          and reports progress through a small set of lifecycle tools.
+          The Automations system has two layers: <strong>templates</strong> are
+          reusable agent launch configurations, and <strong>jobs</strong> add
+          scheduling, timeouts, monitoring, and structured reporting on top of a
+          template. Both live under the <strong>Automations</strong> page,
+          accessible from the sidebar.
         </P>
+
+        <Section>
+          <H3>Templates</H3>
+          <P>
+            A template captures a prompt, agent type, directory, worktree
+            settings, and an optional set of runtime arguments. Launching a
+            template creates a normal agent session with no supervision — ideal
+            for quick-launch workflows like code review, feature scaffolding, or
+            ad-hoc tasks.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Creating a template</H3>
+          <P>
+            Open the <strong>Automations</strong> page and select the{" "}
+            <strong>Templates</strong> tab. Click <strong>Create</strong> and
+            fill in:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Name</strong> — display name, unique within its directory.
+            </li>
+            <li>
+              <strong>Working directory</strong> — the repo the template runs
+              against.
+            </li>
+            <li>
+              <strong>Prompt</strong> — instructions sent as the agent's first
+              message. Supports <Code>{"{{D:Arg Name}}"}</Code> placeholders for
+              runtime arguments (see below).
+            </li>
+            <li>
+              <strong>Agent type</strong> — <Code>claude</Code>,{" "}
+              <Code>codex</Code>, or <Code>opencode</Code>.
+            </li>
+            <li>
+              <strong>Use worktree</strong> — give each launch its own git
+              worktree. Optionally set a base branch and custom branch name.
+            </li>
+            <li>
+              <strong>Full access</strong> — launch the CLI in its most
+              permissive mode.
+            </li>
+            <li>
+              <strong>Show in command palette</strong> — when on, the template
+              appears in the <Code>Mod+K</Code> palette for quick access.
+            </li>
+          </ul>
+        </Section>
+
+        <Section>
+          <H3>Runtime arguments</H3>
+          <P>
+            Templates support <Code>{"{{D:Arg Name}}"}</Code> placeholders in
+            their prompt. At launch time, each placeholder becomes a required
+            input field. Argument values are also pinned to the spawned agent's
+            sidebar for reference.
+          </P>
+          <P>
+            For example, a prompt like{" "}
+            <Code>
+              {"Review the PR at {{D:PR URL}} focusing on {{D:Review Focus}}"}
+            </Code>{" "}
+            creates two input fields: "PR URL" and "Review Focus".
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Launching templates</H3>
+          <P>There are three ways to launch a template:</P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Template detail pane</strong> — select a template in the
+              sidebar, fill in any arguments, and click <strong>Launch</strong>.
+            </li>
+            <li>
+              <strong>Inline play button</strong> — each template in the list
+              has a play icon for quick launch. Templates without arguments
+              launch directly; those with arguments open a launch dialog.
+            </li>
+            <li>
+              <strong>Command palette</strong> (<Code>Mod+K</Code>) — callable
+              templates appear under a "Templates" group. Templates without
+              arguments show a confirmation step (press Enter twice). Templates
+              with arguments open a launch dialog where you fill in values
+              before launching.
+            </li>
+          </ul>
+          <P>
+            After launch, the new agent appears in the sidebar immediately and
+            the view navigates to it.
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Jobs</H3>
+          <P>
+            A job references a backing template and adds automation on top: cron
+            scheduling, run timeouts, singleton enforcement, structured
+            reporting via MCP tools, auto-archive, and notifications. Jobs are
+            the right choice for recurring or monitored work — nightly triage,
+            release babysitting, janitorial cleanup — where you want a
+            machine-readable outcome.
+          </P>
+        </Section>
 
         <Section>
           <H3>Creating a job</H3>
           <P>
-            Open the <strong>Jobs</strong> page from the sidebar and click{" "}
-            <strong>Add job</strong>. The basic fields are:
+            Switch to the <strong>Jobs</strong> tab and click{" "}
+            <strong>Create</strong>. The basic fields are:
           </P>
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
@@ -695,9 +803,11 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Prompt</strong> — the instructions sent as the agent's
-              first message. Dispatch prepends a short preamble that names the
-              job, includes the run ID, and reminds the agent to drive the run
-              to a terminal state. Required before a run can start.
+              first message. Supports <Code>{"{{D:Arg Name}}"}</Code>{" "}
+              placeholders just like templates. Dispatch prepends a short
+              preamble that names the job, includes the run ID, and reminds the
+              agent to drive the run to a terminal state. Required before a run
+              can start.
             </li>
           </ul>
           <P>
@@ -728,11 +838,6 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Keep agent after run completes</strong> — by default the
               agent is auto-archived once a run reaches a terminal state. Check
               this to leave the agent (and its worktree) around for inspection.
-            </li>
-            <li>
-              <strong>Show in command palette</strong> — makes the job
-              launchable from the <Code>Mod+K</Code> palette. See{" "}
-              <strong>Keyboard Shortcuts → Command palette</strong> for details.
             </li>
             <li>
               <strong>Single instance</strong> — when on (the default), only one
@@ -870,6 +975,17 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             next scheduled fire time. Open the <strong>History</strong> tab on a
             job to browse past runs with their reports, durations, and trigger
             source (manual vs. scheduled).
+          </P>
+        </Section>
+
+        <Section>
+          <H3>Automations UI</H3>
+          <P>
+            The Automations page has a tabbed sidebar with{" "}
+            <strong>Templates</strong> and <strong>Jobs</strong> tabs. Both tabs
+            use the same flat-list layout with a sliding indicator that animates
+            between them. Select an item to see its detail view, or use the
+            inline play button on a template for quick launch.
           </P>
         </Section>
       </>

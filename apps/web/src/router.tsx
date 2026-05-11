@@ -11,8 +11,8 @@ import { DashboardLayout } from "@/App";
 import {
   ActivityRoute,
   AgentsRoute,
+  AutomationsRoute,
   DesignLabRoute,
-  JobsRoute,
   SettingsRoute,
 } from "@/layouts/dashboard-sections";
 import { LoginRoute } from "@/components/app/login-page";
@@ -95,24 +95,42 @@ export const router = createBrowserRouter([
                 handle: { navSection: "activity" },
               },
               {
+                path: "automations",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/templates/:templateId",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/jobs",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/jobs/:jobId",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/jobs/:jobId/:section",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/jobs/:jobId/:section/:runId",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
                 path: "jobs",
-                element: <JobsRoute />,
-                handle: { navSection: "jobs" },
+                element: <Navigate to="/automations/jobs" replace />,
               },
               {
-                path: "jobs/:jobId",
-                element: <JobsRoute />,
-                handle: { navSection: "jobs" },
-              },
-              {
-                path: "jobs/:jobId/:section",
-                element: <JobsRoute />,
-                handle: { navSection: "jobs" },
-              },
-              {
-                path: "jobs/:jobId/:section/:runId",
-                element: <JobsRoute />,
-                handle: { navSection: "jobs" },
+                path: "jobs/*",
+                element: <LegacyJobsRedirect />,
               },
               {
                 path: "design-lab",
@@ -138,4 +156,9 @@ function LegacyDocsRedirect(): JSX.Element {
       replace
     />
   );
+}
+
+function LegacyJobsRedirect(): JSX.Element {
+  const { "*": rest } = useParams();
+  return <Navigate to={`/automations/jobs/${rest ?? ""}`} replace />;
 }

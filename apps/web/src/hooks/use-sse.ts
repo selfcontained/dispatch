@@ -38,6 +38,7 @@ type UiEvent =
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
   | { type: "job.changed" }
+  | { type: "template.changed" }
   | {
       type: "notification";
       notificationId: string;
@@ -85,6 +86,7 @@ export function useSSE(authState: AuthState): void {
           // `release.cached_info_changed` event would keep stale release
           // state forever (the query has staleTime: Infinity).
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -176,6 +178,11 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "job.changed") {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          return;
+        }
+
+        if (payload.type === "template.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["templates"] });
           return;
         }
 

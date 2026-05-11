@@ -1041,6 +1041,7 @@ export class AgentManager {
               cwd: agent.worktreePath,
               deleteBranch: dispatchOwnsBranch,
               force: true,
+              originalBranch: agent.worktreeBranch,
             });
             durations.worktreeCleanup = Date.now() - tCleanup;
             this.logger.info(

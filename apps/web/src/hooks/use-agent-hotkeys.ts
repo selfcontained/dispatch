@@ -19,8 +19,12 @@ import {
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
-import { useJobs, useJobActions } from "@/hooks/use-jobs";
-import { useQueryClient } from "@tanstack/react-query";
+import {
+  useTemplates,
+  useTemplateActions,
+  parseTemplateArgs,
+  type Template,
+} from "@/hooks/use-templates";
 
 type UseAgentHotkeysArgs = {
   agents: Agent[];
@@ -39,6 +43,8 @@ export type UseAgentHotkeysResult = {
   setPaletteOpen: (open: boolean) => void;
   paletteActions: CommandAction[];
   paletteGroups: CommandGroup[];
+  launchTemplate: Template | null;
+  setLaunchTemplateId: (id: string | null) => void;
 };
 
 /**
@@ -58,10 +64,10 @@ export function useAgentHotkeys({
   openCreateDialog,
 }: UseAgentHotkeysArgs): UseAgentHotkeysResult {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { data: jobs = [] } = useJobs();
-  const { runNow } = useJobActions();
+  const [launchTemplateId, setLaunchTemplateId] = useState<string | null>(null);
+  const { data: templates = [] } = useTemplates();
+  const { launchTemplate } = useTemplateActions();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
 
@@ -154,36 +160,58 @@ export function useAgentHotkeys({
   );
 
   const paletteGroups = useMemo<CommandGroup[]>(() => {
-    const callableJobs = jobs.filter((j) => j.callable);
-    if (callableJobs.length === 0) return [];
+    const callableTemplates = templates.filter((t) => t.callable);
+    if (callableTemplates.length === 0) return [];
     return [
       {
-        label: "Jobs",
-        actions: callableJobs.map((job) => ({
-          id: `job-${job.id}`,
-          title: job.name,
-          keywords: ["job", "run", "launch"],
-          icon: Play,
-          confirm: {
-            description: "This will create a new agent and run this job.",
-          },
-          run: () => {
-            runNow
-              .mutateAsync(job)
-              .then(async (result) => {
-                await queryClient.invalidateQueries({ queryKey: ["agents"] });
-                if (result.agentId) {
-                  navigate(agentRoute(result.agentId));
-                }
-              })
-              .catch((err: Error) => {
-                toast.error(`Failed to launch job: ${err.message}`);
-              });
-          },
-        })),
+        label: "Templates",
+        actions: callableTemplates.map((template) => {
+          const args = parseTemplateArgs(template.prompt ?? "");
+          const hasArgs = args.length > 0;
+          return {
+            id: `template-${template.id}`,
+            title: template.name,
+            keywords: ["template", "launch", "run"],
+            icon: Play,
+            confirm: hasArgs
+              ? undefined
+              : {
+                  description:
+                    template.description ||
+                    "This will create a new agent from this template.",
+                },
+            run: () => {
+              if (hasArgs) {
+                setPaletteOpen(false);
+                setLaunchTemplateId(template.id);
+                return;
+              }
+              launchTemplate
+                .mutateAsync({ id: template.id })
+                .then((result) => {
+                  navigate(agentRoute(result.agent.id));
+                })
+                .catch((err: Error) => {
+                  toast.error(`Failed to launch template: ${err.message}`);
+                });
+            },
+          };
+        }),
       },
     ];
-  }, [jobs, runNow, navigate, queryClient]);
+  }, [templates, launchTemplate, navigate, setPaletteOpen]);
 
-  return { paletteOpen, setPaletteOpen, paletteActions, paletteGroups };
+  const resolvedLaunchTemplate = useMemo(
+    () => templates.find((t) => t.id === launchTemplateId) ?? null,
+    [templates, launchTemplateId]
+  );
+
+  return {
+    paletteOpen,
+    setPaletteOpen,
+    paletteActions,
+    paletteGroups,
+    launchTemplate: resolvedLaunchTemplate,
+    setLaunchTemplateId,
+  };
 }

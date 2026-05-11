@@ -44,6 +44,8 @@ export type JobRecord = {
   autoArchive: boolean;
   callable: boolean;
   singleton: boolean;
+  templateId: string | null;
+  defaultArgs: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 };
@@ -103,6 +105,8 @@ export type JobConfigUpdate = {
   autoArchive?: boolean;
   callable?: boolean;
   singleton?: boolean;
+  templateId?: string | null;
+  defaultArgs?: Record<string, string>;
   enabled?: boolean;
 };
 
@@ -124,14 +128,16 @@ export class JobStore {
     autoArchive: boolean;
     callable: boolean;
     singleton: boolean;
+    templateId?: string | null;
+    defaultArgs?: Record<string, string>;
     enabled: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, template_id, default_args, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -150,6 +156,8 @@ export class JobStore {
           input.autoArchive,
           input.callable,
           input.singleton,
+          input.templateId ?? null,
+          JSON.stringify(input.defaultArgs ?? {}),
           input.enabled,
         ]
       );
@@ -383,6 +391,8 @@ export class JobStore {
         j.auto_archive AS "autoArchive",
         j.callable,
         j.singleton,
+        j.template_id AS "templateId",
+        j.default_args AS "defaultArgs",
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -557,6 +567,8 @@ export class JobStore {
             auto_archive = COALESCE($17, auto_archive),
             callable = COALESCE($18, callable),
             singleton = COALESCE($19, singleton),
+            template_id = CASE WHEN $20 THEN $21 ELSE template_id END,
+            default_args = CASE WHEN $22 THEN $23::jsonb ELSE default_args END,
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -581,6 +593,10 @@ export class JobStore {
           input.autoArchive,
           input.callable,
           input.singleton,
+          Object.prototype.hasOwnProperty.call(input, "templateId"),
+          input.templateId ?? null,
+          Object.prototype.hasOwnProperty.call(input, "defaultArgs"),
+          input.defaultArgs ? JSON.stringify(input.defaultArgs) : "{}",
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -665,6 +681,8 @@ export class JobStore {
       auto_archive AS "autoArchive",
       callable,
       singleton,
+      template_id AS "templateId",
+      default_args AS "defaultArgs",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

@@ -282,7 +282,7 @@ export function JobsProvider({
   const selectJob = (job: Job) => {
     setIsAddingJob(false);
     setJustAddedJobId(null);
-    navigate(`/jobs/${job.id}`);
+    navigate(`/automations/jobs/${job.id}`);
   };
 
   const openAddJob = () => {
@@ -331,7 +331,7 @@ export function JobsProvider({
             const added = await addJob.mutateAsync(job);
             setIsAddingJob(false);
             setJustAddedJobId(added.id);
-            navigate(`/jobs/${added.id}`);
+            navigate(`/automations/jobs/${added.id}`);
           }}
           isAdding={addJob.isPending}
           enabledAgentTypes={enabledAgentTypes}
@@ -344,8 +344,10 @@ export function JobsProvider({
 /** Job list content for the unified sidebar. */
 export function JobListContent({
   onItemSelect,
+  hideHeader,
 }: {
   onItemSelect?: () => void;
+  hideHeader?: boolean;
 }): JSX.Element {
   const {
     jobs,
@@ -360,12 +362,9 @@ export function JobListContent({
   } = useJobsContext();
 
   return (
-    <div data-testid="jobs-sidebar" className="flex h-full min-h-0 flex-col">
-      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Jobs
-        </h2>
-        <div className="ml-auto flex items-center">
+    <div data-testid="jobs-sidebar" className="flex min-h-0 flex-1 flex-col">
+      {hideHeader ? (
+        <div className="flex items-center justify-end px-3 py-2">
           <Button
             size="sm"
             variant="default"
@@ -377,7 +376,25 @@ export function JobListContent({
             Create
           </Button>
         </div>
-      </div>
+      ) : (
+        <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Jobs
+          </h2>
+          <div className="ml-auto flex items-center">
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+              onClick={openAddJob}
+              data-testid="add-job-button"
+            >
+              <AlarmClock className="mr-1 h-4 w-4" />
+              Create
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div
         data-testid="jobs-sidebar-scroll"
@@ -411,7 +428,7 @@ export function JobListContent({
                 showOverview && "border-r-primary bg-muted/60"
               )}
               onClick={() => {
-                navigate("/jobs/overview");
+                navigate("/automations/jobs/overview");
                 onItemSelect?.();
               }}
             >
@@ -533,7 +550,7 @@ export function JobDetailPane(): JSX.Element {
               tab={tab}
               onTabChange={(nextTab) => {
                 navigate(
-                  `/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
+                  `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
                 );
               }}
               history={history.data?.runs ?? []}
@@ -542,8 +559,8 @@ export function JobDetailPane(): JSX.Element {
               onSelectRun={(runId) => {
                 navigate(
                   runId
-                    ? `/jobs/${selectedJob.id}/history/${runId}`
-                    : `/jobs/${selectedJob.id}/history`
+                    ? `/automations/jobs/${selectedJob.id}/history/${runId}`
+                    : `/automations/jobs/${selectedJob.id}/history`
                 );
               }}
               attachedAgent={attachedAgent}
@@ -560,7 +577,7 @@ export function JobDetailPane(): JSX.Element {
               }}
               onRemoveJob={async (job) => {
                 await removeJob.mutateAsync(job);
-                navigate("/jobs");
+                navigate("/automations/jobs");
               }}
               isUpdating={updateJob.isPending}
               isRemoving={removeJob.isPending}
@@ -576,7 +593,7 @@ export function JobDetailPane(): JSX.Element {
               statsLoading={jobStats.isLoading}
               onSelectJob={selectJob}
               onSelectRun={(jobId, runId) =>
-                navigate(`/jobs/${jobId}/history/${runId}`)
+                navigate(`/automations/jobs/${jobId}/history/${runId}`)
               }
             />
           </div>
