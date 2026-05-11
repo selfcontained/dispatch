@@ -16,13 +16,13 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
 >    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the compiled `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
 > 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
-> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
+> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `agent --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
 ## Features
 
-- Start, monitor, and stop multiple long-running agents (Claude, Codex, OpenCode, or a plain tmux terminal) remotely.
+- Start, monitor, and stop multiple long-running agents (Claude, Codex, Cursor, OpenCode, or a plain tmux terminal) remotely.
 - Persist each agent in `tmux` so browser disconnects do not kill work.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
@@ -73,6 +73,7 @@ Dispatch spawns agents via their CLI tools. Install at least one:
 | ------------ | ------------------------------------------ | --------------------------------------------- |
 | **Claude**   | `npm install -g @anthropic-ai/claude-code` | `claude` (follow login prompts)               |
 | **Codex**    | `npm install -g codex`                     | Set `OPENAI_API_KEY` in your shell profile    |
+| **Cursor**   | Install [Cursor](https://www.cursor.com/)  | Configure in Cursor settings                  |
 | **OpenCode** | `npm install -g opencode`                  | Set `ANTHROPIC_API_KEY` in your shell profile |
 
 The agent CLI must be authenticated before Dispatch can spawn agents of that type. Dispatch invokes the CLI directly, so any API keys or login state in your shell environment are inherited automatically.

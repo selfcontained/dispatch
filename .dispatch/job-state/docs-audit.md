@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-09
+updated_at: 2026-05-10
 ---
 
 # docs-audit — state handoff
@@ -9,7 +9,7 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`e7838799ed00b95583bbf4575c38eef47b4407e4` — HEAD at the start of the 2026-05-09 run. v0.20.0 release tag.
+`168cdfc702fe89352c0471563deb82d19f4183ee` — HEAD at the start of the 2026-05-10 run. v0.20.1 release tag.
 
 ## next_focus
 
@@ -29,7 +29,9 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
 - **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
 - **`docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields. Consider adding a body schema subsection next time the api-spec is touched.
+- **`docs/03-api-spec.md` — Templates CRUD.** PR #515 added `apps/server/src/routes/templates.ts` but the api-spec has no Templates section. Add when next auditing the spec.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
+- **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
 
 ## drift_patterns
 
@@ -47,7 +49,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Settings defaults flip without the docs noticing.** Trace default claims to both the component's `useState(...)` initial value and the server-side fallback.
 - **The built-in MCP tool list sprawls without touching the docs.** Grep for `AGENT_TOOLS = new Set` and diff against the `Built-in tools` list in `docs-pane.tsx`.
 - **The create-agent dialog accretes options silently.** When `create-agent-dialog.tsx` gains a field, the "Creating an agent" bullet list needs a matching entry.
-- **Agent types list accretes silently.** `AGENT_TYPES` in `apps/web/src/lib/agent-types.ts` started as `claude/codex/opencode` and now includes `terminal`.
+- **Agent types list accretes silently.** `AGENT_TYPES` in `apps/web/src/lib/agent-types.ts` started as `claude/codex/opencode` and now includes `terminal` and `cursor`. All five need to appear in every type-list in docs-pane.
 - **MCP tool sets change by agent type.** The AGENT / JOB / PERSONA tool lists evolve independently.
 - **System-prompt injection has a per-flow allowlist.** Personalities are appended only for "regular" launches.
 - **Repo tool prefix is `repo_`, not `repo.`.** MCP clients don't support dots in tool names.
@@ -59,6 +61,8 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **API-spec endpoint tables go stale when new route files are added.** Personalities CRUD was added without an api-spec section. When a new route file appears in `apps/server/src/routes/`, check whether its endpoints are in the spec.
 - **History endpoint query params change without docs updates.** The `sort` values changed from `recent|oldest` to `created_at|name|updated_at` and an `order` param was added, but the api-spec wasn't updated. Grep the actual query parsing in the route handler.
 - **Job form accretes advanced settings without docs updates.** PR #510 added callable/singleton toggles to both the create and settings forms. The in-app docs Jobs section needs to mirror these whenever the form gains a new field.
+- **New agent types land without docs updates.** Cursor was added in PR #513 without updating any docs surfaces. Every location that enumerates agent types needs checking when a new type is added.
+- **README CLI install table drifts from agent-type-settings.** The README CLI table should match the agent types that can be enabled in the UI; when a new type is added to `AGENT_TYPES`, add a row.
 
 ## Notes for the next run
 
@@ -94,3 +98,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-06** (Size-adaptive review diffs + README audit) — Updated Reviewers "How personas work" to document size-adaptive diff behavior (PR #501: diffs >15KB get file-level summaries + git commands instead of inline). Updated README.md: added "shortcuts" and "personalities" to docs section list, added personalities and keyboard shortcuts to features list, fixed JOB_TOOLS list (added 6 missing review round-trip tools).
 - **2026-05-07** (API spec v2) — Closed the api-spec `next_focus`. Added: release auto-check endpoints (auto-update-mode, cached-info), SSE event type enumeration (15 types), Personalities CRUD section, diff-stats and prompt-rename agent endpoints. Fixed: History query params (sort values, added search/order, archived-only behavior), Media POST source field, Settings endpoint description.
 - **2026-05-09** (Jobs — callable + singleton) — Pivoted from next_focus (Agents history/base-ref) to diff-driven update for PR #510. Added "Show in command palette" and "Single instance" to Jobs advanced settings list. Updated "On-demand runs" to reflect singleton-gated concurrency. Added callable-jobs paragraph to Keyboard Shortcuts command palette section.
+- **2026-05-10** (Cursor agent type + templates) — Pivoted from next_focus (sidebar badges) to diff-driven update for PRs #513/#517. Added `cursor` to all agent-type lists in docs-pane (Agents, Personalities, Automations Templates, Automations Jobs, Reviewers). Updated README features list and CLI install table with Cursor. Templates section already existed from PR #515 — no additional docs needed.
