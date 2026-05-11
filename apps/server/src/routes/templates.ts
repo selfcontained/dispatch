@@ -42,6 +42,7 @@ const UpdateTemplateBodySchema = z.object({
 const LaunchBodySchema = z.object({
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
+  agentType: z.enum(CLI_AGENT_TYPES).optional(),
 });
 
 function resolveTilde(value: string): string {

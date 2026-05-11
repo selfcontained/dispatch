@@ -29,6 +29,7 @@ export type LaunchTemplateInput = {
   templateId: string;
   args?: Record<string, string>;
   directory?: string;
+  agentType?: JobAgentType;
 };
 
 export type LaunchResult = {
@@ -152,7 +153,7 @@ export class TemplateService {
     const cwd = input.directory ?? template.directory;
     const agent = await this.agentManager.createAgent({
       name: sanitizeAgentName(template.name),
-      type: template.agentType,
+      type: input.agentType ?? template.agentType,
       cwd,
       initialPrompt: finalPrompt,
       fullAccess: template.fullAccess,

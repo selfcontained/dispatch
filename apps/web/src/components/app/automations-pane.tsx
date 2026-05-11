@@ -203,6 +203,7 @@ function TemplateListContent({
               <TemplateListItem
                 key={template.id}
                 template={template}
+                enabledAgentTypes={enabledAgentTypes}
                 selected={templateId === template.id}
                 onSelect={() => {
                   navigate(`/automations/templates/${template.id}`);
@@ -224,39 +225,25 @@ function TemplateListContent({
 
 function TemplateListItem({
   template,
+  enabledAgentTypes,
   selected,
   onSelect,
 }: {
   template: Template;
+  enabledAgentTypes: AgentType[];
   selected: boolean;
   onSelect: () => void;
 }): JSX.Element {
-  const navigate = useNavigate();
-  const { launchTemplate } = useTemplateActions();
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
-  const args = useMemo(
-    () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
-    [template.prompt]
+  const cliAgentTypes = useMemo(
+    () => enabledAgentTypes.filter(isCliAgentType),
+    [enabledAgentTypes]
   );
 
-  const handleLaunch = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (args.length > 0) {
-        setLaunchDialogOpen(true);
-        return;
-      }
-      launchTemplate
-        .mutateAsync({ id: template.id })
-        .then((result) => {
-          navigate(agentRoute(result.agent.id));
-        })
-        .catch((err: Error) => {
-          toast.error(`Failed to launch: ${err.message}`);
-        });
-    },
-    [args.length, launchTemplate, navigate, template.id]
-  );
+  const handleLaunch = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLaunchDialogOpen(true);
+  }, []);
 
   return (
     <>
@@ -307,6 +294,7 @@ function TemplateListItem({
         template={template}
         open={launchDialogOpen}
         onOpenChange={setLaunchDialogOpen}
+        agentTypes={cliAgentTypes}
       />
     </>
   );
@@ -395,19 +383,8 @@ function TemplateDetail({
   );
 
   const handleLaunch = useCallback(() => {
-    if (savedArgs.length > 0) {
-      setLaunchDialogOpen(true);
-      return;
-    }
-    launchTemplate
-      .mutateAsync({ id: template.id })
-      .then((result) => {
-        navigate(agentRoute(result.agent.id));
-      })
-      .catch((err: Error) => {
-        toast.error(`Failed to launch: ${err.message}`);
-      });
-  }, [savedArgs.length, launchTemplate, template.id, navigate]);
+    setLaunchDialogOpen(true);
+  }, []);
 
   const canSave = !!displayName.trim() && !!directory.trim();
 
@@ -687,6 +664,7 @@ function TemplateDetail({
         template={template}
         open={launchDialogOpen}
         onOpenChange={setLaunchDialogOpen}
+        agentTypes={cliAgentTypes}
       />
     </div>
   );
@@ -702,10 +680,8 @@ function ArgInput({
   onChange: (value: string) => void;
 }): JSX.Element {
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-foreground">
-        {arg.name}
-      </label>
+    <div className="space-y-2">
+      <label className="text-sm text-muted-foreground">{arg.name}</label>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -724,23 +700,34 @@ export function LaunchTemplateDialog({
   template,
   open,
   onOpenChange,
+  agentTypes,
 }: {
   template: Template;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  agentTypes: CliAgentType[];
 }): JSX.Element {
   const navigate = useNavigate();
   const { launchTemplate } = useTemplateActions();
+  const launchButtonRef = useRef<HTMLButtonElement>(null);
 
   const args = useMemo(
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
     [template.prompt]
   );
   const [argValues, setArgValues] = useState<Record<string, string>>({});
+  const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
 
   useEffect(() => {
-    if (open) setArgValues({});
-  }, [open]);
+    if (!open) return;
+    setArgValues({});
+    setAgentType(template.agentType);
+  }, [open, template.agentType]);
+
+  useEffect(() => {
+    if (!open || args.length > 0) return;
+    requestAnimationFrame(() => launchButtonRef.current?.focus());
+  }, [args.length, open]);
 
   const allArgsFilled =
     args.length === 0 || args.every((a) => argValues[a.key]?.trim());
@@ -748,7 +735,7 @@ export function LaunchTemplateDialog({
   const handleLaunch = useCallback(() => {
     const launchArgs = args.length > 0 ? argValues : undefined;
     launchTemplate
-      .mutateAsync({ id: template.id, args: launchArgs })
+      .mutateAsync({ id: template.id, args: launchArgs, agentType })
       .then((result) => {
         onOpenChange(false);
         navigate(agentRoute(result.agent.id));
@@ -756,12 +743,25 @@ export function LaunchTemplateDialog({
       .catch((err: Error) => {
         toast.error(`Failed to launch: ${err.message}`);
       });
-  }, [args, argValues, launchTemplate, navigate, onOpenChange, template.id]);
+  }, [
+    agentType,
+    args.length,
+    argValues,
+    launchTemplate,
+    navigate,
+    onOpenChange,
+    template.id,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      <DialogContent
+        className="max-w-md"
+        onEscapeKeyDown={(e) => {
+          swallowEscapeFromCombobox(e);
+        }}
+      >
+        <DialogHeader className="space-y-2">
           <DialogTitle>{template.name}</DialogTitle>
           {template.description ? (
             <DialogDescription>{template.description}</DialogDescription>
@@ -777,9 +777,19 @@ export function LaunchTemplateDialog({
             e.preventDefault();
             if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
           }}
+          className="space-y-5"
         >
+          <div className="space-y-2">
+            <label className="text-sm text-muted-foreground">Agent type</label>
+            <AgentTypeCombobox
+              value={agentType}
+              onChange={setAgentType}
+              agentTypes={agentTypes}
+            />
+          </div>
+
           {args.length > 0 ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               {args.map((arg) => (
                 <ArgInput
                   key={arg.key}
@@ -793,8 +803,9 @@ export function LaunchTemplateDialog({
             </div>
           ) : null}
 
-          <div className="flex flex-row-reverse justify-start gap-2 pt-3">
+          <div className="flex flex-row-reverse justify-start gap-2 pt-2">
             <Button
+              ref={launchButtonRef}
               type="submit"
               variant="primary"
               disabled={!allArgsFilled || launchTemplate.isPending}
