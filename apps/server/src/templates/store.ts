@@ -149,12 +149,22 @@ export class TemplateStore {
 
   async listTemplates(filter?: {
     callable?: boolean;
+    excludeJobBacked?: boolean;
   }): Promise<TemplateRecord[]> {
     let query = `SELECT ${this.columns()} FROM templates`;
+    const conditions: string[] = [];
     const params: unknown[] = [];
     if (filter?.callable !== undefined) {
-      query += ` WHERE callable = $1`;
       params.push(filter.callable);
+      conditions.push(`callable = $${params.length}`);
+    }
+    if (filter?.excludeJobBacked) {
+      conditions.push(
+        `NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.template_id = templates.id)`
+      );
+    }
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
     }
     query += ` ORDER BY name ASC, directory ASC`;
     const result = await this.pool.query(query, params);

@@ -297,7 +297,7 @@ function TemplateListItem({
             type="button"
             onClick={handleLaunch}
             title="Launch template"
-            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100"
+            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <Play className="h-3 w-3 fill-current" />
           </button>

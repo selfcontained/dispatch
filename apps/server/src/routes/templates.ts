@@ -69,7 +69,7 @@ export async function registerTemplateRoutes(
   deps: TemplateRouteDeps
 ): Promise<void> {
   app.get("/api/v1/templates", async () => {
-    return await deps.templateService.listTemplates();
+    return await deps.templateService.listTemplates({ excludeJobBacked: true });
   });
 
   app.get<{ Params: { id: string } }>(
