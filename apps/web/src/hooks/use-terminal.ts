@@ -954,7 +954,7 @@ export function useTerminal(args: {
     }
 
     const disposable = term.onData((data) => {
-      if (copyModeRef.current !== "live") {
+      if (copyModeRef.current === "copy" || copyModeRef.current === "exiting") {
         if (copyModeRef.current === "copy" && data === "\x1b") {
           void exitCopyModeRef.current();
         }
