@@ -160,13 +160,8 @@ function TemplateListContent({
 }): JSX.Element {
   const navigate = useNavigate();
   const { templateId } = useParams<{ templateId?: string }>();
-  const { data: templates = [] } = useTemplates();
+  const { data: templates = [], isLoading } = useTemplates();
   const [showCreate, setShowCreate] = useState(false);
-
-  const callableTemplates = useMemo(
-    () => templates.filter((t) => t.callable),
-    [templates]
-  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -182,20 +177,29 @@ function TemplateListContent({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {callableTemplates.length === 0 ? (
+        {isLoading ? (
+          <div className="space-y-3 p-4">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div
+                key={i}
+                className="h-10 animate-pulse rounded-md bg-muted/40"
+              />
+            ))}
+          </div>
+        ) : templates.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No templates yet.
               </div>
               <div className="mt-1 text-xs">
-                Create a template to launch agents from the command palette.
+                Create a template to launch agents with saved configurations.
               </div>
             </div>
           </div>
         ) : (
           <div>
-            {callableTemplates.map((template) => (
+            {templates.map((template) => (
               <TemplateListItem
                 key={template.id}
                 template={template}
@@ -293,7 +297,7 @@ function TemplateListItem({
             type="button"
             onClick={handleLaunch}
             title="Launch template"
-            className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100"
+            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100"
           >
             <Play className="h-3 w-3 fill-current" />
           </button>
@@ -359,7 +363,6 @@ function TemplateDetail({
   const [fullAccess, setFullAccess] = useState(template.fullAccess);
   const [callable, setCallable] = useState(template.callable);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
@@ -375,7 +378,6 @@ function TemplateDetail({
     setFullAccess(template.fullAccess);
     setCallable(template.callable);
     setSaveError(null);
-    setSaved(false);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -390,7 +392,6 @@ function TemplateDetail({
 
   const handleSave = useCallback(() => {
     setSaveError(null);
-    setSaved(false);
     updateTemplate
       .mutateAsync({
         id: template.id,
@@ -405,7 +406,7 @@ function TemplateDetail({
         fullAccess,
         callable,
       })
-      .then(() => setSaved(true))
+      .then(() => toast.success("Settings saved."))
       .catch((err: Error) => setSaveError(err.message));
   }, [
     updateTemplate,
@@ -426,13 +427,14 @@ function TemplateDetail({
     removeTemplate
       .mutateAsync(template.id)
       .then(() => {
+        setRemoveDialogOpen(false);
         navigate("/automations");
         toast.success(`Template "${template.name}" deleted.`);
       })
       .catch((err: Error) => {
+        setRemoveDialogOpen(false);
         toast.error(`Failed to delete: ${err.message}`);
       });
-    setRemoveDialogOpen(false);
   }, [removeTemplate, template, navigate]);
 
   const cliAgentTypes = useMemo(
@@ -576,11 +578,6 @@ function TemplateDetail({
                 {saveError}
               </div>
             ) : null}
-            {saved ? (
-              <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
-                Settings saved.
-              </div>
-            ) : null}
             <div className="mt-4 flex justify-end">
               <Button
                 variant="primary"
@@ -628,11 +625,19 @@ function TemplateDetail({
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setRemoveDialogOpen(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoveDialogOpen(false)}
+              disabled={removeTemplate.isPending}
+            >
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              Delete
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={removeTemplate.isPending}
+            >
+              {removeTemplate.isPending ? "Deleting…" : "Delete"}
             </Button>
           </div>
         </DialogContent>
