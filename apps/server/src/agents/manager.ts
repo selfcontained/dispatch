@@ -175,6 +175,7 @@ type CreateAgentInput = {
     source: "text" | "user";
     description?: string | null;
   }>;
+  templateId?: string;
 };
 
 type StopAgentInput = {
@@ -432,8 +433,8 @@ export class AgentManager {
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, pins, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, NOW())
       `,
       [
         id,
@@ -453,6 +454,7 @@ export class AgentManager {
         cliSessionId,
         input.autoReview ?? false,
         normalizedBaseBranch ?? null,
+        input.templateId ?? null,
         JSON.stringify(initialPins),
       ]
     );
@@ -588,6 +590,7 @@ export class AgentManager {
           shouldSuggestSessionRename(name, id, {
             persona: input.persona,
             jobRunId: input.jobRunId,
+            templateId: input.templateId,
           }),
           !input.persona && !input.jobRunId && (input.autoReview ?? false),
           startupPrompt,
@@ -775,7 +778,10 @@ export class AgentManager {
         cliSessionId ?? undefined,
         shouldResume,
         undefined,
-        shouldSuggestSessionRename(agent.name, id, { persona: agent.persona }),
+        shouldSuggestSessionRename(agent.name, id, {
+          persona: agent.persona,
+          templateId: agent.templateId,
+        }),
         !agent.persona && (agent.autoReview ?? false),
         undefined,
         personality?.prompt ?? null
@@ -1647,6 +1653,7 @@ export class AgentManager {
         persona_context AS "personaContext",
         review_agent_type AS "reviewAgentType",
         base_branch AS "baseBranch",
+        template_id AS "templateId",
         auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
         (SELECT json_build_object(

@@ -4,10 +4,10 @@ import {
   AlarmClock,
   Check,
   ChevronDown,
+  FormInput,
   GitBranch,
   Play,
   Trash2,
-  Zap,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -89,7 +89,7 @@ function AutomationsSidebar({
           <TabButton
             active={activeTab === "templates"}
             onClick={() => onTabChange("templates")}
-            icon={<Zap className="h-3.5 w-3.5" />}
+            icon={<FormInput className="h-3.5 w-3.5" />}
             label="Templates"
           />
           <TabButton
@@ -172,7 +172,7 @@ function TemplateListContent({
           className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
           onClick={() => setShowCreate(true)}
         >
-          <Zap className="mr-1 h-4 w-4" />
+          <FormInput className="mr-1 h-4 w-4" />
           Create
         </Button>
       </div>

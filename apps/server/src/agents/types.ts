@@ -118,6 +118,7 @@ export type AgentRecord = {
     } | null;
   } | null;
   baseBranch: string | null;
+  templateId: string | null;
   autoReview: boolean;
   cliSessionId: string | null;
   createdAt: string;

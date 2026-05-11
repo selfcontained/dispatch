@@ -42,6 +42,7 @@ export function createAutoRenamePrompter(deps: AutoRenamePrompterDeps) {
     if (
       !shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
+        templateId: agent.templateId,
       })
     ) {
       return;
