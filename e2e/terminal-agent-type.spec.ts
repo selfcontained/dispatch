@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
 import {
   cleanupE2EAgents,
+  createAgentViaAPI,
   loadApp,
   setEnabledAgentTypesViaAPI,
+  trackAgent,
 } from "./helpers";
 
 const authHeader = {
@@ -137,6 +139,7 @@ test.describe("Terminal agent type", () => {
     expect(res.status()).toBe(201);
 
     const { agent } = (await res.json()) as { agent: AgentRecord };
+    trackAgent(agent.id);
     expect(agent.type).toBe("terminal");
     // Created via the inert test runtime — initial event should be idle,
     // not "working" like the CLI types.
@@ -161,6 +164,7 @@ test.describe("Terminal agent type", () => {
     expect(res.status()).toBe(201);
 
     const { agent } = (await res.json()) as { agent: AgentRecord };
+    trackAgent(agent.id);
     expect(agent.fullAccess).toBe(false);
     expect(agent.autoReview).toBe(false);
     // No full-access flag should be injected for terminal.
@@ -178,6 +182,7 @@ test.describe("Terminal agent type", () => {
       },
     });
     const { agent } = (await create.json()) as { agent: { id: string } };
+    trackAgent(agent.id);
 
     const patch = await request.patch(
       `/api/v1/agents/${agent.id}/review-agent-type`,

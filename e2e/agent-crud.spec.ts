@@ -16,7 +16,7 @@ function pathnameTerminalTokenMatch(pathname: string): boolean {
 
 test.describe("Agent CRUD", () => {
   test.afterEach(async ({ request }) => {
-    await cleanupE2EAgents(request);
+    await cleanupE2EAgents(request, "all");
   });
 
   test("displays 'No agents yet' when the list is empty", async ({

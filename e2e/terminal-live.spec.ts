@@ -173,7 +173,7 @@ test.describe("Terminal live connection", () => {
 
   test.afterEach(async ({ request }) => {
     await setCopyModeAssistEnabled(request, false);
-    await cleanupE2EAgents(request);
+    await cleanupE2EAgents(request, "all");
   });
 
   test("connects to terminal within 3 seconds", async ({ page, request }) => {

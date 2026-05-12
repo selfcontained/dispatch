@@ -1,7 +1,12 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
-import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  loadApp,
+  trackAgent,
+} from "./helpers";
 
 const authHeader = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -112,7 +117,10 @@ test.describe("Agent base branch", () => {
       headers: authHeader,
       data: { cwd: "/tmp", baseBranch: "feature/foo", useWorktree: false },
     });
-    const body = (await res.json()) as { agent: { baseBranch: string | null } };
+    const body = (await res.json()) as {
+      agent: { id: string; baseBranch: string | null };
+    };
+    trackAgent(body.agent.id);
     expect(body.agent.baseBranch).toBe("feature/foo");
   });
 
@@ -123,7 +131,10 @@ test.describe("Agent base branch", () => {
       headers: authHeader,
       data: { cwd: "/tmp", useWorktree: false },
     });
-    const body = (await res.json()) as { agent: { baseBranch: string | null } };
+    const body = (await res.json()) as {
+      agent: { id: string; baseBranch: string | null };
+    };
+    trackAgent(body.agent.id);
     expect(body.agent.baseBranch).toBeNull();
   });
 
@@ -142,6 +153,7 @@ test.describe("Agent base branch", () => {
     const body = (await res.json()) as {
       agent: { id: string; baseBranch: string | null };
     };
+    trackAgent(body.agent.id);
     expect(body.agent.baseBranch).toBe("develop");
 
     const baseBranchDefault = await getCreatePrBaseBranchDefault(
