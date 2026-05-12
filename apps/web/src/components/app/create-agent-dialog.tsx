@@ -48,6 +48,7 @@ import {
   getClipboardFilesFromEvent,
   getClipboardSuggestion,
   isLikelyUrl,
+  normalizeUrl,
 } from "@/components/app/create-agent-dialog-clipboard";
 import {
   Popover,
@@ -118,7 +119,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted/60"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
@@ -126,7 +127,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted/60"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
@@ -649,10 +650,10 @@ function CreateAgentDialogContent({
     trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
 
   const addStartupLink = useCallback(() => {
-    const trimmed = linkDraft.trim();
-    if (!trimmed || !isLikelyUrl(trimmed)) return false;
+    const normalized = normalizeUrl(linkDraft);
+    if (!normalized) return false;
     setStartupLinks((current) =>
-      current.includes(trimmed) ? current : [...current, trimmed]
+      current.includes(normalized) ? current : [...current, normalized]
     );
     setLinkDraft("");
     return true;

@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
-import type { AgentRecord } from "../agents/types.js";
+import type { AgentPin, AgentRecord } from "../agents/types.js";
 import type { JobAgentType } from "../jobs/store.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import {
@@ -23,6 +23,7 @@ export type AddTemplateInput = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
+  allowMedia?: boolean;
 };
 
 export type LaunchTemplateInput = {
@@ -30,6 +31,14 @@ export type LaunchTemplateInput = {
   args?: Record<string, string>;
   directory?: string;
   agentType?: JobAgentType;
+  startupFiles?: Array<{
+    fileName: string;
+    originalName?: string;
+    buffer: Buffer;
+    source: "text" | "user";
+    description?: string | null;
+  }>;
+  startupPins?: AgentPin[];
 };
 
 export type LaunchResult = {
@@ -61,6 +70,7 @@ export class TemplateService {
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       callable: input.callable ?? true,
+      allowMedia: input.allowMedia ?? true,
     });
     this.logger.info(
       { templateId: template.id, name: template.name },
@@ -86,6 +96,7 @@ export class TemplateService {
     if (input.branchName !== undefined) updates.branchName = input.branchName;
     if (input.fullAccess !== undefined) updates.fullAccess = input.fullAccess;
     if (input.callable !== undefined) updates.callable = input.callable;
+    if (input.allowMedia !== undefined) updates.allowMedia = input.allowMedia;
 
     const updated = await this.store.updateTemplate(id, updates);
     this.logger.info(
@@ -142,13 +153,15 @@ export class TemplateService {
       finalPrompt = template.prompt;
     }
 
-    const initialPins = parsedArgs
+    const argPins = parsedArgs
       .filter((a) => args[a.key] != null || args[a.name] != null)
       .map((a) => ({
         label: a.name,
         value: args[a.key] ?? args[a.name],
         type: "string" as const,
       }));
+
+    const initialPins = [...argPins, ...(input.startupPins ?? [])];
 
     const cwd = input.directory ?? template.directory;
     const agent = await this.agentManager.createAgent({
@@ -161,6 +174,7 @@ export class TemplateService {
       baseBranch: template.baseBranch ?? undefined,
       worktreeBranch: template.branchName ?? undefined,
       initialPins,
+      initialFiles: input.startupFiles ?? [],
       templateId: template.id,
     });
 

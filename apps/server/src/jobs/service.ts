@@ -283,6 +283,7 @@ export class JobService {
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       callable: false,
+      allowMedia: false,
     });
 
     let job: JobRecord;

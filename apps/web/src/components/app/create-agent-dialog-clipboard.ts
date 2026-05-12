@@ -38,13 +38,25 @@ export type ClipboardLookupResult =
     };
 
 export function isLikelyUrl(value: string): boolean {
+  return normalizeUrl(value) !== null;
+}
+
+export function normalizeUrl(value: string): string | null {
   const trimmed = value.trim();
-  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (!trimmed || /\s/.test(trimmed)) return null;
   try {
     const parsed = new URL(trimmed);
-    return URL_PROTOCOLS.has(parsed.protocol);
+    if (URL_PROTOCOLS.has(parsed.protocol)) return trimmed;
+    return null;
   } catch {
-    return false;
+    try {
+      const withProtocol = `https://${trimmed}`;
+      const parsed = new URL(withProtocol);
+      if (parsed.hostname.includes(".")) return withProtocol;
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -152,13 +164,14 @@ export function createClipboardSuggestionFromText(
 ): ClipboardSuggestion | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  if (isLikelyUrl(trimmed)) {
+  const normalized = normalizeUrl(trimmed);
+  if (normalized) {
     return {
       kind: "url",
       title: "Copied link ready",
       description: "Add copied link?",
       actionLabel: "Add copied link",
-      url: trimmed,
+      url: normalized,
     };
   }
   return {

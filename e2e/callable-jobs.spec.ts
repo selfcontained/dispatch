@@ -69,6 +69,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         directory: templateDir,
         prompt: "Say hello and stop.",
         callable: true,
+        allowMedia: false,
         agentType: "claude",
         useWorktree: true,
       },

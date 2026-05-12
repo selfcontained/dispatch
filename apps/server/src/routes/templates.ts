@@ -5,8 +5,15 @@ import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
+import {
+  type StartupFileUpload,
+  MAX_STARTUP_FILE_COUNT,
+  createStartupPins,
+  parseOptionalStringArrayField,
+} from "./agent-startup.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
+import { isMediaFile, isTextFile } from "../shared/media.js";
 
 const directoryField = z
   .string()
@@ -24,6 +31,7 @@ const AddTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
+  allowMedia: z.boolean().optional(),
 });
 
 const UpdateTemplateBodySchema = z.object({
@@ -37,6 +45,7 @@ const UpdateTemplateBodySchema = z.object({
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
+  allowMedia: z.boolean().optional(),
 });
 
 const LaunchBodySchema = z.object({
@@ -142,14 +151,107 @@ export async function registerTemplateRoutes(
   app.post<{ Params: { id: string } }>(
     "/api/v1/templates/:id/launch",
     async (request, reply) => {
-      const parsed = LaunchBodySchema.safeParse(request.body);
+      let body: z.infer<typeof LaunchBodySchema> & {
+        startupLinks?: unknown;
+      };
+      let startupFiles: StartupFileUpload[] = [];
+      let isMultipart = false;
+
+      if (request.isMultipart()) {
+        isMultipart = true;
+        const raw: Record<string, unknown> = {};
+        const files: StartupFileUpload[] = [];
+        for await (const rawPart of request.parts()) {
+          const part = rawPart as {
+            type: "file" | "field";
+            fieldname: string;
+            filename?: string;
+            value?: unknown;
+            toBuffer?: () => Promise<Buffer>;
+          };
+          if (part.type === "file") {
+            if (part.fieldname !== "startupFiles") {
+              return reply.code(400).send({ error: "Unexpected file field." });
+            }
+            if (files.length >= MAX_STARTUP_FILE_COUNT) {
+              return reply.code(400).send({
+                error: `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`,
+              });
+            }
+            const fileName = path.basename(part.filename || "");
+            if (!fileName || !isMediaFile(fileName)) {
+              return reply.code(400).send({
+                error:
+                  "Unsupported file type. Use images, video, documents, or text files.",
+              });
+            }
+            if (!part.toBuffer) {
+              return reply.code(400).send({ error: "Invalid file upload." });
+            }
+            files.push({
+              fileName,
+              originalName: fileName,
+              buffer: await part.toBuffer(),
+              source: isTextFile(fileName) ? "text" : "user",
+              description: null,
+            });
+            continue;
+          }
+          raw[part.fieldname] = part.value;
+        }
+        startupFiles = files;
+
+        if (raw.args && typeof raw.args === "string") {
+          try {
+            raw.args = JSON.parse(raw.args);
+          } catch {
+            return reply
+              .code(400)
+              .send({ error: "args must be a JSON object." });
+          }
+        }
+        body = raw as typeof body;
+      } else {
+        body = (request.body ?? {}) as typeof body;
+      }
+
+      const parsed = LaunchBodySchema.safeParse(body);
       if (!parsed.success) {
         return reply.code(400).send({ error: parsed.error.issues[0].message });
       }
+
+      let startupLinks: string[] | undefined;
+      try {
+        startupLinks = parseOptionalStringArrayField(
+          body.startupLinks,
+          "startupLinks",
+          isMultipart
+        );
+      } catch (error) {
+        return reply.code(400).send({
+          error:
+            error instanceof Error ? error.message : "Invalid startupLinks.",
+        });
+      }
+
+      let startupPins: ReturnType<typeof createStartupPins> = [];
+      if (startupLinks && startupLinks.length > 0) {
+        try {
+          startupPins = createStartupPins(startupLinks);
+        } catch (error) {
+          return reply.code(400).send({
+            error:
+              error instanceof Error ? error.message : "Invalid startupLinks.",
+          });
+        }
+      }
+
       try {
         const result = await deps.templateService.launchTemplate({
           templateId: request.params.id,
           ...parsed.data,
+          startupFiles,
+          startupPins,
         });
         deps.publishUiEvent({
           type: "agent.upsert",
