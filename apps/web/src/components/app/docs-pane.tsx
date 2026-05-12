@@ -162,6 +162,29 @@ const SECTIONS: SectionDef[] = [
         </Section>
 
         <Section>
+          <H3>Sidebar badges</H3>
+          <P>
+            Three contextual badges can appear next to an agent's name in the
+            sidebar:
+          </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Attention</strong> — the agent entered an error state and
+              may need manual intervention. Hover the badge to see the specific
+              error.
+            </li>
+            <li>
+              <strong>Job</strong> — the agent was spawned by a scheduled or
+              on-demand job run.
+            </li>
+            <li>
+              <strong>Update</strong> — the agent is performing an assisted
+              Dispatch update.
+            </li>
+          </ul>
+        </Section>
+
+        <Section>
           <H3>Starting and stopping</H3>
           <P>
             Press the play button to resume a stopped agent. Press the stop
@@ -746,17 +769,22 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Inline play button</strong> — each template in the list
-              has a play icon for quick launch. Templates without arguments
-              launch directly; those with arguments open a launch dialog.
+              has a play icon that opens a launch dialog where you can override
+              the agent type and fill in any arguments before launching.
             </li>
             <li>
               <strong>Command palette</strong> (<Code>Mod+K</Code>) — callable
-              templates appear under a "Templates" group. Templates without
-              arguments show a confirmation step (press Enter twice). Templates
-              with arguments open a launch dialog where you fill in values
-              before launching.
+              templates appear under a "Templates" group. Selecting one opens a
+              launch dialog where you can override the agent type and fill in
+              arguments.
             </li>
           </ul>
+          <P>
+            Every launch dialog includes an <strong>Agent type</strong> selector
+            that defaults to the template's configured type. This lets you run
+            the same template with a different CLI without editing the template
+            itself.
+          </P>
           <P>
             After launch, the new agent appears in the sidebar immediately and
             the view navigates to it.
