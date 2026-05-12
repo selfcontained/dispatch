@@ -4,6 +4,13 @@ import { type Page, type APIRequestContext } from "@playwright/test";
 const API = "/api/v1";
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 
+const trackedAgentIds = new Set<string>();
+
+/** Register an agent ID for cleanup — use when creating agents outside createAgentViaAPI. */
+export function trackAgent(id: string): void {
+  trackedAgentIds.add(id);
+}
+
 /** Return Authorization header for API requests. */
 function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${AUTH_TOKEN}` };
@@ -51,6 +58,7 @@ export async function createAgentViaAPI(
   });
   const body = (await res.json()) as { agent: AgentResult };
   let agent = body.agent;
+  trackedAgentIds.add(agent.id);
 
   // When using worktrees, the setup runs asynchronously in tmux.
   // Poll until the agent transitions to 'running' (setup complete).
@@ -412,11 +420,47 @@ export async function deleteAgentViaAPI(
 }
 
 /**
- * Delete all agents whose name starts with `e2e-agent-` to keep the dev DB clean.
+ * Clean up agents created during tests.
+ *
+ * Default ("tracked") mode only deletes agents created by `createAgentViaAPI`
+ * in this worker process — safe to call from parallel workers.
+ *
+ * Pass "all" to delete every `e2e-agent-*` agent and its children.
+ * Only use "all" from tests that run with a single worker (serial suite).
  */
 export async function cleanupE2EAgents(
-  request: APIRequestContext
+  request: APIRequestContext,
+  mode: "tracked" | "all" = "tracked"
 ): Promise<void> {
+  if (mode === "tracked") {
+    const ids = [...trackedAgentIds];
+    trackedAgentIds.clear();
+    // Also delete child agents (e.g. persona reviewers)
+    if (ids.length > 0) {
+      const res = await request.get(`${API}/agents`, {
+        headers: authHeaders(),
+      });
+      const body = (await res.json()) as {
+        agents?: Array<{
+          id: string;
+          name: string;
+          parentAgentId?: string | null;
+        }>;
+      };
+      const parentSet = new Set(ids);
+      const toDelete = new Set(ids);
+      for (const agent of body.agents ?? []) {
+        if (agent.parentAgentId && parentSet.has(agent.parentAgentId)) {
+          toDelete.add(agent.id);
+        }
+      }
+      await Promise.all(
+        [...toDelete].map((id) => deleteAgentViaAPI(request, id))
+      );
+    }
+    return;
+  }
+
   const res = await request.get(`${API}/agents`, { headers: authHeaders() });
   const body = (await res.json()) as {
     agents?: Array<{ id: string; name: string; parentAgentId?: string | null }>;
@@ -427,14 +471,15 @@ export async function cleanupE2EAgents(
       .filter((agent) => agent.name.startsWith("e2e-agent-"))
       .map((agent) => agent.id)
   );
-  for (const agent of body.agents) {
-    if (
+  const toDelete = body.agents.filter(
+    (agent) =>
       agent.name.startsWith("e2e-agent-") ||
       (agent.parentAgentId && parentIds.has(agent.parentAgentId))
-    ) {
-      await deleteAgentViaAPI(request, agent.id);
-    }
-  }
+  );
+  await Promise.all(
+    toDelete.map((agent) => deleteAgentViaAPI(request, agent.id))
+  );
+  trackedAgentIds.clear();
 }
 
 function mulberry32(seed: number): () => number {

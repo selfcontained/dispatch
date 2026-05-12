@@ -17,12 +17,21 @@ const mediaRoot =
 const agentRuntime =
   process.env.DISPATCH_AGENT_RUNTIME === "tmux" ? "tmux" : "inert";
 
+// Tests that mutate global settings, create agents via UI, or have explicit
+// serial constraints. These run after the parallel suite with a single worker.
+const serialTests = [
+  "e2e/settings.spec.ts",
+  "e2e/jobs-api.spec.ts",
+  "e2e/agent-crud.spec.ts",
+  "e2e/terminal-live.spec.ts",
+  "e2e/persona-recheck-ui.spec.ts",
+  "e2e/mobile-layout.spec.ts",
+];
+
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: 1,
   reporter: "list",
   use: {
     baseURL,
@@ -46,4 +55,19 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60_000,
   },
+  projects: [
+    {
+      name: "parallel",
+      testIgnore: serialTests,
+      fullyParallel: false,
+      workers: 4,
+    },
+    {
+      name: "serial",
+      testMatch: serialTests,
+      fullyParallel: false,
+      workers: 1,
+      dependencies: ["parallel"],
+    },
+  ],
 });
