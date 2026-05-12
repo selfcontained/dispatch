@@ -142,6 +142,15 @@ export class TemplateService {
         `Template "${template.name}" has no prompt configured. Add a prompt before launching.`
       );
     }
+    if (
+      !template.allowMedia &&
+      ((input.startupFiles && input.startupFiles.length > 0) ||
+        (input.startupPins && input.startupPins.length > 0))
+    ) {
+      throw new Error(
+        `Template "${template.name}" does not allow media attachments.`
+      );
+    }
 
     const parsedArgs = parseTemplateArgs(template.prompt);
     const args = input.args ?? {};

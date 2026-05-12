@@ -13,7 +13,11 @@ import {
 } from "./agent-startup.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
-import { isMediaFile, isTextFile } from "../shared/media.js";
+import {
+  isMediaFile,
+  isTextFile,
+  sanitizeUploadedFileName,
+} from "../shared/media.js";
 
 const directoryField = z
   .string()
@@ -178,7 +182,9 @@ export async function registerTemplateRoutes(
                 error: `A maximum of ${MAX_STARTUP_FILE_COUNT} startup files is allowed.`,
               });
             }
-            const fileName = path.basename(part.filename || "");
+            const fileName = sanitizeUploadedFileName(
+              path.basename(part.filename || "")
+            );
             if (!fileName || !isMediaFile(fileName)) {
               return reply.code(400).send({
                 error:
