@@ -26,6 +26,7 @@ const serialTests = [
   "e2e/terminal-live.spec.ts",
   "e2e/persona-recheck-ui.spec.ts",
   "e2e/mobile-layout.spec.ts",
+  "e2e/media-sidebar.spec.ts",
 ];
 
 export default defineConfig({
