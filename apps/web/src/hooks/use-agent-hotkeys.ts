@@ -158,21 +158,19 @@ export function useAgentHotkeys({
     return [
       {
         label: "Templates",
-        actions: callableTemplates.map((template) => {
-          return {
-            id: `template-${template.id}`,
-            title: template.name,
-            keywords: ["template", "launch", "run"],
-            icon: Play,
-            run: () => {
-              setPaletteOpen(false);
-              setLaunchTemplateId(template.id);
-            },
-          };
-        }),
+        actions: callableTemplates.map((template) => ({
+          id: `template-${template.id}`,
+          title: template.name,
+          keywords: ["template", "launch", "run"],
+          icon: Play,
+          run: () => {
+            setPaletteOpen(false);
+            setLaunchTemplateId(template.id);
+          },
+        })),
       },
     ];
-  }, [templates, setPaletteOpen]);
+  }, [templates, setPaletteOpen, setLaunchTemplateId]);
 
   const resolvedLaunchTemplate = useMemo(
     () => templates.find((t) => t.id === launchTemplateId) ?? null,

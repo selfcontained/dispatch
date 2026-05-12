@@ -22,10 +22,23 @@ describe("create-agent-dialog clipboard helpers", () => {
       expect(isLikelyUrl(" http://example.com/path ")).toBe(true);
     });
 
+    it("accepts bare domains", () => {
+      expect(isLikelyUrl("example.com")).toBe(true);
+      expect(isLikelyUrl("example.com/path?q=1")).toBe(true);
+      expect(isLikelyUrl("sub.example.co.uk")).toBe(true);
+      expect(isLikelyUrl(" github.com/org/repo ")).toBe(true);
+    });
+
     it("rejects non-http protocols and whitespace text", () => {
       expect(isLikelyUrl("ftp://example.com")).toBe(false);
       expect(isLikelyUrl("not a url")).toBe(false);
       expect(isLikelyUrl("")).toBe(false);
+    });
+
+    it("rejects single words without a dot", () => {
+      expect(isLikelyUrl("hello")).toBe(false);
+      expect(isLikelyUrl("localhost")).toBe(false);
+      expect(isLikelyUrl("README")).toBe(false);
     });
   });
 

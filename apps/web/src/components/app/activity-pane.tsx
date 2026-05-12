@@ -65,6 +65,7 @@ import {
   type TokenByProject,
   type WorkingTimeByProject,
 } from "@/hooks/use-activity";
+import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 
 type ActivityTab = "metrics" | "history";
 
@@ -833,17 +834,7 @@ function DatePickerPopover({
 }) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
-  // Radix Popover sets inline z-index:50 via floating-ui, but our dialog is z-70.
-  // Scoped to this component so it only applies while the date picker is mounted.
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent =
-      "[data-radix-popper-content-wrapper]{z-index:80!important}";
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
-  }, []);
+  useRadixPopoverZFix();
 
   return (
     <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>

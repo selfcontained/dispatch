@@ -69,6 +69,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         directory: templateDir,
         prompt: "Say hello and stop.",
         callable: true,
+        allowMedia: false,
         agentType: "claude",
         useWorktree: true,
       },
@@ -147,6 +148,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
         directory: templateDir,
         prompt: "Say hello and stop.",
         callable: true,
+        allowMedia: false,
         agentType: "claude",
         useWorktree: false,
       },
@@ -167,7 +169,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     const launchDialog = page.getByRole("dialog", { name: templateName });
     await expect(launchDialog).toBeVisible({ timeout: 3_000 });
 
-    await page.keyboard.press("Enter");
+    await launchDialog.getByRole("button", { name: "Launch" }).click();
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
 });

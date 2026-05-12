@@ -44,10 +44,14 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   type ClipboardSuggestion,
+  STARTUP_FILE_ACCEPT,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
   getClipboardSuggestion,
-  isLikelyUrl,
+  normalizeUrl,
+  startupFileExt,
+  startupFileKey,
+  startupLinkLabel,
 } from "@/components/app/create-agent-dialog-clipboard";
 import {
   Popover,
@@ -56,6 +60,7 @@ import {
 } from "@/components/ui/popover";
 import { type Agent } from "@/components/app/types";
 import { useClickOutside } from "@/hooks/use-click-outside";
+import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -73,38 +78,9 @@ const CWD_HISTORY_MAX = 20;
 const FULL_ACCESS_PREFIX = "dispatch:fullAccess:";
 const AUTO_REVIEW_PREFIX = "dispatch:autoReview:";
 const BASE_BRANCH_PREFIX = "dispatch:baseBranch:";
-const STARTUP_FILE_ACCEPT =
-  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
 const CONTEXT_PROMPT_ID = "create-agent-context-prompt";
 const CONTEXT_LINK_INPUT_ID = "create-agent-context-link-input";
 const CONTEXT_LINK_ERROR_ID = "create-agent-context-link-error";
-
-function startupFileKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function startupFileExt(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot === -1
-    ? "FILE"
-    : name
-        .slice(dot + 1)
-        .toUpperCase()
-        .slice(0, 4);
-}
-
-function startupLinkLabel(url: string): { host: string; rest: string } {
-  try {
-    const u = new URL(url);
-    const rest =
-      (u.pathname === "/" ? "" : u.pathname) +
-      (u.search || "") +
-      (u.hash || "");
-    return { host: u.hostname.replace(/^www\./, ""), rest };
-  } catch {
-    return { host: url, rest: "" };
-  }
-}
 
 function AddContextMenu({
   onAddFile,
@@ -118,7 +94,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted/60"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
@@ -126,7 +102,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted/60"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
@@ -644,19 +620,20 @@ function CreateAgentDialogContent({
     });
   }, [applyClipboardSuggestion]);
 
-  const trimmedLinkDraft = linkDraft.trim();
+  const normalizedLinkDraft = normalizeUrl(linkDraft);
   const linkDraftIsValid =
-    trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
+    linkDraft.trim().length === 0 || normalizedLinkDraft !== null;
 
   const addStartupLink = useCallback(() => {
-    const trimmed = linkDraft.trim();
-    if (!trimmed || !isLikelyUrl(trimmed)) return false;
+    if (!normalizedLinkDraft) return false;
     setStartupLinks((current) =>
-      current.includes(trimmed) ? current : [...current, trimmed]
+      current.includes(normalizedLinkDraft)
+        ? current
+        : [...current, normalizedLinkDraft]
     );
     setLinkDraft("");
     return true;
-  }, [linkDraft]);
+  }, [normalizedLinkDraft]);
 
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<"menu" | "link">("menu");
@@ -691,17 +668,7 @@ function CreateAgentDialogContent({
     setAddOpen(false);
   }, [addStartupLink]);
 
-  // Radix Popover defaults to z-50 inline, but DialogContent is z-70.
-  // Bump the popper wrapper while this dialog content is mounted.
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent =
-      "[data-radix-popper-content-wrapper]{z-index:80!important}";
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
-  }, []);
+  useRadixPopoverZFix();
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {

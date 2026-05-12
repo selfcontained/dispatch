@@ -17,6 +17,7 @@ export type TemplateRecord = {
   branchName: string | null;
   fullAccess: boolean;
   callable: boolean;
+  allowMedia: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -32,6 +33,7 @@ export type TemplateConfigUpdate = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
+  allowMedia?: boolean;
 };
 
 export type ParsedArg = {
@@ -94,13 +96,14 @@ export class TemplateStore {
     branchName: string | null;
     fullAccess: boolean;
     callable: boolean;
+    allowMedia: boolean;
   }): Promise<TemplateRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, description, prompt, agent_type, use_worktree, base_branch, branch_name, full_access, callable)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, use_worktree, base_branch, branch_name, full_access, callable, allow_media)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING ${this.columns()}
         `,
         [
@@ -115,6 +118,7 @@ export class TemplateStore {
           input.branchName,
           input.fullAccess,
           input.callable,
+          input.allowMedia,
         ]
       );
       return mapTemplate(result.rows[0]);
@@ -205,6 +209,7 @@ export class TemplateStore {
             branch_name = CASE WHEN $12 THEN $13 ELSE branch_name END,
             full_access = COALESCE($14, full_access),
             callable = COALESCE($15, callable),
+            allow_media = COALESCE($16, allow_media),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.columns()}
@@ -225,6 +230,7 @@ export class TemplateStore {
           input.branchName ?? null,
           input.fullAccess,
           input.callable,
+          input.allowMedia,
         ]
       );
       if (!result.rows[0]) throw new Error(`Template ${id} not found.`);
@@ -273,6 +279,7 @@ export class TemplateStore {
       branch_name AS "branchName",
       full_access AS "fullAccess",
       callable,
+      allow_media AS "allowMedia",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

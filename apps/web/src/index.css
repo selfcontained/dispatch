@@ -10,7 +10,7 @@
   --foreground: 60 30% 96%;
   --card: 50 8% 9%;
   --card-foreground: 60 30% 96%;
-  --popover: 50 8% 9%;
+  --popover: 50 8% 13%;
   --popover-foreground: 60 30% 96%;
   --primary: 158 82% 28%;
   --primary-foreground: 160 10% 95%;
@@ -53,7 +53,7 @@
   --foreground: 224 13% 95%;
   --card: 222 16% 9%;
   --card-foreground: 224 13% 95%;
-  --popover: 222 16% 9%;
+  --popover: 222 16% 13%;
   --popover-foreground: 224 13% 95%;
   --primary: 207 100% 67%;
   --primary-foreground: 222 40% 8%;
@@ -93,7 +93,7 @@
   --foreground: 0 0% 94%;
   --card: 0 0% 4%;
   --card-foreground: 0 0% 94%;
-  --popover: 0 0% 4%;
+  --popover: 0 0% 8%;
   --popover-foreground: 0 0% 94%;
   --primary: 160 84% 39%;
   --primary-foreground: 0 0% 0%;
@@ -133,7 +133,7 @@
   --foreground: 186 8% 62%;
   --card: 192 81% 14%;
   --card-foreground: 186 8% 62%;
-  --popover: 192 81% 14%;
+  --popover: 192 81% 18%;
   --popover-foreground: 186 8% 62%;
   --primary: 205 82% 45%;
   --primary-foreground: 44 87% 94%;
@@ -213,7 +213,7 @@
   --foreground: 270 50% 90%;
   --card: 262 48% 8%;
   --card-foreground: 270 50% 90%;
-  --popover: 262 48% 8%;
+  --popover: 262 48% 12%;
   --popover-foreground: 270 50% 90%;
   --primary: 325 100% 72%;
   --primary-foreground: 262 60% 6%;
@@ -253,7 +253,7 @@
   --foreground: 224 13% 95%;
   --card: 220 18% 4%;
   --card-foreground: 224 13% 95%;
-  --popover: 220 18% 4%;
+  --popover: 220 18% 8%;
   --popover-foreground: 224 13% 95%;
   --primary: 207 100% 67%;
   --primary-foreground: 0 0% 0%;
@@ -293,7 +293,7 @@
   --foreground: 136 100% 92%;
   --card: 145 22% 4%;
   --card-foreground: 136 100% 92%;
-  --popover: 145 22% 4%;
+  --popover: 145 22% 8%;
   --popover-foreground: 136 100% 92%;
   --primary: 136 79% 36%;
   --primary-foreground: 150 20% 2%;
@@ -333,7 +333,7 @@
   --foreground: 219 16% 89%;
   --card: 225 10% 9%;
   --card-foreground: 219 16% 89%;
-  --popover: 225 10% 9%;
+  --popover: 225 10% 13%;
   --popover-foreground: 219 16% 89%;
   --primary: 244 100% 69%;
   --primary-foreground: 0 0% 6%;

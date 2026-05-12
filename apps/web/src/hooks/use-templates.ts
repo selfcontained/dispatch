@@ -17,6 +17,7 @@ export type Template = {
   branchName: string | null;
   fullAccess: boolean;
   callable: boolean;
+  allowMedia: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -38,6 +39,7 @@ export type AddTemplateConfig = {
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
+  allowMedia?: boolean;
 };
 
 export type LaunchResult = {
@@ -111,15 +113,38 @@ export function useTemplateActions() {
       id,
       args,
       agentType,
+      startupFiles,
+      startupLinks,
     }: {
       id: string;
       args?: Record<string, string>;
       agentType?: CliAgentType;
-    }) =>
-      api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
+      startupFiles?: File[];
+      startupLinks?: string[];
+    }) => {
+      const hasFiles =
+        (startupFiles && startupFiles.length > 0) ||
+        (startupLinks && startupLinks.length > 0);
+      if (hasFiles) {
+        const formData = new FormData();
+        if (args) formData.append("args", JSON.stringify(args));
+        if (agentType) formData.append("agentType", agentType);
+        if (startupLinks) {
+          formData.append("startupLinks", JSON.stringify(startupLinks));
+        }
+        for (const file of startupFiles ?? []) {
+          formData.append("startupFiles", file);
+        }
+        return api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
+          method: "POST",
+          body: formData,
+        });
+      }
+      return api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
         method: "POST",
         body: JSON.stringify({ args, agentType }),
-      }),
+      });
+    },
     onSuccess: (result) => {
       queryClient.setQueryData<Agent[]>(["agents"], (old) => {
         if (!old) return [result.agent];
