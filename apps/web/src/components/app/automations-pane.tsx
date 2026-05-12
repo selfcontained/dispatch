@@ -37,11 +37,14 @@ import {
 import { BranchSelect } from "@/components/app/branch-select";
 import {
   type ClipboardSuggestion,
+  STARTUP_FILE_ACCEPT,
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
   getClipboardSuggestion,
-  isLikelyUrl,
   normalizeUrl,
+  startupFileExt,
+  startupFileKey,
+  startupLinkLabel,
 } from "@/components/app/create-agent-dialog-clipboard";
 import { PathInput } from "@/components/app/path-input";
 import type { AgentType } from "@/lib/agent-types";
@@ -81,12 +84,10 @@ import {
   isCliAgentType,
 } from "@/lib/agent-types";
 import { useClickOutside } from "@/hooks/use-click-outside";
+import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
-
-const STARTUP_FILE_ACCEPT =
-  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
 
 type AutomationsTab = "templates" | "jobs";
 
@@ -273,26 +274,10 @@ function TemplateListItem({
     [enabledAgentTypes]
   );
 
-  const needsDialog = args.length > 0 || template.allowMedia;
-
-  const handleLaunch = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (needsDialog) {
-        setLaunchDialogOpen(true);
-        return;
-      }
-      launchTemplate
-        .mutateAsync({ id: template.id })
-        .then((result) => {
-          navigate(agentRoute(result.agent.id));
-        })
-        .catch((err: Error) => {
-          toast.error(`Failed to launch: ${err.message}`);
-        });
-    },
-    [needsDialog, launchTemplate, navigate, template.id]
-  );
+  const handleLaunch = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLaunchDialogOpen(true);
+  }, []);
 
   return (
     <>
@@ -433,22 +418,9 @@ function TemplateDetail({
     [template.prompt]
   );
 
-  const detailNeedsDialog = savedArgs.length > 0 || template.allowMedia;
-
   const handleLaunch = useCallback(() => {
-    if (detailNeedsDialog) {
-      setLaunchDialogOpen(true);
-      return;
-    }
-    launchTemplate
-      .mutateAsync({ id: template.id })
-      .then((result) => {
-        navigate(agentRoute(result.agent.id));
-      })
-      .catch((err: Error) => {
-        toast.error(`Failed to launch: ${err.message}`);
-      });
-  }, [detailNeedsDialog, launchTemplate, template.id, navigate]);
+    setLaunchDialogOpen(true);
+  }, []);
 
   const canSave = !!displayName.trim() && !!directory.trim();
 
@@ -779,33 +751,6 @@ function ArgInput({
 // File/link helpers (shared with create-agent-dialog)
 // ---------------------------------------------------------------------------
 
-function startupFileKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}`;
-}
-
-function startupFileExt(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot === -1
-    ? "FILE"
-    : name
-        .slice(dot + 1)
-        .toUpperCase()
-        .slice(0, 4);
-}
-
-function startupLinkLabel(url: string): { host: string; rest: string } {
-  try {
-    const u = new URL(url);
-    const rest =
-      (u.pathname === "/" ? "" : u.pathname) +
-      (u.search || "") +
-      (u.hash || "");
-    return { host: u.hostname.replace(/^www\./, ""), rest };
-  } catch {
-    return { host: url, rest: "" };
-  }
-}
-
 const CONTEXT_LINK_INPUT_ID = "launch-template-context-link-input";
 const CONTEXT_LINK_ERROR_ID = "launch-template-context-link-error";
 
@@ -958,6 +903,7 @@ function LaunchTemplateDialogContent({
   const [checkingClipboard, setCheckingClipboard] = useState(false);
   const [clipboardPasteMode, setClipboardPasteMode] = useState(false);
   const [pasteTooltip, setPasteTooltip] = useState<string | null>(null);
+  const pasteTooltipTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const clipboardPasteRef = useRef<HTMLInputElement>(null);
   const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
     string | null
@@ -969,15 +915,14 @@ function LaunchTemplateDialogContent({
   const startupFilePreviewsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
-    if (!open) return;
     setArgValues({});
     setAgentType(template.agentType);
-  }, [open, template.agentType]);
+  }, [template.agentType]);
 
   useEffect(() => {
-    if (!open || args.length > 0) return;
+    if (args.length > 0) return;
     requestAnimationFrame(() => launchButtonRef.current?.focus());
-  }, [args.length, open]);
+  }, [args.length]);
 
   useEffect(() => {
     const previews = startupFilePreviewsRef.current;
@@ -989,16 +934,7 @@ function LaunchTemplateDialogContent({
     };
   }, []);
 
-  // Radix Popover z-index fix — same as create-agent-dialog
-  useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent =
-      "[data-radix-popper-content-wrapper]{z-index:80!important}";
-    document.head.appendChild(style);
-    return () => {
-      style.remove();
-    };
-  }, []);
+  useRadixPopoverZFix();
 
   const appendStartupFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
@@ -1080,8 +1016,12 @@ function LaunchTemplateDialogContent({
         setClipboardPasteMode(false);
         return;
       }
+      clearTimeout(pasteTooltipTimerRef.current);
       setPasteTooltip("No files or images found");
-      setTimeout(() => setPasteTooltip(null), 2500);
+      pasteTooltipTimerRef.current = setTimeout(
+        () => setPasteTooltip(null),
+        2500
+      );
     },
     [appendStartupFiles, applyClipboardSuggestion]
   );
@@ -1174,19 +1114,20 @@ function LaunchTemplateDialogContent({
     setAddMode("menu");
   }, []);
 
-  const trimmedLinkDraft = linkDraft.trim();
+  const normalizedLinkDraft = normalizeUrl(linkDraft);
   const linkDraftIsValid =
-    trimmedLinkDraft.length === 0 || isLikelyUrl(trimmedLinkDraft);
+    linkDraft.trim().length === 0 || normalizedLinkDraft !== null;
 
   const addStartupLink = useCallback(() => {
-    const normalized = normalizeUrl(linkDraft);
-    if (!normalized) return false;
+    if (!normalizedLinkDraft) return false;
     setStartupLinks((current) =>
-      current.includes(normalized) ? current : [...current, normalized]
+      current.includes(normalizedLinkDraft)
+        ? current
+        : [...current, normalizedLinkDraft]
     );
     setLinkDraft("");
     return true;
-  }, [linkDraft]);
+  }, [normalizedLinkDraft]);
 
   const handleAddLinkSubmit = useCallback(() => {
     if (!addStartupLink()) return;
@@ -1236,68 +1177,68 @@ function LaunchTemplateDialogContent({
       }}
     >
       <DialogHeader className="space-y-2">
-          <DialogTitle>{template.name}</DialogTitle>
-          {template.description ? (
-            <DialogDescription>{template.description}</DialogDescription>
-          ) : (
-            <DialogDescription>
-              This will create a new agent from this template.
-            </DialogDescription>
-          )}
-        </DialogHeader>
+        <DialogTitle>{template.name}</DialogTitle>
+        {template.description ? (
+          <DialogDescription>{template.description}</DialogDescription>
+        ) : (
+          <DialogDescription>
+            This will create a new agent from this template.
+          </DialogDescription>
+        )}
+      </DialogHeader>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
-          }}
-          onDragOver={
-            showMedia
-              ? (event) => {
-                  if (event.dataTransfer.types.includes("Files")) {
-                    event.preventDefault();
-                    setDraggingFiles(true);
-                  }
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (allArgsFilled && !launchTemplate.isPending) handleLaunch();
+        }}
+        onDragOver={
+          showMedia
+            ? (event) => {
+                if (event.dataTransfer.types.includes("Files")) {
+                  event.preventDefault();
+                  setDraggingFiles(true);
                 }
-              : undefined
-          }
-          onDragLeave={
-            showMedia
-              ? (event) => {
-                  if (
-                    event.currentTarget.contains(
-                      event.relatedTarget as Node | null
-                    )
-                  ) {
-                    return;
-                  }
-                  setDraggingFiles(false);
+              }
+            : undefined
+        }
+        onDragLeave={
+          showMedia
+            ? (event) => {
+                if (
+                  event.currentTarget.contains(
+                    event.relatedTarget as Node | null
+                  )
+                ) {
+                  return;
                 }
-              : undefined
-          }
-          onDrop={showMedia ? handleDrop : undefined}
-        >
-          <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Agent type</label>
-            <AgentTypeCombobox
-              value={agentType}
-              onChange={setAgentType}
-              agentTypes={agentTypes}
-            />
-          </div>
+                setDraggingFiles(false);
+              }
+            : undefined
+        }
+        onDrop={showMedia ? handleDrop : undefined}
+      >
+        <div className="space-y-2">
+          <label className="text-sm text-muted-foreground">Agent type</label>
+          <AgentTypeCombobox
+            value={agentType}
+            onChange={setAgentType}
+            agentTypes={agentTypes}
+          />
+        </div>
 
-          {args.length > 0 ? (
-            <div className="mt-3 flex flex-col gap-3">
-              {args.map((arg) => (
-                <ArgInput
-                  key={arg.key}
-                  arg={arg}
-                  value={argValues[arg.key] ?? ""}
-                  onChange={(value) =>
-                    setArgValues((prev) => ({ ...prev, [arg.key]: value }))
-                  }
-                />
-              ))}
+        {args.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-3">
+            {args.map((arg) => (
+              <ArgInput
+                key={arg.key}
+                arg={arg}
+                value={argValues[arg.key] ?? ""}
+                onChange={(value) =>
+                  setArgValues((prev) => ({ ...prev, [arg.key]: value }))
+                }
+              />
+            ))}
           </div>
         ) : null}
 
@@ -1403,7 +1344,7 @@ function LaunchTemplateDialogContent({
                     )}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-72 p-1" forceMount>
+                <PopoverContent align="start" className="w-72 p-1">
                   {addMode === "menu" ? (
                     <LaunchAddContextMenu
                       onAddFile={handleAddFileFromMenu}
@@ -1511,7 +1452,7 @@ function LaunchTemplateDialogContent({
                       )}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-72 p-1" forceMount>
+                  <PopoverContent align="start" className="w-72 p-1">
                     {addMode === "menu" ? (
                       <LaunchAddContextMenu
                         onAddFile={handleAddFileFromMenu}

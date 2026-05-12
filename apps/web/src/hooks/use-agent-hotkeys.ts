@@ -158,41 +158,19 @@ export function useAgentHotkeys({
     return [
       {
         label: "Templates",
-        actions: callableTemplates.map((template) => {
-          const args = parseTemplateArgs(template.prompt ?? "");
-          const needsDialog = args.length > 0 || template.allowMedia;
-          return {
-            id: `template-${template.id}`,
-            title: template.name,
-            keywords: ["template", "launch", "run"],
-            icon: Play,
-            confirm: needsDialog
-              ? undefined
-              : {
-                  description:
-                    template.description ||
-                    "This will create a new agent from this template.",
-                },
-            run: () => {
-              if (needsDialog) {
-                setPaletteOpen(false);
-                setLaunchTemplateId(template.id);
-                return;
-              }
-              launchTemplate
-                .mutateAsync({ id: template.id })
-                .then((result) => {
-                  navigate(agentRoute(result.agent.id));
-                })
-                .catch((err: Error) => {
-                  toast.error(`Failed to launch template: ${err.message}`);
-                });
-            },
-          };
-        }),
+        actions: callableTemplates.map((template) => ({
+          id: `template-${template.id}`,
+          title: template.name,
+          keywords: ["template", "launch", "run"],
+          icon: Play,
+          run: () => {
+            setPaletteOpen(false);
+            setLaunchTemplateId(template.id);
+          },
+        })),
       },
     ];
-  }, [templates, setPaletteOpen]);
+  }, [templates, setPaletteOpen, setLaunchTemplateId]);
 
   const resolvedLaunchTemplate = useMemo(
     () => templates.find((t) => t.id === launchTemplateId) ?? null,

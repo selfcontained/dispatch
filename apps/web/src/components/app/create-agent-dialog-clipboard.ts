@@ -2,6 +2,36 @@ import type { ClipboardEvent } from "react";
 
 const URL_PROTOCOLS = new Set(["http:", "https:"]);
 
+export const STARTUP_FILE_ACCEPT =
+  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+
+export function startupFileKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`;
+}
+
+export function startupFileExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot === -1
+    ? "FILE"
+    : name
+        .slice(dot + 1)
+        .toUpperCase()
+        .slice(0, 4);
+}
+
+export function startupLinkLabel(url: string): { host: string; rest: string } {
+  try {
+    const u = new URL(url);
+    const rest =
+      (u.pathname === "/" ? "" : u.pathname) +
+      (u.search || "") +
+      (u.hash || "");
+    return { host: u.hostname.replace(/^www\./, ""), rest };
+  } catch {
+    return { host: url, rest: "" };
+  }
+}
+
 export type ClipboardSuggestion =
   | {
       kind: "image" | "file";
