@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-11
+updated_at: 2026-05-12
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`8770fb11273e1dbf05ac7fc0788bb7097dd43337` — HEAD at the start of the 2026-05-11 run. v0.20.5 release tag.
+`d58fc998ebef34318e98fd0c57d980a74b9b42dc` — HEAD at the start of the 2026-05-12 run. v0.20.6 release tag.
 
 ## next_focus
 
-**Audit docs-pane "Reviewers" section — resolution capture UI surfaces.** The backlog item from prior runs notes that PR #374 (`8ad64b9`) added resolution reasons + parent summary rendering in `feedback-panel.tsx` (`ResolutionInfoBlock` at line 735, resolution `summary` at lines 1179 / 1570). The docs don't describe what the human sees in the Feedback panel for resolved items; could be a one-paragraph addition to "Submitting findings" or "Round-trip reviews".
+**Audit docs-pane "Agents" section — history view and base-ref behavior.** The backlog has deferred agent history items from prior passes. Cross-check the Agents "History" subsection against `activity-pane.tsx` — verify whether the pins/media/feedback tabs described in the docs match the actual rendering. Also verify the base-ref claim (what `baseBranch` does when set) against `apps/server/src/agents/manager.ts`.
 
 ## backlog
 
@@ -28,7 +28,7 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
 - **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
 - **`docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields. Consider adding a body schema subsection next time the api-spec is touched.
-- **`docs/03-api-spec.md` — Templates CRUD.** PR #515 added `apps/server/src/routes/templates.ts` but the api-spec has no Templates section. Add when next auditing the spec.
+- **`docs/03-api-spec.md` — Templates CRUD.** PR #515 added `apps/server/src/routes/templates.ts` but the api-spec has no Templates section. When creating, include the `allowMedia` field (defaults true, PR #528) and the multipart launch endpoint for startup files/links.
 - **`docs/03-api-spec.md` — Template launch `agentType` override.** PR #523 added an optional `agentType` field to `POST /templates/:id/launch`. Add to the Templates CRUD section when that section is created.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 - **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
@@ -64,6 +64,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **New agent types land without docs updates.** Cursor was added in PR #513 without updating any docs surfaces. Every location that enumerates agent types needs checking when a new type is added.
 - **README CLI install table drifts from agent-type-settings.** The README CLI table should match the agent types that can be enabled in the UI; when a new type is added to `AGENT_TYPES`, add a row.
 - **Template launch dialogs now always open.** PR #523 changed inline play and command palette to always open a launch dialog (agent type override + args). If the dialog gains more fields, the "Launching templates" section needs updating.
+- **Template create/edit forms accrete checkboxes.** PR #528 added `allowMedia` — when the template form gains a new checkbox, the "Creating a template" docs list needs a matching entry.
 
 ## Notes for the next run
 
@@ -101,3 +102,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-09** (Jobs — callable + singleton) — Pivoted from next_focus (Agents history/base-ref) to diff-driven update for PR #510. Added "Show in command palette" and "Single instance" to Jobs advanced settings list. Updated "On-demand runs" to reflect singleton-gated concurrency. Added callable-jobs paragraph to Keyboard Shortcuts command palette section.
 - **2026-05-10** (Cursor agent type + templates) — Pivoted from next_focus (sidebar badges) to diff-driven update for PRs #513/#517. Added `cursor` to all agent-type lists in docs-pane (Agents, Personalities, Automations Templates, Automations Jobs, Reviewers). Updated README features list and CLI install table with Cursor. Templates section already existed from PR #515 — no additional docs needed.
 - **2026-05-11** (Sidebar badges + template launch override) — Closed the sidebar badges next_focus: added "Sidebar badges" subsection to Agents documenting Attention, Job, and Update badges. Fixed "Launching templates" section: inline play button and command palette now always open a launch dialog (PR #523), and the dialog includes an agent type override selector.
+- **2026-05-12** (Template media attachments + reviewer resolution UI) — Diff-driven: PR #528 added `allowMedia` checkbox to templates and startup files/links to the launch dialog. Added "Allow media attachments on launch" to "Creating a template" field list and media-attachment paragraph to "Launching templates". next_focus: added resolution-UI paragraph to Reviewers "Submitting findings" describing Fixed/Ignored statuses, resolution reason display, and commit SHA.

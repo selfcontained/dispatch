@@ -739,6 +739,12 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Show in command palette</strong> — when on, the template
               appears in the <Code>Mod+K</Code> palette for quick access.
             </li>
+            <li>
+              <strong>Allow media attachments on launch</strong> — when on (the
+              default), the launch dialog shows a Context section where you can
+              attach files (images, PDFs, text) or paste links. These are pinned
+              to the agent and available from the start of the session.
+            </li>
           </ul>
         </Section>
 
@@ -784,6 +790,15 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             that defaults to the template's configured type. This lets you run
             the same template with a different CLI without editing the template
             itself.
+          </P>
+          <P>
+            When a template has <strong>Allow media attachments</strong>{" "}
+            enabled, the launch dialog includes a <strong>Context</strong>{" "}
+            section for attaching files or links. You can drag-and-drop files,
+            use the <em>Add</em> menu to pick files or enter URLs, paste from
+            the clipboard, or use the <em>Read clipboard</em> button to detect
+            images and links. Attached items are pinned to the launched agent so
+            they are available from the first turn.
           </P>
           <P>
             After launch, the new agent appears in the sidebar immediately and
@@ -1203,6 +1218,14 @@ issues caused or worsened by this diff.`}</CodeBlock>
             description, and optionally a file path, line number, and suggested
             fix. Findings appear in the Feedback panel where you can review and
             resolve them.
+          </P>
+          <P>
+            Each finding can be marked <strong>Fixed</strong>,{" "}
+            <strong>Ignored</strong> (requires a reason), or forwarded to the
+            agent. Resolved items show a status badge and — when resolved via
+            the round-trip flow — display the resolution reason and the commit
+            SHA that was submitted. Items marked Ignored include the reason
+            inline so the reviewer sees it during recheck.
           </P>
         </Section>
 
