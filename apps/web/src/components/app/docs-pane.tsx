@@ -112,9 +112,12 @@ const SECTIONS: SectionDef[] = [
               <strong>Create managed git worktree</strong> — checked by default
               (and disabled when the working directory isn't a git repo).
               Creates an isolated worktree so the agent works without touching
-              your primary checkout. A nested{" "}
-              <strong>Create a new branch in this worktree</strong> sub-checkbox
-              controls whether Dispatch forks a new working branch from the
+              your primary checkout. When checked, two nested controls appear: a{" "}
+              <strong>Starting branch</strong> picker (defaults to{" "}
+              <Code>main</Code>, remembered per directory) that sets which
+              branch the worktree checks out, and a{" "}
+              <strong>Create a new branch in this worktree</strong> checkbox
+              that controls whether Dispatch forks a new working branch from the
               starting branch (on, default — the authoring flow) or just checks
               out the starting branch directly (off — review/investigation
               flows). See the Worktrees section for details.
@@ -206,14 +209,15 @@ const SECTIONS: SectionDef[] = [
         <Section>
           <H3>Agent details</H3>
           <P>
-            Expand an agent card to see its metadata: working directory or
-            worktree path, git branch, agent type, and a{" "}
-            <strong>diff-stats badge</strong> in the top-right summarizing
-            uncommitted changes against the base branch. CLI agents also show
-            whether they're running in full access or sandboxed mode, plus a
-            feedback panel and persona launcher; terminal agents skip those
-            since they have no CLI. Persona agents show their role and link to
-            their parent agent.
+            Expand an agent card to see its metadata. Worktree agents show the
+            repo name, base branch, and working branch (indented below the
+            base); non-worktree agents show the working directory and current
+            branch. A <strong>diff-stats badge</strong> in the top-right
+            summarizes uncommitted changes against the base branch. CLI agents
+            also show whether they're running in full access or sandboxed mode,
+            plus a feedback panel and persona launcher; terminal agents skip
+            those since they have no CLI. Persona agents show their role and
+            link to their parent agent.
           </P>
         </Section>
 

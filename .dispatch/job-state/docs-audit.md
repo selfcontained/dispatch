@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-12
+updated_at: 2026-05-13
 ---
 
 # docs-audit — state handoff
@@ -9,16 +9,17 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`d58fc998ebef34318e98fd0c57d980a74b9b42dc` — HEAD at the start of the 2026-05-12 run. v0.20.6 release tag.
+`3dfa2c181f35900c1802fc8f0664e00186cf3df1` — HEAD at the start of the 2026-05-13 run.
 
 ## next_focus
 
-**Audit docs-pane "Agents" section — history view and base-ref behavior.** The backlog has deferred agent history items from prior passes. Cross-check the Agents "History" subsection against `activity-pane.tsx` — verify whether the pins/media/feedback tabs described in the docs match the actual rendering. Also verify the base-ref claim (what `baseBranch` does when set) against `apps/server/src/agents/manager.ts`.
+**Audit docs-pane "Reviewers" section — resolution UI paragraph.** The 2026-05-12 run added a resolution-UI paragraph to the Reviewers "Submitting findings" subsection describing Fixed/Ignored statuses, resolution reason display, and commit SHA. Cross-check the actual resolution components in the feedback panel (`apps/web/src/components/app/agent-card.tsx` or related feedback components) to verify the claims about Fixed/Ignored badges, resolution reasons, and commit SHA display are accurate. Also verify whether the `dispatch_submit_resolution` / `dispatch_resolve_feedback` MCP tools match what the docs describe.
 
 ## backlog
 
 Items noticed during prior passes but left for later runs. Pick the most relevant one when `next_focus` is empty or already done.
 
+- **Agent history type filter missing Cursor and Terminal.** `agent-history-tab.tsx` lines 200-203 only list Claude, Codex, OpenCode in the type filter dropdown. `AGENT_TYPES` includes all five (claude, codex, cursor, opencode, terminal). This is a UI bug, not a docs issue — but worth noting here in case a docs claim about filtering surfaces later.
 - **docs-pane "Updates" section — `ASSISTED_UPDATE_METADATA_INVALID`.** Low-impact but worth a sentence if the section gets revisited.
 - **docs-pane "Updates" section — release-channel deep mechanics.** PR #487 (2026-05-03) may have introduced new user-visible release-detection state — spot-check `release-manager.tsx` next time the Updates section is touched.
 - **docs-pane "Status Events" section — `metadata` parameter** — `dispatch_event` accepts an optional `metadata` (Record<string, unknown>) param. Currently undocumented in docs-pane. Revisit only if a feature starts using metadata in a user-visible way.
@@ -65,6 +66,8 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **README CLI install table drifts from agent-type-settings.** The README CLI table should match the agent types that can be enabled in the UI; when a new type is added to `AGENT_TYPES`, add a row.
 - **Template launch dialogs now always open.** PR #523 changed inline play and command palette to always open a launch dialog (agent type override + args). If the dialog gains more fields, the "Launching templates" section needs updating.
 - **Template create/edit forms accrete checkboxes.** PR #528 added `allowMedia` — when the template form gains a new checkbox, the "Creating a template" docs list needs a matching entry.
+- **Agent detail metadata claims trail UI changes.** The "Agent details" paragraph described "agent type" when the card actually shows the access-mode badge (Full access / Sandboxed). Always re-read the rendering component when auditing this paragraph.
+- **Create-agent nested controls hide behind the worktree checkbox.** The "Starting branch" picker and "Create a new branch" checkbox are only visible when worktree mode is checked. Docs describing these controls should mention the conditional visibility.
 
 ## Notes for the next run
 
@@ -103,3 +106,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-10** (Cursor agent type + templates) — Pivoted from next_focus (sidebar badges) to diff-driven update for PRs #513/#517. Added `cursor` to all agent-type lists in docs-pane (Agents, Personalities, Automations Templates, Automations Jobs, Reviewers). Updated README features list and CLI install table with Cursor. Templates section already existed from PR #515 — no additional docs needed.
 - **2026-05-11** (Sidebar badges + template launch override) — Closed the sidebar badges next_focus: added "Sidebar badges" subsection to Agents documenting Attention, Job, and Update badges. Fixed "Launching templates" section: inline play button and command palette now always open a launch dialog (PR #523), and the dialog includes an agent type override selector.
 - **2026-05-12** (Template media attachments + reviewer resolution UI) — Diff-driven: PR #528 added `allowMedia` checkbox to templates and startup files/links to the launch dialog. Added "Allow media attachments on launch" to "Creating a template" field list and media-attachment paragraph to "Launching templates". next_focus: added resolution-UI paragraph to Reviewers "Submitting findings" describing Fixed/Ignored statuses, resolution reason display, and commit SHA.
+- **2026-05-13** (Agents — history/base-ref) — Closed the Agents history/base-ref next_focus. Fixed "Agent details" paragraph: replaced inaccurate "agent type" claim with correct description of repo name + base/working branch display for worktree agents vs. working directory for non-worktree agents. Added "Starting branch" picker to "Creating an agent" bullet list — was missing from the worktree controls description. Noted history type-filter UI bug (missing Cursor/Terminal) in backlog.
