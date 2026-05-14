@@ -1,7 +1,11 @@
 import path from "node:path";
 
 import { validatePinValue } from "../pins.js";
-import { isMediaFile, isTextFile } from "../shared/media.js";
+import {
+  isMediaFile,
+  isTextFile,
+  sanitizeUploadedFileName,
+} from "../shared/media.js";
 
 export type CreateAgentBody = {
   name?: unknown;
@@ -86,19 +90,6 @@ export function createStartupPins(urls: string[]): Array<{
       type: "url",
     };
   });
-}
-
-function sanitizeUploadedFileName(name: string): string {
-  const ext = path.extname(name).toLowerCase();
-  const baseName = path.basename(name, ext).normalize("NFKD");
-  const collapsed = baseName
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9._() -]+/g, "-")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-  return `${collapsed || "file"}${ext}`;
 }
 
 function sanitizeStartupDisplayName(
