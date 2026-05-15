@@ -10,7 +10,7 @@ a89adf2118e76d05df41c04329862cf1a6477665
 
 - `apps/server/src/diagnostics.ts:31` has a local `const errorMessage` arrow function that duplicates the shared `errorMessage` in `shared/lib/error-message.ts`.
 - `apps/server/src/agents/manager.ts:1697` has a `private errorMessage()` method that does the same thing.
-- **Action**: Import `errorMessage` from `../shared/lib/error-message.js` in both files, remove the local definitions, and update all call sites (1 in diagnostics, 3 in manager — the manager ones use `this.errorMessage()` so the call sites need the `this.` prefix removed). Run `pnpm run check` and `pnpm run test:e2e`.
+- **Action**: Import `errorMessage` from `./shared/lib/error-message.js` in `diagnostics.ts` and from `../shared/lib/error-message.js` in `agents/manager.ts`. Remove the local definitions and update all call sites (1 in diagnostics, 3 in manager — the manager ones use `this.errorMessage()` so the call sites need the `this.` prefix removed). Run `pnpm run check`, `pnpm run test`, and `pnpm run test:e2e`.
 
 ## backlog
 
