@@ -76,8 +76,14 @@ This phase is not done until **CI is green and the PR is merged**. `job_complete
 1. Run `pnpm run format:write` to fix formatting in files you touched.
 2. Commit on a new branch. Include the state file update in the same commit.
 3. Create a PR targeting `main` with a short body: what was fixed, why it qualifies as tech debt, and what's queued for the next run.
-4. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
-5. **Act on the CI result.**
+4. **Launch a reviewer.** After the PR is open, use `dispatch_launch_persona` to launch **one** review persona with `recheck: true`. Pick the best fit based on what you changed:
+   - `architecture-review` — structural refactors, module boundaries, dependency changes
+   - `backend-security-review` — anything touching auth, API routes, data handling, or env vars
+   - `frontend-ux-review` — UI component changes, style updates, accessibility
+   - `infra-review` — build config, CI, deployment, dev tooling
+     Provide thorough context in the `context` parameter: what was changed, why, and what is NOT in scope (pre-existing issues). If the reviewer requests changes, address them and push before proceeding.
+5. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
+6. **Act on the CI result.**
    - **`SUCCESS`** — merge the PR via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.
    - **`FAILURE`** — read the failed logs (`gh run view <id> --log-failed`). If the failure is caused by your diff, fix it, push, and re-poll. If it's a pre-existing flake, try `gh run rerun <id> --failed` and re-poll. If the retry also fails for unrelated reasons, call `job_needs_input` with the run URL and failure summary.
 
