@@ -13,9 +13,14 @@ dispatch/
 │   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
+│   │   │   ├── media/         # media file storage
 │   │   │   ├── notifications/ # Slack + job notifiers
 │   │   │   ├── personas/      # persona loader, review-diff builder
+│   │   │   ├── reviews/       # review injection prompts
+│   │   │   ├── routes/        # HTTP route handlers
+│   │   │   ├── server/        # server runtime helpers (lifecycle, auth, prompts)
 │   │   │   ├── shared/        # shared utilities — git/, github/, mcp/, lib/ (run-command)
+│   │   │   ├── templates/     # template service and storage
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
 │   └── web/                   # Vite React frontend (@dispatch/web)
@@ -25,9 +30,10 @@ dispatch/
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
+│   ├── job-prompts/           # job prompt definitions
+│   ├── job-state/             # persistent state files for recurring jobs
 │   ├── personas/              # persona definitions (*.md)
-│   ├── tools.json             # repo-specific MCP tools + lifecycle hooks
-│   └── worktrees/             # per-agent git worktrees (managed automatically)
+│   └── tools.json             # repo-specific MCP tools + lifecycle hooks
 └── docs/
 ```
 

@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-13
+updated_at: 2026-05-14
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`3dfa2c181f35900c1802fc8f0664e00186cf3df1` — HEAD at the start of the 2026-05-13 run.
+`ef635016a2c31abb8e582cfa96b7d87eebf15c60` — HEAD at the start of the 2026-05-14 run.
 
 ## next_focus
 
-**Audit docs-pane "Reviewers" section — resolution UI paragraph.** The 2026-05-12 run added a resolution-UI paragraph to the Reviewers "Submitting findings" subsection describing Fixed/Ignored statuses, resolution reason display, and commit SHA. Cross-check the actual resolution components in the feedback panel (`apps/web/src/components/app/agent-card.tsx` or related feedback components) to verify the claims about Fixed/Ignored badges, resolution reasons, and commit SHA display are accurate. Also verify whether the `dispatch_submit_resolution` / `dispatch_resolve_feedback` MCP tools match what the docs describe.
+**Audit `docs/03-api-spec.md` — Templates CRUD section.** PR #515 added `apps/server/src/routes/templates.ts` and PR #528 added `allowMedia`. The api-spec has no Templates section at all. Create one covering the CRUD endpoints, the `allowMedia` field (defaults true), the multipart launch endpoint for startup files/links, and the `agentType` override on `POST /templates/:id/launch` (PR #523). Cross-check against `apps/server/src/routes/templates.ts` for the actual endpoint signatures.
 
 ## backlog
 
@@ -29,7 +29,6 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
 - **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
 - **`docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields. Consider adding a body schema subsection next time the api-spec is touched.
-- **`docs/03-api-spec.md` — Templates CRUD.** PR #515 added `apps/server/src/routes/templates.ts` but the api-spec has no Templates section. When creating, include the `allowMedia` field (defaults true, PR #528) and the multipart launch endpoint for startup files/links.
 - **`docs/03-api-spec.md` — Template launch `agentType` override.** PR #523 added an optional `agentType` field to `POST /templates/:id/launch`. Add to the Templates CRUD section when that section is created.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 - **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
@@ -68,6 +67,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Template create/edit forms accrete checkboxes.** PR #528 added `allowMedia` — when the template form gains a new checkbox, the "Creating a template" docs list needs a matching entry.
 - **Agent detail metadata claims trail UI changes.** The "Agent details" paragraph described "agent type" when the card actually shows the access-mode badge (Full access / Sandboxed). Always re-read the rendering component when auditing this paragraph.
 - **Create-agent nested controls hide behind the worktree checkbox.** The "Starting branch" picker and "Create a new branch" checkbox are only visible when worktree mode is checked. Docs describing these controls should mention the conditional visibility.
+- **CLAUDE.md project structure tree drifts as new feature directories are added.** Check `ls -d apps/server/src/*/` against the tree whenever new packages or route-adjacent dirs appear.
 
 ## Notes for the next run
 
@@ -107,3 +107,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-11** (Sidebar badges + template launch override) — Closed the sidebar badges next_focus: added "Sidebar badges" subsection to Agents documenting Attention, Job, and Update badges. Fixed "Launching templates" section: inline play button and command palette now always open a launch dialog (PR #523), and the dialog includes an agent type override selector.
 - **2026-05-12** (Template media attachments + reviewer resolution UI) — Diff-driven: PR #528 added `allowMedia` checkbox to templates and startup files/links to the launch dialog. Added "Allow media attachments on launch" to "Creating a template" field list and media-attachment paragraph to "Launching templates". next_focus: added resolution-UI paragraph to Reviewers "Submitting findings" describing Fixed/Ignored statuses, resolution reason display, and commit SHA.
 - **2026-05-13** (Agents — history/base-ref) — Closed the Agents history/base-ref next_focus. Fixed "Agent details" paragraph: replaced inaccurate "agent type" claim with correct description of repo name + base/working branch display for worktree agents vs. working directory for non-worktree agents. Added "Starting branch" picker to "Creating an agent" bullet list — was missing from the worktree controls description. Noted history type-filter UI bug (missing Cursor/Terminal) in backlog.
+- **2026-05-14** (CLAUDE.md structure tree + Reviewers resolution verification) — Verified next_focus (Reviewers resolution UI paragraph): Fixed/Ignored statuses, resolution reasons, and commit SHA all confirmed accurate against feedback-panel.tsx and MCP tool definitions. Fixed CLAUDE.md project structure tree: added 5 missing server/src directories (media, reviews, routes, server, templates), replaced stale `.dispatch/worktrees/` with actual `job-prompts/` and `job-state/` entries. Verified MCP tool lists (AGENT_TOOLS, JOB_TOOLS, PERSONA_TOOLS) and create-agent dialog fields — all in sync.
