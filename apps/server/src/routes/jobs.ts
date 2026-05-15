@@ -6,6 +6,7 @@ import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import type { JobService } from "../jobs/service.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 
 const directoryField = z
   .string()
@@ -68,7 +69,7 @@ export async function registerJobRoutes(
       const result = await deps.jobService.runJob(parsed.data);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -87,7 +88,7 @@ export async function registerJobRoutes(
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -102,7 +103,7 @@ export async function registerJobRoutes(
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -117,7 +118,7 @@ export async function registerJobRoutes(
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -132,7 +133,7 @@ export async function registerJobRoutes(
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -147,7 +148,7 @@ export async function registerJobRoutes(
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -156,7 +157,7 @@ export async function registerJobRoutes(
     try {
       return await deps.jobService.getStats();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(500).send({ error: message });
     }
   });
@@ -169,7 +170,7 @@ export async function registerJobRoutes(
     try {
       return await deps.jobService.listRunsForJob(parsed.data);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(404).send({ error: message });
     }
   });

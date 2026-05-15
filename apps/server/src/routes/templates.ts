@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import {
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
@@ -110,7 +111,7 @@ export async function registerTemplateRoutes(
       deps.publishUiEvent({ type: "template.changed" });
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       return reply.code(classifyErrorCode(message)).send({ error: message });
     }
   });
@@ -130,7 +131,7 @@ export async function registerTemplateRoutes(
         deps.publishUiEvent({ type: "template.changed" });
         return result;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
@@ -146,7 +147,7 @@ export async function registerTemplateRoutes(
         deps.publishUiEvent({ type: "template.changed" });
         return result;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
@@ -265,7 +266,7 @@ export async function registerTemplateRoutes(
         });
         return { agent: result.agent };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         return reply.code(classifyErrorCode(message)).send({ error: message });
       }
     }
