@@ -14,6 +14,7 @@ import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 
+import { errorMessage } from "./shared/lib/error-message.js";
 import { runCommand } from "./shared/lib/run-command.js";
 
 const TMUX_INVENTORY_INTERVAL_MS = 60_000;
@@ -27,9 +28,6 @@ const diagnosticsRoot = (): string =>
 
 const serverLogPath = (): string =>
   path.join(os.homedir(), ".dispatch", "logs", "dispatch.log");
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "Unknown error";
 
 /**
  * Wrapper that swallows runCommand failures into a structured result so
