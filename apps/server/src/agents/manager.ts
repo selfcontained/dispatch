@@ -28,6 +28,7 @@ import {
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { harvestTokenUsage } from "./token-harvester.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import { AgentError } from "./errors.js";
 import {
   type AgentEventBus,
@@ -620,7 +621,7 @@ export class AgentManager {
           payload: { kind: "setup-script", scriptContent: setupScript },
         });
       } catch (error) {
-        const message = this.errorMessage(error);
+        const message = errorMessage(error);
         await this.setAgentStatus(id, "error", message);
         await this.setSetupPhase(id, null);
         await this.setSystemLatestEvent(id, {
@@ -815,7 +816,7 @@ export class AgentManager {
             }
       );
     } catch (error) {
-      const message = this.errorMessage(error);
+      const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "blocked",
@@ -901,7 +902,7 @@ export class AgentManager {
         this.logger.warn({ err, agentId: id }, "Token harvest failed on stop")
       );
     } catch (error) {
-      const message = this.errorMessage(error);
+      const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message, tmuxSession ?? undefined);
       await this.setSystemLatestEvent(id, {
         type: "blocked",
@@ -1694,9 +1695,6 @@ export class AgentManager {
     return path.join(this.config.mediaRoot, agentId);
   }
 
-  private errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : "Unknown error";
-  }
   private async setSetupPhase(id: string, phase: SetupPhase): Promise<void> {
     await this.pool.query(
       `UPDATE agents SET setup_phase = $2, updated_at = NOW() WHERE id = $1`,
