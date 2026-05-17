@@ -12,5 +12,9 @@ export default defineConfig({
       // Legacy non-vitest test
       "test/stream-process.test.ts",
     ],
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "json-summary", "lcov"],
+    },
   },
 });
