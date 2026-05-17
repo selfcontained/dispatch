@@ -1,12 +1,10 @@
-import os from "node:os";
-import path from "node:path";
-
 import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import type { JobService } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 
 const directoryField = z
   .string()
@@ -43,12 +41,6 @@ const JobHistoryParamsSchema = z.object({
   directory: directoryField,
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
-
-function resolveTilde(value: string): string {
-  if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
-  if (value === "~") return os.homedir();
-  return value;
-}
 
 type JobsRouteDeps = {
   jobService: JobService;
