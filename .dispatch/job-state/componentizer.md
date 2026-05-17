@@ -9,7 +9,7 @@ Each run of the componentizer job reads this file at Phase 0 and overwrites it a
 
 ## last_audited_sha
 
-`d64e0827d48e5a2b4362d0a9cea79dbada9a07de`
+`e59e06a60375e2a43918d7f2940e029de3c7c0e6`
 
 ## next_focus
 
@@ -56,4 +56,4 @@ This is the second-worst offender by line count and follows the same "dialogs in
 ## history
 
 - 2026-05-17: Bootstrap scan completed. Identified 10 candidates, prioritized by impact and extraction clarity. No refactoring performed.
-- 2026-05-17: Refactored `jobs-pane.tsx` (2489→1599 lines). Extracted `jobs-utils.tsx` (295 lines, shared utilities + form components), `jobs-add-dialog.tsx` (409 lines, AddJobDialog + AddJobFlow), `jobs-charts.tsx` (247 lines, DailyRunsChart + JobAvgDuration + RunHistoryGrid). PR #TBD.
+- 2026-05-17: Refactored `jobs-pane.tsx` (2489→1599 lines). Extracted `jobs-helpers.ts` (pure utilities), `jobs-form-fields.tsx` (shared form components), `jobs-add-dialog.tsx` (AddJobDialog + AddJobFlow), `jobs-charts.tsx` (chart components). PR #546.
