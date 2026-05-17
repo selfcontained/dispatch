@@ -2,6 +2,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Activity,
   AlarmClock,
+  CheckCircle2,
   Clock,
   History,
   MessageSquareText,
@@ -9,6 +10,7 @@ import {
   Settings,
   Terminal,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -21,6 +23,12 @@ import {
   RunHistoryGrid,
 } from "@/components/app/jobs-charts";
 import {
+  JobFullAccessOption,
+  JobKeepAgentOption,
+  JobWorktreeOption,
+  SwitchToggle,
+} from "@/components/app/jobs-form-fields";
+import {
   ACTIVE_RUN_STATUSES,
   cronError,
   errorMessage,
@@ -29,19 +37,14 @@ import {
   formatTimeUntil,
   formatTimeUntilDate,
   humanSchedule,
-  JobFullAccessOption,
-  JobKeepAgentOption,
-  JobWorktreeOption,
   minutesFromMs,
   msFromMinutes,
   shortPath,
   statusClasses,
   statusDotColor,
-  statusIcon,
   statusTextColor,
-  SwitchToggle,
   triggerSourceLabel,
-} from "@/components/app/jobs-utils";
+} from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,6 +125,17 @@ function useJobsContext(): JobsContextValue {
 }
 
 type DetailTab = "configure" | "prompt" | "history";
+
+function statusIcon(
+  status: import("@/hooks/use-jobs").JobRunStatus | null
+): JSX.Element | null {
+  if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return <XCircle className="h-3.5 w-3.5" />;
+  if (status === "started" || status === "running" || status === "needs_input")
+    return <ActivityBars size={14} className="shrink-0" />;
+  return null;
+}
 
 function useAttachedJobAgent(job: Job | null, agents: Agent[]) {
   return useMemo(() => {

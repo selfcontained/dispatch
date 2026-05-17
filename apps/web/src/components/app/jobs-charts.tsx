@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, XAxis } from "recharts";
 
-import { formatDuration } from "@/components/app/jobs-utils";
+import { formatDuration } from "@/components/app/jobs-helpers";
 import {
   ChartContainer,
   ChartLegend,

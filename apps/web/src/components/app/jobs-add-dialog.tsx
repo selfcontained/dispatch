@@ -4,15 +4,17 @@ import { useState } from "react";
 
 import { PathInput } from "@/components/app/path-input";
 import {
-  cronError,
-  errorMessage,
-  humanSchedule,
   JobFullAccessOption,
   JobKeepAgentOption,
   JobWorktreeOption,
-  msFromMinutes,
   SwitchToggle,
-} from "@/components/app/jobs-utils";
+} from "@/components/app/jobs-form-fields";
+import {
+  cronError,
+  errorMessage,
+  humanSchedule,
+  msFromMinutes,
+} from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
