@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-14
+updated_at: 2026-05-16
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`ef635016a2c31abb8e582cfa96b7d87eebf15c60` — HEAD at the start of the 2026-05-14 run.
+`ad155782a47faf48c9e7bd0971f06d34241943a9` — HEAD at the start of the 2026-05-16 run.
 
 ## next_focus
 
-**Audit `docs/03-api-spec.md` — Templates CRUD section.** PR #515 added `apps/server/src/routes/templates.ts` and PR #528 added `allowMedia`. The api-spec has no Templates section at all. Create one covering the CRUD endpoints, the `allowMedia` field (defaults true), the multipart launch endpoint for startup files/links, and the `agentType` override on `POST /templates/:id/launch` (PR #523). Cross-check against `apps/server/src/routes/templates.ts` for the actual endpoint signatures.
+**Audit `docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields (`name`, `directory`, `schedule`, `prompt`, `agentType`, `useWorktree`, `baseBranch`). Cross-check against `apps/server/src/routes/jobs.ts` for the actual Zod schemas and add body documentation matching the style of the Templates section added this run.
 
 ## backlog
 
@@ -28,8 +28,7 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`docs/04-agent-lifecycle.md` — round-trip back from in-app docs.** If the in-app docs-pane gains a "Lifecycle" or "Architecture" section, link to this doc rather than re-explaining the state machine.
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
 - **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
-- **`docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields. Consider adding a body schema subsection next time the api-spec is touched.
-- **`docs/03-api-spec.md` — Template launch `agentType` override.** PR #523 added an optional `agentType` field to `POST /templates/:id/launch`. Add to the Templates CRUD section when that section is created.
+- **`docs/03-api-spec.md` — Template launch `agentType` override.** ✅ Addressed in the 2026-05-16 run — the new Templates section documents the `agentType` field on launch.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 - **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
 
@@ -68,6 +67,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Agent detail metadata claims trail UI changes.** The "Agent details" paragraph described "agent type" when the card actually shows the access-mode badge (Full access / Sandboxed). Always re-read the rendering component when auditing this paragraph.
 - **Create-agent nested controls hide behind the worktree checkbox.** The "Starting branch" picker and "Create a new branch" checkbox are only visible when worktree mode is checked. Docs describing these controls should mention the conditional visibility.
 - **CLAUDE.md project structure tree drifts as new feature directories are added.** Check `ls -d apps/server/src/*/` against the tree whenever new packages or route-adjacent dirs appear.
+- **API-spec agent-types enum lists go stale.** The Settings section listed only four types; `cursor` was missing. Always check `AGENT_TYPES` array when touching the agent-types endpoint docs.
 
 ## Notes for the next run
 
@@ -108,3 +108,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-12** (Template media attachments + reviewer resolution UI) — Diff-driven: PR #528 added `allowMedia` checkbox to templates and startup files/links to the launch dialog. Added "Allow media attachments on launch" to "Creating a template" field list and media-attachment paragraph to "Launching templates". next_focus: added resolution-UI paragraph to Reviewers "Submitting findings" describing Fixed/Ignored statuses, resolution reason display, and commit SHA.
 - **2026-05-13** (Agents — history/base-ref) — Closed the Agents history/base-ref next_focus. Fixed "Agent details" paragraph: replaced inaccurate "agent type" claim with correct description of repo name + base/working branch display for worktree agents vs. working directory for non-worktree agents. Added "Starting branch" picker to "Creating an agent" bullet list — was missing from the worktree controls description. Noted history type-filter UI bug (missing Cursor/Terminal) in backlog.
 - **2026-05-14** (CLAUDE.md structure tree + Reviewers resolution verification) — Verified next_focus (Reviewers resolution UI paragraph): Fixed/Ignored statuses, resolution reasons, and commit SHA all confirmed accurate against feedback-panel.tsx and MCP tool definitions. Fixed CLAUDE.md project structure tree: added 5 missing server/src directories (media, reviews, routes, server, templates), replaced stale `.dispatch/worktrees/` with actual `job-prompts/` and `job-state/` entries. Verified MCP tool lists (AGENT_TOOLS, JOB_TOOLS, PERSONA_TOOLS) and create-agent dialog fields — all in sync.
+- **2026-05-16** (API spec — Templates CRUD) — Added new Templates section to `docs/03-api-spec.md` covering all 6 endpoints (list, get, create, update, delete, launch) with body schemas and multipart launch documentation. Fixed Settings agent-types list (added missing `cursor`). Added `template.changed` SSE event to the events table.
