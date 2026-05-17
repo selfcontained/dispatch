@@ -9,7 +9,7 @@ Each run of the componentizer job reads this file at Phase 0 and overwrites it a
 
 ## last_audited_sha
 
-`8c264a7c53d0411edd0e922aa0deff8b762d3887`
+`e8de2c117ddcdd5df134dae1e90e0ecf09b61e39`
 
 ## next_focus
 
@@ -55,4 +55,4 @@ This follows the "mobile variants double component count" pattern identified in 
 
 - 2026-05-17: Bootstrap scan completed. Identified 10 candidates, prioritized by impact and extraction clarity. No refactoring performed.
 - 2026-05-17: Refactored `jobs-pane.tsx` (2489→1599 lines). Extracted `jobs-helpers.ts` (pure utilities), `jobs-form-fields.tsx` (shared form components), `jobs-add-dialog.tsx` (AddJobDialog + AddJobFlow), `jobs-charts.tsx` (chart components). PR #546.
-- 2026-05-17: Refactored `automations-pane.tsx` (2029→377 lines). Extracted `automations-form-fields.tsx` (AgentTypeCombobox, TemplateWorktreeOption, TemplateFullAccessOption), `automations-launch-dialog.tsx` (LaunchTemplateDialog + context/file handling), `automations-create-dialog.tsx` (CreateTemplateDialog), `automations-template-detail.tsx` (TemplateDetailPane + TemplateDetail).
+- 2026-05-17: Refactored `automations-pane.tsx` (2029→375 lines). Extracted `automations-form-fields.tsx` (AgentTypeCombobox, TemplateWorktreeOption, TemplateFullAccessOption, TemplateConfigFields), `automations-launch-dialog.tsx` (LaunchTemplateDialog + context/file handling), `automations-create-dialog.tsx` (CreateTemplateDialog), `automations-template-detail.tsx` (TemplateDetailPane + TemplateDetail). PR #547.
