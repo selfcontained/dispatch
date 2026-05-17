@@ -169,6 +169,7 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | `feedback.created`             | Agent ID + new feedback record                       |
 | `feedback.updated`             | Agent ID + updated feedback record                   |
 | `job.changed`                  | (no payload) — job config or run state changed       |
+| `template.changed`             | (no payload) — template created, updated, or deleted |
 | `notification`                 | Web notification payload (id, agent, event, message) |
 | `release.cached_info_changed`  | Latest release-info snapshot (or `null`)             |
 
@@ -358,7 +359,7 @@ Returns `204` regardless of whether the notification was still pending.
 | GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name, copy-mode assist) |
 | POST   | `/agents/settings`          | Update agent settings (all fields optional)                                         |
 | GET    | `/app/settings/agent-types` | Get enabled agent types                                                             |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `opencode`, `terminal`)                 |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)       |
 
 ## System
 
@@ -472,6 +473,71 @@ Returns `{ "state": <AssistedUpdateState> | null }`.
 ```
 
 `name` + `directory` together identify the job. `wait: true` blocks the response until the run reaches a terminal state; otherwise the response returns as soon as the run is queued. Manual runs are tagged with `triggerSource: "manual"` internally.
+
+## Templates
+
+| Method | Path                    | Description                                               |
+| ------ | ----------------------- | --------------------------------------------------------- |
+| GET    | `/templates`            | List all templates (excludes job-backed templates)        |
+| GET    | `/templates/:id`        | Get a template by ID (includes parsed `args` from prompt) |
+| POST   | `/templates`            | Create a template                                         |
+| PATCH  | `/templates/:id`        | Update a template                                         |
+| DELETE | `/templates/:id`        | Delete a template                                         |
+| POST   | `/templates/:id/launch` | Launch an agent from a template                           |
+
+### `POST /templates`
+
+```json
+{
+  "name": "Backend feature",
+  "directory": "~/projects/myapp",
+  "description": "Standard backend feature agent",
+  "prompt": "You are working on {{feature_name}}. Focus on {{area}}.",
+  "agentType": "claude",
+  "useWorktree": true,
+  "baseBranch": "main",
+  "branchName": "feature/{{feature_name}}",
+  "fullAccess": true,
+  "callable": false,
+  "allowMedia": true
+}
+```
+
+`name` and `directory` are required. All other fields are optional. `agentType` must be one of `claude`, `codex`, `cursor`, `opencode`. `callable` controls whether the template appears in the command palette for on-demand use. `allowMedia` (defaults `true`) enables media file attachments on launch. `~` in `directory` is expanded to the user's home directory.
+
+Template prompts support `{{arg_name}}` placeholder syntax — arguments are parsed from the prompt and presented to the user in the launch dialog.
+
+### `PATCH /templates/:id`
+
+Same fields as `POST /templates` but all are optional. Only provided fields are updated.
+
+### `POST /templates/:id/launch`
+
+Launches an agent from a template. Accepts either JSON or `multipart/form-data` (for startup file uploads).
+
+**JSON body:**
+
+```json
+{
+  "args": { "feature_name": "auth-refactor", "area": "middleware" },
+  "directory": "~/projects/myapp",
+  "agentType": "codex"
+}
+```
+
+All fields are optional. `args` fills `{{placeholder}}` values in the template prompt. `directory` overrides the template's default directory. `agentType` overrides the template's configured agent type.
+
+**Multipart body (for startup files):**
+
+When `allowMedia` is enabled on the template, the launch endpoint accepts `multipart/form-data` with:
+
+- `args` — JSON-encoded string of template arguments
+- `directory` — override directory
+- `agentType` — override agent type
+- `startupFiles` — up to 10 file uploads (images, video, documents, or text files)
+- `startupLinks` — JSON array of URLs to pin for the agent
+
+Returns `{ agent }` with the newly created agent record.
 
 ## MCP (Model Context Protocol)
 
