@@ -10,6 +10,7 @@
     "start": "bun run prepare:runtime-assets && bun src/main.ts",
     "check": "bun run prepare:runtime-assets && tsc --noEmit",
     "test": "bun run prepare:runtime-assets && bun x vitest run",
+    "test:coverage": "bun run prepare:runtime-assets && mkdir -p coverage/.tmp && bun x vitest run --coverage",
     "test:watch": "bun run prepare:runtime-assets && bun x vitest",
     "db:migrate": "bun run prepare:runtime-assets && bun src/db/migrate.ts"
   },
@@ -34,6 +35,7 @@
     "@types/node": "^24.10.0",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "4.1.2",
     "vite": "^6.0.0",
     "vitest": "^4.0.18"
   }
