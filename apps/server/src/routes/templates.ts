@@ -1,4 +1,3 @@
-import os from "node:os";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
@@ -6,6 +5,7 @@ import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   type StartupFileUpload,
   MAX_STARTUP_FILE_COUNT,
@@ -58,12 +58,6 @@ const LaunchBodySchema = z.object({
   directory: directoryField.optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
 });
-
-function resolveTilde(value: string): string {
-  if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
-  if (value === "~") return os.homedir();
-  return value;
-}
 
 function classifyErrorCode(message: string): number {
   if (message.includes("not found")) return 404;

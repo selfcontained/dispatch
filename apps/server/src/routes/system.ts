@@ -1,5 +1,5 @@
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 
@@ -24,17 +24,12 @@ import {
   isValidSlackWebhookUrl,
 } from "../notifications/slack.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
 const VALID_WORKTREE_LOCATIONS = ["sibling", "nested"] as const;
-
-function resolveTildePath(raw: string): string {
-  if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
-  if (raw === "~") return os.homedir();
-  return raw;
-}
 
 type SystemRouteDeps = {
   pool: Pool;
@@ -146,7 +141,7 @@ export async function registerSystemRoutes(
         .code(400)
         .send({ error: "path query parameter is required." });
     }
-    const resolved = resolveTildePath(query.path.trim());
+    const resolved = resolveTilde(query.path.trim());
     if (!path.isAbsolute(resolved)) {
       return {
         exists: false,
@@ -204,7 +199,7 @@ export async function registerSystemRoutes(
         .send({ error: "prefix query parameter is required." });
     }
     const raw = query.prefix.trim();
-    const resolved = resolveTildePath(raw);
+    const resolved = resolveTilde(raw);
     if (!path.isAbsolute(resolved)) {
       return { completions: [] };
     }
@@ -253,7 +248,7 @@ export async function registerSystemRoutes(
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      const cwd = resolveTildePath(query.cwd.trim());
+      const cwd = resolveTilde(query.cwd.trim());
       const result = await runCommand(
         "git",
         ["-C", cwd, "ls-remote", "--heads", "origin"],
