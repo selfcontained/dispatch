@@ -46,7 +46,7 @@ import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
-import { LaunchTemplateDialog } from "@/components/app/automations-pane";
+import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {

@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Paperclip, Play, Trash2 } from "lucide-react";
+import { Play, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  AgentTypeCombobox,
-  TemplateWorktreeOption,
-  TemplateFullAccessOption,
-} from "@/components/app/automations-form-fields";
+import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
-import { PathInput } from "@/components/app/path-input";
 import type { AgentType } from "@/lib/agent-types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   useTemplates,
   useTemplateActions,
@@ -29,7 +22,6 @@ import {
   type Template,
 } from "@/hooks/use-templates";
 import { type CliAgentType, isCliAgentType } from "@/lib/agent-types";
-import { cn } from "@/lib/utils";
 
 function shortPath(value: string): string {
   const parts = value.split("/").filter(Boolean);
@@ -105,11 +97,6 @@ function TemplateDetail({
     setLaunchDialogOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [template.id]);
-
-  const detectedArgs = useMemo(
-    () => (prompt ? parseTemplateArgs(prompt) : []),
-    [prompt]
-  );
 
   const savedArgs = useMemo(
     () => (template.prompt ? parseTemplateArgs(template.prompt) : []),
@@ -229,119 +216,32 @@ function TemplateDetail({
             <p className="mt-1 text-xs text-muted-foreground">
               Agent launch settings for this template.
             </p>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground">
-                  Agent type
-                </label>
-                <AgentTypeCombobox
-                  value={agentType}
-                  onChange={setAgentType}
-                  agentTypes={cliAgentTypes}
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground">Name</label>
-                <Input
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground">
-                  Description
-                </label>
-                <Input
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional short description"
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-sm text-muted-foreground">
-                  Working directory
-                </label>
-                <PathInput
-                  value={directory}
-                  onChange={setDirectory}
-                  placeholder="/path/to/repo"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3">
-              <TemplateWorktreeOption
-                checked={useWorktree}
-                cwd={directory}
+            <div className="mt-4">
+              <TemplateConfigFields
+                agentType={agentType}
+                onAgentTypeChange={setAgentType}
+                enabledAgentTypes={enabledAgentTypes}
+                name={displayName}
+                onNameChange={setDisplayName}
+                description={description}
+                onDescriptionChange={setDescription}
+                directory={directory}
+                onDirectoryChange={setDirectory}
+                useWorktree={useWorktree}
+                onUseWorktreeChange={setUseWorktree}
                 baseBranch={baseBranch}
-                branchName={branchName}
-                onCheckedChange={setUseWorktree}
                 onBaseBranchChange={setBaseBranch}
+                branchName={branchName}
                 onBranchNameChange={setBranchName}
+                fullAccess={fullAccess}
+                onFullAccessChange={setFullAccess}
+                callable={callable}
+                onCallableChange={setCallable}
+                allowMedia={allowMedia}
+                onAllowMediaChange={setAllowMedia}
+                prompt={prompt}
+                onPromptChange={setPrompt}
               />
-              <TemplateFullAccessOption
-                checked={fullAccess}
-                onCheckedChange={setFullAccess}
-              />
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                <Checkbox
-                  checked={callable}
-                  onCheckedChange={() => setCallable((c) => !c)}
-                  className="mt-0.5"
-                />
-                <span className="space-y-1">
-                  <span className="block text-sm font-medium text-foreground">
-                    Show in command palette
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Launch this template from the {"⌘"}K palette.
-                  </span>
-                </span>
-              </label>
-              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                <Checkbox
-                  checked={allowMedia}
-                  onCheckedChange={() => setAllowMedia((c) => !c)}
-                  className="mt-0.5"
-                />
-                <span className="space-y-1">
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-                    <Paperclip className="h-3.5 w-3.5" />
-                    Allow media attachments on launch
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Show a context area for files and links when launching this
-                    template.
-                  </span>
-                </span>
-              </label>
-            </div>
-
-            <div className="mt-4 space-y-1 md:col-span-2">
-              <label className="text-sm text-muted-foreground">Prompt</label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what the agent should do..."
-                className={cn(
-                  "flex min-h-[120px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                  "ring-offset-background placeholder:text-muted-foreground",
-                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                )}
-              />
-              {detectedArgs.length > 0 ? (
-                <div className="mt-1.5 text-xs text-muted-foreground">
-                  Detected arguments:{" "}
-                  {detectedArgs.map((a) => (
-                    <span
-                      key={a.key}
-                      className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
-                    >
-                      {a.name}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
             </div>
 
             {saveError ? (

@@ -19,9 +19,6 @@ import { isCliAgentType } from "@/lib/agent-types";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 
-export { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
-export { TemplateDetailPane } from "@/components/app/automations-template-detail";
-
 type AutomationsTab = "templates" | "jobs";
 
 function resolveTab(pathname: string): AutomationsTab {
