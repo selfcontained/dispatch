@@ -454,17 +454,75 @@ Returns `{ "state": <AssistedUpdateState> | null }`.
 
 ## Jobs
 
-| Method | Path            | Description                                                              |
-| ------ | --------------- | ------------------------------------------------------------------------ |
-| GET    | `/jobs`         | List all configured jobs                                                 |
-| POST   | `/jobs`         | Create a job                                                             |
-| PATCH  | `/jobs`         | Update a job configuration                                               |
-| DELETE | `/jobs`         | Delete a job configuration                                               |
-| POST   | `/jobs/enable`  | Enable a job (registers cron schedule)                                   |
-| POST   | `/jobs/disable` | Disable a job (removes cron schedule)                                    |
-| POST   | `/jobs/run`     | Manually trigger a job run                                               |
-| GET    | `/jobs/stats`   | Get job run statistics                                                   |
-| GET    | `/jobs/history` | Get job run history (filterable by `jobId`, `status`, `limit`, `offset`) |
+| Method | Path            | Description                                                      |
+| ------ | --------------- | ---------------------------------------------------------------- |
+| GET    | `/jobs`         | List all configured jobs                                         |
+| POST   | `/jobs`         | Create a job                                                     |
+| PATCH  | `/jobs`         | Update a job configuration                                       |
+| DELETE | `/jobs`         | Delete a job configuration                                       |
+| POST   | `/jobs/enable`  | Enable a job (registers cron schedule)                           |
+| POST   | `/jobs/disable` | Disable a job (removes cron schedule)                            |
+| POST   | `/jobs/run`     | Manually trigger a job run                                       |
+| GET    | `/jobs/stats`   | Get job run statistics                                           |
+| GET    | `/jobs/history` | Get job run history (filterable by `name`, `directory`, `limit`) |
+
+### `POST /jobs`
+
+```json
+{
+  "name": "docs-audit",
+  "directory": "~/dev/apps/dispatch",
+  "displayName": "Documentation Audit",
+  "prompt": "Audit the docs and fix drift.",
+  "schedule": "0 3 * * *",
+  "timeoutMs": 1800000,
+  "needsInputTimeoutMs": 600000,
+  "agentType": "claude",
+  "useWorktree": true,
+  "baseBranch": "main",
+  "branchName": "job/docs-audit-{{run_id}}",
+  "fullAccess": true,
+  "autoArchive": true,
+  "callable": false,
+  "singleton": true,
+  "defaultArgs": { "scope": "primary" },
+  "enabled": true
+}
+```
+
+`name` and `directory` are required (they form the composite key). `~` in `directory` is expanded to the user's home directory. All other fields are optional:
+
+- `displayName` — human-readable label shown in the UI.
+- `prompt` — the job prompt (nullable; when null, falls back to a prompt file in `.dispatch/job-prompts/`).
+- `schedule` — cron expression for automatic runs (nullable; null means manual-only).
+- `timeoutMs` — maximum run duration in milliseconds.
+- `needsInputTimeoutMs` — how long a run can stay in `needs_input` before timing out.
+- `agentType` — one of `claude`, `codex`, `cursor`, `opencode`.
+- `useWorktree` — run in a managed git worktree.
+- `baseBranch` — branch to fork worktrees from (nullable).
+- `branchName` — branch name for the worktree (nullable).
+- `fullAccess` — grant full filesystem access to the agent.
+- `autoArchive` — automatically archive the agent when the run completes.
+- `callable` — expose in the command palette for on-demand runs.
+- `singleton` — prevent concurrent runs of this job.
+- `defaultArgs` — key-value pairs passed to the job prompt as default arguments.
+- `enabled` — whether the cron schedule is active on creation.
+
+### `PATCH /jobs`
+
+Same schema as `POST /jobs`. `name` and `directory` are required to identify the job; all other fields are optional and only provided fields are updated.
+
+### `DELETE /jobs`
+
+```json
+{ "name": "docs-audit", "directory": "~/dev/apps/dispatch" }
+```
+
+### `POST /jobs/enable` / `POST /jobs/disable`
+
+```json
+{ "name": "docs-audit", "directory": "~/dev/apps/dispatch" }
+```
 
 ### `POST /jobs/run`
 
@@ -473,6 +531,10 @@ Returns `{ "state": <AssistedUpdateState> | null }`.
 ```
 
 `name` + `directory` together identify the job. `wait: true` blocks the response until the run reaches a terminal state; otherwise the response returns as soon as the run is queued. Manual runs are tagged with `triggerSource: "manual"` internally.
+
+### `GET /jobs/history`
+
+Query params: `name` (required), `directory` (required), `limit` (1–100, optional).
 
 ## Templates
 
