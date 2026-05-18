@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-16
+updated_at: 2026-05-17
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`ad155782a47faf48c9e7bd0971f06d34241943a9` — HEAD at the start of the 2026-05-16 run.
+`128842f33d67d0502752b8c6c26cbbbb386753b8` — HEAD at the start of the 2026-05-17 run.
 
 ## next_focus
 
-**Audit `docs/03-api-spec.md` — Jobs POST/PATCH body schema.** The spec has the endpoint table but doesn't document the body fields for `POST /jobs` or `PATCH /jobs`. The `callable` and `singleton` fields added in PR #510 are not in the spec; neither are any of the other body fields (`name`, `directory`, `schedule`, `prompt`, `agentType`, `useWorktree`, `baseBranch`). Cross-check against `apps/server/src/routes/jobs.ts` for the actual Zod schemas and add body documentation matching the style of the Templates section added this run.
+**Audit `docs/10-operations-runbook.md` — missing bin scripts and diagnostics jq examples.** The backlog notes that the runbook does not mention `bin/preflight`, `bin/dispatch-stream`, or `bin/pack-release`. Check whether these scripts still exist and what they do, then add entries if warranted. Also re-check the diagnostics jq examples against the current API response shapes.
 
 ## backlog
 
@@ -27,8 +27,6 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **docs-pane "Worktrees" — failure surfaces (PR #409).** Worktree-create failures now mark the agent `stopped` with `last_error` and a blocked latest_event. The docs-pane Worktrees section didn't get the failure UX paragraph — add if the failure path becomes surprising.
 - **`docs/04-agent-lifecycle.md` — round-trip back from in-app docs.** If the in-app docs-pane gains a "Lifecycle" or "Architecture" section, link to this doc rather than re-explaining the state machine.
 - **`release-notes/AUTHORING.md` — migration manifest authoring is undocumented.** CRU-146 added `update-migrations/*.yaml` manifests with their own evaluator but AUTHORING.md does not cover them yet.
-- **`docs/10-operations-runbook.md` — handed-off concerns.** (a) diagnostics jq examples worth re-checking if response shape is rev'd; (b) runbook does not mention `bin/preflight` / `bin/dispatch-stream` / `bin/pack-release`.
-- **`docs/03-api-spec.md` — Template launch `agentType` override.** ✅ Addressed in the 2026-05-16 run — the new Templates section documents the `agentType` field on launch.
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 - **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
 
@@ -68,6 +66,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **Create-agent nested controls hide behind the worktree checkbox.** The "Starting branch" picker and "Create a new branch" checkbox are only visible when worktree mode is checked. Docs describing these controls should mention the conditional visibility.
 - **CLAUDE.md project structure tree drifts as new feature directories are added.** Check `ls -d apps/server/src/*/` against the tree whenever new packages or route-adjacent dirs appear.
 - **API-spec agent-types enum lists go stale.** The Settings section listed only four types; `cursor` was missing. Always check `AGENT_TYPES` array when touching the agent-types endpoint docs.
+- **API-spec body schemas lag behind Zod schemas in route handlers.** When a new field is added to a route's Zod schema, the spec often doesn't get updated. Cross-check route handlers directly rather than relying on PRs to flag it.
 
 ## Notes for the next run
 
@@ -109,3 +108,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-13** (Agents — history/base-ref) — Closed the Agents history/base-ref next_focus. Fixed "Agent details" paragraph: replaced inaccurate "agent type" claim with correct description of repo name + base/working branch display for worktree agents vs. working directory for non-worktree agents. Added "Starting branch" picker to "Creating an agent" bullet list — was missing from the worktree controls description. Noted history type-filter UI bug (missing Cursor/Terminal) in backlog.
 - **2026-05-14** (CLAUDE.md structure tree + Reviewers resolution verification) — Verified next_focus (Reviewers resolution UI paragraph): Fixed/Ignored statuses, resolution reasons, and commit SHA all confirmed accurate against feedback-panel.tsx and MCP tool definitions. Fixed CLAUDE.md project structure tree: added 5 missing server/src directories (media, reviews, routes, server, templates), replaced stale `.dispatch/worktrees/` with actual `job-prompts/` and `job-state/` entries. Verified MCP tool lists (AGENT_TOOLS, JOB_TOOLS, PERSONA_TOOLS) and create-agent dialog fields — all in sync.
 - **2026-05-16** (API spec — Templates CRUD) — Added new Templates section to `docs/03-api-spec.md` covering all 6 endpoints (list, get, create, update, delete, launch) with body schemas and multipart launch documentation. Fixed Settings agent-types list (added missing `cursor`). Added `template.changed` SSE event to the events table.
+- **2026-05-17** (API spec — Jobs body schemas) — Closed the Jobs POST/PATCH body schema next_focus. Added `POST /jobs` body schema with all 16 fields from `AddJobBodySchema`, field-by-field descriptions, and `PATCH /jobs` note. Added `DELETE /jobs` and `POST /jobs/enable` / `POST /jobs/disable` bodies. Fixed `GET /jobs/history` params from stale `jobId, status, limit, offset` to actual `name, directory, limit`. Added new drift pattern for Zod schema/spec lag.
