@@ -9,7 +9,7 @@ Each run of the componentizer job reads this file at Phase 0 and overwrites it a
 
 ## last_audited_sha
 
-`cd05a282316901ebf58a1295eadb82b5373b9fa2`
+`5ae57c34374a5336800553e43a78d437cfe8c6ee`
 
 ## next_focus
 
@@ -55,4 +55,4 @@ This is the second-highest line count after docs-pane, and unlike docs-pane (sta
 - 2026-05-17: Bootstrap scan completed. Identified 10 candidates, prioritized by impact and extraction clarity. No refactoring performed.
 - 2026-05-17: Refactored `jobs-pane.tsx` (2489→1599 lines). Extracted `jobs-helpers.ts` (pure utilities), `jobs-form-fields.tsx` (shared form components), `jobs-add-dialog.tsx` (AddJobDialog + AddJobFlow), `jobs-charts.tsx` (chart components). PR #546.
 - 2026-05-17: Refactored `automations-pane.tsx` (2029→375 lines). Extracted `automations-form-fields.tsx`, `automations-launch-dialog.tsx`, `automations-create-dialog.tsx`, `automations-template-detail.tsx`. PR #547.
-- 2026-05-18: Refactored `feedback-panel.tsx` (1776→665 lines). Extracted `feedback-utils.ts` (types, constants, useFeedbackData hook), `feedback-shared.tsx` (shared UI helpers), `feedback-mobile.tsx` (MobileFeedbackSheet, MobileReviewSummarySheet), `review-summary-panel.tsx` (ReviewSummaryPanel). PR #TBD.
+- 2026-05-18: Refactored `feedback-panel.tsx` (1776→665 lines). Extracted `feedback-utils.ts` (types, constants), `use-feedback-data.ts` (useFeedbackData hook), `feedback-shared.tsx` (shared UI helpers), `feedback-mobile.tsx` (MobileFeedbackSheet, MobileReviewSummarySheet), `review-summary-panel.tsx` (ReviewSummaryPanel). PR #551.
