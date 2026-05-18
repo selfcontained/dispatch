@@ -86,7 +86,6 @@ export function FeedbackItemNotFoundState({
 }
 
 export function FeedbackActions({
-  item: _item,
   isConnected,
   onForward,
   onCopy,
@@ -96,7 +95,6 @@ export function FeedbackActions({
   statusLabel,
   size = "sm",
 }: {
-  item: FeedbackItem;
   isConnected: boolean;
   onForward: (mode: "wdyt" | "fix") => void;
   onCopy: () => void;

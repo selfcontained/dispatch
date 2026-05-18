@@ -9,8 +9,8 @@ import {
   shortSha,
   SEVERITY_LABELS,
   STATUS_LABELS,
-  useFeedbackData,
 } from "@/components/app/feedback-utils";
+import { useFeedbackData } from "@/components/app/use-feedback-data";
 import {
   CancelRecheckButton,
   FeedbackActions,
@@ -252,7 +252,6 @@ export function MobileFeedbackSheet({
                 />
               ) : (
                 <FeedbackActions
-                  item={item}
                   isConnected={isConnected}
                   onForward={(mode) => forward(item, mode)}
                   onCopy={() => handleCopy(item)}

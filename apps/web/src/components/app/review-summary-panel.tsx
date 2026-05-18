@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 import { reviewVerdictLabel } from "@/components/app/agent-event-utils";
-import { shortSha, useFeedbackData } from "@/components/app/feedback-utils";
+import { shortSha } from "@/components/app/feedback-utils";
+import { useFeedbackData } from "@/components/app/use-feedback-data";
 import {
   CancelRecheckButton,
   RoundChip,

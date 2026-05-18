@@ -17,8 +17,8 @@ import {
   SEVERITY_DOT,
   SEVERITY_LABELS,
   STATUS_LABELS,
-  useFeedbackData,
 } from "@/components/app/feedback-utils";
+import { useFeedbackData } from "@/components/app/use-feedback-data";
 import {
   FeedbackActions,
   FeedbackItemNotFoundState,
@@ -638,7 +638,6 @@ export function FeedbackDetailPanel({
           />
         ) : (
           <FeedbackActions
-            item={item}
             isConnected={isConnected}
             onForward={(mode) => forward(item, mode)}
             onCopy={() => handleCopy(item)}
