@@ -48,17 +48,16 @@ export class StreamManager {
       throw new Error("No page target found via CDP.");
     }
 
+    const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+
     const session: StreamSession = {
-      cdpSocket: null as unknown as WebSocket,
+      cdpSocket: ws,
       viewers: new Set(),
       status: "connecting",
       lastFrame: null,
       refreshTimer: null,
     };
     this.sessions.set(agentId, session);
-
-    const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-    session.cdpSocket = ws;
 
     let cdpId = 1;
 
