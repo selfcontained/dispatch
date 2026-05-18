@@ -2,7 +2,7 @@ import path from "node:path";
 
 export function sanitizeUploadedFileName(name: string): string {
   const ext = path.extname(name).toLowerCase();
-  const baseName = path.basename(name, ext).normalize("NFKD");
+  const baseName = path.basename(name, path.extname(name)).normalize("NFKD");
   const collapsed = baseName
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^A-Za-z0-9._() -]+/g, "-")
