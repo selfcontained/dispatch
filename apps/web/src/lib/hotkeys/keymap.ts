@@ -24,6 +24,10 @@ export type HotkeyDef = {
 };
 
 export const HOTKEYS = {
+  "focus-terminal-input": {
+    combo: "mod+shift+space",
+    description: "Focus terminal input",
+  },
   "toggle-media-sidebar": {
     combo: "mod+shift+>",
     description: "Toggle media sidebar",

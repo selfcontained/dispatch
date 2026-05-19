@@ -351,6 +351,31 @@ test.describe("Terminal live connection", () => {
     });
   });
 
+  test("focuses terminal input with the global shortcut", async ({
+    page,
+    request,
+  }) => {
+    test.skip(!IS_LIVE, "Requires --live agent runtime");
+
+    const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
+    await loadApp(page);
+
+    const agentCard = page.getByTestId(`agent-card-${agent.id}`);
+    await agentCard.waitFor({ state: "visible", timeout: 5_000 });
+    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await waitForTerminalConnected(page, agent.name, 5_000);
+
+    const pinsButton = page.getByRole("button", { name: "Pins" });
+    await pinsButton.focus();
+    await expect(pinsButton).toBeFocused();
+
+    await page.keyboard.press("Meta+Shift+Space");
+
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused({
+      timeout: 1_000,
+    });
+  });
+
   test("does not steal focus from another input on foreground", async ({
     page,
     request,
