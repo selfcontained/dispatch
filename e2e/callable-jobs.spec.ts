@@ -172,4 +172,23 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await launchDialog.getByRole("button", { name: "Launch" }).click();
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
+
+  test("command palette disables global terminal-focus hotkey", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.keyboard.press(`${MOD_KEY}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible({ timeout: 3_000 });
+
+    const input = palette.getByRole("combobox");
+    await expect(input).toBeFocused();
+
+    await page.keyboard.press(`${MOD_KEY}+Shift+Space`);
+
+    await expect(palette).toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).not.toBeFocused();
+  });
 });

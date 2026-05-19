@@ -74,7 +74,7 @@ export function useAgentHotkeys({
       if (!canFocusTerminal) return;
       focusTerminal();
     },
-    { enabled: !isMobile }
+    { enabled: !isMobile && canFocusTerminal }
   );
 
   useHotkey("toggle-media-sidebar", () => {
