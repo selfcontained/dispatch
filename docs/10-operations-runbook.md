@@ -102,7 +102,7 @@ The **release workflow** (GitHub Actions):
 - Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), and the lockfile
 - Generates `release-notes/current.md` from GitHub's auto-generated notes
 - Commits the version bump and notes, creates a git tag, and pushes
-- Builds Bun binaries for each host platform/arch and packs them into `dispatch-release.tar.gz`
+- Builds Bun binaries for each host platform/arch and packs them into `dispatch-release.tar.gz` via `bin/pack-release`
 - Publishes a **pre-release** GitHub Release with the tarball attached. Releases are promoted to non-prerelease (the "stable" channel) via `POST /api/v1/release/promote` once they soak.
 
 ## Update To A Tag
@@ -175,11 +175,11 @@ inspect → prepare → apply → restarting → validate → done
 
 When the agent moves to `validate`, the server runs `runAndRecordChecks`, which evaluates the required checks listed in the manifests/metadata. The known check names (defined in `apps/server/src/release-metadata.ts`):
 
-- `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary exists after deploy
-- `service_entrypoint` — the launchd plist points at `bin/dispatch-launchd-wrapper`
-- `service_restarted` — the service has restarted since the deploy
-- `version_converged` — `/api/v1/health` reports the target tag
-- `health_endpoint` — the new process is serving HTTP/HTTPS
+- `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary and `apps/web/dist/index.html` both exist after deploy
+- `service_entrypoint` — `apps/server/package.json` has a `scripts.start` entry
+- `service_restarted` — `~/.dispatch/release.json` reflects the target tag (set on boot)
+- `version_converged` — `~/.dispatch/release.json` tag matches the target tag
+- `health_endpoint` — the new process is serving HTTP/HTTPS with `status: "ok"`
 
 When the agent succeeds, the server writes the manifest ids into `~/.dispatch/applied-migrations.json` so the gate stops firing for them on the next update.
 
@@ -198,6 +198,14 @@ Every PR to `main` triggers `.github/workflows/ci.yml`:
 PRs must pass CI before merge.
 
 ## Installation (First-Time Setup)
+
+Run the preflight check first to verify all dependencies are present:
+
+```bash
+bin/preflight
+```
+
+This checks required dependencies (git, postgresql, tmux) and optional ones (gh, claude, codex, opencode, playwright, xcode, docker). Fix any failures before proceeding.
 
 To install Dispatch as a launchd service on a new machine:
 
@@ -368,6 +376,20 @@ Known limits:
 - Dispatch can now tell you much more about what the host looked like when sessions vanished
 - Dispatch still cannot prove the killer if macOS did not log it or if the evidence aged out before inspection
 - If the host logged out, rebooted, or aggressively reaped processes, unified logs are still the source of truth
+
+## Bin Scripts
+
+| Script                         | Description                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `bin/dispatch-server`          | Service management wrapper (start, stop, restart, status, logs, build, update)                           |
+| `bin/dispatch-launchd-wrapper` | Selects the correct Bun binary for the host platform/arch and execs it                                   |
+| `bin/dispatch-dev`             | Dev environment manager (isolated Docker Postgres + API server + Vite frontend)                          |
+| `bin/dispatch-stream`          | Agent-side CLI for managing browser streams (`start --playwright <port>` / `stop "<description>"`)       |
+| `bin/install-launchd`          | First-time install: clones repo, deploys release artifact, writes launchd plist                          |
+| `bin/uninstall-launchd`        | Unloads and removes the launchd plist                                                                    |
+| `bin/preflight`                | Pre-install dependency checker (required: git, postgresql, tmux; optional: gh, CLIs, playwright, docker) |
+| `bin/pack-release`             | Packs `dispatch-release.tar.gz` from pre-built Bun binaries; used by the release workflow                |
+| `bin/embed-assisted-update.ts` | Validates assisted-update metadata in `release-notes/next-assisted-update.json`                          |
 
 ## File Locations
 

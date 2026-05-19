@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-17
+updated_at: 2026-05-18
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`128842f33d67d0502752b8c6c26cbbbb386753b8` — HEAD at the start of the 2026-05-17 run.
+`52cebe25f4d2d29664c378bfb309e9b570e7fb59` — HEAD at the start of the 2026-05-18 run.
 
 ## next_focus
 
-**Audit `docs/10-operations-runbook.md` — missing bin scripts and diagnostics jq examples.** The backlog notes that the runbook does not mention `bin/preflight`, `bin/dispatch-stream`, or `bin/pack-release`. Check whether these scripts still exist and what they do, then add entries if warranted. Also re-check the diagnostics jq examples against the current API response shapes.
+**Audit docs-pane "Agents" section against `create-agent-dialog.tsx` for new form fields.** The drift pattern "The create-agent dialog accretes options silently" has been flagged for a while. Re-read `create-agent-dialog.tsx` and verify every form field appears in the "Creating an agent" bullet list in `docs-pane.tsx`. Also check the agent type list — the Cursor/Terminal entries were added in previous runs but new types could appear at any time.
 
 ## backlog
 
@@ -67,6 +67,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **CLAUDE.md project structure tree drifts as new feature directories are added.** Check `ls -d apps/server/src/*/` against the tree whenever new packages or route-adjacent dirs appear.
 - **API-spec agent-types enum lists go stale.** The Settings section listed only four types; `cursor` was missing. Always check `AGENT_TYPES` array when touching the agent-types endpoint docs.
 - **API-spec body schemas lag behind Zod schemas in route handlers.** When a new field is added to a route's Zod schema, the spec often doesn't get updated. Cross-check route handlers directly rather than relying on PRs to flag it.
+- **Assisted-update check descriptions drift from implementation.** The check names in `release-metadata.ts` are stable but the check logic in `release-checks.ts` evolves (e.g. `version_converged` reads `release.json`, not the health endpoint). Re-verify descriptions against the actual functions when touching this section.
 
 ## Notes for the next run
 
@@ -109,3 +110,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-14** (CLAUDE.md structure tree + Reviewers resolution verification) — Verified next_focus (Reviewers resolution UI paragraph): Fixed/Ignored statuses, resolution reasons, and commit SHA all confirmed accurate against feedback-panel.tsx and MCP tool definitions. Fixed CLAUDE.md project structure tree: added 5 missing server/src directories (media, reviews, routes, server, templates), replaced stale `.dispatch/worktrees/` with actual `job-prompts/` and `job-state/` entries. Verified MCP tool lists (AGENT_TOOLS, JOB_TOOLS, PERSONA_TOOLS) and create-agent dialog fields — all in sync.
 - **2026-05-16** (API spec — Templates CRUD) — Added new Templates section to `docs/03-api-spec.md` covering all 6 endpoints (list, get, create, update, delete, launch) with body schemas and multipart launch documentation. Fixed Settings agent-types list (added missing `cursor`). Added `template.changed` SSE event to the events table.
 - **2026-05-17** (API spec — Jobs body schemas) — Closed the Jobs POST/PATCH body schema next_focus. Added `POST /jobs` body schema with all 16 fields from `AddJobBodySchema`, field-by-field descriptions, and `PATCH /jobs` note. Added `DELETE /jobs` and `POST /jobs/enable` / `POST /jobs/disable` bodies. Fixed `GET /jobs/history` params from stale `jobId, status, limit, offset` to actual `name, directory, limit`. Added new drift pattern for Zod schema/spec lag.
+- **2026-05-18** (Ops runbook — bin scripts + check descriptions) — Closed the ops-runbook bin scripts next_focus. Added `bin/preflight` to Installation section. Added `bin/pack-release` mention to Release Pipeline. Added comprehensive Bin Scripts table (all 9 scripts). Fixed 3 inaccurate assisted-update check descriptions: `version_converged` reads `release.json` not health endpoint, `service_entrypoint` checks `package.json` not launchd plist, `expected_runtime_artifact` also checks `apps/web/dist/index.html`. Added drift pattern for check-description staleness.
