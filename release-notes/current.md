@@ -1,20 +1,16 @@
 ## What's Changed
-* docs: add template media attachments + reviewer resolution UI by @selfcontained in https://github.com/selfcontained/dispatch/pull/529
-* Add tech debt cleanup job prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/530
-* docs: fix Agent details metadata + add Starting branch to create form by @selfcontained in https://github.com/selfcontained/dispatch/pull/531
-* chore: bootstrap tech debt audit state file by @selfcontained in https://github.com/selfcontained/dispatch/pull/533
-* fix: remove duplicated sanitizeUploadedFileName by @selfcontained in https://github.com/selfcontained/dispatch/pull/534
-* chore: remove unused @formkit/auto-animate dependency by @selfcontained in https://github.com/selfcontained/dispatch/pull/535
-* fix: stabilize flaky worktree E2E test + add unit tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/536
-* docs: fix CLAUDE.md project structure tree drift by @selfcontained in https://github.com/selfcontained/dispatch/pull/537
-* chore: extract shared errorMessage utility to reduce route boilerplate by @selfcontained in https://github.com/selfcontained/dispatch/pull/538
-* Add reviewer step to tech debt job prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/532
-* test: add unit tests for activity-query, auto-rename-prompter, and UiEventBroker by @selfcontained in https://github.com/selfcontained/dispatch/pull/539
-* chore: consolidate duplicate errorMessage into shared import by @selfcontained in https://github.com/selfcontained/dispatch/pull/540
-* test: add unit tests for agent-strings, mcp-url, and parseBooleanSetting by @selfcontained in https://github.com/selfcontained/dispatch/pull/541
-* docs: add Templates CRUD section to API spec by @selfcontained in https://github.com/selfcontained/dispatch/pull/543
-* chore: update test-enforcer workflow by @selfcontained in https://github.com/selfcontained/dispatch/pull/542
-* chore: add componentizer job prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/544
+* chore: bootstrap componentizer job backlog by @selfcontained in https://github.com/selfcontained/dispatch/pull/545
+* refactor: extract jobs-pane.tsx into focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/546
+* refactor: extract automations-pane.tsx into focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/547
+* refactor: extract resolveTilde to shared utility by @selfcontained in https://github.com/selfcontained/dispatch/pull/548
+* fix: sanitizeUploadedFileName handles uppercase extensions by @selfcontained in https://github.com/selfcontained/dispatch/pull/549
+* docs: add Jobs body schemas to API spec by @selfcontained in https://github.com/selfcontained/dispatch/pull/550
+* refactor: extract feedback-panel.tsx into focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/551
+* refactor: eliminate unsafe WebSocket cast in stream-manager.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/552
+* test: add unit tests for format, active-hours, pins, error-message, and worktree-slug by @selfcontained in https://github.com/selfcontained/dispatch/pull/553
+* docs: fix ops runbook bin scripts and check descriptions by @selfcontained in https://github.com/selfcontained/dispatch/pull/554
+* refactor: extract job tool registrations from MCP server.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/555
+* Add terminal focus hotkey by @selfcontained in https://github.com/selfcontained/dispatch/pull/556
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.20.6...v0.20.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.20.7...v0.20.8
