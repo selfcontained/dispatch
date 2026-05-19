@@ -111,6 +111,7 @@ export function CommandPalette({
         <Dialog.Overlay className="fixed inset-0 z-[65] bg-black/60" />
         <Dialog.Content
           aria-label="Command palette"
+          data-hotkey-disable="true"
           onEscapeKeyDown={(e) => {
             if (pages.length > 0) {
               e.preventDefault();
