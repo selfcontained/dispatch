@@ -4,10 +4,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
-import { createPr, getPrStatus, GitHubPrError } from "../github/pr.js";
-import { GitWorktreeError } from "../git/worktree.js";
-import { registerJobTools } from "./job-tools.js";
+import { createPr, getPrStatus } from "../github/pr.js";
+import { registerJobTools, type JobTools } from "./job-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
+import { toToolError } from "./tool-error.js";
 
 export type McpAgent = {
   id: string;
@@ -61,84 +61,6 @@ export type PersonaFeedbackGroup = {
 
 export type GetFeedbackResult = {
   personas: PersonaFeedbackGroup[];
-};
-
-export type JobTools = {
-  complete: (
-    agentId: string,
-    report: unknown
-  ) => Promise<{ runId: string; status: string }>;
-  failed: (
-    agentId: string,
-    report: unknown
-  ) => Promise<{ runId: string; status: string }>;
-  needsInput: (
-    agentId: string,
-    question: string
-  ) => Promise<{ runId: string; status: string }>;
-  log: (
-    agentId: string,
-    input: {
-      task: string;
-      message: string;
-      level: "debug" | "info" | "warn" | "error";
-    }
-  ) => Promise<{ runId: string; status: string }>;
-  listAgents: () => Promise<
-    Array<{ id: string; name: string; status: string; cwd: string }>
-  >;
-  listRecentPersonaReviews: (sinceDays: number) => Promise<
-    Array<{
-      id: number;
-      agentId: string;
-      parentAgentId: string;
-      persona: string;
-      status: string;
-      message: string | null;
-      verdict: string | null;
-      summary: string | null;
-      filesReviewed: string[] | null;
-      createdAt: string;
-      updatedAt: string;
-    }>
-  >;
-  listRecentFeedback: (sinceDays: number) => Promise<
-    Array<{
-      id: number;
-      agentId: string;
-      persona: string;
-      severity: string;
-      filePath: string | null;
-      lineNumber: number | null;
-      description: string;
-      suggestion: string | null;
-      mediaRef: string | null;
-      status: string;
-      createdAt: string;
-    }>
-  >;
-  getActivitySummary: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }) => Promise<Record<string, unknown>>;
-  getAgentHistory: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
-  }) => Promise<Record<string, unknown>>;
-  getFeedbackSummary: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    groupBy: "persona" | "severity" | "directory";
-  }) => Promise<Record<string, unknown>>;
 };
 
 const LAUNCH_PERSONA_AGENT_TYPES = [
@@ -1836,26 +1758,4 @@ function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {
     }
   }
   return schema;
-}
-
-export function toToolError(error: unknown): {
-  content: Array<{ type: "text"; text: string }>;
-  isError: true;
-} {
-  const message =
-    error instanceof GitWorktreeError || error instanceof GitHubPrError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : String(error);
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: message,
-      },
-    ],
-    isError: true,
-  };
 }
