@@ -486,6 +486,8 @@ export function AgentsView({
     isMobile,
     sidebarAgentId,
     validatedSelectedAgentId,
+    canFocusTerminal: terminalMode === "tmux" && !!focusedAgentId,
+    focusTerminal,
     mediaOpen,
     setMediaOpen,
     leftPanelOpen,

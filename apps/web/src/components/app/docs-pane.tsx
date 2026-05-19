@@ -305,6 +305,9 @@ const SECTIONS: SectionDef[] = [
               <Code>Mod+K</Code> — Open the command palette.
             </li>
             <li>
+              <Code>Mod+Shift+Space</Code> — Focus the terminal input.
+            </li>
+            <li>
               <Code>Mod+Shift+&gt;</Code> — Toggle the media sidebar.
             </li>
             <li>
@@ -330,6 +333,11 @@ const SECTIONS: SectionDef[] = [
           <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
             <li>
               <strong>New agent</strong> — opens the Create dialog.
+            </li>
+            <li>
+              <strong>Focus terminal input</strong> — same as{" "}
+              <Code>Mod+Shift+Space</Code>. Disabled when no tmux terminal is
+              attached.
             </li>
             <li>
               <strong>Toggle media sidebar</strong> — same as{" "}

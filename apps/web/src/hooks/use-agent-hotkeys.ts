@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
+  BetweenHorizonalStart,
   PanelLeft,
   PanelLeftOpen,
   PanelRight,
@@ -25,6 +26,8 @@ type UseAgentHotkeysArgs = {
   isMobile: boolean;
   sidebarAgentId: string | null;
   validatedSelectedAgentId: string | null;
+  canFocusTerminal: boolean;
+  focusTerminal: () => void;
   mediaOpen: boolean;
   setMediaOpen: (open: boolean) => void;
   leftPanelOpen: boolean;
@@ -51,6 +54,8 @@ export function useAgentHotkeys({
   isMobile,
   sidebarAgentId,
   validatedSelectedAgentId,
+  canFocusTerminal,
+  focusTerminal,
   mediaOpen,
   setMediaOpen,
   leftPanelOpen,
@@ -63,6 +68,14 @@ export function useAgentHotkeys({
   const { data: templates = [] } = useTemplates();
 
   useHotkey("open-command-palette", () => setPaletteOpen((v) => !v));
+  useHotkey(
+    "focus-terminal-input",
+    () => {
+      if (!canFocusTerminal) return;
+      focusTerminal();
+    },
+    { enabled: !isMobile }
+  );
 
   useHotkey("toggle-media-sidebar", () => {
     if (!isMobile && !sidebarAgentId) return;
@@ -104,6 +117,18 @@ export function useAgentHotkeys({
         run: () => openCreateDialog(),
       },
       {
+        id: "focus-terminal-input",
+        title: "Focus terminal input",
+        keywords: ["terminal", "input", "cursor", "shell"],
+        hotkey: "focus-terminal-input",
+        icon: BetweenHorizonalStart,
+        disabled: !canFocusTerminal,
+        run: () => {
+          if (!canFocusTerminal) return;
+          focusTerminal();
+        },
+      },
+      {
         id: "toggle-media-sidebar",
         title: "Toggle media sidebar",
         keywords: ["pins", "media", "right"],
@@ -141,7 +166,9 @@ export function useAgentHotkeys({
       },
     ],
     [
+      canFocusTerminal,
       cycleAgent,
+      focusTerminal,
       handleSetLeftPanelOpen,
       isMobile,
       leftPanelOpen,
