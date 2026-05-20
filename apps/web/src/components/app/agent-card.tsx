@@ -426,7 +426,7 @@ export function AgentCard({
                   {formatRelativeTime(agent.latestEvent.updatedAt)}
                 </span>
                 {collapsedRepoName ? (
-                  <span className="ml-auto max-w-[40%] truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
+                  <span className="ml-auto min-w-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
                     {collapsedRepoName}
                   </span>
                 ) : null}
@@ -452,7 +452,7 @@ export function AgentCard({
                 {formatRelativeTime(agent.latestEvent.updatedAt)}
               </span>
               {collapsedRepoName ? (
-                <span className="ml-auto max-w-[40%] truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
+                <span className="ml-auto min-w-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
                   {collapsedRepoName}
                 </span>
               ) : null}
