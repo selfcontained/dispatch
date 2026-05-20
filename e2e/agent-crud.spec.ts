@@ -349,9 +349,9 @@ test.describe("Agent CRUD", () => {
       message: "refreshing sidebar state",
     });
 
-    await expect(
-      attachedCard.getByText("refreshing sidebar state")
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(attachedCard.getByText("Working")).toBeVisible({
+      timeout: 5_000,
+    });
     await expect(peekCard.getByText("/tmp")).toBeVisible();
   });
 
