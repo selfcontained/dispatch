@@ -734,7 +734,8 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             <li>
               <strong>Prompt</strong> — instructions sent as the agent's first
               message. Supports <Code>{"{{D:Arg Name}}"}</Code> placeholders for
-              runtime arguments (see below).
+              optional runtime arguments, plus filter-style modifiers like{" "}
+              <Code>{"{{D:Arg Name|required|multiline}}"}</Code> (see below).
             </li>
             <li>
               <strong>Agent type</strong> — <Code>claude</Code>,{" "}
@@ -765,16 +766,30 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <H3>Runtime arguments</H3>
           <P>
             Templates support <Code>{"{{D:Arg Name}}"}</Code> placeholders in
-            their prompt. At launch time, each placeholder becomes a required
-            input field. Argument values are also pinned to the spawned agent's
-            sidebar for reference.
+            their prompt. Arguments are optional by default. Add{" "}
+            <Code>|required</Code> to enforce input at launch, and{" "}
+            <Code>|multiline</Code> for a textarea-style field. Argument values
+            are also pinned to the spawned agent's sidebar for reference.
+          </P>
+          <P>
+            If you leave an optional argument blank, Dispatch removes that
+            placeholder and leaves the surrounding text as-is. Write prompts so
+            they still read naturally when optional values are omitted.
           </P>
           <P>
             For example, a prompt like{" "}
             <Code>
-              {"Review the PR at {{D:PR URL}} focusing on {{D:Review Focus}}"}
+              {
+                "Review the PR at {{D:PR URL|required}} focusing on {{D:Review Focus|multiline}}"
+              }
             </Code>{" "}
-            creates two input fields: "PR URL" and "Review Focus".
+            creates one required single-line field ("PR URL") and one optional
+            multiline field ("Review Focus").
+          </P>
+          <P>
+            If the same argument appears more than once, modifiers are merged.
+            That means the argument is treated as required or multiline if any
+            occurrence uses that modifier.
           </P>
         </Section>
 
