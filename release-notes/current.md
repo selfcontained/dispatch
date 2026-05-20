@@ -1,9 +1,7 @@
 ## What's Changed
-* Fix terminal hotkey review follow-ups by @selfcontained in https://github.com/selfcontained/dispatch/pull/557
-* Show repo name in collapsed agent sidebar items by @selfcontained in https://github.com/selfcontained/dispatch/pull/558
-* docs: subagent orchestration design by @selfcontained in https://github.com/selfcontained/dispatch/pull/559
-* Add unit tests for template args, cron validation, and agent startup by @selfcontained in https://github.com/selfcontained/dispatch/pull/560
-* docs: fix sidebar collapsed view and agent detail claims by @selfcontained in https://github.com/selfcontained/dispatch/pull/561
+* Unify context picker across template launch and create-agent dialogs by @selfcontained in https://github.com/selfcontained/dispatch/pull/562
+* Improve template variable templating by @selfcontained in https://github.com/selfcontained/dispatch/pull/563
+* Add persona-review job prompt with state file pattern by @selfcontained in https://github.com/selfcontained/dispatch/pull/564
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.20.8...v0.20.9
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.20.9...v0.20.10
