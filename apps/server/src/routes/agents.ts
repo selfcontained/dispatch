@@ -288,6 +288,12 @@ export async function registerAgentRoutes(
       return reply.code(400).send({ error: "Invalid icon path." });
     }
 
+    try {
+      await access(realIconPath, constants.R_OK);
+    } catch {
+      return reply.code(404).send({ error: "Icon file not readable." });
+    }
+
     const contentType =
       ext === ".svg"
         ? "image/svg+xml"

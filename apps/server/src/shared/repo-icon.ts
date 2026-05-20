@@ -54,7 +54,7 @@ async function scanForIcons(
   if (entries.length > MAX_DIR_ENTRIES) return;
 
   for (const entry of entries) {
-    const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+    const childRel = rel ? path.join(rel, entry.name) : entry.name;
     if (
       entry.name.startsWith(".") ||
       entry.name === "node_modules" ||
