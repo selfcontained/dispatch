@@ -268,7 +268,8 @@ export async function registerAgentRoutes(
       return reply.code(400).send({ error: "Invalid icon extension." });
     }
 
-    const baseDir = agent.worktreePath ?? agent.cwd;
+    const baseDir =
+      agent.gitContext?.worktreePath ?? agent.worktreePath ?? agent.cwd;
     const iconAbsPath = path.join(baseDir, iconRelPath);
 
     let realIconPath: string;
