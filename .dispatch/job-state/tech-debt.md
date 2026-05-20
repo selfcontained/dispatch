@@ -2,24 +2,22 @@
 
 ## last_audited_sha
 
-df872f88146010ef9614fd95b98b31ac5e5bc5c0
+a473eaf458cf43e89965ee4d494de88aa6a94ce2
 
 ## next_focus
 
-**Extract analytics tools from `apps/server/src/shared/mcp/server.ts` (1861 lines)**
+**Extract persona/review tools from `apps/server/src/shared/mcp/server.ts` (1560 lines)**
 
-- The summary/analytics tool group (`get_activity_summary`, `get_agent_history`, `get_feedback_summary`) at lines ~1272-1482 shares a common date-range parsing pattern and callback resolution pattern. Extract into `analytics-tools.ts` following the same pattern as the job tools extraction.
-- **Action**: Create `apps/server/src/shared/mcp/analytics-tools.ts`. Move the three analytics tool registrations and their shared date-range parsing logic into a `registerAnalyticsTools(server, context)` function. Import and call from `createDispatchMcpServer`. Run `pnpm run check` and `pnpm run test:e2e` after.
+- The persona/review tool group (`review_status`, `dispatch_complete_review`, `get_parent_context`, `dispatch_get_recheck_context`, `dispatch_cancel_recheck`) at lines ~415-712 forms a cohesive group handling review lifecycle.
+- **Action**: Create `apps/server/src/shared/mcp/persona-tools.ts`. Move the five persona/review tool registrations into a `registerPersonaTools(server, allowed, context)` function. Import and call from `createDispatchMcpServer`. Follow the same extraction pattern used in `job-tools.ts` and `analytics-tools.ts`. Run `pnpm run check` and `pnpm run test:e2e` after.
 
 ## backlog
 
-1. **Extract persona/review tools from `server.ts`** (~lines 492-712, ~220 lines). The persona tools (`review_status`, `dispatch_complete_review`, `get_parent_context`, `dispatch_get_recheck_context`, `dispatch_cancel_recheck`) form a cohesive group. Extract to `persona-tools.ts` following the same pattern.
+1. **Large file: `apps/server/src/agents/manager.ts` (1733 lines)**. Agent manager -- check for functions that can be extracted to dedicated files.
 
-2. **Large file: `apps/server/src/agents/manager.ts` (1733 lines)**. Agent manager -- check for functions that can be extracted to dedicated files.
+2. **`ide-settings.ts` and `agent-type-settings.ts` share a near-identical pattern**: type guard, sanitize function, get/set with JSON parse. Consider a generic settings-value helper if a third instance appears (monitor, don't act yet).
 
-3. **`ide-settings.ts` and `agent-type-settings.ts` share a near-identical pattern**: type guard, sanitize function, get/set with JSON parse. Consider a generic settings-value helper if a third instance appears (monitor, don't act yet).
-
-4. **Re-scan route files for new utility duplication**. The `resolveTilde`, `sanitizeUploadedFileName`, and `errorMessage` patterns were all found in routes. Worth a fresh grep for other copy-pasted helpers, especially in newer route files.
+3. **Re-scan route files for new utility duplication**. The `resolveTilde`, `sanitizeUploadedFileName`, and `errorMessage` patterns were all found in routes. Worth a fresh grep for other copy-pasted helpers, especially in newer route files.
 
 ## patterns
 
@@ -29,7 +27,7 @@ df872f88146010ef9614fd95b98b31ac5e5bc5c0
 - **Large component files**: The top web components were 1100-2500 lines. The componentizer job has been extracting these (jobs-pane in PR #546, automations-pane in PR #547, feedback-panel in PR #551). Monitor whether more are needed.
 - **Unsafe casts for deferred initialization**: `stream-manager.ts` used `null as unknown as WebSocket` to initialize a field before the real value was available (fixed run 7). This pattern can appear anywhere a struct is built incrementally -- reorder initialization to assign the real value upfront.
 - **Three-way duplication across route files**: `resolveTilde` appeared in jobs.ts, templates.ts, AND system.ts (under the name `resolveTildePath`). When hunting duplicates, check all route files -- not just the obvious pair.
-- **Large MCP server file accumulates tool registrations**: `server.ts` was 2101 lines with all tool handlers inline. Extracting domain-grouped tool registrations into separate modules (e.g., `job-tools.ts`) reduces the main file while keeping the registration pattern identical. Continue extracting analytics and persona tool groups.
+- **Large MCP server file accumulates tool registrations**: `server.ts` was 2101 lines with all tool handlers inline. Extracting domain-grouped tool registrations into separate modules (job-tools.ts, analytics-tools.ts) keeps the main file focused on setup while each domain module owns its schemas and handlers. Continue with persona tools.
 
 ## history
 
@@ -41,3 +39,4 @@ df872f88146010ef9614fd95b98b31ac5e5bc5c0
 - 2026-05-17: Extracted `resolveTilde` to `shared/lib/resolve-tilde.ts`. Replaced 3 identical implementations: `routes/jobs.ts`, `routes/templates.ts`, and `routes/system.ts` (was named `resolveTildePath`).
 - 2026-05-18: Eliminated unsafe `null as unknown as WebSocket` cast in `stream-manager.ts:52`. Reordered initialization to create the WebSocket before the session object, so the real value is assigned directly.
 - 2026-05-19: Extracted job tool registrations (7 tools, ~240 lines) from `shared/mcp/server.ts` into `shared/mcp/job-tools.ts`. Reduced server.ts from 2101 to 1861 lines. Exported `toToolError` as shared helper.
+- 2026-05-20: Extracted analytics tool registrations (3 tools, ~200 lines) from `shared/mcp/server.ts` into `shared/mcp/analytics-tools.ts`. Reduced server.ts from 1761 to 1560 lines.
