@@ -1,32 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import type { JobTools } from "./job-tools.js";
 import { toToolError } from "./tool-error.js";
 
-export type AnalyticsCallbacks = {
-  getActivitySummary?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }) => Promise<Record<string, unknown>>;
-  getAgentHistory?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
-  }) => Promise<Record<string, unknown>>;
-  getFeedbackSummary?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    groupBy: "persona" | "severity" | "directory";
-  }) => Promise<Record<string, unknown>>;
-};
+export type AnalyticsCallbacks = Partial<
+  Pick<
+    JobTools,
+    "getActivitySummary" | "getAgentHistory" | "getFeedbackSummary"
+  >
+>;
 
 export function registerAnalyticsTools(
   server: McpServer,
