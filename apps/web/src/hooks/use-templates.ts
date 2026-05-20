@@ -4,6 +4,12 @@ import { api } from "@/lib/api";
 import type { CliAgentType } from "@/lib/agent-types";
 import type { Agent } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import {
+  parseTemplateArgs as parseSharedTemplateArgs,
+  type TemplatePromptArg as TemplateArg,
+} from "../../../server/src/templates/arg-parser";
+
+export type { TemplateArg };
 
 export type Template = {
   id: string;
@@ -20,12 +26,6 @@ export type Template = {
   allowMedia: boolean;
   createdAt: string;
   updatedAt: string;
-};
-
-export type TemplateArg = {
-  name: string;
-  key: string;
-  placeholder: string;
 };
 
 export type AddTemplateConfig = {
@@ -46,22 +46,8 @@ export type LaunchResult = {
   agent: Agent;
 };
 
-// Mirrored in apps/server/src/templates/store.ts — keep in sync
-const ARG_REGEX = /\{\{D:([^}]+)\}\}/g;
-
 export function parseTemplateArgs(prompt: string): TemplateArg[] {
-  const seen = new Set<string>();
-  const args: TemplateArg[] = [];
-  let match;
-  while ((match = ARG_REGEX.exec(prompt)) !== null) {
-    const name = match[1].trim();
-    const key = name.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      args.push({ name, key, placeholder: match[0] });
-    }
-  }
-  return args;
+  return parseSharedTemplateArgs(prompt);
 }
 
 export function useTemplates(enabled = true) {

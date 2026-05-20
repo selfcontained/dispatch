@@ -89,4 +89,31 @@ describe("TemplateService.launchTemplate", () => {
       })
     );
   });
+
+  it("allows optional template arguments to be omitted", async () => {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate({
+        prompt: "Review {{D:Target}} with {{D:Notes|multiline}}",
+      })
+    );
+
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      agentType: "codex",
+      args: {},
+    });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPrompt: "Review  with ",
+      })
+    );
+  });
 });

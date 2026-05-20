@@ -4,7 +4,7 @@
 
 The Automations system has two layers:
 
-- **Templates** — reusable agent launch configurations. A template captures a prompt, agent type, directory, worktree settings, and an optional set of runtime arguments (`{{D:Arg Name}}` syntax). Templates can be launched from the Cmd+K command palette or the Automations UI to spin up a normal agent session with no supervision.
+- **Templates** — reusable agent launch configurations. A template captures a prompt, agent type, directory, worktree settings, and an optional set of runtime arguments (`{{D:Arg Name}}` with optional filter-style modifiers like `|required|multiline`). Templates can be launched from the Cmd+K command palette or the Automations UI to spin up a normal agent session with no supervision.
 
 - **Jobs** — automation on top of a template. A job references a backing template and adds scheduling (cron), timeouts, singleton enforcement, structured reporting via MCP, auto-archive, and notifications. Each job invocation is a **run**.
 
@@ -31,15 +31,19 @@ Templates are uniquely identified by (`directory`, `name`). Each template has:
 
 ### Runtime Arguments
 
-Templates support `{{D:Arg Name}}` placeholders in their prompt. At launch time, each placeholder becomes a required input field. Arguments are also pinned to the spawned agent's sidebar for reference.
+Templates support `{{D:Arg Name}}` placeholders in their prompt. Arguments are optional by default. Add `|required` to make one mandatory at launch, and `|multiline` (or `|textarea`) to render a textarea instead of a single-line input. Arguments are also pinned to the spawned agent's sidebar for reference.
+
+If you leave an optional argument blank, Dispatch removes that placeholder and leaves the surrounding text as-is. Write prompts so they still read naturally when optional values are omitted.
 
 Example prompt:
 
 ```
-Review the PR at {{D:PR URL}} and focus on {{D:Review Focus}}.
+Review the PR at {{D:PR URL|required}} and focus on {{D:Review Focus|multiline}}.
 ```
 
-This creates two input fields: "PR URL" and "Review Focus".
+This creates a required single-line field ("PR URL") and an optional multiline field ("Review Focus").
+
+If the same argument appears more than once, modifiers are merged. An argument is treated as `required` or `multiline` if any occurrence uses that modifier.
 
 ### Command Palette (Cmd+K)
 

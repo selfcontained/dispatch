@@ -4,6 +4,14 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import type { JobAgentType } from "../jobs/store.js";
+import {
+  parseTemplateArgs,
+  substituteArgs,
+  type TemplatePromptArg as ParsedArg,
+} from "./arg-parser.js";
+
+export { parseTemplateArgs, substituteArgs } from "./arg-parser.js";
+export type { TemplatePromptArg as ParsedArg } from "./arg-parser.js";
 
 export type TemplateRecord = {
   id: string;
@@ -35,52 +43,6 @@ export type TemplateConfigUpdate = {
   callable?: boolean;
   allowMedia?: boolean;
 };
-
-export type ParsedArg = {
-  name: string;
-  key: string;
-  placeholder: string;
-};
-
-// Mirrored in apps/web/src/hooks/use-templates.ts for client-side preview
-const ARG_PATTERN = /\{\{D:([^}]+)\}\}/g;
-
-export function parseTemplateArgs(prompt: string): ParsedArg[] {
-  const regex = new RegExp(ARG_PATTERN.source, ARG_PATTERN.flags);
-  const seen = new Set<string>();
-  const args: ParsedArg[] = [];
-  let match;
-  while ((match = regex.exec(prompt)) !== null) {
-    const name = match[1].trim();
-    const key = name.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      args.push({ name, key, placeholder: match[0] });
-    }
-  }
-  return args;
-}
-
-export function substituteArgs(
-  prompt: string,
-  args: Record<string, string>
-): string {
-  const parsed = parseTemplateArgs(prompt);
-  const missing = parsed.filter((a) => !(a.key in args) && !(a.name in args));
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required template arguments: ${missing.map((a) => a.name).join(", ")}`
-    );
-  }
-  return prompt.replace(
-    new RegExp(ARG_PATTERN.source, ARG_PATTERN.flags),
-    (_match, rawName: string) => {
-      const name = rawName.trim();
-      const key = name.toLowerCase();
-      return args[key] ?? args[name] ?? "";
-    }
-  );
-}
 
 export class TemplateStore {
   constructor(private readonly pool: Pool) {}

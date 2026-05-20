@@ -2,6 +2,7 @@ import {
   type DragEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -23,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useTemplateActions,
   parseTemplateArgs,
@@ -43,15 +45,33 @@ function ArgInput({
   value: string;
   onChange: (value: string) => void;
 }): JSX.Element {
+  const inputId = useId();
+
   return (
     <div className="space-y-2">
-      <label className="text-sm text-muted-foreground">{arg.name}</label>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={`Enter ${arg.name}`}
-        className="h-8 text-sm"
-      />
+      <label htmlFor={inputId} className="text-sm text-muted-foreground">
+        {arg.name}
+        {arg.required ? (
+          <span className="ml-1 text-status-blocked">*</span>
+        ) : null}
+      </label>
+      {arg.multiline ? (
+        <Textarea
+          id={inputId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`Enter ${arg.name}`}
+          className="min-h-24 resize-y text-sm"
+        />
+      ) : (
+        <Input
+          id={inputId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`Enter ${arg.name}`}
+          className="h-8 text-sm"
+        />
+      )}
     </div>
   );
 }
@@ -185,7 +205,8 @@ function LaunchTemplateDialogContent({
   );
 
   const allArgsFilled =
-    args.length === 0 || args.every((a) => argValues[a.key]?.trim());
+    args.length === 0 ||
+    args.every((a) => !a.required || argValues[a.key]?.trim());
 
   const handleLaunch = useCallback(() => {
     const launchArgs = args.length > 0 ? argValues : undefined;

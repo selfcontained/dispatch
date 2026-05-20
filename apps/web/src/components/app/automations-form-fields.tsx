@@ -11,6 +11,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { AgentType } from "@/lib/agent-types";
 import {
   AGENT_TYPE_LABELS,
@@ -344,12 +345,12 @@ export function TemplateConfigFields({
 
       <div className="space-y-1">
         <label className="text-sm text-muted-foreground">Prompt</label>
-        <textarea
+        <Textarea
           value={prompt}
           onChange={(e) => onPromptChange(e.target.value)}
           placeholder="Describe what the agent should do..."
           className={cn(
-            "flex min-h-[120px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+            "min-h-[120px] resize-y",
             "ring-offset-background placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           )}
@@ -363,6 +364,8 @@ export function TemplateConfigFields({
                 className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
               >
                 {a.name}
+                {a.required ? " *" : ""}
+                {a.multiline ? " (multiline)" : ""}
               </span>
             ))}
           </div>
