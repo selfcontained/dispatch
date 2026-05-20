@@ -8,7 +8,6 @@ import {
   ArrowDownToLine,
   Copy,
   Folder,
-  FolderGit2,
   FolderTree,
   GitBranch,
   Play,
@@ -191,6 +190,9 @@ export function AgentCard({
     }
   }, [agent.id, renamePromptPending]);
   const sidebarBaseBranch = agent.baseBranch ?? "main";
+  const collapsedRepoName = agent.gitContext
+    ? (agent.gitContext.repoRoot.split("/").pop() ?? null)
+    : (agent.cwd.split("/").pop() ?? null);
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
     isExpanded
@@ -423,6 +425,11 @@ export function AgentCard({
                 <span className="shrink-0">
                   {formatRelativeTime(agent.latestEvent.updatedAt)}
                 </span>
+                {collapsedRepoName ? (
+                  <span className="ml-auto shrink-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
+                    {collapsedRepoName}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-0.5 leading-relaxed text-muted-foreground">
                 {agent.latestEvent.message}
@@ -444,12 +451,11 @@ export function AgentCard({
               <span className="shrink-0">
                 {formatRelativeTime(agent.latestEvent.updatedAt)}
               </span>
-              <span className="mx-1.5 shrink-0 text-muted-foreground/70">
-                •
-              </span>
-              <span className="min-w-0 truncate">
-                {agent.latestEvent.message}
-              </span>
+              {collapsedRepoName ? (
+                <span className="ml-auto shrink-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
+                  {collapsedRepoName}
+                </span>
+              ) : null}
             </div>
           )
         ) : null}
@@ -475,14 +481,6 @@ export function AgentCard({
                     </div>
                     {agent.gitContext?.isWorktree ? (
                       <>
-                        <CompactMetaRow
-                          label="Repo"
-                          icon={<FolderGit2 className="h-3.5 w-3.5" />}
-                          value={
-                            agent.gitContext.repoRoot.split("/").pop() ??
-                            agent.gitContext.repoRoot
-                          }
-                        />
                         <div className="flex items-start justify-between gap-3">
                           <span
                             className="shrink-0 text-muted-foreground/75"
