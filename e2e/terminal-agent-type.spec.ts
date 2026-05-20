@@ -264,9 +264,7 @@ test.describe("Terminal agent type", () => {
     await expect(
       page.locator('[title="https://example.com/docs/launch-context"]')
     ).not.toBeVisible();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    await page.getByTestId("create-agent-context-clipboard-action").click();
 
     await expect(
       page.locator('[title="https://example.com/docs/launch-context"]')
@@ -285,9 +283,7 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    await page.getByTestId("create-agent-context-clipboard-action").click();
 
     await expect(
       page.locator('[title="https://example.com/rich-link"]')
@@ -330,16 +326,14 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
 
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-check")
-    ).toBeVisible();
+    await expect(page.getByTestId("create-agent-context")).toBeVisible();
     const readClipboard = page.getByTestId(
-      "create-agent-context-clipboard-check-action"
+      "create-agent-context-clipboard-action"
     );
     await readClipboard.click();
     await expect(
       page.getByTestId("create-agent-context-clipboard-feedback")
-    ).toContainText("Nothing readable found.");
+    ).toContainText("Nothing readable found on the clipboard.");
     await readClipboard.click();
 
     await expect(
@@ -347,7 +341,7 @@ test.describe("Terminal agent type", () => {
     ).toBeVisible();
   });
 
-  test("create with context shows feedback when clipboard access is blocked", async ({
+  test("create with context enters paste mode when clipboard access is blocked", async ({
     page,
   }) => {
     await stubClipboard(page, { kind: "blocked" });
@@ -357,18 +351,15 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const readButton = page.getByTestId(
-      "create-agent-context-clipboard-check-action"
+      "create-agent-context-clipboard-action"
     );
     await expect(readButton).toBeVisible();
 
     await readButton.click();
-    await expect(readButton).toBeVisible();
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-feedback")
-    ).toContainText("Clipboard access was blocked.");
+    await expect(page.getByPlaceholder("Paste here")).toBeVisible();
   });
 
-  test("create with context shows the read button even when clipboard APIs are unavailable", async ({
+  test("create with context enters paste mode when clipboard APIs are unavailable", async ({
     page,
   }) => {
     await stubClipboard(page, { kind: "unsupported" });
@@ -378,14 +369,12 @@ test.describe("Terminal agent type", () => {
     await page.getByTestId("create-agent-with-context").click();
 
     const readButton = page.getByTestId(
-      "create-agent-context-clipboard-check-action"
+      "create-agent-context-clipboard-action"
     );
     await expect(readButton).toBeVisible();
 
     await readButton.click();
-    await expect(
-      page.getByTestId("create-agent-context-clipboard-feedback")
-    ).toContainText("Clipboard access isn't available here.");
+    await expect(page.getByPlaceholder("Paste here")).toBeVisible();
   });
 
   test("create with context auto-adds pasted URLs as link tiles in the prompt textarea", async ({
@@ -483,9 +472,7 @@ test.describe("Terminal agent type", () => {
 
     const prompt = page.getByTestId("create-agent-initial-prompt");
     await prompt.fill("   \n\n  ");
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    await page.getByTestId("create-agent-context-clipboard-action").click();
 
     await expect(prompt).toHaveValue("Real instructions from clipboard.");
   });
@@ -502,9 +489,7 @@ test.describe("Terminal agent type", () => {
 
     await page.getByTestId("create-agent-button").click();
     await page.getByTestId("create-agent-with-context").click();
-    await page
-      .getByTestId("create-agent-context-clipboard-check-action")
-      .click();
+    await page.getByTestId("create-agent-context-clipboard-action").click();
 
     await expect(page.getByText("clipboard-image.png")).toBeVisible();
   });
