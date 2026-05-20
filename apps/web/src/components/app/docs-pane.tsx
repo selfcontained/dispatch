@@ -158,9 +158,10 @@ const SECTIONS: SectionDef[] = [
             CLI agents in the sidebar show a color-coded status from their
             latest event: green for <strong>working</strong>, red for{" "}
             <strong>blocked</strong>, yellow for <strong>waiting</strong>, and
-            blue for <strong>done</strong>. The sidebar also shows the event
-            message and how long ago it was reported. Terminal agents have no
-            CLI to emit events, so their card stays neutral.
+            blue for <strong>done</strong>. Collapsed cards show the status,
+            elapsed time, and the repo or directory name; expand the card to see
+            the full event message. Terminal agents have no CLI to emit events,
+            so their card stays neutral.
           </P>
         </Section>
 
@@ -210,14 +211,14 @@ const SECTIONS: SectionDef[] = [
           <H3>Agent details</H3>
           <P>
             Expand an agent card to see its metadata. Worktree agents show the
-            repo name, base branch, and working branch (indented below the
-            base); non-worktree agents show the working directory and current
-            branch. A <strong>diff-stats badge</strong> in the top-right
-            summarizes uncommitted changes against the base branch. CLI agents
-            also show whether they're running in full access or sandboxed mode,
-            plus a feedback panel and persona launcher; terminal agents skip
-            those since they have no CLI. Persona agents show their role and
-            link to their parent agent.
+            base branch and working branch (indented below the base);
+            non-worktree agents show the working directory and current branch. A{" "}
+            <strong>diff-stats badge</strong> in the top-right summarizes
+            uncommitted changes against the base branch. CLI agents also show
+            whether they're running in full access or sandboxed mode, plus a
+            feedback panel and persona launcher; terminal agents skip those
+            since they have no CLI. Persona agents show their role and link to
+            their parent agent.
           </P>
         </Section>
 
