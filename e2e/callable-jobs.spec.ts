@@ -173,6 +173,59 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
   });
 
+  test("launch dialog renders required and multiline template args", async ({
+    page,
+  }) => {
+    const multilineTemplateName = `e2e-callable-multiline-${Date.now()}`;
+    const createRes = await page.request.post("/api/v1/templates", {
+      headers: HEADERS,
+      data: {
+        name: multilineTemplateName,
+        directory: templateDir,
+        prompt:
+          "Summarize {{D:Summary|required|multiline}} for {{D:Audience}}.",
+        callable: true,
+        allowMedia: false,
+        agentType: "claude",
+        useWorktree: false,
+      },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const created = (await createRes.json()) as { id: string };
+    templateId = created.id;
+
+    await loadApp(page);
+    await page.keyboard.press(`${MOD_KEY}+k`);
+    const palette = page.getByRole("dialog", { name: "Command palette" });
+    await expect(palette).toBeVisible({ timeout: 3_000 });
+    await palette
+      .getByRole("combobox")
+      .pressSequentially(multilineTemplateName, { delay: 30 });
+    await expect(palette.getByText(multilineTemplateName)).toBeVisible();
+
+    await page.keyboard.press("Enter");
+    const launchDialog = page.getByRole("dialog", {
+      name: multilineTemplateName,
+    });
+    await expect(launchDialog).toBeVisible({ timeout: 3_000 });
+
+    const launchButton = launchDialog.getByRole("button", { name: "Launch" });
+    await expect(launchButton).toBeDisabled();
+
+    const summaryField = launchDialog.getByLabel("Summary", { exact: false });
+    await expect(summaryField).toHaveAttribute("placeholder", "Enter Summary");
+    await expect(summaryField).toHaveAttribute("data-slot", "textarea");
+
+    const audienceField = launchDialog.getByLabel("Audience", { exact: false });
+    await expect(audienceField).not.toHaveAttribute("data-slot", "textarea");
+
+    await summaryField.fill("Line 1\nLine 2");
+    await expect(launchButton).toBeEnabled();
+    await launchButton.click();
+
+    await expect(page).toHaveURL(/\/agents\/agt_/, { timeout: 30_000 });
+  });
+
   test("command palette disables global terminal-focus hotkey", async ({
     page,
   }) => {

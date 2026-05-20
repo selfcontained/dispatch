@@ -6,7 +6,13 @@ describe("parseTemplateArgs", () => {
   it("extracts a single argument", () => {
     const args = parseTemplateArgs("Hello {{D:Name}}!");
     expect(args).toEqual([
-      { name: "Name", key: "name", placeholder: "{{D:Name}}" },
+      {
+        name: "Name",
+        key: "name",
+        placeholder: "{{D:Name}}",
+        required: false,
+        multiline: false,
+      },
     ]);
   });
 
@@ -26,7 +32,51 @@ describe("parseTemplateArgs", () => {
   it("trims whitespace from argument names", () => {
     const args = parseTemplateArgs("{{D:  Spaced  }}");
     expect(args).toEqual([
-      { name: "Spaced", key: "spaced", placeholder: "{{D:  Spaced  }}" },
+      {
+        name: "Spaced",
+        key: "spaced",
+        placeholder: "{{D:  Spaced  }}",
+        required: false,
+        multiline: false,
+      },
+    ]);
+  });
+
+  it("parses required and multiline modifiers", () => {
+    expect(parseTemplateArgs("{{D:Summary|required|multiline}}")).toEqual([
+      {
+        name: "Summary",
+        key: "summary",
+        placeholder: "{{D:Summary|required|multiline}}",
+        required: true,
+        multiline: true,
+      },
+    ]);
+  });
+
+  it("supports textarea as an alias for multiline", () => {
+    expect(parseTemplateArgs("{{D:Notes|textarea}}")).toEqual([
+      {
+        name: "Notes",
+        key: "notes",
+        placeholder: "{{D:Notes|textarea}}",
+        required: false,
+        multiline: true,
+      },
+    ]);
+  });
+
+  it("merges repeated args to the strongest modifiers", () => {
+    expect(
+      parseTemplateArgs("{{D:Body}} {{D:body|required}} {{D:BODY|multiline}}")
+    ).toEqual([
+      {
+        name: "Body",
+        key: "body",
+        placeholder: "{{D:Body}}",
+        required: true,
+        multiline: true,
+      },
     ]);
   });
 
@@ -72,16 +122,20 @@ describe("substituteArgs", () => {
     expect(substituteArgs("{{D:Name}}", { Name: "original" })).toBe("original");
   });
 
-  it("throws when required argument is missing", () => {
-    expect(() => substituteArgs("{{D:Missing}}", {})).toThrow(
+  it("throws when a required argument is missing", () => {
+    expect(() => substituteArgs("{{D:Missing|required}}", {})).toThrow(
       "Missing required template arguments: Missing"
     );
   });
 
   it("lists all missing arguments in the error", () => {
-    expect(() => substituteArgs("{{D:A}} {{D:B}}", {})).toThrow(
-      "Missing required template arguments: A, B"
-    );
+    expect(() =>
+      substituteArgs("{{D:A|required}} {{D:B|required}}", {})
+    ).toThrow("Missing required template arguments: A, B");
+  });
+
+  it("treats arguments as optional by default", () => {
+    expect(substituteArgs("{{D:Optional}}", {})).toBe("");
   });
 
   it("replaces deduplicated arguments consistently", () => {
@@ -98,5 +152,13 @@ describe("substituteArgs", () => {
     expect(substituteArgs("before{{D:Gap}}after", { gap: "" })).toBe(
       "beforeafter"
     );
+  });
+
+  it("substitutes arguments with modifiers", () => {
+    expect(
+      substituteArgs("{{D:Prompt|required|multiline}}", {
+        prompt: "Line 1\nLine 2",
+      })
+    ).toBe("Line 1\nLine 2");
   });
 });

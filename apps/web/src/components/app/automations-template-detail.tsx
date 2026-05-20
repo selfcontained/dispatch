@@ -182,13 +182,15 @@ function TemplateDetail({
         {savedArgs.length > 0 ? (
           <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">
-              Required arguments:
+              Launch arguments:
             </span>{" "}
             {savedArgs.map((a, i) => (
               <span key={a.key}>
                 {i > 0 ? ", " : ""}
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
                   {a.name}
+                  {a.required ? " *" : ""}
+                  {a.multiline ? " (multiline)" : ""}
                 </span>
               </span>
             ))}

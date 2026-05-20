@@ -113,7 +113,11 @@ function CreateTemplateDialogContent({
           <code className="rounded bg-white/[0.08] px-1 text-xs">
             {"{{D:Arg Name}}"}
           </code>{" "}
-          in the prompt for runtime arguments.
+          in the prompt for optional runtime arguments, with modifiers like{" "}
+          <code className="rounded bg-white/[0.08] px-1 text-xs">
+            {"{{D:Arg Name|required|multiline}}"}
+          </code>
+          .
         </DialogDescription>
       </DialogHeader>
 
