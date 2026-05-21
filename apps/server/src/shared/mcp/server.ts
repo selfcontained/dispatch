@@ -9,7 +9,10 @@ import { createPr, getPrStatus } from "../github/pr.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
-import { registerPersonaInteractionTools } from "./persona-interaction-tools.js";
+import {
+  registerPersonaInteractionTools,
+  type LaunchPersonaAgentType,
+} from "./persona-interaction-tools.js";
 import { registerPersonaTools } from "./persona-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { toToolError } from "./tool-error.js";
@@ -264,7 +267,7 @@ export type McpRequestContext = {
     opts: {
       persona: string;
       context: string;
-      agentType?: "claude" | "codex" | "cursor" | "opencode";
+      agentType?: LaunchPersonaAgentType;
       allowRecheck?: boolean;
       includeDiff?: boolean;
     }

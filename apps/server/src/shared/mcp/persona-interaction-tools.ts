@@ -4,12 +4,14 @@ import * as z from "zod/v4";
 import type { McpRequestContext } from "./server.js";
 import { toToolError } from "./tool-error.js";
 
-const LAUNCH_PERSONA_AGENT_TYPES = [
+export const LAUNCH_PERSONA_AGENT_TYPES = [
   "claude",
   "codex",
   "cursor",
   "opencode",
 ] as const;
+export type LaunchPersonaAgentType =
+  (typeof LAUNCH_PERSONA_AGENT_TYPES)[number];
 
 export type PersonaInteractionCallbacks = {
   agentId: string;
