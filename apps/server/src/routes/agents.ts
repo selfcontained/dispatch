@@ -1,3 +1,5 @@
+import { createReadStream } from "node:fs";
+import { access, constants, realpath } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -244,6 +246,70 @@ export async function registerAgentRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     return { agent: deps.withStreamFlag(agent) };
+  });
+
+  app.get("/api/v1/agents/:id/repo-icon", async (request, reply) => {
+    const ALLOWED_ICON_EXTENSIONS = new Set([".svg", ".png", ".ico"]);
+
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const iconRelPath = agent.gitContext?.repoIconPath;
+    if (!iconRelPath) {
+      return reply.code(404).send({ error: "No repo icon." });
+    }
+
+    const ext = path.extname(iconRelPath).toLowerCase();
+    if (!ALLOWED_ICON_EXTENSIONS.has(ext)) {
+      return reply.code(400).send({ error: "Invalid icon extension." });
+    }
+
+    const baseDir =
+      agent.gitContext?.worktreePath ?? agent.worktreePath ?? agent.cwd;
+    const iconAbsPath = path.join(baseDir, iconRelPath);
+
+    let realIconPath: string;
+    let realBaseDir: string;
+    try {
+      realBaseDir = await realpath(baseDir);
+      realIconPath = await realpath(iconAbsPath);
+    } catch {
+      return reply.code(404).send({ error: "Icon file not found." });
+    }
+
+    if (
+      !realIconPath.startsWith(realBaseDir + path.sep) &&
+      realIconPath !== realBaseDir
+    ) {
+      return reply.code(400).send({ error: "Invalid icon path." });
+    }
+
+    try {
+      await access(realIconPath, constants.R_OK);
+    } catch {
+      return reply.code(404).send({ error: "Icon file not readable." });
+    }
+
+    const contentType =
+      ext === ".svg"
+        ? "image/svg+xml"
+        : ext === ".png"
+          ? "image/png"
+          : "image/x-icon";
+
+    return reply
+      .type(contentType)
+      .header("Cache-Control", "private, max-age=30")
+      .header(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'"
+      )
+      .header("X-Content-Type-Options", "nosniff")
+      .send(createReadStream(realIconPath));
   });
 
   app.patch("/api/v1/agents/:id/review-agent-type", async (request, reply) => {

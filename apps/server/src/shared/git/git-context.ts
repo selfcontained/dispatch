@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { AgentGitContext } from "../../agents/types.js";
 import { runCommand } from "../lib/run-command.js";
+import { detectRepoIcon } from "../repo-icon.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 800;
 
@@ -127,6 +128,8 @@ export async function probeGitContext(
       ).stdout;
     }
 
+    const repoIconPath = await detectRepoIcon(checkoutRoot);
+
     return {
       status: "ok",
       value: {
@@ -135,6 +138,7 @@ export async function probeGitContext(
         worktreePath: checkoutRoot,
         worktreeName: path.basename(checkoutRoot),
         isWorktree: checkoutRoot !== repoRoot,
+        repoIconPath,
       },
     };
   } catch {
@@ -157,6 +161,7 @@ export async function buildGitContextForWorktree(input: {
   try {
     const repoRoot = await resolveRepoRoot(worktreePath, opts);
     const normalizedWorktreePath = normalizePath(worktreePath);
+    const repoIconPath = await detectRepoIcon(normalizedWorktreePath);
     return {
       status: "ok",
       value: {
@@ -165,6 +170,7 @@ export async function buildGitContextForWorktree(input: {
         worktreePath: normalizedWorktreePath,
         worktreeName: path.basename(normalizedWorktreePath),
         isWorktree: normalizedWorktreePath !== repoRoot,
+        repoIconPath,
       },
     };
   } catch {

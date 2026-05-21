@@ -48,6 +48,35 @@ import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 
+function RepoLabel({
+  agentId,
+  repoIconPath,
+  name,
+}: {
+  agentId: string;
+  repoIconPath?: string | null;
+  name: string;
+}) {
+  const [iconError, setIconError] = React.useState(false);
+  const showIcon = !!repoIconPath && !iconError;
+
+  return (
+    <span className="ml-auto flex min-w-0 items-center gap-1 pl-2">
+      {showIcon ? (
+        <img
+          src={`/api/v1/agents/${agentId}/repo-icon`}
+          alt=""
+          className="h-3.5 w-3.5 shrink-0 object-contain"
+          onError={() => setIconError(true)}
+        />
+      ) : null}
+      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
+        {name}
+      </span>
+    </span>
+  );
+}
+
 function hasDefaultSessionName(agent: Agent): boolean {
   if (agent.persona) return false;
   if (agent.type === "terminal") return false;
@@ -426,9 +455,11 @@ export function AgentCard({
                   {formatRelativeTime(agent.latestEvent.updatedAt)}
                 </span>
                 {collapsedRepoName ? (
-                  <span className="ml-auto min-w-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
-                    {collapsedRepoName}
-                  </span>
+                  <RepoLabel
+                    agentId={agent.id}
+                    repoIconPath={agent.gitContext?.repoIconPath}
+                    name={collapsedRepoName}
+                  />
                 ) : null}
               </div>
               <div className="mt-0.5 leading-relaxed text-muted-foreground">
@@ -452,9 +483,11 @@ export function AgentCard({
                 {formatRelativeTime(agent.latestEvent.updatedAt)}
               </span>
               {collapsedRepoName ? (
-                <span className="ml-auto min-w-0 truncate pl-2 font-mono text-[10px] text-muted-foreground/60">
-                  {collapsedRepoName}
-                </span>
+                <RepoLabel
+                  agentId={agent.id}
+                  repoIconPath={agent.gitContext?.repoIconPath}
+                  name={collapsedRepoName}
+                />
               ) : null}
             </div>
           )

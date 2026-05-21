@@ -47,6 +47,7 @@ export type Agent = {
     worktreePath: string;
     worktreeName: string;
     isWorktree: boolean;
+    repoIconPath?: string | null;
   } | null;
   persona?: string | null;
   parentAgentId?: string | null;

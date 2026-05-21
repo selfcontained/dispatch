@@ -55,6 +55,7 @@ export type AgentGitContext = {
   worktreePath: string;
   worktreeName: string;
   isWorktree: boolean;
+  repoIconPath?: string | null;
 };
 
 export type WorktreeCleanupMode = "auto" | "keep" | "force";
