@@ -1,29 +1,41 @@
-Audit Dispatch's documentation against the actual codebase and fix anything that has drifted. This job runs on a recurring schedule, so lean on the state file to avoid re-doing work every run.
+Audit Dispatch's documentation against the actual codebase and fix anything that has drifted. This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid re-auditing from scratch every time.
 
 ## Important context
 
 Dispatch is a local-first control plane for running and managing multiple AI coding agents. Only check docs against the Dispatch codebase and its actual behavior. The primary user-facing documentation lives **in the app** at `apps/web/src/components/app/docs-pane.tsx` — that's the most important surface to keep accurate. Top-level files (`README.md`, `CLAUDE.md`, `AGENTS.md`) and the `docs/` folder are secondary.
 
-## Phase 0: Read the state file
+## Phase 0: Read the state from the Brain
 
-Read `.dispatch/job-state/docs-audit.md` before doing anything else. It contains:
+State is spread across purpose-specific brain primitives to keep writes minimal:
 
-- `last_audited_sha` — the HEAD SHA from the previous run
-- `backlog` — items the last run deferred or flagged for next time
-- `drift_patterns` — recurring observations about where docs tend to go stale
-- `next_focus` — the specific area the last run recommended you focus on this time
+1. **Core state** (collection: `job-state`, name: `docs-audit`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+   - `last_audited_sha` — the HEAD SHA from the previous run
+   - `next_focus` — the specific area the last run recommended you focus on this time
 
-If the state file is missing or malformed, fall through to a bootstrap full pass (see Phase 5 fallback), log what you found, and write a fresh state file at the end.
+2. **Backlog** (collection: `job-state`, name: `docs-audit-backlog`) — read with `brain_list_get`. Items noticed during prior passes but left for later runs. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+
+3. **Patterns** (collection: `job-state`, name: `docs-audit-patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
+   - `patterns` — recurring observations about where docs tend to go stale
+   - Only update this object when you have a new pattern to add or a stale one to prune. Most runs won't touch it.
+
+4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "docs-audit", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+
+If the core state object is not found (first run), fall through to a bootstrap full pass (see Phase 5 fallback), log what you found, and seed the Brain at the end.
 
 ## Phase 1: Scope the work
 
 Do **not** inventory the whole codebase from scratch. Scope each run to a small, focused slice:
 
 1. Run `git diff --name-only <last_audited_sha>..HEAD` to find what's actually changed since the last audit. Map those file paths to the docs that describe them.
-2. Pick **one** deep-dive area from `next_focus` in the state file (or the top item in `backlog` if `next_focus` is empty).
-3. If `last_audited_sha` is missing, invalid, or older than 30 days, also spot-check the sections flagged in `drift_patterns` — those are the ones that keep rotting.
+2. Pick **one** deep-dive area from `next_focus` in the core state (or the top item in the backlog list if `next_focus` is empty).
+3. If `last_audited_sha` is missing, invalid, or older than 30 days, also spot-check the sections flagged in `patterns` — those are the ones that keep rotting.
 
 Keep the run's scope deliberately narrow. A small, correct PR every night beats a sprawling one once a week.
+
+- If `next_focus` feels too big for one night, split it and push half back into the backlog list with a concrete description.
+- Treat each run as one focused slice. Recent passes all fit comfortably in one PR each. Aim for that size.
+- If you notice something that isn't drift but is genuinely missing, add it to the backlog list with enough detail that a future run can act on it without re-discovering the context.
+- When the diff since `last_audited_sha` includes a meaningful UI change, it's reasonable to pivot away from `next_focus` to handle the diff-driven update first.
 
 ## Phase 2: Audit the in-app docs (primary)
 
@@ -60,16 +72,28 @@ Only touch these if the Phase 1 diff points to them or they're explicitly in `ne
 
 Do not rewrite docs for style. Fix factual drift only.
 
-## Phase 4: Update the state file
+## Phase 4: Update the state in the Brain
 
-Before committing, rewrite `.dispatch/job-state/docs-audit.md` with:
+**Core state** — use `brain_store_object` (collection: `job-state`, name: `docs-audit`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
 
-- `last_audited_sha` — current `HEAD` (the commit you're about to create will supersede this when it lands).
-- `backlog` — anything you noticed but deferred (e.g. "docs-pane Reviewers section should add the new `review_status` verdict values").
-- `drift_patterns` — running list of areas that keep needing updates. Add new observations, prune stale ones. These signal where to invest.
+- `last_audited_sha` — current HEAD (the commit you're about to create will supersede this when it lands).
 - `next_focus` — the specific area the next run should start with. Be concrete ("audit docs-pane Worktrees section against `packages/shared/src/git/worktree.ts`") rather than vague ("check worktrees").
 
-Treat the state file as a handoff note to a colleague, not a log.
+**Backlog** — use list operations (collection: `job-state`, name: `docs-audit-backlog`). Do not rewrite the full list — use surgical mutations:
+
+- `brain_list_remove` — remove items you addressed or that are no longer relevant.
+- `brain_list_push` — add any new issues you noticed but deferred. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem.
+
+**Patterns** — use `brain_store_object` (collection: `job-state`, name: `docs-audit-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
+
+**Run event** — log this run using `brain_append_event`:
+
+- collection: `job-state`
+- kind: `run`
+- subject: `docs-audit`
+- value: `{ "date": "<today>", "summary": "<one-line summary of what was audited and fixed>", "pr": "<PR number>" }`
+
+This keeps writes minimal — the core object is just two fields of new content, backlog mutations are surgical, and full history lives in the append-only event log.
 
 ## Phase 5: Validate, commit, PR, merge
 
@@ -78,9 +102,9 @@ This phase is not done until **CI is green and the PR is merged**. Opening a PR 
 1. Run `pnpm run format:write` to fix any prettier drift in files you touched (`pnpm run format` only checks — it won't rewrite). CI enforces `prettier --check` and will fail the PR otherwise.
 2. If `apps/web/` changed, run `pnpm run check` (docs-only changes generally don't need it).
 3. Verify any `docs/` links in `README.md` still resolve.
-4. Commit on a new branch. Include the state file update in the same commit.
+4. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 5. Create a PR targeting `main` with a short body: what was audited, what changed, and what's deferred to next run.
-6. **Wait for CI.** Poll `get_pr_status` for this PR in a loop. Each check costs almost nothing; keep polling until the `ci` check's `status` leaves `IN_PROGRESS` and a `conclusion` appears. A typical CI run is 3–5 minutes — sleep ~60s between polls. Do not call `job_complete` while CI is still running.
+6. **Wait for CI.** Poll `get_pr_status` for this PR in a loop. Each check costs almost nothing; keep polling until the `ci` check's `status` leaves `IN_PROGRESS` and a `conclusion` appears. A typical CI run is 3-5 minutes — sleep ~60s between polls. Do not call `job_complete` while CI is still running.
 7. **Act on the CI result.**
    - **`SUCCESS`** — merge the PR. Use the `create_pr` tool's companion merge path or shell out to `gh pr merge <num> --squash --delete-branch`. After merge, verify the PR's state is `MERGED` via `get_pr_status` before calling `job_complete`.
    - **`FAILURE`** — read the failed job logs (`gh run view <id> --log-failed`). Classify the failure:
@@ -91,7 +115,7 @@ If CI takes longer than 30 minutes without completing, call `job_needs_input` �
 
 ### Bootstrap fallback
 
-If the state file is missing (first run) or clearly out of sync, do a shallow pass: skim each in-app docs section and each top-level README/CLAUDE section, note observations in the new state file, and fix only the most obviously broken claims. Leave the rest for subsequent runs. Do not attempt a full rewrite in a single night.
+If the core state object is missing (first run) or clearly out of sync, do a shallow pass: skim each in-app docs section and each top-level README/CLAUDE section, note observations in the new Brain state, and fix only the most obviously broken claims. Leave the rest for subsequent runs. Do not attempt a full rewrite in a single night.
 
 ## Reporting
 
@@ -99,8 +123,8 @@ Use `job_log` for phase-level progress. Call `job_complete` **only after the PR 
 
 - `files_updated` — paths + brief change notes
 - `files_created` / `files_deleted`
-- `state_file_summary` — what you wrote into `backlog` / `next_focus`
+- `state_summary` — what you wrote into `next_focus` and the top 3 backlog items
 - `pr` — PR URL (the merged PR)
 - `summary` — one paragraph: what slice you audited, what you found, where you pointed the next run
 
-If you get stuck (state file unreadable, no clear next focus, conflicting diff, CI failing for reasons outside this diff), call `job_needs_input` with the specific question and any relevant URLs — never call `job_complete` on a PR that's still open or red.
+If you get stuck (state unreadable, no clear next focus, conflicting diff, CI failing for reasons outside this diff), call `job_needs_input` with the specific question and any relevant URLs — never call `job_complete` on a PR that's still open or red.
