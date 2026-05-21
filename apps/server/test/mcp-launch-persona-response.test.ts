@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { buildLaunchPersonaResponseText } from "../src/shared/mcp/server.js";
+import { buildLaunchPersonaResponseText } from "../src/shared/mcp/persona-interaction-tools.js";
 
 describe("buildLaunchPersonaResponseText", () => {
   const persona = "backend-security-review";
