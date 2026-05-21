@@ -1,6 +1,6 @@
 ---
 job: docs-audit
-updated_at: 2026-05-19
+updated_at: 2026-05-20
 ---
 
 # docs-audit — state handoff
@@ -9,11 +9,11 @@ Each run of the docs-audit job reads this file at Phase 0 and overwrites it at P
 
 ## last_audited_sha
 
-`68f80fa5c0bd96bbd15a4550acbdabd69623c861` — HEAD at the start of the 2026-05-19 run.
+`17056a78c2d49d93deb72daa9cfcf8c6ea638c0c` — HEAD at the start of the 2026-05-20 run.
 
 ## next_focus
 
-**Audit docs-pane "Repo Tools" section against `server.ts` built-in tool list and `repo-tools.ts`.** The AGENT_TOOLS set currently has 18 tools; verify the "Built-in tools" list in docs-pane matches. Also check whether the newly extracted `job-tools.ts` (PR #555) introduced any new tool names or changed tool availability per flow.
+**Audit docs-pane "Automations: Templates & Jobs" section against the template create/edit form fields in `automations-form-fields.tsx` and `automations-create-dialog.tsx`.** PR #563 improved template variable templating (optional args, `|required`, `|multiline` modifiers) and the previous run updated the docs for this. However, the context picker unification (PR #562) changed how directories and worktree settings are shared between template launch and create-agent dialogs — verify the "Creating a template" and "Launching templates" subsections still accurately describe the UI flow and field set.
 
 ## backlog
 
@@ -30,6 +30,8 @@ Items noticed during prior passes but left for later runs. Pick the most relevan
 - **`unknown` AgentStatus is dead code.** Worth a separate cleanup PR (not docs work).
 - **README install table — Cursor CLI install instructions are approximate.** The binary defaults to `agent`; the exact npm package / install path should be verified once the CLI is publicly documented by Anysphere.
 - **`docs/18-subagent-orchestration.md` — add to README docs index when implemented.** Currently a design doc for a forward-looking feature. Add once the feature ships and has user-facing surface.
+- **docs-pane "Repo Tools" Brain subsection — expand when Brain gains a UI.** The current Brain docs describe the MCP tool interface only. If/when a Brain explorer UI is added (e.g. in Settings or Activity), add a subsection describing the UI surface.
+- **`docs/03-api-spec.md` — add Brain API endpoints.** The Brain tools work through MCP, but the underlying store routes (`/brain/objects`, `/brain/events`) may gain a direct HTTP API. When they do, add them to the API spec.
 
 ## drift_patterns
 
@@ -70,6 +72,7 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **API-spec body schemas lag behind Zod schemas in route handlers.** When a new field is added to a route's Zod schema, the spec often doesn't get updated. Cross-check route handlers directly rather than relying on PRs to flag it.
 - **Assisted-update check descriptions drift from implementation.** The check names in `release-metadata.ts` are stable but the check logic in `release-checks.ts` evolves (e.g. `version_converged` reads `release.json`, not the health endpoint). Re-verify descriptions against the actual functions when touching this section.
 - **Collapsed sidebar card claims drift from agent-card.tsx layout changes.** PR #558 moved the repo name from the expanded detail card to the collapsed status line and removed the event message from collapsed view. Any future sidebar layout change needs a docs-pane cross-check.
+- **New MCP tool categories (e.g. Brain) land without docs section.** PR #569 added 6 brain tools to AGENT_TOOLS and JOB_TOOLS. When a new tool category is added, the "Built-in tools" list AND the README MCP tools section both need updates, plus a conceptual subsection if the feature is new.
 
 ## Notes for the next run
 
@@ -114,3 +117,4 @@ Observations about where docs tend to go stale. Each run should add new observat
 - **2026-05-17** (API spec — Jobs body schemas) — Closed the Jobs POST/PATCH body schema next_focus. Added `POST /jobs` body schema with all 16 fields from `AddJobBodySchema`, field-by-field descriptions, and `PATCH /jobs` note. Added `DELETE /jobs` and `POST /jobs/enable` / `POST /jobs/disable` bodies. Fixed `GET /jobs/history` params from stale `jobId, status, limit, offset` to actual `name, directory, limit`. Added new drift pattern for Zod schema/spec lag.
 - **2026-05-18** (Ops runbook — bin scripts + check descriptions) — Closed the ops-runbook bin scripts next_focus. Added `bin/preflight` to Installation section. Added `bin/pack-release` mention to Release Pipeline. Added comprehensive Bin Scripts table (all 9 scripts). Fixed 3 inaccurate assisted-update check descriptions: `version_converged` reads `release.json` not health endpoint, `service_entrypoint` checks `package.json` not launchd plist, `expected_runtime_artifact` also checks `apps/web/dist/index.html`. Added drift pattern for check-description staleness.
 - **2026-05-19** (Agents — sidebar collapsed view + create-agent audit) — Diff-driven: PR #558 moved repo name from expanded detail card to collapsed sidebar status line and removed event message from collapsed view. Fixed "Status indicators" section (collapsed card now shows status + time + repo name, not event message). Fixed "Agent details" section (worktree agents no longer show repo name row — just base + working branch). Audited create-agent dialog fields (next_focus): all 6 form fields match docs, no drift found.
+- **2026-05-20** (Brain V1 — built-in tools + shared memory) — Diff-driven: PR #569 added Dispatch Brain V1 with 6 new MCP tools (`brain_get_object`, `brain_store_object`, `brain_list_objects`, `brain_delete_object`, `brain_append_event`, `brain_query_events`) to both AGENT_TOOLS and JOB_TOOLS. Added brain tools to docs-pane "Built-in tools" list and "Tools available to job agents" list. Added "Brain (shared memory)" subsection to Repo Tools explaining the concept. Updated "State across runs" to mention Brain as an alternative to filesystem handoff. Added brain tools to README Interactive agents table and Job agents list. Fixed CLAUDE.md project structure tree (added missing `brain/` directory).

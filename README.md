@@ -172,6 +172,12 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `get_activity_summary`       | Summarize agent activity over a time range                                 |
 | `get_agent_history`          | Get detailed agent session history                                         |
 | `get_feedback_summary`       | Aggregate persona review feedback for pattern detection                    |
+| `brain_get_object`           | Read a shared object from the repo-scoped Brain                            |
+| `brain_store_object`         | Create or update a shared Brain object (optimistic concurrency)            |
+| `brain_list_objects`         | List Brain objects, optionally filtered by collection or prefix            |
+| `brain_delete_object`        | Delete a shared Brain object                                               |
+| `brain_append_event`         | Append a structured event to the Brain's immutable event log               |
+| `brain_query_events`         | Query Brain events by collection, kind, subject, tags, and time range      |
 
 ### Persona agents
 
@@ -179,7 +185,7 @@ Persona agents get a narrower set focused on reviewing their parent's work: `rev
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `dispatch_list_media`, `dispatch_launch_persona`, `dispatch_get_feedback`, `dispatch_resolve_feedback`, `dispatch_submit_resolution`, `dispatch_cancel_recheck`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, and `get_feedback_summary`.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `dispatch_list_media`, `dispatch_launch_persona`, `dispatch_get_feedback`, `dispatch_resolve_feedback`, `dispatch_submit_resolution`, `dispatch_cancel_recheck`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`, `brain_get_object`, `brain_store_object`, `brain_list_objects`, `brain_delete_object`, `brain_append_event`, and `brain_query_events`.
 
 ### Repo-specific tools
 
