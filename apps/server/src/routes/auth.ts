@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
 
@@ -37,6 +37,17 @@ export async function registerAuthRoutes(
   app: FastifyInstance,
   deps: AuthRouteDeps
 ): Promise<void> {
+  function setSessionCookie(reply: FastifyReply, token: string): void {
+    reply.setCookie(deps.sessionCookie, token, {
+      path: "/",
+      httpOnly: true,
+      signed: true,
+      sameSite: "lax",
+      secure: deps.tls !== null,
+      maxAge: deps.sessionMaxAgeSeconds,
+    });
+  }
+
   app.get("/api/v1/auth/status", async (request) => {
     const hasPassword = await deps.isPasswordSetCached();
     let authenticated = false;
@@ -70,14 +81,7 @@ export async function registerAuthRoutes(
       deps.invalidatePasswordSetCache();
 
       const token = await createSession(deps.pool);
-      reply.setCookie(deps.sessionCookie, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: deps.tls !== null,
-        maxAge: deps.sessionMaxAgeSeconds,
-      });
+      setSessionCookie(reply, token);
       return { ok: true };
     }
   );
@@ -95,14 +99,7 @@ export async function registerAuthRoutes(
       }
 
       const token = await createSession(deps.pool);
-      reply.setCookie(deps.sessionCookie, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: deps.tls !== null,
-        maxAge: deps.sessionMaxAgeSeconds,
-      });
+      setSessionCookie(reply, token);
       return { ok: true };
     }
   );
@@ -141,14 +138,7 @@ export async function registerAuthRoutes(
 
       await deleteAllSessions(deps.pool);
       const token = await createSession(deps.pool);
-      reply.setCookie(deps.sessionCookie, token, {
-        path: "/",
-        httpOnly: true,
-        signed: true,
-        sameSite: "lax",
-        secure: deps.tls !== null,
-        maxAge: deps.sessionMaxAgeSeconds,
-      });
+      setSessionCookie(reply, token);
       deps.invalidatePasswordSetCache();
       return { ok: true };
     }
