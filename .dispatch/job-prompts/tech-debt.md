@@ -1,4 +1,4 @@
-Identify and fix tech debt in the Dispatch codebase, one focused area per run. This job runs on a recurring schedule, so lean on the state file to pass context between runs and avoid re-auditing from scratch every time.
+Identify and fix tech debt in the Dispatch codebase, one focused area per run. This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid re-auditing from scratch every time.
 
 ## Important context
 
@@ -6,9 +6,11 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 Tech debt here means code that works but is unnecessarily hard to maintain, extend, or understand — dead code, duplicated logic, inconsistent patterns, missing types, stale dependencies, TODO/FIXME/HACK markers, overly complex functions, and similar issues. This is housekeeping, not feature work. Do not change behavior, add features, or refactor for aesthetics.
 
-## Phase 0: Read the state file
+## Phase 0: Read the state from the Brain
 
-Read `.dispatch/job-state/tech-debt.md` before doing anything else. It contains:
+State is stored in the Dispatch Brain shared memory system (collection: `job-state`, name: `tech-debt`). Use `brain_get_object` to read it before doing anything else. **Save the `revision` value from the response** — you will need it as `expectedRevision` in Phase 4 to safely update the state without clobbering a concurrent write.
+
+The state object contains:
 
 - `last_audited_sha` — the HEAD SHA from the previous run
 - `next_focus` — the specific area/issue the last run recommended you tackle this time
@@ -16,19 +18,21 @@ Read `.dispatch/job-state/tech-debt.md` before doing anything else. It contains:
 - `patterns` — recurring observations about where debt accumulates in this codebase
 - `history` — one-line summaries of what each prior run fixed
 
-If the state file is missing (first run) or malformed, fall through to the bootstrap audit in Phase 1.
+If the object is not found (first run or Brain migration hasn't happened), fall through to the bootstrap audit in Phase 1.
+
+> **Deprecated fallback:** The old filesystem state file `.dispatch/job-state/tech-debt.md` still exists but is no longer the source of truth. It will be removed after the Brain path is validated in a real run.
 
 ## Phase 1: Scope the work
 
-### Normal run (state file exists with a valid `next_focus`)
+### Normal run (state exists with a valid `next_focus`)
 
 1. Read the `next_focus` entry. That is your assignment for this run — fix that one issue or area.
-2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the last run. If the `next_focus` area was already addressed by another commit, skip it, pick the top item from `backlog`, and note that in the state file update.
+2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the last run. If the `next_focus` area was already addressed by another commit, skip it, pick the top item from `backlog`, and note that in the state update.
 3. Keep the scope to **one focused fix**. If you discover related issues while working, add them to `backlog` — do not fix them in the same PR.
 
-### Bootstrap run (no state file or first run)
+### Bootstrap run (no state in Brain or first run)
 
-Do a broad audit to seed the state file. Do **not** fix anything yet — the goal is to produce a prioritized backlog for future runs.
+Do a broad audit to seed the state. Do **not** fix anything yet — the goal is to produce a prioritized backlog for future runs.
 
 1. **Dead code scan.** Look for unused exports, unreferenced files, commented-out blocks, and unused dependencies. Focus on `apps/server/src/` and `apps/web/src/`.
 2. **TODO/FIXME/HACK markers.** Grep for `TODO`, `FIXME`, `HACK`, `XXX`, `TEMP`, and `WORKAROUND` across the codebase. Record each with file, line, and the marker text.
@@ -38,7 +42,7 @@ Do a broad audit to seed the state file. Do **not** fix anything yet — the goa
 6. **Stale dependencies.** Check `package.json` files for dependencies that appear unused (not imported anywhere).
 7. **Inconsistent patterns.** Note places where the same concept is handled differently across the codebase (e.g., error handling, logging, config access).
 
-Organize findings into a prioritized backlog (highest-impact / lowest-risk items first). Write the state file with the top item as `next_focus` and everything else in `backlog`. Commit just the state file, open a PR with the audit summary, and merge it.
+Organize findings into a prioritized backlog (highest-impact / lowest-risk items first). Store the state in the Brain using `brain_store_object` (collection: `job-state`, name: `tech-debt`) with the top item as `next_focus` and everything else in `backlog`. Open a PR with the audit summary and merge it.
 
 ## Phase 2: Fix the issue
 
@@ -47,7 +51,7 @@ For normal runs (not bootstrap), implement the fix:
 1. Understand the issue fully before changing anything. Read the relevant code, trace callers and consumers, check tests.
 2. Make the minimal change that addresses the issue. Do not refactor surrounding code or "improve" things you happen to notice.
 3. If the fix turns out to be risky (touches a hot path, changes a public interface, could break other agents), stop and call `job_needs_input` explaining what you found and asking whether to proceed.
-4. If the fix is trivial but the issue was mis-categorized (it's actually a feature gap, not debt), skip it, move it out of backlog, and pick the next item. Note the skip in the state file.
+4. If the fix is trivial but the issue was mis-categorized (it's actually a feature gap, not debt), skip it, move it out of backlog, and pick the next item. Note the skip in the state update.
 
 ## Phase 3: Validate
 
@@ -57,9 +61,11 @@ For normal runs (not bootstrap), implement the fix:
 4. Run `pnpm run test` (Vitest) if backend files changed.
 5. All checks must pass before proceeding. Fix any failures your changes introduced.
 
-## Phase 4: Update the state file
+## Phase 4: Update the state in the Brain
 
-Before committing, rewrite `.dispatch/job-state/tech-debt.md` with:
+Before committing, use `brain_store_object` to update the state (collection: `job-state`, name: `tech-debt`). **Pass the `expectedRevision` you saved in Phase 0** — this provides optimistic concurrency so overlapping runs get a conflict error instead of silently clobbering each other's state.
+
+The updated value should contain:
 
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific issue the next run should tackle. Be concrete: include file paths, line numbers, and a brief description of what to do. If the backlog is empty, describe what area to re-audit next.
@@ -67,14 +73,14 @@ Before committing, rewrite `.dispatch/job-state/tech-debt.md` with:
 - `patterns` — observations about where debt accumulates. Add new ones, prune stale ones.
 - `history` — append a one-line entry for this run: date, what was fixed, PR number.
 
-Treat the state file as a handoff note to a colleague, not a log.
+Treat the state as a handoff note to a colleague, not a log.
 
 ## Phase 5: Commit, PR, merge
 
 This phase is not done until **CI is green and the PR is merged**. `job_complete` must only be called after a successful merge.
 
 1. Run `pnpm run format:write` to fix formatting in files you touched.
-2. Commit on a new branch. Include the state file update in the same commit.
+2. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was fixed, why it qualifies as tech debt, and what's queued for the next run.
 4. **Launch a reviewer.** After the PR is open, use `dispatch_launch_persona` to launch **one** review persona with `recheck: true`. Pick the best fit based on what you changed:
    - `architecture-review` — structural refactors, module boundaries, dependency changes
@@ -91,10 +97,10 @@ If CI takes longer than 30 minutes, call `job_needs_input`.
 
 ## Reporting
 
-Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately after merge of the bootstrap state file on first run). Include:
+Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately after storing the bootstrap state in the Brain on first run). Include:
 
 - `summary` — one paragraph: what you fixed (or audited on bootstrap), what's next
 - `tasks` — one task per phase completed, with status and summary
 - `files_updated` / `files_created` / `files_deleted` as applicable
-- `state_file_summary` — what you wrote into `next_focus` and the top 3 backlog items
+- `state_summary` — what you wrote into `next_focus` and the top 3 backlog items
 - `pr` — the merged PR URL
