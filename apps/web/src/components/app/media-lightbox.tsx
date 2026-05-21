@@ -229,34 +229,18 @@ function TextViewer({
     }
   }, [content, fileName]);
 
-  const shouldWrapText = isMarkdownFile(fileName);
-  const textWrapClassName =
-    "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
-
   return (
     <LogStream className="min-h-full overflow-auto p-0">
       {highlightedHtml ? (
-        <pre
-          className={cn(
-            "p-4 text-sm leading-relaxed",
-            shouldWrapText && textWrapClassName
-          )}
-        >
+        <pre className="p-4 text-sm leading-relaxed">
           <code
-            className={cn("hljs", shouldWrapText && textWrapClassName)}
+            className="hljs"
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
         </pre>
       ) : (
-        <pre
-          className={cn(
-            "p-4 text-sm leading-relaxed",
-            shouldWrapText && textWrapClassName
-          )}
-        >
-          <code className={cn(shouldWrapText && textWrapClassName)}>
-            {content}
-          </code>
+        <pre className="p-4 text-sm leading-relaxed">
+          <code>{content}</code>
         </pre>
       )}
     </LogStream>
@@ -313,7 +297,7 @@ function MarkdownViewer({ src }: { src: string }): JSX.Element {
   }
 
   return (
-    <div className="h-full overflow-auto p-4">
+    <div className="h-full overflow-auto bg-background p-4">
       <Markdown>{content}</Markdown>
     </div>
   );
@@ -351,10 +335,12 @@ function MediaActions({
   src,
   fileName,
   isText,
+  isMarkdown,
 }: {
   src: string;
   fileName: string;
   isText?: boolean;
+  isMarkdown?: boolean;
 }): JSX.Element {
   const [copied, copyText] = useCopyText();
   const [imageCopied, setImageCopied] = useState(false);
@@ -415,6 +401,7 @@ function MediaActions({
   const showCopied = isText ? copied : imageCopied;
 
   const showCopy = isText || HAS_CLIPBOARD_WRITE;
+  const copyLabel = isMarkdown ? "Copy source" : "Copy";
 
   return (
     <div
@@ -440,7 +427,8 @@ function MediaActions({
               : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           }
           onClick={handleCopy}
-          title="Copy"
+          title={copyLabel}
+          aria-label={copyLabel}
         >
           {showCopied ? (
             <Check className="h-3.5 w-3.5" />
@@ -448,7 +436,7 @@ function MediaActions({
             <Copy className="h-3.5 w-3.5" />
           )}
           <span className="hidden sm:inline">
-            {showCopied ? "Copied!" : "Copy"}
+            {showCopied ? "Copied!" : copyLabel}
           </span>
         </Button>
       )}
@@ -541,6 +529,7 @@ export function MediaLightbox({
             src={item.src}
             fileName={item.file.name}
             isText={isText}
+            isMarkdown={isMarkdown}
           />
           <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
@@ -585,9 +574,11 @@ export function MediaLightbox({
           "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border touch-pinch-zoom",
           isDocument
             ? "bg-white"
-            : isText
-              ? "bg-[hsl(var(--log-stream-bg))]"
-              : "bg-black"
+            : isMarkdown
+              ? "bg-background"
+              : isText
+                ? "bg-[hsl(var(--log-stream-bg))]"
+                : "bg-black"
         )}
       >
         {isDocument ? (

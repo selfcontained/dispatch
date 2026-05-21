@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 let mermaidPromise: Promise<(typeof import("mermaid"))["default"]> | null =
   null;
+let mermaidConfigKey: string | null = null;
+let mermaidRenderQueue: Promise<void> = Promise.resolve();
 
 type MermaidRenderTheme = {
   darkMode: boolean;
@@ -126,11 +128,58 @@ function useMermaidTheme(): MermaidRenderTheme | null {
   }, [themeVersion]);
 }
 
+function getMermaidConfig(theme: MermaidRenderTheme | null) {
+  return {
+    startOnLoad: false,
+    securityLevel: "strict" as const,
+    theme: "base" as const,
+    fontFamily: theme?.fontFamily,
+    darkMode: theme?.darkMode,
+    themeVariables: theme?.themeVariables,
+  };
+}
+
 async function getMermaid() {
-  mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => {
-    return mermaid;
-  });
+  mermaidPromise ??= import("mermaid")
+    .then(({ default: mermaid }) => mermaid)
+    .catch((error) => {
+      mermaidPromise = null;
+      throw error;
+    });
   return mermaidPromise;
+}
+
+async function ensureMermaidInitialized(theme: MermaidRenderTheme | null) {
+  const mermaid = await getMermaid();
+  const config = getMermaidConfig(theme);
+  const nextConfigKey = JSON.stringify(config);
+  if (mermaidConfigKey !== nextConfigKey) {
+    mermaid.initialize(config);
+    mermaidConfigKey = nextConfigKey;
+  }
+  return mermaid;
+}
+
+async function renderMermaidDiagram({
+  code,
+  id,
+  theme,
+}: {
+  code: string;
+  id: string;
+  theme: MermaidRenderTheme | null;
+}) {
+  const renderTask = mermaidRenderQueue
+    .catch(() => {})
+    .then(async () => {
+      const mermaid = await ensureMermaidInitialized(theme);
+      return mermaid
+        .render(`dispatch-mermaid-${id}`, code)
+        .then(({ svg }) => svg);
+    });
+
+  mermaidRenderQueue = renderTask.then(() => undefined);
+  return renderTask;
 }
 
 function MermaidBlock({
@@ -154,19 +203,7 @@ function MermaidBlock({
       setError(null);
 
       try {
-        const mermaid = await getMermaid();
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "strict",
-          theme: "base",
-          fontFamily: theme?.fontFamily,
-          darkMode: theme?.darkMode,
-          themeVariables: theme?.themeVariables,
-        });
-        const { svg: renderedSvg } = await mermaid.render(
-          `dispatch-mermaid-${id}`,
-          code
-        );
+        const renderedSvg = await renderMermaidDiagram({ code, id, theme });
         if (!cancelled) setSvg(renderedSvg);
       } catch (err) {
         if (!cancelled) {
@@ -196,7 +233,7 @@ function MermaidBlock({
             size="icon"
             type="button"
             variant="ghost"
-            className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            className="h-11 w-11 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7"
             onClick={() => copySource(code)}
           >
             {sourceCopied ? (
@@ -216,7 +253,10 @@ function MermaidBlock({
   if (!svg) {
     return (
       <div className="not-prose my-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-        Rendering diagram...
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-primary/70 animate-pulse" />
+          <span>Rendering diagram...</span>
+        </div>
       </div>
     );
   }
@@ -226,7 +266,7 @@ function MermaidBlock({
       className="not-prose my-4 overflow-x-auto rounded-md border border-border bg-background p-3"
       data-testid="mermaid-diagram"
     >
-      <div className="mb-2 flex items-center justify-end gap-1">
+      <div className="mb-2 flex items-center justify-end gap-2 sm:gap-1">
         <Button
           aria-label="Copy Mermaid source"
           data-testid="copy-mermaid-source"
@@ -234,7 +274,7 @@ function MermaidBlock({
           size="icon"
           type="button"
           variant="ghost"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
           onClick={() => copySource(code)}
         >
           {sourceCopied ? (
@@ -250,7 +290,7 @@ function MermaidBlock({
           size="icon"
           type="button"
           variant="ghost"
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
           onClick={() => {
             if (svg) copySvg(svg);
           }}
@@ -303,49 +343,63 @@ export function Markdown({
   className,
   variant = "default",
 }: MarkdownProps): JSX.Element {
-  const mermaidTheme = useMermaidTheme();
-
   if (variant === "pin") {
-    return (
-      <div
-        className={cn(
-          "max-w-none text-xs text-foreground",
-          "[&_p]:my-1 [&_p]:[overflow-wrap:anywhere]",
-          "[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-4",
-          "[&_li]:my-0.5 [&_li]:[overflow-wrap:anywhere]",
-          "[&_strong]:font-semibold [&_em]:italic",
-          "[&_pre]:my-1 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-hidden [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2",
-          "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[11px] [&_code]:break-words [&_code]:whitespace-pre-wrap",
-          "[&_table]:my-1 [&_table]:min-w-full [&_table]:border-collapse [&_table]:text-[11px]",
-          "[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
-          "[&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1",
-          className
-        )}
-      >
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          allowedElements={[
-            "p",
-            "ul",
-            "li",
-            "strong",
-            "em",
-            "code",
-            "pre",
-            "table",
-            "thead",
-            "tbody",
-            "tr",
-            "th",
-            "td",
-          ]}
-          unwrapDisallowed
-        >
-          {children}
-        </ReactMarkdown>
-      </div>
-    );
+    return <MarkdownPin className={className}>{children}</MarkdownPin>;
   }
+
+  return <MarkdownDefault className={className}>{children}</MarkdownDefault>;
+}
+
+function MarkdownPin({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <div
+      className={cn(
+        "max-w-none text-xs text-foreground",
+        "[&_p]:my-1 [&_p]:[overflow-wrap:anywhere]",
+        "[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-4",
+        "[&_li]:my-0.5 [&_li]:[overflow-wrap:anywhere]",
+        "[&_strong]:font-semibold [&_em]:italic",
+        "[&_pre]:my-1 [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:overflow-x-hidden [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[11px] [&_code]:break-words [&_code]:whitespace-pre-wrap",
+        "[&_table]:my-1 [&_table]:min-w-full [&_table]:border-collapse [&_table]:text-[11px]",
+        "[&_th]:border [&_th]:border-border/60 [&_th]:bg-muted/50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold",
+        "[&_td]:border [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1",
+        className
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={[
+          "p",
+          "ul",
+          "li",
+          "strong",
+          "em",
+          "code",
+          "pre",
+          "table",
+          "thead",
+          "tbody",
+          "tr",
+          "th",
+          "td",
+        ]}
+        unwrapDisallowed
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function MarkdownDefault({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  const mermaidTheme = useMermaidTheme();
 
   return (
     <div
