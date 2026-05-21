@@ -770,6 +770,10 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Name</strong> — display name, unique within its directory.
             </li>
             <li>
+              <strong>Description</strong> — optional short summary shown in the
+              launch dialog and template list.
+            </li>
+            <li>
               <strong>Working directory</strong> — the repo the template runs
               against.
             </li>
