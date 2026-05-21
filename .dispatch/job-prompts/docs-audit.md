@@ -14,9 +14,7 @@ State is spread across purpose-specific brain primitives to keep writes minimal:
 
 2. **Backlog** (collection: `job-state`, name: `docs-audit-backlog`) — read with `brain_list_get`. Items noticed during prior passes but left for later runs. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
 
-3. **Patterns** (collection: `job-state`, name: `docs-audit-patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
-   - `patterns` — recurring observations about where docs tend to go stale
-   - Only update this object when you have a new pattern to add or a stale one to prune. Most runs won't touch it.
+3. **Patterns** (collection: `job-state`, name: `docs-audit-patterns`) — read with `brain_list_get`. Recurring observations about where docs tend to go stale. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
 
 4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "docs-audit", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 
@@ -84,7 +82,7 @@ Do not rewrite docs for style. Fix factual drift only.
 - `brain_list_remove` — remove items you addressed or that are no longer relevant.
 - `brain_list_push` — add any new issues you noticed but deferred. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
 
-**Patterns** — use `brain_store_object` (collection: `job-state`, name: `docs-audit-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
+**Patterns** — use list operations (collection: `job-state`, name: `docs-audit-patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
 
 **Run event** — log this run using `brain_append_event`:
 
