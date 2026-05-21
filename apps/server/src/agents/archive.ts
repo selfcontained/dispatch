@@ -7,7 +7,6 @@ import {
   getUnmergedChanges,
 } from "../shared/git/worktree-status.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { harvestTokenUsage } from "./token-harvester.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -16,16 +15,16 @@ import type {
   ArchivePhase,
   WorktreeCleanupMode,
 } from "./types.js";
-import type { DiffStatsRefresherHandle } from "./manager.js";
 
 export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
-  diffStatsRefresher: DiffStatsRefresherHandle | null;
+  diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
   stopAgent: (id: string, input: { force?: boolean }) => Promise<AgentRecord>;
+  harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
     status: AgentStatus,
@@ -90,19 +89,14 @@ export async function executeArchive(
       if (agent.tmuxSession && (await runtime.hasSession(agent.tmuxSession))) {
         await runtime.stopSession(agent.tmuxSession, true);
       }
-      harvestTokenUsage(
-        pool,
-        {
-          id: agent.id,
-          type: agent.type,
-          cwd: agent.cwd,
-          worktreePath: agent.worktreePath,
-          cliSessionId: agent.cliSessionId ?? undefined,
-        },
-        logger
-      ).catch((err) =>
-        logger.warn({ err, agentId: id }, "Token harvest failed during archive")
-      );
+      deps
+        .harvestAgentTokens(agent)
+        .catch((err) =>
+          logger.warn(
+            { err, agentId: id },
+            "Token harvest failed during archive"
+          )
+        );
     } catch (err) {
       logger.warn(
         { err, agentId: id },

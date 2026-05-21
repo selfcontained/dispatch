@@ -1454,6 +1454,7 @@ export class AgentManager {
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       stopAgent: (id, input) => this.stopAgent(id, input),
+      harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
       setAgentStatus: (id, status, lastError, tmuxSession) =>
         this.setAgentStatus(id, status, lastError, tmuxSession),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
