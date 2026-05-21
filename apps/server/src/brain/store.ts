@@ -676,36 +676,34 @@ export class BrainStore {
       throw new BrainListNotFoundError(collection, name);
     }
 
-    try {
-      const insertResult = await client.query(
-        `INSERT INTO brain_lists (repo_root, collection, name, revision, created_by_agent_id, updated_by_agent_id)
-         VALUES ($1, $2, $3, 0, $4, $4)
-         RETURNING ${listColumns()}`,
-        [repoRoot, collection, name, agentId]
-      );
+    const insertResult = await client.query(
+      `INSERT INTO brain_lists (repo_root, collection, name, revision, created_by_agent_id, updated_by_agent_id)
+       VALUES ($1, $2, $3, 0, $4, $4)
+       ON CONFLICT (repo_root, collection, name) DO NOTHING
+       RETURNING ${listColumns()}`,
+      [repoRoot, collection, name, agentId]
+    );
+    if (insertResult.rows[0]) {
       return mapList(insertResult.rows[0]);
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        const retryResult = await client.query(
-          `SELECT ${listColumns()} FROM brain_lists
-           WHERE repo_root = $1 AND collection = $2 AND name = $3
-           FOR UPDATE`,
-          [repoRoot, collection, name]
-        );
-        if (!retryResult.rows[0]) {
-          throw error;
-        }
-        const existing = mapList(retryResult.rows[0]);
-        if (
-          expectedRevision !== undefined &&
-          existing.revision !== expectedRevision
-        ) {
-          throw new BrainRevisionConflictError(existing);
-        }
-        return existing;
-      }
-      throw error;
     }
+
+    const retryResult = await client.query(
+      `SELECT ${listColumns()} FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3
+       FOR UPDATE`,
+      [repoRoot, collection, name]
+    );
+    if (!retryResult.rows[0]) {
+      throw new BrainListNotFoundError(collection, name);
+    }
+    const existing = mapList(retryResult.rows[0]);
+    if (
+      expectedRevision !== undefined &&
+      existing.revision !== expectedRevision
+    ) {
+      throw new BrainRevisionConflictError(existing);
+    }
+    return existing;
   }
 
   private async getListForUpdate(
