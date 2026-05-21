@@ -8,15 +8,17 @@ Tech debt here means code that works but is unnecessarily hard to maintain, exte
 
 ## Phase 0: Read the state from the Brain
 
-State is stored in the Dispatch Brain shared memory system (collection: `job-state`, name: `tech-debt`). Use `brain_get_object` to read it before doing anything else. **Save the `revision` value from the response** — you will need it as `expectedRevision` in Phase 4 to safely update the state without clobbering a concurrent write.
+State is split across two Brain objects to keep writes small and fast:
 
-The state object contains:
+1. **Core state** (collection: `job-state`, name: `tech-debt`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+   - `last_audited_sha` — the HEAD SHA from the previous run
+   - `next_focus` — the specific area/issue the last run recommended you tackle this time
+   - `backlog` — a prioritized list of issues found during prior audits but deferred
+   - `history` — the last 5 run summaries (older runs are in the event log: collection `job-state`, kind `run`, subject `tech-debt`)
 
-- `last_audited_sha` — the HEAD SHA from the previous run
-- `next_focus` — the specific area/issue the last run recommended you tackle this time
-- `backlog` — a prioritized list of issues found during prior audits but deferred
-- `patterns` — recurring observations about where debt accumulates in this codebase
-- `history` — the last 5 run summaries (older runs are in the event log: collection `job-state`, kind `run`, subject `tech-debt`)
+2. **Patterns** (collection: `job-state`, name: `tech-debt-patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
+   - `patterns` — recurring observations about where debt accumulates in this codebase
+   - Only update this object when you have a new pattern to add or a stale one to prune. Most runs won't touch it.
 
 If the object is not found (first run or Brain migration hasn't happened), fall through to the bootstrap audit in Phase 1.
 
@@ -63,26 +65,23 @@ For normal runs (not bootstrap), implement the fix:
 
 ## Phase 4: Update the state in the Brain
 
-Before committing, use `brain_store_object` to update the state (collection: `job-state`, name: `tech-debt`). **Pass the `expectedRevision` you saved in Phase 0** — this provides optimistic concurrency so overlapping runs get a conflict error instead of silently clobbering each other's state.
-
-The updated value should contain:
+**Core state** — use `brain_store_object` (collection: `job-state`, name: `tech-debt`) with the `expectedRevision` from Phase 0. Updated every run.
 
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific issue the next run should tackle. Be concrete: include file paths, line numbers, and a brief description of what to do. If the backlog is empty, describe what area to re-audit next.
 - `backlog` — remaining items, re-prioritized if needed. Remove the item you just fixed. Add any new issues you discovered. Each entry should have enough context that a future run can act on it without re-discovering the problem.
-- `patterns` — observations about where debt accumulates. Add new ones, prune stale ones.
 - `history` — keep only the **last 5 entries**. Drop older ones — they live in the event log (see below).
 
-After updating the object, also log this run as a brain event using `brain_append_event`:
+**Patterns** — use `brain_store_object` (collection: `job-state`, name: `tech-debt-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
+
+**Run event** — log this run using `brain_append_event`:
 
 - collection: `job-state`
 - kind: `run`
 - subject: `tech-debt`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was fixed>", "pr": "<PR number>" }`
 
-This keeps the object small (fast to read and write) while preserving full history in the append-only event log. To review older runs, query `brain_query_events` with collection `job-state`, kind `run`, subject `tech-debt`.
-
-Treat the state as a handoff note to a colleague, not a log.
+This keeps the core write small and fast while preserving full history in the append-only event log. To review older runs, query `brain_query_events` with collection `job-state`, kind `run`, subject `tech-debt`.
 
 ## Phase 5: Commit, PR, merge
 
