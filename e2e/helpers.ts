@@ -159,6 +159,32 @@ export async function uploadMediaViaAPI(
   }
 }
 
+export async function uploadTextMediaViaAPI(
+  request: APIRequestContext,
+  agentId: string,
+  description: string,
+  content: string,
+  fileName = `media-${Date.now()}.md`,
+  mimeType = "text/markdown"
+): Promise<void> {
+  const res = await request.post(`${API}/agents/${agentId}/media`, {
+    headers: authHeaders(),
+    multipart: {
+      description,
+      source: "text",
+      file: {
+        name: fileName,
+        mimeType,
+        buffer: Buffer.from(content, "utf8"),
+      },
+    },
+  });
+
+  if (!res.ok()) {
+    throw new Error(`Media upload failed with ${res.status()}`);
+  }
+}
+
 export async function setAgentPinsViaDB(
   agentId: string,
   pins: AgentPinRecord[]

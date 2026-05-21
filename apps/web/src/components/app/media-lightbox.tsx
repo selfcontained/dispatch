@@ -68,6 +68,7 @@ hljs.registerLanguage("nim", nim);
 
 import { Button } from "@/components/ui/button";
 import { LogStream } from "@/components/ui/log-stream";
+import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
@@ -205,37 +206,13 @@ type MediaLightboxProps = {
 };
 
 function TextViewer({
-  src,
+  content,
   fileName,
 }: {
-  src: string;
+  content: string;
   fileName: string;
 }): JSX.Element {
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setContent(null);
-    setError(null);
-    let cancelled = false;
-    fetch(src)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load (${res.status})`);
-        return res.text();
-      })
-      .then((text) => {
-        if (!cancelled) setContent(text);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [src]);
-
   const highlightedHtml = useMemo(() => {
-    if (!content) return null;
     const ext = fileExtension(fileName);
     const lang = EXT_TO_LANG[ext];
     if (lang) {
@@ -255,22 +232,6 @@ function TextViewer({
   const shouldWrapText = isMarkdownFile(fileName);
   const textWrapClassName =
     "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
-
-  if (error) {
-    return (
-      <div className="grid h-full place-items-center text-sm text-destructive">
-        {error}
-      </div>
-    );
-  }
-
-  if (content === null) {
-    return (
-      <div className="grid h-full place-items-center text-sm text-[hsl(var(--log-stream-muted-foreground))]">
-        Loading...
-      </div>
-    );
-  }
 
   return (
     <LogStream className="min-h-full overflow-auto p-0">
@@ -300,6 +261,90 @@ function TextViewer({
       )}
     </LogStream>
   );
+}
+
+function useFetchedText(src: string): {
+  content: string | null;
+  error: string | null;
+} {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setContent(null);
+    setError(null);
+    let cancelled = false;
+    fetch(src)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load (${res.status})`);
+        return res.text();
+      })
+      .then((text) => {
+        if (!cancelled) setContent(text);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  return { content, error };
+}
+
+function MarkdownViewer({ src }: { src: string }): JSX.Element {
+  const { content, error } = useFetchedText(src);
+
+  if (error) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-destructive">
+        {error}
+      </div>
+    );
+  }
+
+  if (content === null) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-[hsl(var(--log-stream-muted-foreground))]">
+        Loading...
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto p-4">
+      <Markdown>{content}</Markdown>
+    </div>
+  );
+}
+
+function TextFileViewer({
+  src,
+  fileName,
+}: {
+  src: string;
+  fileName: string;
+}): JSX.Element {
+  const { content, error } = useFetchedText(src);
+
+  if (error) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-destructive">
+        {error}
+      </div>
+    );
+  }
+
+  if (content === null) {
+    return (
+      <div className="grid h-full place-items-center text-sm text-[hsl(var(--log-stream-muted-foreground))]">
+        Loading...
+      </div>
+    );
+  }
+
+  return <TextViewer content={content} fileName={fileName} />;
 }
 
 function MediaActions({
@@ -472,6 +517,7 @@ export function MediaLightbox({
   }
 
   const isText = item.file.source === "text" || isTextFile(item.file.name);
+  const isMarkdown = isMarkdownFile(item.file.name);
   const isDocument = /\.pdf$/i.test(item.file.name);
   const isVideo = /\.mp4/i.test(item.src);
   const displayName = stripTimestamp(item.file.name);
@@ -551,7 +597,11 @@ export function MediaLightbox({
             className="h-full w-full"
           />
         ) : isText ? (
-          <TextViewer src={item.src} fileName={item.file.name} />
+          isMarkdown ? (
+            <MarkdownViewer src={item.src} />
+          ) : (
+            <TextFileViewer src={item.src} fileName={item.file.name} />
+          )
         ) : isVideo ? (
           <video
             src={item.src}

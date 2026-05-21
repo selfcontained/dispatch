@@ -6,6 +6,7 @@ import {
   loadApp,
   setAgentPinsViaDB,
   uploadMediaViaAPI,
+  uploadTextMediaViaAPI,
 } from "./helpers";
 
 async function openMediaSidebarForAgent(
@@ -159,6 +160,133 @@ test.describe("Media sidebar", () => {
 
     await lightbox.getByRole("button", { name: "Close" }).click();
     await expect(lightbox).toBeHidden();
+  });
+
+  test("renders Mermaid diagrams in shared markdown lightbox", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-mermaid-${Date.now()}`,
+    });
+
+    await uploadTextMediaViaAPI(
+      request,
+      agent.id,
+      "Architecture note",
+      [
+        "# Diagram",
+        "",
+        "```mermaid",
+        "flowchart TD",
+        "  Agent[Agent] --> Viewer[Lightbox]",
+        "```",
+        "",
+        "Rendered inline.",
+      ].join("\n"),
+      "architecture.md"
+    );
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await mediaSidebar
+      .getByRole("button", { name: /architecture\.md/i })
+      .click();
+
+    const lightbox = page.getByTestId("media-lightbox");
+    await expect(lightbox).toBeVisible();
+    await expect(lightbox.getByText("Diagram", { exact: true })).toBeVisible();
+    await expect(lightbox.getByText("Rendered inline.")).toBeVisible();
+
+    const mermaidDiagram = lightbox.getByTestId("mermaid-diagram");
+    await expect(mermaidDiagram).toBeVisible();
+    await expect(
+      mermaidDiagram.locator("svg[aria-roledescription]").first()
+    ).toBeVisible();
+    await expect(mermaidDiagram).toContainText("Agent");
+    await expect(mermaidDiagram).toContainText("Lightbox");
+
+    await expect(page.getByTestId("copy-mermaid-source")).toBeVisible();
+    await expect(page.getByTestId("copy-mermaid-svg")).toBeVisible();
+  });
+
+  test("copies Mermaid source and SVG from diagram actions", async ({
+    page,
+    request,
+  }) => {
+    await page.addInitScript(() => {
+      let copied = "";
+      Object.defineProperty(window, "__dispatchCopiedText", {
+        configurable: true,
+        get: () => copied,
+        set: (value: string) => {
+          copied = value;
+        },
+      });
+
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            copied = value;
+          },
+        },
+      });
+    });
+
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-mermaid-copy-${Date.now()}`,
+    });
+
+    const source = ["flowchart TD", "  Agent[Agent] --> Viewer[Lightbox]"].join(
+      "\n"
+    );
+
+    await uploadTextMediaViaAPI(
+      request,
+      agent.id,
+      "Architecture note",
+      ["# Diagram", "", "```mermaid", source, "```"].join("\n"),
+      "architecture.md"
+    );
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await mediaSidebar
+      .getByRole("button", { name: /architecture\.md/i })
+      .click();
+
+    const lightbox = page.getByTestId("media-lightbox");
+    await expect(lightbox).toBeVisible();
+    await expect(lightbox.getByTestId("mermaid-diagram")).toBeVisible();
+
+    await page.getByTestId("copy-mermaid-source").click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __dispatchCopiedText?: string })
+              .__dispatchCopiedText ?? ""
+        )
+      )
+      .toBe(source);
+
+    await page.getByTestId("copy-mermaid-svg").click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { __dispatchCopiedText?: string })
+              .__dispatchCopiedText ?? ""
+        )
+      )
+      .toContain("<svg");
   });
 
   test("marks visible media as seen and persists to server", async ({
