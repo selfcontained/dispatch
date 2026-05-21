@@ -97,6 +97,11 @@ const AGENT_TOOLS = new Set([
   "brain_store_object",
   "brain_list_objects",
   "brain_delete_object",
+  "brain_list_push",
+  "brain_list_remove",
+  "brain_list_get",
+  "brain_list_set",
+  "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
 ]);
@@ -130,6 +135,11 @@ const JOB_TOOLS = new Set([
   "brain_store_object",
   "brain_list_objects",
   "brain_delete_object",
+  "brain_list_push",
+  "brain_list_remove",
+  "brain_list_get",
+  "brain_list_set",
+  "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
 ]);

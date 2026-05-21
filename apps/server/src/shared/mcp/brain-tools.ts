@@ -4,9 +4,12 @@ import * as z from "zod/v4";
 import type { BrainStore } from "../../brain/store.js";
 import {
   BrainNotFoundError,
+  BrainListNotFoundError,
+  BrainListItemNotFoundError,
   BrainRevisionConflictError,
   BrainValidationError,
   BrainLimitExceededError,
+  MAX_LIST_ITEMS_PER_PUSH,
 } from "../../brain/store.js";
 import { toToolError } from "./tool-error.js";
 
@@ -34,8 +37,8 @@ function toBrainError(error: unknown): ToolResult {
           current: {
             collection: error.current.collection,
             name: error.current.name,
-            value: error.current.value,
             revision: error.current.revision,
+            ...("value" in error.current ? { value: error.current.value } : {}),
           },
         },
       } as Record<string, unknown>,
@@ -43,6 +46,8 @@ function toBrainError(error: unknown): ToolResult {
   }
   if (
     error instanceof BrainNotFoundError ||
+    error instanceof BrainListNotFoundError ||
+    error instanceof BrainListItemNotFoundError ||
     error instanceof BrainValidationError ||
     error instanceof BrainLimitExceededError
   ) {
@@ -63,6 +68,8 @@ const kindSchema = z.string().min(1).max(255);
 const subjectSchema = z.string().min(1).max(255);
 const tagSchema = z.string().min(1).max(255);
 const tagsSchema = z.array(tagSchema).max(50);
+const jsonObjectSchema = z.record(z.string(), z.unknown());
+const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
   server: McpServer,
@@ -153,6 +160,269 @@ export function registerBrainTools(
           return {
             content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
             structuredContent: obj as unknown as Record<string, unknown>,
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_list_push ──────────────────────────────────────────────
+  if (allowed.has("brain_list_push")) {
+    server.registerTool(
+      "brain_list_push",
+      {
+        description:
+          "Push one or more items to a shared brain list. " +
+          "Optionally cap the list size with maxItems so the oldest items roll off automatically.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          items: z
+            .array(jsonObjectSchema)
+            .min(1)
+            .max(MAX_LIST_ITEMS_PER_PUSH)
+            .describe("One or more JSON objects to append."),
+          maxItems: z
+            .number()
+            .int()
+            .positive()
+            .max(200)
+            .optional()
+            .describe(
+              "If set, trim oldest items after the push so the list stays within this size."
+            ),
+          expectedRevision: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              "Optional optimistic concurrency check for coordinated multi-step updates."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.pushListItems(repoRoot, agentId, {
+            collection: args.collection,
+            name: args.name,
+            items: args.items,
+            maxItems: args.maxItems,
+            expectedRevision: args.expectedRevision,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_list_remove ────────────────────────────────────────────
+  if (allowed.has("brain_list_remove")) {
+    server.registerTool(
+      "brain_list_remove",
+      {
+        description:
+          "Remove a single item from a shared brain list by index or by matching a field value.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          index: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Remove the item at this 0-based position."),
+          where: z
+            .object({
+              field: z.string().min(1).max(255),
+              equals: z.string(),
+            })
+            .optional()
+            .describe(
+              "Remove the first item whose top-level field matches this string value."
+            ),
+          expectedRevision: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              "Optional optimistic concurrency check for coordinated multi-step updates."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.removeListItem(repoRoot, agentId, {
+            collection: args.collection,
+            name: args.name,
+            index: args.index,
+            where: args.where,
+            expectedRevision: args.expectedRevision,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_list_get ───────────────────────────────────────────────
+  if (allowed.has("brain_list_get")) {
+    server.registerTool(
+      "brain_list_get",
+      {
+        description:
+          "Read items from a shared brain list. Returns the selected items, total count, and current revision.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          limit: z
+            .number()
+            .int()
+            .positive()
+            .max(200)
+            .optional()
+            .describe("Max items to return (default 50, max 200)."),
+          offset: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("Skip this many items from the start of the list."),
+          order: listOrderSchema
+            .optional()
+            .describe("Return oldest-first ('asc') or newest-first ('desc')."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.getListItems(repoRoot, {
+            collection: args.collection,
+            name: args.name,
+            limit: args.limit,
+            offset: args.offset,
+            order: args.order,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_list_set ───────────────────────────────────────────────
+  if (allowed.has("brain_list_set")) {
+    server.registerTool(
+      "brain_list_set",
+      {
+        description:
+          "Replace a single item at a specific index in a shared brain list without rewriting the rest.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          index: z
+            .number()
+            .int()
+            .min(0)
+            .describe("The 0-based index to replace."),
+          value: jsonObjectSchema.describe(
+            "The JSON object to store at that index."
+          ),
+          expectedRevision: z
+            .number()
+            .int()
+            .positive()
+            .describe(
+              "Required optimistic concurrency check. Pass the revision returned by brain_list_get."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.setListItem(repoRoot, agentId, {
+            collection: args.collection,
+            name: args.name,
+            index: args.index,
+            value: args.value,
+            expectedRevision: args.expectedRevision,
+          });
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            structuredContent: result as unknown as Record<string, unknown>,
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_list_delete ────────────────────────────────────────────
+  if (allowed.has("brain_list_delete")) {
+    server.registerTool(
+      "brain_list_delete",
+      {
+        description:
+          "Delete a shared brain list by collection and name. Deletes all items in the list as well.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+        },
+      },
+      async (args) => {
+        try {
+          const deleted = await store.deleteList(
+            repoRoot,
+            args.collection,
+            args.name
+          );
+          const result = { deleted };
+          return {
+            content: [
+              {
+                type: "text",
+                text: deleted
+                  ? `Deleted list "${args.collection}/${args.name}".`
+                  : `List "${args.collection}/${args.name}" not found.`,
+              },
+            ],
+            structuredContent: result as unknown as Record<string, unknown>,
           };
         } catch (error) {
           return toBrainError(error);

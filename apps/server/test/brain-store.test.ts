@@ -4,8 +4,11 @@ import type { Pool } from "pg";
 import {
   BrainStore,
   BrainNotFoundError,
+  BrainListNotFoundError,
+  BrainListItemNotFoundError,
   BrainRevisionConflictError,
   BrainValidationError,
+  MAX_LIST_ITEMS_PER_PUSH,
 } from "../src/brain/store.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
@@ -300,5 +303,269 @@ describe("BrainStore events", () => {
       kind: "isolated",
     });
     expect(repoB).toHaveLength(1);
+  });
+});
+
+// ── Lists ───────────────────────────────────────────────────────────
+
+describe("BrainStore lists", () => {
+  it("pushes and gets list items", async () => {
+    const pushed = await store.pushListItems(REPO, AGENT, {
+      collection: "job-state",
+      name: "backlog",
+      items: [{ id: "a" }, { id: "b" }],
+    });
+
+    expect(pushed.length).toBe(2);
+    expect(pushed.revision).toBe(1);
+
+    const list = await store.getList(REPO, "job-state", "backlog");
+    expect(list).not.toBeNull();
+    expect(list!.revision).toBe(1);
+
+    const fetched = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    expect(fetched.totalCount).toBe(2);
+    expect(fetched.revision).toBe(1);
+    expect(fetched.items.map((item) => item.value)).toEqual([
+      { id: "a" },
+      { id: "b" },
+    ]);
+  });
+
+  it("supports pagination and descending order", async () => {
+    const paged = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+      order: "desc",
+      limit: 1,
+      offset: 0,
+    });
+
+    expect(paged.totalCount).toBe(2);
+    expect(paged.items).toHaveLength(1);
+    expect(paged.items[0].index).toBe(1);
+    expect(paged.items[0].value).toEqual({ id: "b" });
+  });
+
+  it("trims from the front when maxItems is set", async () => {
+    const pushed = await store.pushListItems(REPO, AGENT_B, {
+      collection: "job-state",
+      name: "backlog",
+      items: [{ id: "c" }, { id: "d" }],
+      maxItems: 3,
+    });
+
+    expect(pushed.length).toBe(3);
+
+    const fetched = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    expect(fetched.items.map((item) => item.value)).toEqual([
+      { id: "b" },
+      { id: "c" },
+      { id: "d" },
+    ]);
+    expect(fetched.items.map((item) => item.index)).toEqual([0, 1, 2]);
+  });
+
+  it("removes by index and reindexes remaining items", async () => {
+    const removed = await store.removeListItem(REPO, AGENT, {
+      collection: "job-state",
+      name: "backlog",
+      index: 1,
+    });
+
+    expect(removed.removed).toEqual({ id: "c" });
+    expect(removed.length).toBe(2);
+
+    const fetched = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    expect(fetched.items.map((item) => item.value)).toEqual([
+      { id: "b" },
+      { id: "d" },
+    ]);
+    expect(fetched.items.map((item) => item.index)).toEqual([0, 1]);
+  });
+
+  it("removes by field match", async () => {
+    const removed = await store.removeListItem(REPO, AGENT, {
+      collection: "job-state",
+      name: "backlog",
+      where: { field: "id", equals: "b" },
+    });
+
+    expect(removed.removed).toEqual({ id: "b" });
+
+    const fetched = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    expect(fetched.items.map((item) => item.value)).toEqual([{ id: "d" }]);
+    expect(fetched.items[0].index).toBe(0);
+  });
+
+  it("sets a single list item", async () => {
+    const list = await store.getList(REPO, "job-state", "backlog");
+    expect(list).not.toBeNull();
+
+    const updated = await store.setListItem(REPO, AGENT_B, {
+      collection: "job-state",
+      name: "backlog",
+      index: 0,
+      value: { id: "d", status: "fixed" },
+      expectedRevision: list!.revision,
+    });
+
+    expect(updated.item.value).toEqual({ id: "d", status: "fixed" });
+
+    const fetched = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    expect(fetched.items[0].value).toEqual({ id: "d", status: "fixed" });
+  });
+
+  it("returns an empty result for a missing list", async () => {
+    const missing = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "missing",
+    });
+
+    expect(missing).toEqual({ items: [], totalCount: 0, revision: 0 });
+  });
+
+  it("enforces list revision checks when provided", async () => {
+    const list = await store.getList(REPO, "job-state", "backlog");
+    expect(list).not.toBeNull();
+
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "backlog",
+        items: [{ id: "e" }],
+        expectedRevision: 1,
+      })
+    ).rejects.toThrow(BrainRevisionConflictError);
+
+    const refreshed = await store.getList(REPO, "job-state", "backlog");
+    expect(refreshed!.revision).toBeGreaterThan(1);
+  });
+
+  it("rejects expectedRevision on non-existent list", async () => {
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "missing",
+        items: [{ id: "x" }],
+        expectedRevision: 1,
+      })
+    ).rejects.toThrow(BrainListNotFoundError);
+  });
+
+  it("rejects pushes that exceed the per-call item cap", async () => {
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "oversized",
+        items: Array.from(
+          { length: MAX_LIST_ITEMS_PER_PUSH + 1 },
+          (_, index) => ({
+            id: `item-${index}`,
+          })
+        ),
+      })
+    ).rejects.toThrow(BrainValidationError);
+  });
+
+  it("rejects maxItems values above the bounded list size", async () => {
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "oversized-cap",
+        items: [{ id: "x" }],
+        maxItems: 201,
+      })
+    ).rejects.toThrow(BrainValidationError);
+  });
+
+  it("errors when removing or setting a missing item", async () => {
+    await expect(
+      store.removeListItem(REPO, AGENT, {
+        collection: "job-state",
+        name: "backlog",
+        index: 8,
+      })
+    ).rejects.toThrow(BrainListItemNotFoundError);
+
+    await expect(
+      store.setListItem(REPO, AGENT, {
+        collection: "job-state",
+        name: "backlog",
+        index: 8,
+        value: { nope: true },
+        expectedRevision: (await store.getList(REPO, "job-state", "backlog"))!
+          .revision,
+      })
+    ).rejects.toThrow(BrainListItemNotFoundError);
+  });
+
+  it("requires expectedRevision for list item updates", async () => {
+    await expect(
+      store.setListItem(REPO, AGENT, {
+        collection: "job-state",
+        name: "backlog",
+        index: 0,
+        value: { nope: true },
+      })
+    ).rejects.toThrow(BrainValidationError);
+  });
+
+  it("deletes a list and its items", async () => {
+    const deleted = await store.deleteList(REPO, "job-state", "backlog");
+    expect(deleted).toBe(true);
+
+    expect(await store.getList(REPO, "job-state", "backlog")).toBeNull();
+    expect(
+      await store.getListItems(REPO, {
+        collection: "job-state",
+        name: "backlog",
+      })
+    ).toEqual({ items: [], totalCount: 0, revision: 0 });
+  });
+
+  it("returns false when deleting a missing list", async () => {
+    const deleted = await store.deleteList(REPO, "job-state", "backlog");
+    expect(deleted).toBe(false);
+  });
+
+  it("isolates lists by repo", async () => {
+    await store.pushListItems(REPO, AGENT, {
+      collection: "job-state",
+      name: "backlog",
+      items: [{ id: "local" }],
+    });
+    await store.pushListItems(REPO_B, AGENT, {
+      collection: "job-state",
+      name: "backlog",
+      items: [{ id: "other" }],
+    });
+
+    const fromA = await store.getListItems(REPO, {
+      collection: "job-state",
+      name: "backlog",
+    });
+    const fromB = await store.getListItems(REPO_B, {
+      collection: "job-state",
+      name: "backlog",
+    });
+
+    expect(fromA.items.map((item) => item.value)).toEqual([{ id: "local" }]);
+    expect(fromB.items.map((item) => item.value)).toEqual([{ id: "other" }]);
   });
 });
