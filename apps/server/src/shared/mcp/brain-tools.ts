@@ -9,6 +9,7 @@ import {
   BrainRevisionConflictError,
   BrainValidationError,
   BrainLimitExceededError,
+  MAX_LIST_ITEMS_PER_PUSH,
 } from "../../brain/store.js";
 import { toToolError } from "./tool-error.js";
 
@@ -185,11 +186,13 @@ export function registerBrainTools(
           items: z
             .array(jsonObjectSchema)
             .min(1)
+            .max(MAX_LIST_ITEMS_PER_PUSH)
             .describe("One or more JSON objects to append."),
           maxItems: z
             .number()
             .int()
             .positive()
+            .max(200)
             .optional()
             .describe(
               "If set, trim oldest items after the push so the list stays within this size."

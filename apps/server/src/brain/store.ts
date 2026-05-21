@@ -106,6 +106,7 @@ export class BrainLimitExceededError extends Error {
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+export const MAX_LIST_ITEMS_PER_PUSH = 200;
 
 function clampLimit(limit: number | undefined): number {
   const n = limit ?? DEFAULT_LIMIT;
@@ -334,8 +335,16 @@ export class BrainStore {
     if (items.length === 0) {
       throw new BrainValidationError("List push requires at least one item.");
     }
+    if (items.length > MAX_LIST_ITEMS_PER_PUSH) {
+      throw new BrainValidationError(
+        `List push accepts at most ${MAX_LIST_ITEMS_PER_PUSH} items per call.`
+      );
+    }
     if (maxItems !== undefined && maxItems < 1) {
       throw new BrainValidationError("maxItems must be at least 1.");
+    }
+    if (maxItems !== undefined && maxItems > MAX_LIMIT) {
+      throw new BrainValidationError(`maxItems cannot exceed ${MAX_LIMIT}.`);
     }
 
     return await this.withTransaction(async (client) => {
@@ -351,13 +360,14 @@ export class BrainStore {
         name
       );
 
-      for (const [offset, item] of items.entries()) {
-        await client.query(
-          `INSERT INTO brain_list_items (repo_root, collection, name, item_index, value)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [repoRoot, collection, name, nextIndex + offset, JSON.stringify(item)]
-        );
-      }
+      await this.insertListItems(
+        client,
+        repoRoot,
+        collection,
+        name,
+        nextIndex,
+        items
+      );
 
       if (maxItems !== undefined) {
         await this.trimListToMaxItems(
@@ -898,6 +908,34 @@ export class BrainStore {
       [repoRoot, collection, name]
     );
     return result.rows[0]?.total ?? 0;
+  }
+
+  private async insertListItems(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string,
+    startIndex: number,
+    items: unknown[]
+  ): Promise<void> {
+    const values: unknown[] = [];
+    const placeholders = items.map((item, offset) => {
+      const base = values.length;
+      values.push(
+        repoRoot,
+        collection,
+        name,
+        startIndex + offset,
+        JSON.stringify(item)
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`;
+    });
+
+    await client.query(
+      `INSERT INTO brain_list_items (repo_root, collection, name, item_index, value)
+       VALUES ${placeholders.join(", ")}`,
+      values
+    );
   }
 }
 

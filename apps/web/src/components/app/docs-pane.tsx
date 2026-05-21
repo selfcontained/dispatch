@@ -673,8 +673,10 @@ const SECTIONS: SectionDef[] = [
             set, and delete operations, which makes them a better fit for
             queues, backlogs, and rolling history than stuffing arrays into
             objects. Positional list updates require the current revision
-            because removals reindex later items. Events are append-only and can
-            be filtered by collection, kind, subject, tags, and time range.
+            because removals reindex later items. List pushes are capped per
+            call, and bounded list sizes keep remove/reindex work predictable.
+            Events are append-only and can be filtered by collection, kind,
+            subject, tags, and time range.
           </P>
           <P>
             Brain tools are available to both standard agents and job agents.

@@ -8,6 +8,7 @@ import {
   BrainListItemNotFoundError,
   BrainRevisionConflictError,
   BrainValidationError,
+  MAX_LIST_ITEMS_PER_PUSH,
 } from "../src/brain/store.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
@@ -465,6 +466,32 @@ describe("BrainStore lists", () => {
         expectedRevision: 1,
       })
     ).rejects.toThrow(BrainListNotFoundError);
+  });
+
+  it("rejects pushes that exceed the per-call item cap", async () => {
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "oversized",
+        items: Array.from(
+          { length: MAX_LIST_ITEMS_PER_PUSH + 1 },
+          (_, index) => ({
+            id: `item-${index}`,
+          })
+        ),
+      })
+    ).rejects.toThrow(BrainValidationError);
+  });
+
+  it("rejects maxItems values above the bounded list size", async () => {
+    await expect(
+      store.pushListItems(REPO, AGENT, {
+        collection: "job-state",
+        name: "oversized-cap",
+        items: [{ id: "x" }],
+        maxItems: 201,
+      })
+    ).rejects.toThrow(BrainValidationError);
   });
 
   it("errors when removing or setting a missing item", async () => {
