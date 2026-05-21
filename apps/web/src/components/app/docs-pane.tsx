@@ -642,7 +642,37 @@ const SECTIONS: SectionDef[] = [
               <Code>get_feedback_summary</Code> — analytics queries over recent
               Dispatch activity
             </li>
+            <li>
+              <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
+              <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>{" "}
+              — read and write shared objects in the repo-scoped Brain (see
+              below)
+            </li>
+            <li>
+              <Code>brain_append_event</Code>, <Code>brain_query_events</Code> —
+              append to and query the Brain's immutable event log
+            </li>
           </ul>
+        </Section>
+
+        <Section>
+          <H3>Brain (shared memory)</H3>
+          <P>
+            The Brain is a repo-scoped key-value store and event log that lets
+            agents share structured state. Objects are organized into
+            collections, identified by name, and tracked with an integer
+            revision for optimistic concurrency — updates require passing the
+            expected revision so concurrent writes don't silently overwrite each
+            other. Events are append-only and can be filtered by collection,
+            kind, subject, tags, and time range.
+          </P>
+          <P>
+            Brain tools are available to both standard agents and job agents.
+            Persona reviewers do not have access. Common use cases include
+            passing findings or assessments between recurring job runs, sharing
+            configuration between agents working in the same repo, and recording
+            structured observations that other agents can query.
+          </P>
         </Section>
 
         <Section>
@@ -1006,6 +1036,13 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <Code>dispatch_submit_resolution</Code>, and{" "}
               <Code>dispatch_cancel_recheck</Code>. See below.
             </li>
+            <li>
+              <strong>Brain (shared memory)</strong> —{" "}
+              <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
+              <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>,{" "}
+              <Code>brain_append_event</Code>, and{" "}
+              <Code>brain_query_events</Code>. Same tools as standard agents.
+            </li>
           </ul>
         </Section>
 
@@ -1029,14 +1066,27 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <H3>State across runs</H3>
           <P>
             Recurring jobs often need to pass context from one run to the next
-            without re-inventorying the repo every time. The convention is a
-            small markdown handoff file at{" "}
-            <Code>.dispatch/job-state/{"<job>"}.md</Code> that the prompt tells
-            the agent to read at the start of a run and overwrite at the end.
-            It's not a server feature — just a pattern that keeps the work
-            focused. Treat it as a note to the next run, not an append-only log;
-            prune what's no longer relevant.
+            without re-inventorying the repo every time. Two approaches work
+            well:
           </P>
+          <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+            <li>
+              <strong>Filesystem handoff</strong> — a small markdown file at{" "}
+              <Code>.dispatch/job-state/{"<job>"}.md</Code> that the prompt
+              tells the agent to read at the start and overwrite at the end.
+              Treat it as a note to the next run, not an append-only log; prune
+              what's no longer relevant. This pattern is simple and
+              version-controlled.
+            </li>
+            <li>
+              <strong>Brain shared memory</strong> — use the{" "}
+              <Code>brain_store_object</Code> and <Code>brain_get_object</Code>{" "}
+              tools to persist structured state across runs without committing
+              files. Brain objects support optimistic concurrency and can be
+              queried by collection, making them a good fit for state that
+              multiple jobs or agents need to coordinate on.
+            </li>
+          </ul>
         </Section>
 
         <Section>

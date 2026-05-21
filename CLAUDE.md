@@ -11,6 +11,7 @@ dispatch/
 │   ├── server/                # Fastify API server (@dispatch/server)
 │   │   ├── src/               # backend source
 │   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
+│   │   │   ├── brain/         # repo-scoped shared memory (objects + event log)
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
 │   │   │   ├── media/         # media file storage
