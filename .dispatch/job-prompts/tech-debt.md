@@ -14,13 +14,14 @@ State is split across two Brain objects to keep writes small and fast:
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `next_focus` — the specific area/issue the last run recommended you tackle this time
    - `backlog` — a prioritized list of issues found during prior audits but deferred
-   - `history` — the last 5 run summaries (older runs are in the event log: collection `job-state`, kind `run`, subject `tech-debt`)
 
 2. **Patterns** (collection: `job-state`, name: `tech-debt-patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
    - `patterns` — recurring observations about where debt accumulates in this codebase
    - Only update this object when you have a new pattern to add or a stale one to prune. Most runs won't touch it.
 
-If the object is not found (first run or Brain migration hasn't happened), fall through to the bootstrap audit in Phase 1.
+3. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "tech-debt", limit: 5)`. This is read-only context; you don't need it to decide what to work on, but it's useful for writing PR descriptions and avoiding duplicate work.
+
+If the core state object is not found (first run or Brain migration hasn't happened), fall through to the bootstrap audit in Phase 1.
 
 > **Deprecated fallback:** The old filesystem state file `.dispatch/job-state/tech-debt.md` still exists but is no longer the source of truth. It will be removed after the Brain path is validated in a real run.
 
@@ -70,7 +71,6 @@ For normal runs (not bootstrap), implement the fix:
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific issue the next run should tackle. Be concrete: include file paths, line numbers, and a brief description of what to do. If the backlog is empty, describe what area to re-audit next.
 - `backlog` — remaining items, re-prioritized if needed. Remove the item you just fixed. Add any new issues you discovered. Each entry should have enough context that a future run can act on it without re-discovering the problem.
-- `history` — keep only the **last 5 entries**. Drop older ones — they live in the event log (see below).
 
 **Patterns** — use `brain_store_object` (collection: `job-state`, name: `tech-debt-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
 
