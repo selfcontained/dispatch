@@ -73,7 +73,7 @@ For normal runs (not bootstrap), implement the fix:
 **Backlog** — use list operations (collection: `job-state`, name: `tech-debt-backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove the item you just fixed (index 0 if you took the top item).
-- `brain_list_push` — add any new issues you discovered. Each entry should have enough context that a future run can act on it without re-discovering the problem.
+- `brain_list_push` — add any new issues you discovered. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem.
 
 **Patterns** — use `brain_store_object` (collection: `job-state`, name: `tech-debt-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
 
