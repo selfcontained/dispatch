@@ -4,8 +4,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
+import type { BrainStore } from "../../brain/store.js";
 import { createPr, getPrStatus } from "../github/pr.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
+import { registerBrainTools } from "./brain-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { toToolError } from "./tool-error.js";
@@ -94,6 +96,12 @@ const AGENT_TOOLS = new Set([
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
+  "brain_get_object",
+  "brain_store_object",
+  "brain_list_objects",
+  "brain_delete_object",
+  "brain_append_event",
+  "brain_query_events",
 ]);
 
 const JOB_TOOLS = new Set([
@@ -121,6 +129,12 @@ const JOB_TOOLS = new Set([
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
+  "brain_get_object",
+  "brain_store_object",
+  "brain_list_objects",
+  "brain_delete_object",
+  "brain_append_event",
+  "brain_query_events",
 ]);
 
 const PERSONA_TOOLS = new Set([
@@ -333,6 +347,7 @@ export type McpRequestContext = {
   }) => Promise<Record<string, unknown>>;
   jobTools?: JobTools;
   toolScope?: "agent" | "reviewer" | "job";
+  brainStore?: BrainStore;
 };
 
 /**
@@ -1191,6 +1206,15 @@ async function createDispatchMcpServer(
         }
       }
     );
+  }
+
+  // ── Brain tools (shared memory for agents) ────────────────────────
+  if (context.agent && context.repoRoot && context.brainStore) {
+    registerBrainTools(server, allowed, {
+      repoRoot: context.repoRoot,
+      agentId: context.agent.id,
+      store: context.brainStore,
+    });
   }
 
   // ── Summary / analytics tools (available to both agents and jobs) ──

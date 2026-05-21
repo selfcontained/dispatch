@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
+import type { BrainStore } from "../brain/store.js";
 import type { JobService } from "../jobs/service.js";
 import {
   resolveRepoRoot,
@@ -14,6 +15,7 @@ type McpRouteDeps = {
   };
   agentManager: AgentManager;
   jobService: JobService;
+  brainStore: BrainStore;
   getBearerToken: (request: {
     headers: { authorization?: string };
   }) => string | null;
@@ -168,6 +170,7 @@ export async function registerMcpRoutes(
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
+      brainStore: deps.brainStore,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
@@ -250,6 +253,7 @@ export async function registerMcpRoutes(
         deps.agentManager.getFeedbackSummary(params as never) as Promise<
           Record<string, unknown>
         >,
+      brainStore: deps.brainStore,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 

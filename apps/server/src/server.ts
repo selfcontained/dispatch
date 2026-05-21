@@ -95,6 +95,7 @@ import {
   packageVersion,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
+import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
@@ -286,6 +287,7 @@ const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
+const brainStore = new BrainStore(pool);
 const mcpHandlers = createMcpHandlers({
   pool,
   mediaRoot: config.mediaRoot,
@@ -438,6 +440,7 @@ async function registerRoutes() {
     config,
     agentManager,
     jobService,
+    brainStore,
     getBearerToken,
     validateJobMcpToken,
     validateAgentMcpToken,
