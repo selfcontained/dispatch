@@ -12,16 +12,11 @@ import {
 } from "../diagnostics.js";
 import {
   assertSafeRefName,
-  cleanupGitWorktree,
   createGitWorktree,
   GitWorktreeError,
   worktreePathSlug,
 } from "../shared/git/worktree.js";
-import {
-  getUncommittedChanges,
-  getUnmergedChanges,
-  readWorktreeStatus,
-} from "../shared/git/worktree-status.js";
+import { readWorktreeStatus } from "../shared/git/worktree-status.js";
 import {
   buildGitContextForWorktree,
   probeGitContext,
@@ -29,6 +24,11 @@ import {
 import { getActivePersonality } from "../db/personalities.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import {
+  beginArchive as beginArchiveImpl,
+  executeArchive as executeArchiveImpl,
+  type ArchiveDeps,
+} from "./archive.js";
 import { AgentError } from "./errors.js";
 import {
   type AgentEventBus,
@@ -915,40 +915,13 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
-  /**
-   * Fast, synchronous first phase of archival: validates state and marks agent as archiving.
-   * Returns the updated agent record for SSE broadcast.
-   */
   async beginArchive(
     id: string,
     cleanupWorktree: WorktreeCleanupMode = "auto"
   ): Promise<AgentRecord> {
-    // Atomic transition: only one caller can move out of non-archiving state.
-    // This prevents TOCTOU races when concurrent DELETE requests hit the same agent.
-    const result = await this.pool.query(
-      `UPDATE agents
-       SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
-       RETURNING id`,
-      [id, cleanupWorktree]
-    );
-
-    if (result.rowCount === 0) {
-      // Either the agent doesn't exist, is already deleted, or is already archiving
-      const existing = await this.getAgent(id);
-      if (!existing) {
-        throw new AgentError("Agent not found.", 404);
-      }
-      throw new AgentError("Agent is already being archived.", 409);
-    }
-
-    return await this.getRequiredAgent(id);
+    return beginArchiveImpl(this.archiveDeps(), id, cleanupWorktree);
   }
 
-  /**
-   * Long-running second phase of archival: stops agent, cleans up worktree, soft-deletes.
-   * Designed to run fire-and-forget after beginArchive returns.
-   */
   async executeArchive(
     id: string,
     callbacks: {
@@ -957,267 +930,7 @@ export class AgentManager {
       onError: (error: unknown) => void;
     }
   ): Promise<void> {
-    const deleteStart = Date.now();
-    const durations: Record<string, number> = {};
-
-    try {
-      const agent = await this.getRequiredAgent(id);
-      const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
-
-      // Phase: stopping — tear down session without changing agent status
-      const t = Date.now();
-      try {
-        await runLifecycleHook("stop", agent, this.logger).catch((err) =>
-          this.logger.warn(
-            { err, agentId: id },
-            "Stop hook failed during archive; continuing"
-          )
-        );
-        if (
-          agent.tmuxSession &&
-          (await this.runtime.hasSession(agent.tmuxSession))
-        ) {
-          await this.runtime.stopSession(agent.tmuxSession, true);
-        }
-        this.harvestAgentTokens(agent).catch((err) =>
-          this.logger.warn(
-            { err, agentId: id },
-            "Token harvest failed during archive"
-          )
-        );
-      } catch (err) {
-        this.logger.warn(
-          { err, agentId: id },
-          "Stop during archive failed; continuing"
-        );
-      }
-      durations.stop = Date.now() - t;
-
-      const publishPhase = async (phase: ArchivePhase) => {
-        await this.setArchivePhase(id, phase);
-        const updated = await this.getAgent(id);
-        if (updated) callbacks.onPhaseChange(updated);
-      };
-
-      // Phase: worktree-check
-      await publishPhase("worktree-check");
-
-      if (agent.worktreePath) {
-        try {
-          const tCheck = Date.now();
-          let shouldCleanup = cleanupWorktree === "force";
-          let preserveReason: string | undefined;
-
-          if (!shouldCleanup && cleanupWorktree === "auto") {
-            const [unmerged, uncommitted] = await Promise.all([
-              getUnmergedChanges(agent.worktreePath),
-              getUncommittedChanges(agent.worktreePath),
-            ]);
-            const hasChanges =
-              unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
-            shouldCleanup = !hasChanges;
-            if (hasChanges) {
-              const reasons: string[] = [];
-              if (unmerged.hasUnmergedCommits)
-                reasons.push(
-                  `${unmerged.changedFiles.length} unmerged file(s)`
-                );
-              if (uncommitted.hasUncommittedChanges)
-                reasons.push(
-                  `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
-                );
-              preserveReason = reasons.join(", ");
-            }
-          } else if (!shouldCleanup && cleanupWorktree === "keep") {
-            preserveReason = "user chose keep";
-          }
-          durations.outstandingChangesCheck = Date.now() - tCheck;
-
-          if (shouldCleanup) {
-            // Phase: worktree-cleanup
-            await publishPhase("worktree-cleanup");
-
-            const tCleanup = Date.now();
-            // If the worktree is on the user's original starting branch
-            // (i.e. no dispatch-created branch), don't delete that branch —
-            // it belongs to the user, not to this agent.
-            const dispatchOwnsBranch =
-              !!agent.worktreeBranch &&
-              (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
-            await cleanupGitWorktree({
-              cwd: agent.worktreePath,
-              deleteBranch: dispatchOwnsBranch,
-              force: true,
-              originalBranch: agent.worktreeBranch,
-            });
-            durations.worktreeCleanup = Date.now() - tCleanup;
-            this.logger.info(
-              { agentId: id, worktreePath: agent.worktreePath },
-              "Cleaned up agent worktree."
-            );
-          } else {
-            this.logger.info(
-              {
-                agentId: id,
-                worktreePath: agent.worktreePath,
-                cleanupWorktree,
-                preserveReason,
-              },
-              `Preserved agent worktree: ${preserveReason}.`
-            );
-          }
-        } catch (error) {
-          this.logger.warn(
-            { err: error, agentId: id },
-            "Worktree cleanup failed; leaving on disk."
-          );
-        }
-      }
-
-      // Phase: finalizing
-      await publishPhase("finalizing");
-
-      const tDb = Date.now();
-      await this.pool
-        .query(
-          `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-           SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-           FROM agents WHERE id = $1`,
-          [id]
-        )
-        .catch((err) =>
-          this.logger.warn({ err }, "Failed to insert delete event")
-        );
-
-      await this.pool.query(
-        "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
-        [id]
-      );
-      durations.db = Date.now() - tDb;
-      this.diffStatsRefresher?.clear(id);
-
-      // Cascade: archive child agents (persona agents spawned by this parent)
-      const tCascade = Date.now();
-      const children = await this.pool.query<{ id: string }>(
-        "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-        [id]
-      );
-      for (const child of children.rows) {
-        try {
-          await this.deleteAgentDirect(child.id, true, cleanupWorktree);
-        } catch (err) {
-          this.logger.warn(
-            { err, childId: child.id, parentId: id },
-            "Failed to cascade-delete child agent"
-          );
-        }
-      }
-      if (children.rows.length > 0) {
-        durations.cascadeChildren = Date.now() - tCascade;
-      }
-
-      durations.total = Date.now() - deleteStart;
-      const parts = Object.entries(durations)
-        .map(([k, v]) => `${k}=${v}ms`)
-        .join(", ");
-      this.logger.info(
-        { agentId: id, durations },
-        `Archive durations: ${parts}`
-      );
-
-      const deletedIds = [id, ...children.rows.map((r) => r.id)];
-      callbacks.onComplete(deletedIds);
-    } catch (error) {
-      this.logger.error({ err: error, agentId: id }, "Archive failed");
-      try {
-        await this.setAgentStatus(
-          id,
-          "error",
-          error instanceof Error ? error.message : "Archive failed"
-        );
-        await this.setArchivePhase(id, null);
-      } catch {
-        /* best effort */
-      }
-      callbacks.onError(error);
-    }
-  }
-
-  /**
-   * Synchronous delete for child/cascade agents (no worktree, fast).
-   */
-  private async deleteAgentDirect(
-    id: string,
-    force = false,
-    cleanupWorktree: WorktreeCleanupMode = "auto"
-  ): Promise<void> {
-    const deleteStart = Date.now();
-    const durations: Record<string, number> = {};
-    const agent = await this.getRequiredAgent(id);
-    const sessionExists = agent.tmuxSession
-      ? await this.runtime.hasSession(agent.tmuxSession)
-      : false;
-
-    if (agent.status === "running" && sessionExists && !force) {
-      throw new AgentError(
-        "Agent is running. Stop it first or use force delete.",
-        409
-      );
-    }
-
-    if (agent.status !== "stopped") {
-      const t = Date.now();
-      try {
-        await this.stopAgent(id, { force: true });
-      } catch (err) {
-        this.logger.warn(
-          { err, agentId: id },
-          "Stop during delete failed; continuing with deletion"
-        );
-      }
-      durations.stop = Date.now() - t;
-    }
-
-    const tDb = Date.now();
-    await this.pool
-      .query(
-        `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-         SELECT $1, 'idle', 'Agent deleted.', '{"source":"system"}'::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-         FROM agents WHERE id = $1`,
-        [id]
-      )
-      .catch((err) =>
-        this.logger.warn({ err }, "Failed to insert delete event")
-      );
-
-    await this.pool.query(
-      "UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
-      [id]
-    );
-    durations.db = Date.now() - tDb;
-    this.diffStatsRefresher?.clear(id);
-
-    // Cascade to any children (recursive to handle multi-level nesting)
-    const children = await this.pool.query<{ id: string }>(
-      "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-      [id]
-    );
-    for (const child of children.rows) {
-      try {
-        await this.deleteAgentDirect(child.id, true, cleanupWorktree);
-      } catch (err) {
-        this.logger.warn(
-          { err, childId: child.id, parentId: id },
-          "Failed to cascade-delete child agent"
-        );
-      }
-    }
-
-    durations.total = Date.now() - deleteStart;
-    const parts = Object.entries(durations)
-      .map(([k, v]) => `${k}=${v}ms`)
-      .join(", ");
-    this.logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
+    return executeArchiveImpl(this.archiveDeps(), id, callbacks);
   }
 
   async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
@@ -1730,5 +1443,21 @@ export class AgentManager {
         "Failed to upsert system latest event."
       );
     }
+  }
+
+  private archiveDeps(): ArchiveDeps {
+    return {
+      pool: this.pool,
+      logger: this.logger,
+      runtime: this.runtime,
+      diffStatsRefresher: this.diffStatsRefresher,
+      getAgent: (id) => this.getAgent(id),
+      getRequiredAgent: (id) => this.getRequiredAgent(id),
+      stopAgent: (id, input) => this.stopAgent(id, input),
+      harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
+      setAgentStatus: (id, status, lastError, tmuxSession) =>
+        this.setAgentStatus(id, status, lastError, tmuxSession),
+      setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
+    };
   }
 }
