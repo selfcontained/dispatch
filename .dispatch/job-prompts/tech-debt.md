@@ -16,7 +16,7 @@ The state object contains:
 - `next_focus` — the specific area/issue the last run recommended you tackle this time
 - `backlog` — a prioritized list of issues found during prior audits but deferred
 - `patterns` — recurring observations about where debt accumulates in this codebase
-- `history` — one-line summaries of what each prior run fixed
+- `history` — the last 5 run summaries (older runs are in the event log: collection `job-state`, kind `run`, subject `tech-debt`)
 
 If the object is not found (first run or Brain migration hasn't happened), fall through to the bootstrap audit in Phase 1.
 
@@ -71,7 +71,16 @@ The updated value should contain:
 - `next_focus` — the specific issue the next run should tackle. Be concrete: include file paths, line numbers, and a brief description of what to do. If the backlog is empty, describe what area to re-audit next.
 - `backlog` — remaining items, re-prioritized if needed. Remove the item you just fixed. Add any new issues you discovered. Each entry should have enough context that a future run can act on it without re-discovering the problem.
 - `patterns` — observations about where debt accumulates. Add new ones, prune stale ones.
-- `history` — append a one-line entry for this run: date, what was fixed, PR number.
+- `history` — keep only the **last 5 entries**. Drop older ones — they live in the event log (see below).
+
+After updating the object, also log this run as a brain event using `brain_append_event`:
+
+- collection: `job-state`
+- kind: `run`
+- subject: `tech-debt`
+- value: `{ "date": "<today>", "summary": "<one-line summary of what was fixed>", "pr": "<PR number>" }`
+
+This keeps the object small (fast to read and write) while preserving full history in the append-only event log. To review older runs, query `brain_query_events` with collection `job-state`, kind `run`, subject `tech-debt`.
 
 Treat the state as a handoff note to a colleague, not a log.
 
