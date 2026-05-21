@@ -120,7 +120,8 @@ function LaunchTemplateDialogContent({
   const [argValues, setArgValues] = useState<Record<string, string>>({});
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
 
-  const showMedia = template.allowMedia;
+  const isTerminal = agentType === "terminal";
+  const showMedia = !isTerminal && template.allowMedia;
   const [startupFiles, setStartupFiles] = useState<File[]>([]);
   const [startupLinks, setStartupLinks] = useState<string[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
