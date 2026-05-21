@@ -31,7 +31,7 @@ import {
   type Template,
   type TemplateArg,
 } from "@/hooks/use-templates";
-import { type CliAgentType } from "@/lib/agent-types";
+import { type AgentType } from "@/lib/agent-types";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
@@ -85,7 +85,7 @@ export function LaunchTemplateDialog({
   template: Template;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  agentTypes: CliAgentType[];
+  agentTypes: AgentType[];
 }): JSX.Element {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -107,7 +107,7 @@ function LaunchTemplateDialogContent({
 }: {
   template: Template;
   onOpenChange: (open: boolean) => void;
-  agentTypes: CliAgentType[];
+  agentTypes: AgentType[];
 }): JSX.Element {
   const navigate = useNavigate();
   const { launchTemplate } = useTemplateActions();
@@ -118,7 +118,7 @@ function LaunchTemplateDialogContent({
     [template.prompt]
   );
   const [argValues, setArgValues] = useState<Record<string, string>>({});
-  const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
+  const [agentType, setAgentType] = useState<AgentType>(template.agentType);
 
   const showMedia = template.allowMedia;
   const [startupFiles, setStartupFiles] = useState<File[]>([]);

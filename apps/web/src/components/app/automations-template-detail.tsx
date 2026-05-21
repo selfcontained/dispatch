@@ -21,7 +21,6 @@ import {
   parseTemplateArgs,
   type Template,
 } from "@/hooks/use-templates";
-import { type CliAgentType, isCliAgentType } from "@/lib/agent-types";
 
 function shortPath(value: string): string {
   const parts = value.split("/").filter(Boolean);
@@ -69,7 +68,7 @@ function TemplateDetail({
   const [description, setDescription] = useState(template.description ?? "");
   const [directory, setDirectory] = useState(template.directory);
   const [prompt, setPrompt] = useState(template.prompt ?? "");
-  const [agentType, setAgentType] = useState<CliAgentType>(template.agentType);
+  const [agentType, setAgentType] = useState<AgentType>(template.agentType);
   const [useWorktree, setUseWorktree] = useState(template.useWorktree);
   const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "main");
   const [branchName, setBranchName] = useState(template.branchName ?? "");
@@ -157,11 +156,6 @@ function TemplateDetail({
         toast.error(`Failed to delete: ${err.message}`);
       });
   }, [removeTemplate, template, navigate]);
-
-  const cliAgentTypes = useMemo(
-    () => enabledAgentTypes.filter(isCliAgentType),
-    [enabledAgentTypes]
-  );
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -319,7 +313,7 @@ function TemplateDetail({
         template={template}
         open={launchDialogOpen}
         onOpenChange={setLaunchDialogOpen}
-        agentTypes={cliAgentTypes}
+        agentTypes={enabledAgentTypes}
       />
     </div>
   );

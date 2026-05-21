@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AlarmClock, FormInput, Play } from "lucide-react";
 import { motion } from "framer-motion";
@@ -15,7 +15,6 @@ import type { AgentType } from "@/lib/agent-types";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useTemplates, type Template } from "@/hooks/use-templates";
-import { isCliAgentType } from "@/lib/agent-types";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 
@@ -199,10 +198,6 @@ function TemplateListItem({
   onSelect: () => void;
 }): JSX.Element {
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
-  const cliAgentTypes = useMemo(
-    () => enabledAgentTypes.filter(isCliAgentType),
-    [enabledAgentTypes]
-  );
 
   const handleLaunch = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -258,7 +253,7 @@ function TemplateListItem({
         template={template}
         open={launchDialogOpen}
         onOpenChange={setLaunchDialogOpen}
-        agentTypes={cliAgentTypes}
+        agentTypes={enabledAgentTypes}
       />
     </>
   );

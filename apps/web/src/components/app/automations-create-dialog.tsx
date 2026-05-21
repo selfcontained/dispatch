@@ -12,8 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useTemplateActions } from "@/hooks/use-templates";
-import type { AgentType } from "@/lib/agent-types";
-import { type CliAgentType } from "@/lib/agent-types";
+import { type AgentType } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 
 export function CreateTemplateDialog({
@@ -49,7 +48,7 @@ function CreateTemplateDialogContent({
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [agentType, setAgentType] = useState<CliAgentType>("claude");
+  const [agentType, setAgentType] = useState<AgentType>("claude");
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
   const [branchName, setBranchName] = useState("");

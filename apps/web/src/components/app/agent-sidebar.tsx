@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import React from "react";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  sortAgentTypes,
+} from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 
 export type AgentListContentProps = {
@@ -120,7 +124,7 @@ export function AgentListContent({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {enabledAgentTypes.map((agentType) => (
+                {sortAgentTypes(enabledAgentTypes).map((agentType) => (
                   <DropdownMenuItem
                     key={agentType}
                     className="text-foreground"

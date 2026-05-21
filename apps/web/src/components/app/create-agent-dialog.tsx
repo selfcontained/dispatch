@@ -48,7 +48,11 @@ import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  sortAgentTypes,
+} from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
@@ -478,29 +482,31 @@ function CreateAgentDialogContent({
                       >
                         <CommandList>
                           <CommandGroup>
-                            {enabledAgentTypes.map((agentType) => (
-                              <CommandItem
-                                key={agentType}
-                                value={agentType}
-                                onSelect={() => {
-                                  setCreateType(agentType);
-                                  setTypeDropdownOpen(false);
-                                  requestAnimationFrame(() =>
-                                    typeTriggerRef.current?.focus()
-                                  );
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-3 w-3 shrink-0",
-                                    agentType === createType
-                                      ? "opacity-100"
-                                      : "opacity-0"
-                                  )}
-                                />
-                                {AGENT_TYPE_LABELS[agentType]}
-                              </CommandItem>
-                            ))}
+                            {sortAgentTypes(enabledAgentTypes).map(
+                              (agentType) => (
+                                <CommandItem
+                                  key={agentType}
+                                  value={agentType}
+                                  onSelect={() => {
+                                    setCreateType(agentType);
+                                    setTypeDropdownOpen(false);
+                                    requestAnimationFrame(() =>
+                                      typeTriggerRef.current?.focus()
+                                    );
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-3 w-3 shrink-0",
+                                      agentType === createType
+                                        ? "opacity-100"
+                                        : "opacity-0"
+                                    )}
+                                  />
+                                  {AGENT_TYPE_LABELS[agentType]}
+                                </CommandItem>
+                              )
+                            )}
                           </CommandGroup>
                         </CommandList>
                       </Command>
