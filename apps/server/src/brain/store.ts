@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -26,6 +26,23 @@ export type BrainEvent = {
   agentId: string;
 };
 
+export type BrainList = {
+  collection: string;
+  name: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  createdByAgentId: string;
+  updatedByAgentId: string;
+};
+
+export type BrainListItem = {
+  index: number;
+  value: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // ── Errors ───────────────────────────────────────────────────────────
 
 export class BrainNotFoundError extends Error {
@@ -35,11 +52,38 @@ export class BrainNotFoundError extends Error {
   }
 }
 
+export class BrainListNotFoundError extends Error {
+  readonly code = "not_found" as const;
+  constructor(collection: string, name: string) {
+    super(`List "${collection}/${name}" not found.`);
+  }
+}
+
+export class BrainListItemNotFoundError extends Error {
+  readonly code = "not_found" as const;
+  constructor(
+    collection: string,
+    name: string,
+    details: { index?: number; field?: string; equals?: string }
+  ) {
+    if (details.index !== undefined) {
+      super(
+        `List item "${collection}/${name}" at index ${details.index} not found.`
+      );
+      return;
+    }
+    super(
+      `List item "${collection}/${name}" matching ${details.field}="${details.equals}" not found.`
+    );
+  }
+}
+
 export class BrainRevisionConflictError extends Error {
   readonly code = "revision_conflict" as const;
-  readonly current: BrainObject;
-  constructor(current: BrainObject) {
-    super("Object revision does not match expectedRevision.");
+  readonly current: BrainObject | BrainList;
+  constructor(current: BrainObject | BrainList) {
+    const kind = "value" in current ? "Object" : "List";
+    super(`${kind} revision does not match expectedRevision.`);
     this.current = current;
   }
 }
@@ -213,6 +257,280 @@ export class BrainStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  // ── Lists ────────────────────────────────────────────────────────
+
+  async getList(
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<BrainList | null> {
+    const result = await this.pool.query(
+      `SELECT ${listColumns()} FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3`,
+      [repoRoot, collection, name]
+    );
+    return result.rows[0] ? mapList(result.rows[0]) : null;
+  }
+
+  async getListItems(
+    repoRoot: string,
+    input: {
+      collection: string;
+      name: string;
+      limit?: number;
+      offset?: number;
+      order?: "asc" | "desc";
+    }
+  ): Promise<{ items: BrainListItem[]; totalCount: number; revision: number }> {
+    const { collection, name } = input;
+    return await this.withTransaction(
+      async (client) => {
+        const list = await this.getListForUpdate(
+          client,
+          repoRoot,
+          collection,
+          name
+        );
+        if (!list) {
+          return { items: [], totalCount: 0, revision: 0 };
+        }
+
+        const offset = Math.max(0, input.offset ?? 0);
+        const limit = clampLimit(input.limit);
+        const order = input.order === "desc" ? "DESC" : "ASC";
+        const result = await client.query(
+          `SELECT ${listItemColumns()},
+                  COUNT(*) OVER()::int AS total_count
+           FROM brain_list_items
+           WHERE repo_root = $1 AND collection = $2 AND name = $3
+           ORDER BY item_index ${order}
+           OFFSET $4
+           LIMIT $5`,
+          [repoRoot, collection, name, offset, limit]
+        );
+
+        return {
+          items: result.rows.map(mapListItem),
+          totalCount: result.rows[0]?.total_count ?? 0,
+          revision: list.revision,
+        };
+      },
+      { isolationLevel: "REPEATABLE READ" }
+    );
+  }
+
+  async pushListItems(
+    repoRoot: string,
+    agentId: string,
+    input: {
+      collection: string;
+      name: string;
+      items: unknown[];
+      maxItems?: number;
+      expectedRevision?: number;
+    }
+  ): Promise<{ length: number; revision: number }> {
+    const { collection, name, items, maxItems, expectedRevision } = input;
+    if (items.length === 0) {
+      throw new BrainValidationError("List push requires at least one item.");
+    }
+    if (maxItems !== undefined && maxItems < 1) {
+      throw new BrainValidationError("maxItems must be at least 1.");
+    }
+
+    return await this.withTransaction(async (client) => {
+      const list = await this.lockOrCreateList(client, repoRoot, agentId, {
+        collection,
+        name,
+        expectedRevision,
+      });
+      const nextIndex = await this.getNextListIndex(
+        client,
+        repoRoot,
+        collection,
+        name
+      );
+
+      for (const [offset, item] of items.entries()) {
+        await client.query(
+          `INSERT INTO brain_list_items (repo_root, collection, name, item_index, value)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [repoRoot, collection, name, nextIndex + offset, JSON.stringify(item)]
+        );
+      }
+
+      if (maxItems !== undefined) {
+        await this.trimListToMaxItems(
+          client,
+          repoRoot,
+          collection,
+          name,
+          maxItems
+        );
+      }
+
+      const updated = await this.bumpListRevision(
+        client,
+        repoRoot,
+        collection,
+        name,
+        agentId,
+        list.revision
+      );
+      const length = await this.getListLength(
+        client,
+        repoRoot,
+        collection,
+        name
+      );
+      return { length, revision: updated.revision };
+    });
+  }
+
+  async removeListItem(
+    repoRoot: string,
+    agentId: string,
+    input: {
+      collection: string;
+      name: string;
+      index?: number;
+      where?: { field: string; equals: string };
+      expectedRevision?: number;
+    }
+  ): Promise<{ removed: unknown; length: number; revision: number }> {
+    const { collection, name, index, where, expectedRevision } = input;
+    if ((index === undefined) === (where === undefined)) {
+      throw new BrainValidationError(
+        "Provide exactly one of index or where when removing a list item."
+      );
+    }
+
+    return await this.withTransaction(async (client) => {
+      const list = await this.lockExistingList(
+        client,
+        repoRoot,
+        collection,
+        name,
+        expectedRevision
+      );
+      const target = await this.findListItemForRemoval(
+        client,
+        repoRoot,
+        collection,
+        name,
+        {
+          index,
+          where,
+        }
+      );
+      if (!target) {
+        if (index !== undefined) {
+          throw new BrainListItemNotFoundError(collection, name, { index });
+        }
+        throw new BrainListItemNotFoundError(collection, name, {
+          field: where?.field,
+          equals: where?.equals,
+        });
+      }
+
+      await client.query(
+        `DELETE FROM brain_list_items
+         WHERE repo_root = $1 AND collection = $2 AND name = $3 AND item_index = $4`,
+        [repoRoot, collection, name, target.index]
+      );
+      await this.reindexListItems(client, repoRoot, collection, name);
+      const updated = await this.bumpListRevision(
+        client,
+        repoRoot,
+        collection,
+        name,
+        agentId,
+        list.revision
+      );
+      const length = await this.getListLength(
+        client,
+        repoRoot,
+        collection,
+        name
+      );
+      return { removed: target.value, length, revision: updated.revision };
+    });
+  }
+
+  async setListItem(
+    repoRoot: string,
+    agentId: string,
+    input: {
+      collection: string;
+      name: string;
+      index: number;
+      value: unknown;
+      expectedRevision?: number;
+    }
+  ): Promise<{ item: BrainListItem; length: number; revision: number }> {
+    const { collection, name, index, value, expectedRevision } = input;
+    if (index < 0) {
+      throw new BrainValidationError("List item index must be 0 or greater.");
+    }
+    if (expectedRevision === undefined) {
+      throw new BrainValidationError(
+        "List item updates require expectedRevision because item positions can shift after removals."
+      );
+    }
+
+    return await this.withTransaction(async (client) => {
+      const list = await this.lockExistingList(
+        client,
+        repoRoot,
+        collection,
+        name,
+        expectedRevision
+      );
+      const result = await client.query(
+        `UPDATE brain_list_items
+         SET value = $1, updated_at = now()
+         WHERE repo_root = $2 AND collection = $3 AND name = $4 AND item_index = $5
+         RETURNING ${listItemColumns()}`,
+        [JSON.stringify(value), repoRoot, collection, name, index]
+      );
+      if (result.rows.length === 0) {
+        throw new BrainListItemNotFoundError(collection, name, { index });
+      }
+      const updated = await this.bumpListRevision(
+        client,
+        repoRoot,
+        collection,
+        name,
+        agentId,
+        list.revision
+      );
+      const length = await this.getListLength(
+        client,
+        repoRoot,
+        collection,
+        name
+      );
+      return {
+        item: mapListItem(result.rows[0]),
+        length,
+        revision: updated.revision,
+      };
+    });
+  }
+
+  async deleteList(
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3`,
+      [repoRoot, collection, name]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   // ── Events ──────────────────────────────────────────────────────
 
   async appendEvent(
@@ -302,6 +620,287 @@ export class BrainStore {
     );
     return result.rows.map(mapEvent);
   }
+
+  private async withTransaction<T>(
+    fn: (client: PoolClient) => Promise<T>,
+    options?: { isolationLevel?: "REPEATABLE READ" | "SERIALIZABLE" }
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (options?.isolationLevel) {
+        await client.query(
+          `SET TRANSACTION ISOLATION LEVEL ${options.isolationLevel}`
+        );
+      }
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async lockOrCreateList(
+    client: PoolClient,
+    repoRoot: string,
+    agentId: string,
+    input: {
+      collection: string;
+      name: string;
+      expectedRevision?: number;
+    }
+  ): Promise<BrainList> {
+    const { collection, name, expectedRevision } = input;
+    const existingResult = await client.query(
+      `SELECT ${listColumns()} FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3
+       FOR UPDATE`,
+      [repoRoot, collection, name]
+    );
+    if (existingResult.rows[0]) {
+      const existing = mapList(existingResult.rows[0]);
+      if (
+        expectedRevision !== undefined &&
+        existing.revision !== expectedRevision
+      ) {
+        throw new BrainRevisionConflictError(existing);
+      }
+      return existing;
+    }
+
+    if (expectedRevision !== undefined) {
+      throw new BrainListNotFoundError(collection, name);
+    }
+
+    try {
+      const insertResult = await client.query(
+        `INSERT INTO brain_lists (repo_root, collection, name, revision, created_by_agent_id, updated_by_agent_id)
+         VALUES ($1, $2, $3, 0, $4, $4)
+         RETURNING ${listColumns()}`,
+        [repoRoot, collection, name, agentId]
+      );
+      return mapList(insertResult.rows[0]);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const retryResult = await client.query(
+          `SELECT ${listColumns()} FROM brain_lists
+           WHERE repo_root = $1 AND collection = $2 AND name = $3
+           FOR UPDATE`,
+          [repoRoot, collection, name]
+        );
+        if (!retryResult.rows[0]) {
+          throw error;
+        }
+        const existing = mapList(retryResult.rows[0]);
+        if (
+          expectedRevision !== undefined &&
+          existing.revision !== expectedRevision
+        ) {
+          throw new BrainRevisionConflictError(existing);
+        }
+        return existing;
+      }
+      throw error;
+    }
+  }
+
+  private async getListForUpdate(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<BrainList | null> {
+    const result = await client.query(
+      `SELECT ${listColumns()} FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3`,
+      [repoRoot, collection, name]
+    );
+    return result.rows[0] ? mapList(result.rows[0]) : null;
+  }
+
+  private async lockExistingList(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string,
+    expectedRevision?: number
+  ): Promise<BrainList> {
+    const result = await client.query(
+      `SELECT ${listColumns()} FROM brain_lists
+       WHERE repo_root = $1 AND collection = $2 AND name = $3
+       FOR UPDATE`,
+      [repoRoot, collection, name]
+    );
+    if (!result.rows[0]) {
+      throw new BrainListNotFoundError(collection, name);
+    }
+    const list = mapList(result.rows[0]);
+    if (expectedRevision !== undefined && list.revision !== expectedRevision) {
+      throw new BrainRevisionConflictError(list);
+    }
+    return list;
+  }
+
+  private async getNextListIndex(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<number> {
+    const result = await client.query(
+      `SELECT COALESCE(MAX(item_index) + 1, 0)::int AS next_index
+       FROM brain_list_items
+       WHERE repo_root = $1 AND collection = $2 AND name = $3`,
+      [repoRoot, collection, name]
+    );
+    return result.rows[0]?.next_index ?? 0;
+  }
+
+  private async trimListToMaxItems(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string,
+    maxItems: number
+  ): Promise<void> {
+    await client.query(
+      `WITH overflow AS (
+         SELECT GREATEST(COUNT(*)::int - $4, 0) AS remove_count
+         FROM brain_list_items
+         WHERE repo_root = $1 AND collection = $2 AND name = $3
+       ), ranked AS (
+         SELECT items.repo_root,
+                items.collection,
+                items.name,
+                items.item_index,
+                ROW_NUMBER() OVER (ORDER BY items.item_index ASC) AS row_num,
+                overflow.remove_count
+         FROM brain_list_items AS items
+         CROSS JOIN overflow
+         WHERE items.repo_root = $1 AND items.collection = $2 AND items.name = $3
+       )
+       DELETE FROM brain_list_items
+       WHERE (repo_root, collection, name, item_index) IN (
+         SELECT repo_root, collection, name, item_index
+         FROM ranked
+         WHERE row_num <= remove_count
+       )`,
+      [repoRoot, collection, name, maxItems]
+    );
+    await this.reindexListItems(client, repoRoot, collection, name);
+  }
+
+  private async findListItemForRemoval(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string,
+    selector: {
+      index?: number;
+      where?: { field: string; equals: string };
+    }
+  ): Promise<BrainListItem | null> {
+    if (selector.index !== undefined) {
+      const result = await client.query(
+        `SELECT ${listItemColumns()} FROM brain_list_items
+         WHERE repo_root = $1 AND collection = $2 AND name = $3 AND item_index = $4`,
+        [repoRoot, collection, name, selector.index]
+      );
+      return result.rows[0] ? mapListItem(result.rows[0]) : null;
+    }
+
+    const result = await client.query(
+      `SELECT ${listItemColumns()} FROM brain_list_items
+       WHERE repo_root = $1 AND collection = $2 AND name = $3
+         AND value ->> $4 = $5
+       ORDER BY item_index ASC
+       LIMIT 1`,
+      [
+        repoRoot,
+        collection,
+        name,
+        selector.where?.field,
+        selector.where?.equals,
+      ]
+    );
+    return result.rows[0] ? mapListItem(result.rows[0]) : null;
+  }
+
+  private async reindexListItems(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<void> {
+    await client.query(
+      `WITH ordered AS (
+         SELECT ctid,
+                ROW_NUMBER() OVER (ORDER BY item_index) - 1 AS next_index,
+                ROW_NUMBER() OVER (ORDER BY item_index) + 1000000 AS temp_index
+         FROM brain_list_items
+         WHERE repo_root = $1 AND collection = $2 AND name = $3
+       )
+       UPDATE brain_list_items AS items
+       SET item_index = ordered.temp_index
+       FROM ordered
+       WHERE items.ctid = ordered.ctid`,
+      [repoRoot, collection, name]
+    );
+    await client.query(
+      `WITH ordered AS (
+         SELECT ctid, ROW_NUMBER() OVER (ORDER BY item_index) - 1 AS next_index
+         FROM brain_list_items
+         WHERE repo_root = $1 AND collection = $2 AND name = $3
+       )
+       UPDATE brain_list_items AS items
+       SET item_index = ordered.next_index
+       FROM ordered
+       WHERE items.ctid = ordered.ctid`,
+      [repoRoot, collection, name]
+    );
+  }
+
+  private async bumpListRevision(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string,
+    agentId: string,
+    revision: number
+  ): Promise<BrainList> {
+    const result = await client.query(
+      `UPDATE brain_lists
+       SET revision = revision + 1, updated_at = now(), updated_by_agent_id = $1
+       WHERE repo_root = $2 AND collection = $3 AND name = $4 AND revision = $5
+       RETURNING ${listColumns()}`,
+      [agentId, repoRoot, collection, name, revision]
+    );
+    if (!result.rows[0]) {
+      const current = await this.getList(repoRoot, collection, name);
+      if (!current) throw new BrainListNotFoundError(collection, name);
+      throw new BrainRevisionConflictError(current);
+    }
+    return mapList(result.rows[0]);
+  }
+
+  private async getListLength(
+    client: PoolClient,
+    repoRoot: string,
+    collection: string,
+    name: string
+  ): Promise<number> {
+    const result = await client.query(
+      `SELECT COUNT(*)::int AS total
+       FROM brain_list_items
+       WHERE repo_root = $1 AND collection = $2 AND name = $3`,
+      [repoRoot, collection, name]
+    );
+    return result.rows[0]?.total ?? 0;
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -338,6 +937,35 @@ function eventColumns(): string {
 
 function mapEvent(row: Record<string, unknown>): BrainEvent {
   return row as BrainEvent;
+}
+
+function listColumns(): string {
+  return `
+    collection,
+    name,
+    revision,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    created_by_agent_id AS "createdByAgentId",
+    updated_by_agent_id AS "updatedByAgentId"
+  `;
+}
+
+function mapList(row: Record<string, unknown>): BrainList {
+  return row as BrainList;
+}
+
+function listItemColumns(): string {
+  return `
+    item_index AS "index",
+    value,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  `;
+}
+
+function mapListItem(row: Record<string, unknown>): BrainListItem {
+  return row as BrainListItem;
 }
 
 function escapeLike(value: string): string {

@@ -649,6 +649,12 @@ const SECTIONS: SectionDef[] = [
               below)
             </li>
             <li>
+              <Code>brain_list_push</Code>, <Code>brain_list_remove</Code>,{" "}
+              <Code>brain_list_get</Code>, <Code>brain_list_set</Code>,{" "}
+              <Code>brain_list_delete</Code> — manage ordered Brain lists
+              without rewriting whole arrays
+            </li>
+            <li>
               <Code>brain_append_event</Code>, <Code>brain_query_events</Code> —
               append to and query the Brain's immutable event log
             </li>
@@ -663,8 +669,12 @@ const SECTIONS: SectionDef[] = [
             collections, identified by name, and tracked with an integer
             revision for optimistic concurrency — updates require passing the
             expected revision so concurrent writes don't silently overwrite each
-            other. Events are append-only and can be filtered by collection,
-            kind, subject, tags, and time range.
+            other. Lists are ordered mutable collections with push, remove, get,
+            set, and delete operations, which makes them a better fit for
+            queues, backlogs, and rolling history than stuffing arrays into
+            objects. Positional list updates require the current revision
+            because removals reindex later items. Events are append-only and can
+            be filtered by collection, kind, subject, tags, and time range.
           </P>
           <P>
             Brain tools are available to both standard agents and job agents.
@@ -1040,8 +1050,11 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Brain (shared memory)</strong> —{" "}
               <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
               <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>,{" "}
-              <Code>brain_append_event</Code>, and{" "}
-              <Code>brain_query_events</Code>. Same tools as standard agents.
+              <Code>brain_list_push</Code>, <Code>brain_list_remove</Code>,{" "}
+              <Code>brain_list_get</Code>, <Code>brain_list_set</Code>,{" "}
+              <Code>brain_list_delete</Code>, <Code>brain_append_event</Code>,
+              and <Code>brain_query_events</Code>. Same tools as standard
+              agents.
             </li>
           </ul>
         </Section>
@@ -1080,11 +1093,12 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Brain shared memory</strong> — use the{" "}
-              <Code>brain_store_object</Code> and <Code>brain_get_object</Code>{" "}
-              tools to persist structured state across runs without committing
-              files. Brain objects support optimistic concurrency and can be
-              queried by collection, making them a good fit for state that
-              multiple jobs or agents need to coordinate on.
+              <Code>brain_store_object</Code>, <Code>brain_get_object</Code>,{" "}
+              and Brain list tools to persist structured state across runs
+              without committing files. Brain objects support optimistic
+              concurrency, while Brain lists support surgical queue-style
+              updates, making them a good fit for state that multiple jobs or
+              agents need to coordinate on.
             </li>
           </ul>
         </Section>
