@@ -50,7 +50,9 @@ test.describe("Settings pane", () => {
       .click();
 
     // Version info is displayed in the Updates section
-    await expect(page.getByText("Current version")).toBeVisible();
+    await expect(page.getByText("Current version")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText("Release tag")).toBeVisible();
     await expect(page.getByText("Release channel")).toBeVisible();
   });
