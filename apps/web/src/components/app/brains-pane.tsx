@@ -17,6 +17,13 @@ import {
 } from "@/components/app/brain-cards";
 import { decodeRepoRoot, encodeRepoRoot } from "@/lib/brain-encoding";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -224,10 +231,43 @@ function BrainProjectDetail({
 
       <div className="border-b border-border px-4 md:px-6">
         <div className="flex items-center gap-3 py-2">
-          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+          <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground md:block">
             Collections
           </span>
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
+
+          {/* Mobile: dropdown */}
+          <div className="min-w-0 flex-1 md:hidden">
+            <Select
+              value={selectedCollection ?? "__all__"}
+              onValueChange={(val) => {
+                if (val === "__all__") {
+                  navigate(`/automations/brains/${encodedRepoRoot}`);
+                } else {
+                  navigate(
+                    `/automations/brains/${encodedRepoRoot}/${encodeURIComponent(val)}`
+                  );
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="All collections" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All collections</SelectItem>
+                {collectionsLoading
+                  ? null
+                  : collections.map((col) => (
+                      <SelectItem key={col.collection} value={col.collection}>
+                        {col.collection} (
+                        {col.objectCount + col.listCount + col.eventCount})
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Desktop: pills */}
+          <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none md:flex">
             <CollectionPill
               label="All"
               active={selectedCollection === null}
@@ -249,13 +289,14 @@ function BrainProjectDetail({
                   />
                 ))}
           </div>
+
           <div className="relative shrink-0">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter..."
-              className="h-8 w-40 pl-8 text-xs"
+              className="h-8 w-32 pl-8 text-xs md:w-40"
             />
           </div>
         </div>

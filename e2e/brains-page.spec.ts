@@ -180,6 +180,9 @@ test.describe("Automations Brains page", () => {
     await expect(projectRow(page)).toBeVisible({ timeout: 10_000 });
     await projectRow(page).click();
 
+    await expect(page.getByText("app-settings")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText("task-queue")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("3 items")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("lint")).toBeVisible({ timeout: 5_000 });
