@@ -95,6 +95,11 @@ export const router = createBrowserRouter([
                 handle: { navSection: "activity" },
               },
               {
+                path: "activity/:tab/:agentId",
+                element: <ActivityRoute />,
+                handle: { navSection: "activity" },
+              },
+              {
                 path: "automations",
                 element: <AutomationsRoute />,
                 handle: { navSection: "automations" },

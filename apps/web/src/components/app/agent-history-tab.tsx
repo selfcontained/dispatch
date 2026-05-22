@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -1120,20 +1121,21 @@ export function AgentHistoryTab({
   range: ActivityRange;
   onRangeChange: (r: ActivityRange) => void;
 }) {
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { agentId: selectedAgentId } = useParams<{ agentId?: string }>();
 
   if (selectedAgentId) {
     return (
       <AgentHistoryDetail
         agentId={selectedAgentId}
-        onBack={() => setSelectedAgentId(null)}
+        onBack={() => navigate("/activity/history")}
       />
     );
   }
 
   return (
     <AgentHistoryList
-      onSelect={setSelectedAgentId}
+      onSelect={(id) => navigate(`/activity/history/${id}`)}
       range={range}
       onRangeChange={onRangeChange}
     />

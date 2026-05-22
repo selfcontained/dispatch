@@ -1,15 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import {
-  Activity,
-  Brain,
-  ChevronDown,
-  ChevronRight,
-  Database,
-  List,
-  Radio,
-  Search,
-} from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Activity, Brain, Database, List, Radio, Search } from "lucide-react";
 
 import {
   useBrainProjects,
@@ -17,20 +8,14 @@ import {
   useBrainObjects,
   useBrainLists,
   useBrainEvents,
-  useBrainListItems,
-  type BrainObject,
-  type BrainList,
-  type BrainEvent,
 } from "@/hooks/use-brain";
 import {
   CollapsibleSection,
-  CopyButton,
-  KeyValueTable,
-  RelativeTime,
-  decodeRepoRoot,
-  encodeRepoRoot,
-  getKindStyle,
-} from "@/components/app/brain-tab-content";
+  ObjectCard,
+  ListCard,
+  EventCard,
+} from "@/components/app/brain-cards";
+import { decodeRepoRoot, encodeRepoRoot } from "@/lib/brain-encoding";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -239,6 +224,9 @@ function BrainProjectDetail({
 
       <div className="border-b border-border px-4 md:px-6">
         <div className="flex items-center gap-3 py-2">
+          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+            Collections
+          </span>
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none">
             <CollectionPill
               label="All"
@@ -409,9 +397,11 @@ function BrainCollectionView({
           count={filteredObjects.length}
         >
           {filteredObjects.map((obj) => (
-            <ProjectObjectCard
+            <ObjectCard
               key={`${obj.collection}/${obj.name}`}
               obj={obj}
+              agentId={obj.updatedByAgentId}
+              revision={obj.revision}
             />
           ))}
         </CollapsibleSection>
@@ -422,10 +412,11 @@ function BrainCollectionView({
           count={filteredLists.length}
         >
           {filteredLists.map((list) => (
-            <ProjectListCard
+            <ListCard
               key={`${list.collection}/${list.name}`}
               list={list}
               repoRoot={repoRoot}
+              agentId={list.updatedByAgentId}
             />
           ))}
         </CollapsibleSection>
@@ -436,166 +427,10 @@ function BrainCollectionView({
           count={filteredEvents.length}
         >
           {filteredEvents.map((event) => (
-            <ProjectEventCard key={event.id} event={event} />
+            <EventCard key={event.id} event={event} agentId={event.agentId} />
           ))}
         </CollapsibleSection>
       </div>
     </ScrollArea>
-  );
-}
-
-// ── Cards ────────────────────────────────────────────────────────
-
-function AgentLink({ agentId }: { agentId: string }): JSX.Element {
-  return (
-    <Link
-      to={`/agents/${agentId}`}
-      className="font-mono text-[10px] text-primary/70 hover:text-primary transition-colors"
-      title={agentId}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {agentId.slice(0, 12)}
-    </Link>
-  );
-}
-
-function ProjectObjectCard({ obj }: { obj: BrainObject }): JSX.Element {
-  return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-1.5 text-xs min-w-0">
-          <span className="rounded bg-sky-950/50 px-1.5 py-0.5 font-mono text-sky-400 text-[10px] shrink-0">
-            {obj.collection}
-          </span>
-          <span className="font-medium truncate">{obj.name}</span>
-          <span className="text-[10px] text-muted-foreground shrink-0">
-            rev {obj.revision}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
-          <AgentLink agentId={obj.updatedByAgentId} />
-          <CopyButton value={obj.value} />
-          <RelativeTime iso={obj.updatedAt} />
-        </div>
-      </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
-        <KeyValueTable value={obj.value} />
-      </div>
-    </div>
-  );
-}
-
-function ProjectListCard({
-  list,
-  repoRoot,
-}: {
-  list: BrainList;
-  repoRoot: string;
-}): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const { data } = useBrainListItems(
-    expanded ? repoRoot : null,
-    list.collection,
-    list.name,
-    { limit: 50, order: "asc" }
-  );
-
-  const items = data?.items ?? [];
-
-  return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-2 mb-2 text-left"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <div className="flex items-center gap-1.5 text-xs min-w-0">
-          {expanded ? (
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-          )}
-          <span className="rounded bg-violet-950/50 px-1.5 py-0.5 font-mono text-violet-400 text-[10px] shrink-0">
-            {list.collection}
-          </span>
-          <span className="font-medium truncate">{list.name}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
-          <AgentLink agentId={list.updatedByAgentId} />
-          <span>{list.itemCount} items</span>
-          <RelativeTime iso={list.updatedAt} />
-        </div>
-      </button>
-      {expanded && items.length > 0 ? (
-        <div className="rounded bg-muted/30 overflow-hidden">
-          {items.map((item) => (
-            <div
-              key={item.index}
-              className="flex gap-2 px-2.5 py-1.5 text-xs font-mono border-b border-border/50 last:border-b-0 min-w-0"
-            >
-              <span className="text-muted-foreground shrink-0 w-4 text-right pt-px">
-                {item.index}
-              </span>
-              <div className="flex-1 overflow-x-auto">
-                <KeyValueTable value={item.value} />
-              </div>
-              <CopyButton value={item.value} className="shrink-0 mt-px" />
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ProjectEventCard({ event }: { event: BrainEvent }): JSX.Element {
-  const style = getKindStyle(event.kind);
-
-  return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-1.5 text-xs min-w-0">
-          <span className={cn("h-2 w-2 rounded-full shrink-0", style.dot)} />
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0",
-              style.badge
-            )}
-          >
-            {event.kind}
-          </span>
-          <span className="rounded bg-sky-950/50 px-1.5 py-0.5 font-mono text-sky-400 text-[10px] shrink-0">
-            {event.collection}
-          </span>
-          {event.subject ? (
-            <span className="truncate text-muted-foreground">
-              {event.subject}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
-          <AgentLink agentId={event.agentId} />
-          <CopyButton value={event.value} />
-          <RelativeTime iso={event.createdAt} />
-        </div>
-      </div>
-      {event.tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1 mb-2">
-          {event.tags.map((tag) => (
-            <span
-              key={tag}
-              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {event.value != null ? (
-        <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
-          <KeyValueTable value={event.value} />
-        </div>
-      ) : null}
-    </div>
   );
 }

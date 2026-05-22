@@ -174,16 +174,14 @@ test.describe("Automations Brains page", () => {
     await expect(page.getByText("app-settings")).not.toBeVisible();
   });
 
-  test("expands a list to show items", async ({ page }) => {
+  test("shows list items inline", async ({ page }) => {
     await navigateToBrains(page);
 
     await expect(projectRow(page)).toBeVisible({ timeout: 10_000 });
     await projectRow(page).click();
 
-    const listButton = page.getByRole("button", { name: /task-queue/ });
-    await expect(listButton).toBeVisible({ timeout: 5_000 });
-    await listButton.click();
-
+    await expect(page.getByText("task-queue")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("3 items")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("lint")).toBeVisible({ timeout: 5_000 });
   });
 });
