@@ -4,7 +4,7 @@ import * as z from "zod/v4";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import type { JobService } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { parseInput } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 
 const directoryField = z

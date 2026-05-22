@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 
 import { AGENT_TYPES } from "../agent-type-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { parseInput } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   type StartupFileUpload,

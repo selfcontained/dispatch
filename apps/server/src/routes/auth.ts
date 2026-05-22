@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import * as z from "zod/v4";
 
 import type { AppConfig } from "../config.js";
-import { parseInput } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-input.js";
 import {
   changePassword,
   createSession,
