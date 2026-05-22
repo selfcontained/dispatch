@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 
 import { AGENT_TYPES } from "../agent-type-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { parseBody } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-body.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   type StartupFileUpload,
@@ -97,7 +97,7 @@ export async function registerTemplateRoutes(
   );
 
   app.post("/api/v1/templates", async (request, reply) => {
-    const parsed = parseBody(AddTemplateBodySchema, request.body, reply);
+    const parsed = parseInput(AddTemplateBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.templateService.addTemplate(parsed);
@@ -112,7 +112,7 @@ export async function registerTemplateRoutes(
   app.patch<{ Params: { id: string } }>(
     "/api/v1/templates/:id",
     async (request, reply) => {
-      const parsed = parseBody(UpdateTemplateBodySchema, request.body, reply);
+      const parsed = parseInput(UpdateTemplateBodySchema, request.body, reply);
       if (!parsed) return;
       try {
         const result = await deps.templateService.updateTemplate(
@@ -213,7 +213,7 @@ export async function registerTemplateRoutes(
         body = (request.body ?? {}) as typeof body;
       }
 
-      const parsed = parseBody(LaunchBodySchema, body, reply);
+      const parsed = parseInput(LaunchBodySchema, body, reply);
       if (!parsed) return;
 
       let startupLinks: string[] | undefined;

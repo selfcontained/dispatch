@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import * as z from "zod/v4";
 
 import type { AppConfig } from "../config.js";
-import { parseBody } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-body.js";
 import {
   changePassword,
   createSession,
@@ -73,7 +73,7 @@ export async function registerAuthRoutes(
       if (await deps.isPasswordSetCached()) {
         return reply.code(400).send({ error: "Password is already set." });
       }
-      const parsed = parseBody(SetupBodySchema, request.body, reply);
+      const parsed = parseInput(SetupBodySchema, request.body, reply);
       if (!parsed) return;
 
       await setPassword(deps.pool, parsed.password);
@@ -89,7 +89,7 @@ export async function registerAuthRoutes(
     "/api/v1/auth/login",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const parsed = parseBody(LoginBodySchema, request.body, reply);
+      const parsed = parseInput(LoginBodySchema, request.body, reply);
       if (!parsed) return;
       if (!(await verifyPassword(deps.pool, parsed.password))) {
         return reply.code(401).send({ error: "Invalid password." });
@@ -117,7 +117,7 @@ export async function registerAuthRoutes(
     "/api/v1/auth/change-password",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const parsed = parseBody(ChangePasswordBodySchema, request.body, reply);
+      const parsed = parseInput(ChangePasswordBodySchema, request.body, reply);
       if (!parsed) return;
 
       const changed = await changePassword(

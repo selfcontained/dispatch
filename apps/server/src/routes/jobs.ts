@@ -4,7 +4,7 @@ import * as z from "zod/v4";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import type { JobService } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { parseBody } from "../shared/lib/parse-body.js";
+import { parseInput } from "../shared/lib/parse-body.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 
 const directoryField = z
@@ -53,7 +53,7 @@ export async function registerJobRoutes(
   deps: JobsRouteDeps
 ): Promise<void> {
   app.post("/api/v1/jobs/run", async (request, reply) => {
-    const parsed = parseBody(RunJobBodySchema, request.body, reply);
+    const parsed = parseInput(RunJobBodySchema, request.body, reply);
     if (!parsed) return;
 
     try {
@@ -70,7 +70,7 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs", async (request, reply) => {
-    const parsed = parseBody(AddJobBodySchema, request.body, reply);
+    const parsed = parseInput(AddJobBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.addJob(parsed);
@@ -83,7 +83,7 @@ export async function registerJobRoutes(
   });
 
   app.patch("/api/v1/jobs", async (request, reply) => {
-    const parsed = parseBody(AddJobBodySchema, request.body, reply);
+    const parsed = parseInput(AddJobBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.updateJob(parsed);
@@ -96,7 +96,7 @@ export async function registerJobRoutes(
   });
 
   app.delete("/api/v1/jobs", async (request, reply) => {
-    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    const parsed = parseInput(JobEnableDisableBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.removeJob(parsed);
@@ -109,7 +109,7 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs/enable", async (request, reply) => {
-    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    const parsed = parseInput(JobEnableDisableBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.enableJob(parsed);
@@ -122,7 +122,7 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs/disable", async (request, reply) => {
-    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    const parsed = parseInput(JobEnableDisableBodySchema, request.body, reply);
     if (!parsed) return;
     try {
       const result = await deps.jobService.disableJob(parsed);
@@ -144,7 +144,7 @@ export async function registerJobRoutes(
   });
 
   app.get("/api/v1/jobs/history", async (request, reply) => {
-    const parsed = parseBody(JobHistoryParamsSchema, request.query, reply);
+    const parsed = parseInput(JobHistoryParamsSchema, request.query, reply);
     if (!parsed) return;
     try {
       return await deps.jobService.listRunsForJob(parsed);
