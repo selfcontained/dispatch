@@ -138,6 +138,29 @@ async function mcpToolCall(
   });
 }
 
+async function mcpJobToolCall(
+  runId: string,
+  agentId: string,
+  toolName: string,
+  args: Record<string, unknown>
+) {
+  return app.inject({
+    method: "POST",
+    url: `/api/mcp/jobs/${runId}/${agentId}`,
+    headers: {
+      authorization: `Bearer ${createJobMcpToken(authToken, runId, agentId)}`,
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    payload: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: toolName, arguments: args },
+    },
+  });
+}
+
 function parseToolText(body: string): string {
   for (const line of body.split("\n")) {
     if (!line.startsWith("data: ")) continue;
@@ -230,6 +253,75 @@ describe("MCP CRUD tools", () => {
       for (const tool of CRUD_TOOL_NAMES) {
         expect(response.body).not.toContain(`"${tool}"`);
       }
+    });
+  });
+
+  // ── Job-scoped route CRUD ────────────────────────────────────────
+  describe("job-scoped route CRUD", () => {
+    const agentId = "agt_jobscope_crud";
+    const runId = "run_jobscope";
+
+    beforeEach(async () => {
+      await pool.query(
+        `INSERT INTO agents (id, name, type, status, cwd, full_access)
+         VALUES ($1, 'jobscope-crud', 'claude', 'running', '/tmp', false)`,
+        [agentId]
+      );
+      await pool.query(
+        `INSERT INTO jobs (id, directory, name, enabled, agent_type, use_worktree, full_access, schedule, timeout_ms, needs_input_timeout_ms, auto_archive)
+         VALUES ('job_scope', '/tmp', 'Scope Job', false, 'claude', false, false, null, 1800000, 1800000, true)`
+      );
+      await pool.query(
+        `INSERT INTO job_runs (id, job_id, status, started_at, status_updated_at, agent_id)
+         VALUES ($1, 'job_scope', 'running', NOW(), NOW(), $2)`,
+        [runId, agentId]
+      );
+    });
+
+    it("creates and gets a job via the job-scoped route", async () => {
+      const createRes = await mcpJobToolCall(runId, agentId, "create_job", {
+        name: "job-route-test",
+        directory: "/tmp",
+        prompt: "Created via job route",
+      });
+      expect(createRes.statusCode).toBe(200);
+      const created = JSON.parse(parseToolText(createRes.body));
+      expect(created.name).toBe("job-route-test");
+      expect(created.id).toBeTruthy();
+
+      const getRes = await mcpJobToolCall(runId, agentId, "get_job", {
+        jobId: created.id,
+      });
+      expect(getRes.statusCode).toBe(200);
+      const got = JSON.parse(parseToolText(getRes.body));
+      expect(got.name).toBe("job-route-test");
+
+      const deleteRes = await mcpJobToolCall(runId, agentId, "delete_job", {
+        name: "job-route-test",
+        directory: "/tmp",
+      });
+      expect(deleteRes.statusCode).toBe(200);
+      const deleted = JSON.parse(parseToolText(deleteRes.body));
+      expect(deleted.id).toBe(created.id);
+    });
+
+    it("rejects job-scoped CRUD calls with an invalid token", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/mcp/jobs/${runId}/${agentId}`,
+        headers: {
+          authorization: `Bearer bad-token`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        payload: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list_jobs", arguments: {} },
+        },
+      });
+      expect(res.statusCode).toBe(403);
     });
   });
 
