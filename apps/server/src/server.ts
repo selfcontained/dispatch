@@ -442,6 +442,7 @@ async function registerRoutes() {
     config,
     agentManager,
     jobService,
+    templateService,
     brainStore,
     publishBrainChanged: (repoRoot: string) =>
       uiEventBroker.publish({ type: "brain.changed", repoRoot }),

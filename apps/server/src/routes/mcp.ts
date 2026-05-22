@@ -1,12 +1,19 @@
+import path from "node:path";
+
 import type { FastifyInstance } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { BrainStore } from "../brain/store.js";
-import type { JobService } from "../jobs/service.js";
+import type { AddJobInput, JobService } from "../jobs/service.js";
+import type {
+  TemplateService,
+  AddTemplateInput,
+} from "../templates/service.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
+import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 
 type McpRouteDeps = {
@@ -15,6 +22,7 @@ type McpRouteDeps = {
   };
   agentManager: AgentManager;
   jobService: JobService;
+  templateService: TemplateService;
   brainStore: BrainStore;
   publishBrainChanged: (repoRoot: string) => void;
   getBearerToken: (request: {
@@ -55,6 +63,45 @@ type McpRouteDeps = {
   mcpJobLog: unknown;
   mcpMethodNotAllowed: () => unknown;
 };
+
+function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
+  return {
+    listJobs: async (directory) => {
+      const jobs = await deps.jobService.listJobs();
+      if (!directory) return jobs;
+      const resolved = path.resolve(directory);
+      return jobs.filter((j) => j.directory === resolved);
+    },
+    getJobById: (jobId) => deps.jobService.getJobById(jobId),
+    getJobByName: (directory, name) =>
+      deps.jobService.getJobByName(directory, name),
+    createJob: (input) => deps.jobService.addJob(input as AddJobInput),
+    updateJob: (input) => deps.jobService.updateJob(input as AddJobInput),
+    deleteJob: (name, directory) =>
+      deps.jobService.removeJob({ name, directory }),
+    runJob: (name, directory) =>
+      deps.jobService.runJob({ name, directory, wait: false }),
+    listTemplates: async (directory) => {
+      const templates = await deps.templateService.listTemplates();
+      if (!directory) return templates;
+      const resolved = path.resolve(directory);
+      return templates.filter((t) => t.directory === resolved);
+    },
+    getTemplateById: (templateId) =>
+      deps.templateService.getTemplate(templateId),
+    getTemplateByName: (directory, name) =>
+      deps.templateService.getTemplateByName(directory, name),
+    createTemplate: (input) =>
+      deps.templateService.addTemplate(input as AddTemplateInput),
+    updateTemplate: (templateId, input) =>
+      deps.templateService.updateTemplate(
+        templateId,
+        input as Partial<AddTemplateInput>
+      ),
+    deleteTemplate: (templateId) =>
+      deps.templateService.removeTemplate(templateId),
+  };
+}
 
 export async function registerMcpRoutes(
   app: FastifyInstance,
@@ -171,6 +218,7 @@ export async function registerMcpRoutes(
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
+      crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
     } as Parameters<typeof handleMcpRequest>[3]);
@@ -255,6 +303,7 @@ export async function registerMcpRoutes(
         deps.agentManager.getFeedbackSummary(params as never) as Promise<
           Record<string, unknown>
         >,
+      crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
     } as Parameters<typeof handleMcpRequest>[3]);
