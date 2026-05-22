@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import type { JobService } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { parseBody } from "../shared/lib/parse-body.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 
 const directoryField = z
@@ -52,13 +53,11 @@ export async function registerJobRoutes(
   deps: JobsRouteDeps
 ): Promise<void> {
   app.post("/api/v1/jobs/run", async (request, reply) => {
-    const parsed = RunJobBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(RunJobBodySchema, request.body, reply);
+    if (!parsed) return;
 
     try {
-      const result = await deps.jobService.runJob(parsed.data);
+      const result = await deps.jobService.runJob(parsed);
       return result;
     } catch (error) {
       const message = errorMessage(error);
@@ -71,12 +70,10 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs", async (request, reply) => {
-    const parsed = AddJobBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(AddJobBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.jobService.addJob(parsed.data);
+      const result = await deps.jobService.addJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
@@ -86,12 +83,10 @@ export async function registerJobRoutes(
   });
 
   app.patch("/api/v1/jobs", async (request, reply) => {
-    const parsed = AddJobBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(AddJobBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.jobService.updateJob(parsed.data);
+      const result = await deps.jobService.updateJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
@@ -101,12 +96,10 @@ export async function registerJobRoutes(
   });
 
   app.delete("/api/v1/jobs", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.jobService.removeJob(parsed.data);
+      const result = await deps.jobService.removeJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
@@ -116,12 +109,10 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs/enable", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.jobService.enableJob(parsed.data);
+      const result = await deps.jobService.enableJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
@@ -131,12 +122,10 @@ export async function registerJobRoutes(
   });
 
   app.post("/api/v1/jobs/disable", async (request, reply) => {
-    const parsed = JobEnableDisableBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(JobEnableDisableBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.jobService.disableJob(parsed.data);
+      const result = await deps.jobService.disableJob(parsed);
       deps.publishUiEvent({ type: "job.changed" });
       return result;
     } catch (error) {
@@ -155,12 +144,10 @@ export async function registerJobRoutes(
   });
 
   app.get("/api/v1/jobs/history", async (request, reply) => {
-    const parsed = JobHistoryParamsSchema.safeParse(request.query);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(JobHistoryParamsSchema, request.query, reply);
+    if (!parsed) return;
     try {
-      return await deps.jobService.listRunsForJob(parsed.data);
+      return await deps.jobService.listRunsForJob(parsed);
     } catch (error) {
       const message = errorMessage(error);
       return reply.code(404).send({ error: message });

@@ -5,6 +5,7 @@ import * as z from "zod/v4";
 
 import { AGENT_TYPES } from "../agent-type-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { parseBody } from "../shared/lib/parse-body.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   type StartupFileUpload,
@@ -96,12 +97,10 @@ export async function registerTemplateRoutes(
   );
 
   app.post("/api/v1/templates", async (request, reply) => {
-    const parsed = AddTemplateBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: parsed.error.issues[0].message });
-    }
+    const parsed = parseBody(AddTemplateBodySchema, request.body, reply);
+    if (!parsed) return;
     try {
-      const result = await deps.templateService.addTemplate(parsed.data);
+      const result = await deps.templateService.addTemplate(parsed);
       deps.publishUiEvent({ type: "template.changed" });
       return result;
     } catch (error) {
@@ -113,14 +112,12 @@ export async function registerTemplateRoutes(
   app.patch<{ Params: { id: string } }>(
     "/api/v1/templates/:id",
     async (request, reply) => {
-      const parsed = UpdateTemplateBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
+      const parsed = parseBody(UpdateTemplateBodySchema, request.body, reply);
+      if (!parsed) return;
       try {
         const result = await deps.templateService.updateTemplate(
           request.params.id,
-          parsed.data
+          parsed
         );
         deps.publishUiEvent({ type: "template.changed" });
         return result;
@@ -216,10 +213,8 @@ export async function registerTemplateRoutes(
         body = (request.body ?? {}) as typeof body;
       }
 
-      const parsed = LaunchBodySchema.safeParse(body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
+      const parsed = parseBody(LaunchBodySchema, body, reply);
+      if (!parsed) return;
 
       let startupLinks: string[] | undefined;
       try {
@@ -250,7 +245,7 @@ export async function registerTemplateRoutes(
       try {
         const result = await deps.templateService.launchTemplate({
           templateId: request.params.id,
-          ...parsed.data,
+          ...parsed,
           startupFiles,
           startupPins,
         });
