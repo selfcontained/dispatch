@@ -1,4 +1,4 @@
-Identify oversized React components in the Dispatch frontend and refactor them into smaller, focused pieces. This job runs on a recurring schedule, so lean on the state file to pass context between runs and avoid re-scanning the whole app every time.
+Identify oversized React components in the Dispatch frontend and refactor them into smaller, focused pieces. This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid re-scanning the whole app every time.
 
 ## Important context
 
@@ -29,35 +29,39 @@ Pick the strategy that best fits the component:
 
 Prefer the smallest extraction that makes a meaningful difference. Don't over-split — two 150-line files are better than six 50-line files if the six have tight cross-dependencies.
 
-## Phase 0: Read the state file
+## Phase 0: Read the state from the Brain
 
-Read `.dispatch/job-state/componentizer.md` before doing anything else. It contains:
+State is spread across purpose-specific brain primitives to keep writes minimal:
 
-- `last_audited_sha` — the HEAD SHA from the previous run
-- `next_focus` — the specific component + recommended extraction the last run queued up
-- `backlog` — a prioritized list of oversized components with line counts and suggested strategies
-- `patterns` — observations about where components tend to bloat in this codebase
-- `history` — one-line summaries of what each prior run refactored
+1. **Core state** (collection: `job-state`, name: `componentizer`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+   - `last_audited_sha` — the HEAD SHA from the previous run
+   - `next_focus` — the specific component + recommended extraction the last run queued up
 
-If the state file is missing (first run) or malformed, fall through to the bootstrap scan in Phase 1.
+2. **Backlog** (collection: `job-state`, name: `componentizer-backlog`) — read with `brain_list_get`. Prioritized list of oversized components with line counts and suggested strategies. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+
+3. **Patterns** (collection: `job-state`, name: `componentizer-patterns`) — read with `brain_list_get`. Observations about where components tend to bloat in this codebase. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
+
+4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "componentizer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+
+If the core state object is not found (first run), fall through to the bootstrap scan in Phase 1.
 
 ## Phase 1: Scope the work
 
-### Normal run (state file exists with a valid `next_focus`)
+### Normal run (state exists with a valid `next_focus`)
 
 1. Read the `next_focus` entry. That is your assignment for this run.
-2. Run `git diff --name-only <last_audited_sha>..HEAD` to check if someone already refactored that component. If so, skip it, pick the top item from `backlog`, and note the skip in the state file.
-3. Keep the scope to **one component** per run. If you discover related bloat while working, add it to `backlog`.
+2. Run `git diff --name-only <last_audited_sha>..HEAD` to check if someone already refactored that component. If so, skip it, pick the top item from the backlog list, and note the skip in the state update.
+3. Keep the scope to **one component** per run. If you discover related bloat while working, add it to the backlog list.
 
-### Bootstrap run (no state file or first run)
+### Bootstrap run (no state in Brain or first run)
 
-Do a scan to seed the state file. Do **not** refactor anything yet — the goal is to produce a prioritized backlog for future runs.
+Do a scan to seed the Brain. Do **not** refactor anything yet — the goal is to produce a prioritized backlog for future runs.
 
 1. Find all `.tsx` files in `apps/web/src/` over 250 lines: `find apps/web/src -name '*.tsx' -exec wc -l {} + | sort -rn`
 2. For each file over 300 lines, briefly assess which refactoring strategy would apply and how impactful the split would be.
 3. Prioritize by: (a) files that agents touch most often (route components, shared UI), (b) worst offenders by line count, (c) clearest extraction path (low-risk splits first).
 4. Skip files that are large by nature and don't benefit from splitting: generated code, test fixtures, single complex forms that are genuinely cohesive.
-5. Write the state file with the top candidate as `next_focus` and the rest in `backlog`. Commit just the state file, open a PR with the scan summary, and merge it.
+5. Store core state using `brain_store_object` (collection: `job-state`, name: `componentizer`) with the top candidate as `next_focus`. Push all other items to the backlog list using `brain_list_push` (collection: `job-state`, name: `componentizer-backlog`). Open a PR with the scan summary and merge it.
 
 ## Phase 2: Refactor the component
 
@@ -77,24 +81,35 @@ If a refactoring turns out to be riskier than expected (component is tightly cou
 3. All checks must pass. Fix any failures your changes introduced.
 4. If the refactored component has a clear UI path, validate it visually via Playwright (navigate to the page, confirm it renders correctly, take a screenshot).
 
-## Phase 4: Update the state file
+## Phase 4: Update the state in the Brain
 
-Before committing, rewrite `.dispatch/job-state/componentizer.md` with:
+**Core state** — use `brain_store_object` (collection: `job-state`, name: `componentizer`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
 
 - `last_audited_sha` — current HEAD.
-- `next_focus` — the specific component the next run should tackle. Be concrete: include the file path, current line count, and the recommended extraction strategy.
-- `backlog` — remaining candidates, re-prioritized if needed. Remove the one you just refactored. Add any new candidates you noticed. Each entry needs: file path, line count, and a brief note on what to extract.
-- `patterns` — observations about where bloat accumulates. Add new ones, prune stale ones.
-- `history` — append a one-line entry: date, what was refactored, PR number.
+- `next_focus` — the specific component the next run should tackle. Be concrete: include the file path, current line count, and the recommended extraction strategy. If the backlog is empty, describe what area to re-scan next.
 
-Treat the state file as a handoff note to a colleague, not a log.
+**Backlog** — use list operations (collection: `job-state`, name: `componentizer-backlog`). Do not rewrite the full list — use surgical mutations:
+
+- `brain_list_remove` — remove the item you just refactored (index 0 if you took the top item).
+- `brain_list_push` — add any new candidates you noticed. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
+
+**Patterns** — use list operations (collection: `job-state`, name: `componentizer-patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
+
+**Run event** — log this run using `brain_append_event`:
+
+- collection: `job-state`
+- kind: `run`
+- subject: `componentizer`
+- value: `{ "date": "<today>", "summary": "<one-line summary of what was refactored>", "pr": "<PR number>" }`
+
+This keeps writes minimal — the core object is just two fields of new content, backlog mutations are surgical, and full history lives in the append-only event log.
 
 ## Phase 5: Commit, PR, merge
 
 This phase is not done until **CI is green and the PR is merged**. `job_complete` must only be called after a successful merge.
 
 1. Run `pnpm run format:write` to fix formatting in files you touched.
-2. Commit on a new branch. Include the state file update in the same commit.
+2. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was split, why it was a candidate, what the new file structure looks like, and what's queued for the next run.
 4. **Launch a reviewer.** After the PR is open, use `dispatch_launch_persona` to launch **one** review persona with `recheck: true`. Use `architecture-review` for structural splits or `frontend-ux-review` if the extraction touches interaction logic or layout. Provide thorough context: what was extracted, why, and that behavior should be identical. If the reviewer requests changes, address them before proceeding.
 5. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
@@ -106,9 +121,9 @@ If CI takes longer than 30 minutes, call `job_needs_input`.
 
 ## Reporting
 
-Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately after merge of the bootstrap state file on first run). Include:
+Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately after storing the bootstrap state in the Brain on first run). Include:
 
 - `summary` — one paragraph: what you refactored (or scanned on bootstrap), what's next
 - `files_updated` / `files_created` / `files_deleted` as applicable
-- `state_file_summary` — what you wrote into `next_focus` and the top 3 backlog items
+- `state_summary` — what you wrote into `next_focus` and the top 3 backlog items
 - `pr` — the merged PR URL
