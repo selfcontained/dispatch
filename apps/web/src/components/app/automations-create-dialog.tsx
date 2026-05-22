@@ -58,20 +58,21 @@ function CreateTemplateDialogContent({
   const [creating, setCreating] = useState(false);
 
   const handleCreate = useCallback(() => {
+    const isTerminal = agentType === "terminal";
     setCreating(true);
     addTemplate
       .mutateAsync({
         name,
         description: description.trim() || null,
         directory,
-        prompt: prompt || null,
+        prompt: isTerminal ? null : prompt || null,
         agentType,
-        useWorktree,
-        baseBranch: useWorktree ? baseBranch : null,
-        branchName: useWorktree ? branchName || null : null,
-        fullAccess,
+        useWorktree: isTerminal ? false : useWorktree,
+        baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
+        branchName: isTerminal ? null : useWorktree ? branchName || null : null,
+        fullAccess: isTerminal ? false : fullAccess,
         callable,
-        allowMedia,
+        allowMedia: isTerminal ? false : allowMedia,
       })
       .then(() => {
         onOpenChange(false);

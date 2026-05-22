@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import React from "react";
+import React, { useMemo } from "react";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -81,6 +81,10 @@ export function AgentListContent({
   onRequestClose,
   closeOnSessionAction = false,
 }: AgentListContentProps): JSX.Element {
+  const sortedAgentTypes = useMemo(
+    () => sortAgentTypes(enabledAgentTypes),
+    [enabledAgentTypes]
+  );
   const defaultCreateType: AgentType =
     lastUsedAgentType && enabledAgentTypes.includes(lastUsedAgentType)
       ? lastUsedAgentType
@@ -124,7 +128,7 @@ export function AgentListContent({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {sortAgentTypes(enabledAgentTypes).map((agentType) => (
+                {sortedAgentTypes.map((agentType) => (
                   <DropdownMenuItem
                     key={agentType}
                     className="text-foreground"

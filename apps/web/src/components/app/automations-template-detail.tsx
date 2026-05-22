@@ -109,6 +109,7 @@ function TemplateDetail({
   const canSave = !!displayName.trim() && !!directory.trim();
 
   const handleSave = useCallback(() => {
+    const isTerminal = agentType === "terminal";
     setSaveError(null);
     updateTemplate
       .mutateAsync({
@@ -116,14 +117,14 @@ function TemplateDetail({
         name: displayName.trim(),
         description: description.trim() || null,
         directory: directory.trim(),
-        prompt: prompt || null,
+        prompt: isTerminal ? null : prompt || null,
         agentType,
-        useWorktree,
-        baseBranch: useWorktree ? baseBranch : null,
-        branchName: useWorktree ? branchName || null : null,
-        fullAccess,
+        useWorktree: isTerminal ? false : useWorktree,
+        baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
+        branchName: isTerminal ? null : useWorktree ? branchName || null : null,
+        fullAccess: isTerminal ? false : fullAccess,
         callable,
-        allowMedia,
+        allowMedia: isTerminal ? false : allowMedia,
       })
       .then(() => toast.success("Settings saved."))
       .catch((err: Error) => setSaveError(err.message));

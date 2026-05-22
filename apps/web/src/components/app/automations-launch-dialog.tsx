@@ -251,7 +251,9 @@ function LaunchTemplateDialogContent({
           <DialogDescription>{template.description}</DialogDescription>
         ) : (
           <DialogDescription>
-            This will create a new agent from this template.
+            {isTerminal
+              ? `This will open a terminal session in ${template.directory}.`
+              : "This will create a new agent from this template."}
           </DialogDescription>
         )}
       </DialogHeader>
@@ -287,14 +289,16 @@ function LaunchTemplateDialogContent({
         }
         onDrop={showMedia ? handleDrop : undefined}
       >
-        <div className="space-y-2">
-          <label className="text-sm text-muted-foreground">Agent type</label>
-          <AgentTypeCombobox
-            value={agentType}
-            onChange={setAgentType}
-            agentTypes={agentTypes}
-          />
-        </div>
+        {!isTerminal ? (
+          <div className="space-y-2">
+            <label className="text-sm text-muted-foreground">Agent type</label>
+            <AgentTypeCombobox
+              value={agentType}
+              onChange={setAgentType}
+              agentTypes={agentTypes}
+            />
+          </div>
+        ) : null}
 
         {args.length > 0 ? (
           <div className="mt-3 flex flex-col gap-3">
