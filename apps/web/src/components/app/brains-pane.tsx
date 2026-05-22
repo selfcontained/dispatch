@@ -430,8 +430,8 @@ function BrainCollectionView({
   }
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
-      <div className="mx-auto max-w-5xl space-y-1 px-3 pt-4 pb-12 sm:px-5 md:px-8">
+    <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
+      <div className="mx-auto max-w-5xl space-y-1 px-3 pt-4 pb-12 sm:px-5 md:px-8 overflow-hidden">
         <CollapsibleSection
           title="Objects"
           icon={Database}

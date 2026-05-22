@@ -169,10 +169,10 @@ export function KeyValueTable({ value }: { value: unknown }): JSX.Element {
         return (
           <div
             key={key}
-            className="flex gap-2 text-xs font-mono leading-relaxed whitespace-nowrap"
+            className="flex gap-2 text-xs font-mono leading-relaxed min-w-0"
           >
-            <span className="text-sky-400">{key}</span>
-            <span className={fmt.className}>{fmt.text}</span>
+            <span className="text-sky-400 shrink-0">{key}</span>
+            <span className={cn(fmt.className, "truncate")}>{fmt.text}</span>
           </div>
         );
       })}
@@ -186,7 +186,7 @@ function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
   return (
     <Link
       to={`/activity/history/${agentId}`}
-      className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      className="hidden font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors sm:inline"
       title={agentId}
       onClick={(e) => e.stopPropagation()}
     >
@@ -240,8 +240,8 @@ export function ObjectCard({
   revision?: number;
 }): JSX.Element {
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <div className="flex items-center justify-between gap-2 mb-2">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-xs min-w-0">
           <span className="rounded bg-sky-950/50 px-1.5 py-0.5 font-mono text-sky-400 text-[10px] shrink-0">
             {obj.collection}
@@ -259,7 +259,7 @@ export function ObjectCard({
           <RelativeTime iso={obj.updatedAt} />
         </div>
       </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
+      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-hidden">
         <KeyValueTable
           value={{
             ...(typeof obj.value === "object" &&
@@ -303,18 +303,19 @@ function ListItemRow({
       <span className="text-muted-foreground shrink-0 w-4 text-right pt-px">
         {index}
       </span>
-      <div className="flex-1 overflow-x-auto">
-        <div className="whitespace-nowrap">
-          {entries.map(([k, v]) => {
-            const fmt = formatPrimitive(v);
-            return (
-              <div key={k as string} className="flex gap-1.5 leading-relaxed">
-                <span className="text-sky-400">{k as string}:</span>
-                <span className={fmt.className}>{fmt.text}</span>
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex-1 min-w-0 overflow-hidden">
+        {entries.map(([k, v]) => {
+          const fmt = formatPrimitive(v);
+          return (
+            <div
+              key={k as string}
+              className="flex gap-1.5 leading-relaxed min-w-0"
+            >
+              <span className="text-sky-400 shrink-0">{k as string}:</span>
+              <span className={cn(fmt.className, "truncate")}>{fmt.text}</span>
+            </div>
+          );
+        })}
       </div>
       <CopyButton value={value} className="shrink-0 mt-px" />
     </div>
@@ -340,8 +341,8 @@ export function ListCard({
   const allItemValues = items.map((item) => item.value);
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <div className="flex items-center justify-between gap-2 mb-2">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-xs min-w-0">
           <span className="rounded bg-violet-950/50 px-1.5 py-0.5 font-mono text-violet-400 text-[10px] shrink-0">
             {list.collection}
@@ -410,8 +411,8 @@ export function EventCard({
   const allEntries = { ...(payload as Record<string, unknown>), ...meta };
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
-      <div className="flex items-center justify-between gap-2 mb-2">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-xs min-w-0">
           <span className={cn("h-2 w-2 rounded-full shrink-0", style.dot)} />
           <span
@@ -429,7 +430,7 @@ export function EventCard({
           <RelativeTime iso={event.createdAt} />
         </div>
       </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
+      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-hidden">
         <KeyValueTable value={allEntries} />
       </div>
     </div>
