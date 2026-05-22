@@ -20,20 +20,10 @@ import {
   type BrainEvent,
 } from "@/hooks/use-brain";
 import { useCopyText } from "@/hooks/use-copy";
+import { encodeRepoRoot, decodeRepoRoot } from "@/lib/brain-encoding";
 import { cn } from "@/lib/utils";
 
-export function encodeRepoRoot(repoRoot: string): string {
-  return btoa(repoRoot)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-export function decodeRepoRoot(encoded: string): string {
-  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-  while (base64.length % 4) base64 += "=";
-  return atob(base64);
-}
+export { encodeRepoRoot, decodeRepoRoot };
 
 type BrainTabContentProps = {
   agentId: string | null;

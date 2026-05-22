@@ -165,6 +165,7 @@ export function BrainsListContent({
 // ── Detail Pane ──────────────────────────────────────────────────
 
 export function BrainsDetailPane(): JSX.Element {
+  const navigate = useNavigate();
   const { encodedRepoRoot, collection } = useParams<{
     encodedRepoRoot?: string;
     collection?: string;
@@ -174,7 +175,14 @@ export function BrainsDetailPane(): JSX.Element {
     return <BrainsOverview />;
   }
 
-  const repoRoot = decodeRepoRoot(encodedRepoRoot);
+  let repoRoot: string;
+  try {
+    repoRoot = decodeRepoRoot(encodedRepoRoot);
+  } catch {
+    navigate("/automations/brains", { replace: true });
+    return <BrainsOverview />;
+  }
+
   return (
     <BrainProjectDetail
       repoRoot={repoRoot}
@@ -322,8 +330,8 @@ function BrainCollectionView({
   collection: string | null;
   search: string;
 }): JSX.Element {
-  const objectFilters = collection ? { collection } : undefined;
-  const listFilters = collection ? { collection } : undefined;
+  const objectFilters = collection ? { collection } : { limit: 100 };
+  const listFilters = collection ? { collection } : { limit: 100 };
   const eventFilters = collection ? { collection, limit: 100 } : { limit: 100 };
 
   const { data: objects = [], isLoading: objectsLoading } = useBrainObjects(
