@@ -86,7 +86,7 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
-export type MediaSidebarTab = "pins" | "media";
+export type MediaSidebarTab = "pins" | "media" | "brain";
 
 export type MediaSidebarState = {
   isOpen: boolean;

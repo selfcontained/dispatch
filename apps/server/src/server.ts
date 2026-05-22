@@ -98,6 +98,7 @@ import {
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { registerBrainRoutes } from "./routes/brain.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerFeedbackRoutes } from "./routes/feedback.js";
@@ -442,6 +443,8 @@ async function registerRoutes() {
     agentManager,
     jobService,
     brainStore,
+    publishBrainChanged: (repoRoot: string) =>
+      uiEventBroker.publish({ type: "brain.changed", repoRoot }),
     getBearerToken,
     validateJobMcpToken,
     validateAgentMcpToken,
@@ -480,6 +483,10 @@ async function registerRoutes() {
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     copyModeAssistManager,
+  });
+
+  await registerBrainRoutes(app, {
+    brainStore,
   });
 
   await registerActivityRoutes(app, {
