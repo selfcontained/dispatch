@@ -124,6 +124,7 @@ import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
+  pruneReleaseBinaries,
   type ReleaseJob,
   RELEASE_VERSION_TYPES,
 } from "./server/release-runtime.js";
@@ -680,6 +681,13 @@ export async function start() {
   app.log.info(
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
+
+  const removed = pruneReleaseBinaries(serverDir, `v${packageVersion}`);
+  if (removed > 0) {
+    app.log.info(
+      `Pruned ${removed} old release binary file${removed === 1 ? "" : "s"} from dist/bun`
+    );
+  }
 }
 
 export { app, shutdown };
