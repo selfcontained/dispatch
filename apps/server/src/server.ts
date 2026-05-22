@@ -486,7 +486,6 @@ async function registerRoutes() {
 
   await registerBrainRoutes(app, {
     brainStore,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
   await registerActivityRoutes(app, {

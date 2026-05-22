@@ -125,6 +125,8 @@ function CollapsibleSection({
 // ── Value renderers ─────────────────────────────────────────────
 
 function formatPrimitive(v: unknown): { text: string; className: string } {
+  if (v === undefined)
+    return { text: "undefined", className: "text-violet-400" };
   if (v === null) return { text: "null", className: "text-violet-400" };
   if (typeof v === "boolean")
     return { text: String(v), className: "text-violet-400" };

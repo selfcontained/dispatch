@@ -59,7 +59,7 @@ export type BrainCollectionSummary = {
 
 export type BrainAgentActivity = {
   objects: BrainObject[];
-  lists: BrainList[];
+  lists: (BrainList & { itemCount: number })[];
   events: BrainEvent[];
 };
 
@@ -130,7 +130,7 @@ export const MAX_LIST_ITEMS_PER_PUSH = 200;
 
 function clampLimit(limit: number | undefined): number {
   const n = limit ?? DEFAULT_LIMIT;
-  if (n < 1) return DEFAULT_LIMIT;
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_LIMIT;
   return Math.min(n, MAX_LIMIT);
 }
 
@@ -304,40 +304,30 @@ export class BrainStore {
     }
   ): Promise<{ items: BrainListItem[]; totalCount: number; revision: number }> {
     const { collection, name } = input;
-    return await this.withTransaction(
-      async (client) => {
-        const list = await this.getListForUpdate(
-          client,
-          repoRoot,
-          collection,
-          name
-        );
-        if (!list) {
-          return { items: [], totalCount: 0, revision: 0 };
-        }
+    const list = await this.getList(repoRoot, collection, name);
+    if (!list) {
+      return { items: [], totalCount: 0, revision: 0 };
+    }
 
-        const offset = Math.max(0, input.offset ?? 0);
-        const limit = clampLimit(input.limit);
-        const order = input.order === "desc" ? "DESC" : "ASC";
-        const result = await client.query(
-          `SELECT ${listItemColumns()},
-                  COUNT(*) OVER()::int AS total_count
-           FROM brain_list_items
-           WHERE repo_root = $1 AND collection = $2 AND name = $3
-           ORDER BY item_index ${order}
-           OFFSET $4
-           LIMIT $5`,
-          [repoRoot, collection, name, offset, limit]
-        );
-
-        return {
-          items: result.rows.map(mapListItem),
-          totalCount: result.rows[0]?.total_count ?? 0,
-          revision: list.revision,
-        };
-      },
-      { isolationLevel: "REPEATABLE READ" }
+    const offset = Math.max(0, input.offset ?? 0);
+    const limit = clampLimit(input.limit);
+    const order = input.order === "desc" ? "DESC" : "ASC";
+    const result = await this.pool.query(
+      `SELECT ${listItemColumns()},
+              COUNT(*) OVER()::int AS total_count
+       FROM brain_list_items
+       WHERE repo_root = $1 AND collection = $2 AND name = $3
+       ORDER BY item_index ${order}
+       OFFSET $4
+       LIMIT $5`,
+      [repoRoot, collection, name, offset, limit]
     );
+
+    return {
+      items: result.rows.map(mapListItem),
+      totalCount: result.rows[0]?.total_count ?? 0,
+      revision: list.revision,
+    };
   }
 
   async pushListItems(

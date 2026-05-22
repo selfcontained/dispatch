@@ -4,7 +4,6 @@ import type { BrainStore } from "../brain/store.js";
 
 type BrainRouteDeps = {
   brainStore: BrainStore;
-  publishUiEvent: (event: unknown) => void;
 };
 
 export async function registerBrainRoutes(
