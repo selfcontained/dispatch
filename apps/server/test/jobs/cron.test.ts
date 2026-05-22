@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getNextRun, validateCronExpression } from "../../src/jobs/cron.js";
+import {
+  getNextRun,
+  validateCronExpression,
+  validateCronInterval,
+} from "../../src/jobs/cron.js";
 
 describe("cron utilities", () => {
   describe("getNextRun", () => {
@@ -47,6 +51,37 @@ describe("cron utilities", () => {
       expect(validateCronExpression("not a cron")).toBe(false);
       expect(validateCronExpression("")).toBe(false);
       expect(validateCronExpression("60 * * * *")).toBe(false);
+    });
+  });
+
+  describe("validateCronInterval", () => {
+    it("returns null for schedules at or above 5-minute interval", () => {
+      expect(validateCronInterval("*/5 * * * *")).toBeNull();
+      expect(validateCronInterval("0 * * * *")).toBeNull();
+      expect(validateCronInterval("0 0 * * *")).toBeNull();
+    });
+
+    it("returns error for schedules under 5-minute interval", () => {
+      const result = validateCronInterval("* * * * *");
+      expect(result).toMatch(/runs too frequently/);
+      expect(result).toMatch(/every 60s/);
+    });
+
+    it("returns error for every-2-minute schedule", () => {
+      const result = validateCronInterval("*/2 * * * *");
+      expect(result).toMatch(/runs too frequently/);
+      expect(result).toMatch(/every 120s/);
+    });
+
+    it("returns error for invalid cron expression", () => {
+      expect(validateCronInterval("not valid")).toBe(
+        "Invalid cron expression."
+      );
+    });
+
+    it("returns null for schedules that only fire once", () => {
+      const result = validateCronInterval("0 12 1 1 *");
+      expect(result).toBeNull();
     });
   });
 });
