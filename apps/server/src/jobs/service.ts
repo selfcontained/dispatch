@@ -116,6 +116,17 @@ export class JobService {
     }
   }
 
+  async getJobById(jobId: string): Promise<JobRecord | null> {
+    return this.store.getJob(jobId);
+  }
+
+  async getJobByName(
+    directory: string,
+    name: string
+  ): Promise<JobRecord | null> {
+    return this.store.getJobByDirectoryAndName(directory, name);
+  }
+
   async runJob(input: RunJobInput): Promise<RunJobResult> {
     const job = await this.getJobOrThrow(input.directory, input.name);
 

@@ -8,6 +8,7 @@ import type { BrainStore } from "../../brain/store.js";
 import { createPr, getPrStatus } from "../github/pr.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
+import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import {
   registerPersonaInteractionTools,
@@ -104,6 +105,17 @@ const AGENT_TOOLS = new Set([
   "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
+  "list_jobs",
+  "get_job",
+  "create_job",
+  "update_job",
+  "delete_job",
+  "run_job",
+  "list_templates",
+  "get_template",
+  "create_template",
+  "update_template",
+  "delete_template",
 ]);
 
 const JOB_TOOLS = new Set([
@@ -142,6 +154,17 @@ const JOB_TOOLS = new Set([
   "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
+  "list_jobs",
+  "get_job",
+  "create_job",
+  "update_job",
+  "delete_job",
+  "run_job",
+  "list_templates",
+  "get_template",
+  "create_template",
+  "update_template",
+  "delete_template",
 ]);
 
 const PERSONA_TOOLS = new Set([
@@ -353,6 +376,7 @@ export type McpRequestContext = {
     groupBy: "persona" | "severity" | "directory";
   }) => Promise<Record<string, unknown>>;
   jobTools?: JobTools;
+  crudTools?: CrudToolCallbacks;
   toolScope?: "agent" | "reviewer" | "job";
   brainStore?: BrainStore;
   publishBrainChanged?: (repoRoot: string) => void;
@@ -733,6 +757,14 @@ async function createDispatchMcpServer(
     getFeedbackSummary:
       context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary,
   });
+
+  // ── Job & template CRUD tools ─────────────────────────────────────
+  if (context.crudTools) {
+    registerCrudTools(server, allowed, {
+      defaultCwd,
+      callbacks: context.crudTools,
+    });
+  }
 
   // ── Job tools ──────────────────────────────────────────────────────
   if (allowed.has("job_complete") && context.agent && context.jobTools) {

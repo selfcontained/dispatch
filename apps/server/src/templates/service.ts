@@ -132,6 +132,13 @@ export class TemplateService {
     return await this.store.getTemplate(id);
   }
 
+  async getTemplateByName(
+    directory: string,
+    name: string
+  ): Promise<TemplateRecord | null> {
+    return await this.store.getTemplateByDirectoryAndName(directory, name);
+  }
+
   async launchTemplate(input: LaunchTemplateInput): Promise<LaunchResult> {
     const template = await this.store.getTemplate(input.templateId);
     if (!template) {
