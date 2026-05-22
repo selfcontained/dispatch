@@ -1,0 +1,48 @@
+id: prune-old-release-binaries
+title: Prune stale release binaries from dist/bun
+summary: >
+  Older installs may have accumulated stale Dispatch Bun binaries under
+  dist/bun/ because previous update flows extracted each release's artifacts
+  without removing prior versions. This migration routes the release through
+  assisted update once so the operator can reclaim that disk usage on existing
+  installs while confirming the current release binary remains intact and the
+  service stays healthy.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the active Dispatch runtime
+    artifact for the host platform still exists, the health endpoint returns
+    status=ok, and every dispatch-* file in dist/bun/ already starts with
+    dispatch-<target-version>-bun- for the exact deployed release version.
+    If those conditions are true, the migration is a no-op and the agent
+    should proceed straight to validation.
+
+instructions:
+  - Confirm the install directory is on the target tag and inspect dist/bun/
+    for files whose names start with dispatch-.
+  - Determine the deployed release version string from the target tag by
+    removing the leading v, for example v0.21.1 -> 0.21.1.
+  - If every dispatch-* file in dist/bun/ already starts with
+    dispatch-<target-version>-bun- for that exact target version, treat the
+    migration as already satisfied and skip the cleanup steps.
+  - Otherwise remove only the dispatch-* files in dist/bun/ whose filenames do
+    not start with dispatch-<target-version>-bun-. Leave non-dispatch files in
+    place.
+  - Confirm the platform-matched Dispatch Bun runtime artifact for the target
+    release still exists after cleanup.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok before reporting
+    validate.
+
+validation:
+  requiredChecks:
+    - expected_runtime_artifact
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If cleanup removed the wrong runtime artifact or the service no longer
+    reports healthy, roll back to the previous healthy release tag using the
+    normal release rollback path for this host.
+  - Restore the missing runtime artifact from the previous healthy release if
+    rollback requires it, then confirm the health endpoint returns status=ok
+    and release.json reports the prior tag.

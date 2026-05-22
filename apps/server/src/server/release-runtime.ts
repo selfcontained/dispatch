@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { readdirSync, unlinkSync } from "node:fs";
+import path from "node:path";
 
 import type { Pool } from "pg";
 
@@ -121,6 +123,28 @@ type CreateReleaseRuntimeDeps = {
     onLine?: (line: string) => void
   ) => ReleaseLogStreamProcessor;
 };
+
+export function pruneReleaseBinaries(
+  serverDir: string,
+  keepTag: string
+): number {
+  const bunDir = path.join(serverDir, "dist/bun");
+  const version = keepTag.replace(/^v/, "");
+  let removed = 0;
+
+  try {
+    for (const entry of readdirSync(bunDir)) {
+      if (!entry.startsWith("dispatch-")) continue;
+      if (entry.startsWith(`dispatch-${version}-bun-`)) continue;
+      try {
+        unlinkSync(path.join(bunDir, entry));
+        removed += 1;
+      } catch {}
+    }
+  } catch {}
+
+  return removed;
+}
 
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   let activeReleaseJob: ReleaseJob | null = null;
