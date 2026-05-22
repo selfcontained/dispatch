@@ -35,7 +35,6 @@ import {
 } from "@/hooks/use-activity";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import {
-  cacheHitRate,
   DailyStackedBarChart,
   DailyTokenChart,
   formatDate,
@@ -43,8 +42,16 @@ import {
   ProjectBreakdown,
 } from "@/components/app/activity-charts";
 import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
+import type { TokenStats } from "@/hooks/use-activity";
 
 type ActivityTab = "metrics" | "history";
+
+function cacheHitRate(stats: TokenStats): number {
+  const totalInput =
+    stats.total_input + stats.total_cache_creation + stats.total_cache_read;
+  if (totalInput === 0) return 0;
+  return Math.round((stats.total_cache_read / totalInput) * 100);
+}
 
 type ActivityPaneProps = {
   open: boolean;

@@ -29,7 +29,6 @@ import type {
   TokenDailyEntry,
   TokenByModel,
   TokenByProject,
-  TokenStats,
   WorkingTimeByProject,
 } from "@/hooks/use-activity";
 
@@ -205,13 +204,6 @@ export function DailyStackedBarChart({
 }
 
 // ── Token helpers ──────────────────────────────────────────────────
-
-export function cacheHitRate(stats: TokenStats): number {
-  const totalInput =
-    stats.total_input + stats.total_cache_creation + stats.total_cache_read;
-  if (totalInput === 0) return 0;
-  return Math.round((stats.total_cache_read / totalInput) * 100);
-}
 
 function shortModelName(model: string): string {
   if (model.includes("opus")) return "Opus";
