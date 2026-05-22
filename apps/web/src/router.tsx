@@ -125,6 +125,21 @@ export const router = createBrowserRouter([
                 handle: { navSection: "automations" },
               },
               {
+                path: "automations/brains",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/brains/:encodedRepoRoot",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
+                path: "automations/brains/:encodedRepoRoot/:collection",
+                element: <AutomationsRoute />,
+                handle: { navSection: "automations" },
+              },
+              {
                 path: "jobs",
                 element: <Navigate to="/automations/jobs" replace />,
               },

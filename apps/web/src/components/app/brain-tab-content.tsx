@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
+  ArrowRight,
   Brain,
   Check,
   ChevronDown,
@@ -20,12 +22,25 @@ import {
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
+export function encodeRepoRoot(repoRoot: string): string {
+  return btoa(repoRoot)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+export function decodeRepoRoot(encoded: string): string {
+  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) base64 += "=";
+  return atob(base64);
+}
+
 type BrainTabContentProps = {
   agentId: string | null;
   repoRoot: string | null;
 };
 
-function formatRelative(date: Date): string {
+export function formatRelative(date: Date): string {
   const diffMs = Date.now() - date.getTime();
   const diffMin = Math.floor(diffMs / 60_000);
   const diffHr = Math.floor(diffMin / 60);
@@ -37,7 +52,7 @@ function formatRelative(date: Date): string {
   return `${diffDay}d ago`;
 }
 
-function RelativeTime({ iso }: { iso: string }): JSX.Element {
+export function RelativeTime({ iso }: { iso: string }): JSX.Element {
   const date = new Date(iso);
   return (
     <time
@@ -50,7 +65,7 @@ function RelativeTime({ iso }: { iso: string }): JSX.Element {
   );
 }
 
-function CopyButton({
+export function CopyButton({
   value,
   className,
 }: {
@@ -83,7 +98,7 @@ function CopyButton({
   );
 }
 
-function CollapsibleSection({
+export function CollapsibleSection({
   title,
   icon: Icon,
   count,
@@ -124,7 +139,10 @@ function CollapsibleSection({
 
 // ── Value renderers ─────────────────────────────────────────────
 
-function formatPrimitive(v: unknown): { text: string; className: string } {
+export function formatPrimitive(v: unknown): {
+  text: string;
+  className: string;
+} {
   if (v === undefined)
     return { text: "undefined", className: "text-violet-400" };
   if (v === null) return { text: "null", className: "text-violet-400" };
@@ -156,7 +174,7 @@ function formatPrimitive(v: unknown): { text: string; className: string } {
   };
 }
 
-function KeyValueTable({ value }: { value: unknown }): JSX.Element {
+export function KeyValueTable({ value }: { value: unknown }): JSX.Element {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     const fmt = formatPrimitive(value);
     return (
@@ -327,7 +345,7 @@ function ListCard({
 
 // ── Event card ──────────────────────────────────────────────────
 
-const KIND_STYLES: Record<
+export const KIND_STYLES: Record<
   string,
   { dot: string; text: string; badge: string }
 > = {
@@ -348,7 +366,7 @@ const KIND_STYLES: Record<
   },
 };
 
-function getKindStyle(kind: string) {
+export function getKindStyle(kind: string) {
   return (
     KIND_STYLES[kind] ?? {
       dot: "bg-muted-foreground",
@@ -461,10 +479,19 @@ export function BrainTabContent({
 
   return (
     <div className={cn("flex flex-col overflow-y-auto")}>
-      <div className="px-3 py-3 border-b border-border">
+      <div className="px-3 py-3 border-b border-border flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           Shared memory this agent has written.
         </p>
+        {repoRoot ? (
+          <Link
+            to={`/automations/brains/${encodeRepoRoot(repoRoot)}`}
+            className="flex items-center gap-1 text-[11px] text-primary/70 hover:text-primary transition-colors shrink-0"
+          >
+            View full brain
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        ) : null}
       </div>
       <CollapsibleSection
         title="Objects"
