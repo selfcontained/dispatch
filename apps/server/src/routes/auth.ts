@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import * as z from "zod/v4";
 
 import type { AppConfig } from "../config.js";
+import { parseInput } from "../shared/lib/parse-input.js";
 import {
   changePassword,
   createSession,
@@ -72,12 +73,10 @@ export async function registerAuthRoutes(
       if (await deps.isPasswordSetCached()) {
         return reply.code(400).send({ error: "Password is already set." });
       }
-      const parsed = SetupBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
+      const parsed = parseInput(SetupBodySchema, request.body, reply);
+      if (!parsed) return;
 
-      await setPassword(deps.pool, parsed.data.password);
+      await setPassword(deps.pool, parsed.password);
       deps.invalidatePasswordSetCache();
 
       const token = await createSession(deps.pool);
@@ -90,11 +89,9 @@ export async function registerAuthRoutes(
     "/api/v1/auth/login",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const parsed = LoginBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
-      if (!(await verifyPassword(deps.pool, parsed.data.password))) {
+      const parsed = parseInput(LoginBodySchema, request.body, reply);
+      if (!parsed) return;
+      if (!(await verifyPassword(deps.pool, parsed.password))) {
         return reply.code(401).send({ error: "Invalid password." });
       }
 
@@ -120,15 +117,13 @@ export async function registerAuthRoutes(
     "/api/v1/auth/change-password",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const parsed = ChangePasswordBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.issues[0].message });
-      }
+      const parsed = parseInput(ChangePasswordBodySchema, request.body, reply);
+      if (!parsed) return;
 
       const changed = await changePassword(
         deps.pool,
-        parsed.data.currentPassword,
-        parsed.data.newPassword
+        parsed.currentPassword,
+        parsed.newPassword
       );
       if (!changed) {
         return reply
