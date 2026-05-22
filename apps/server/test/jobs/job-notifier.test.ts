@@ -181,4 +181,160 @@ describe("JobNotifier", () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.attachments[0].color).toBe("#ef4444");
   });
+
+  it("displays 'timed out' as status label for timed_out runs", async () => {
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
+    await notifier.onJobRunStateChange(makeRun({ status: "timed_out" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const contextText = body.attachments[0].blocks[1].elements[0].text;
+    expect(contextText).toContain("`timed out`");
+  });
+
+  it("escapes special characters in job name and summary", async () => {
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
+    await notifier.onJobRunStateChange(
+      makeRun({
+        config: {
+          ...makeRun().config,
+          name: "job <with> & special chars",
+        },
+        report: {
+          status: "completed",
+          summary: "Fixed <script> & stuff",
+          tasks: [],
+        },
+      })
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const text = body.attachments[0].blocks[0].text.text;
+    expect(text).toContain("&amp;");
+    expect(text).toContain("&lt;");
+    expect(text).toContain("&gt;");
+    expect(text).not.toContain("<with>");
+    expect(text).not.toContain("<script>");
+  });
+
+  describe("duration formatting in Slack payload", () => {
+    async function getDurationFromPayload(durationMs: number): Promise<string> {
+      await setSetting(
+        pool,
+        "slack_webhook_url",
+        "https://hooks.slack.test/test"
+      );
+      notifier = new JobNotifier(pool, fakeLogger);
+      fetchSpy.mockClear();
+      await notifier.onJobRunStateChange(makeRun({ durationMs }));
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      return body.attachments[0].blocks[1].elements[0].text;
+    }
+
+    it("formats sub-second duration as milliseconds", async () => {
+      const text = await getDurationFromPayload(500);
+      expect(text).toContain("500ms");
+    });
+
+    it("formats seconds-only duration", async () => {
+      const text = await getDurationFromPayload(45_000);
+      expect(text).toContain("45s");
+    });
+
+    it("formats minutes with remaining seconds", async () => {
+      const text = await getDurationFromPayload(125_000);
+      expect(text).toContain("2m 5s");
+    });
+
+    it("formats exact minutes without seconds", async () => {
+      const text = await getDurationFromPayload(120_000);
+      expect(text).toContain("2m");
+      expect(text).not.toContain("2m 0s");
+    });
+
+    it("formats hours with remaining minutes", async () => {
+      const text = await getDurationFromPayload(3_900_000);
+      expect(text).toContain("1h 5m");
+    });
+
+    it("formats exact hours without minutes", async () => {
+      const text = await getDurationFromPayload(3_600_000);
+      expect(text).toContain("1h");
+      expect(text).not.toContain("1h 0m");
+    });
+
+    it("omits duration when durationMs is null", async () => {
+      await setSetting(
+        pool,
+        "slack_webhook_url",
+        "https://hooks.slack.test/test"
+      );
+      notifier = new JobNotifier(pool, fakeLogger);
+      fetchSpy.mockClear();
+      await notifier.onJobRunStateChange(makeRun({ durationMs: null }));
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      const contextText = body.attachments[0].blocks[1].elements[0].text;
+      expect(contextText).not.toMatch(/\d+[hms]/);
+    });
+  });
+
+  it("does not send notification when notify config is undefined", async () => {
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
+    await notifier.onJobRunStateChange(
+      makeRun({
+        config: {
+          ...makeRun().config,
+          notify: undefined as never,
+        },
+      })
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("routes crashed status to on_error channels", async () => {
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
+    await notifier.onJobRunStateChange(makeRun({ status: "crashed" }));
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.attachments[0].color).toBe("#ef4444");
+  });
+
+  it("uses pendingQuestion as summary for needs_input when report is absent", async () => {
+    await setSetting(
+      pool,
+      "slack_webhook_url",
+      "https://hooks.slack.test/test"
+    );
+    await notifier.onJobRunStateChange(
+      makeRun({
+        status: "needs_input",
+        report: null,
+        pendingQuestion: "What should I do next?",
+        config: {
+          ...makeRun().config,
+          notify: { onComplete: [], onError: [], onNeedsInput: ["slack"] },
+        },
+      })
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const fallback = body.attachments[0].fallback;
+    expect(fallback).toContain("What should I do next?");
+  });
 });
