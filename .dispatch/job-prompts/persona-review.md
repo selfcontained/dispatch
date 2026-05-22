@@ -1,4 +1,4 @@
-Assess the effectiveness of persona-driven code reviews and tune the persona set over time. This job runs on a recurring schedule, so lean on the state file to pass context between runs and avoid re-evaluating every persona from scratch.
+Assess the effectiveness of persona-driven code reviews and tune the persona set over time. This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid re-evaluating every persona from scratch.
 
 ## Important context
 
@@ -6,30 +6,39 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 
-## Phase 0: Read the state file
+## Phase 0: Read the state from the Brain
 
-Read `.dispatch/job-state/persona-review.md` before doing anything else. It contains:
+State is spread across purpose-specific brain primitives to keep writes minimal:
 
-- `last_audited_sha` — the HEAD SHA from the previous run
-- `personas` — per-persona tracking with prompt SHA, last assessment, recommendation, and sample size
-- `next_focus` — the specific persona or issue the last run recommended you focus on this time
-- `backlog` — a prioritized list of deferred work (prompt adjustments, coverage questions, retirement candidates)
-- `patterns` — recurring observations about persona effectiveness across the set
-- `history` — one-line summaries of what each prior run did
+1. **Core state** (collection: `job-state`, name: `persona-review`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 6.
+   - `last_audited_sha` — the HEAD SHA from the previous run
+   - `personas` — per-persona tracking keyed by persona name. Each value stores:
+     - `prompt_sha`
+     - `last_assessment`
+     - `recommendation`
+     - `post_change_sample_size`
+     - `notes`
+   - `next_focus` — the specific persona or issue the last run recommended you focus on this time
 
-If the state file is missing (first run) or malformed, fall through to the bootstrap pass in Phase 1.
+2. **Backlog** (collection: `job-state`, name: `persona-review-backlog`) — read with `brain_list_get`. Prioritized deferred work items. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array. Each item is a JSON object with a `description` field.
+
+3. **Patterns** (collection: `job-state`, name: `persona-review-patterns`) — read with `brain_list_get`. Recurring observations about persona effectiveness. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it. Each item is a JSON object with a `description` field.
+
+4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "persona-review", limit: 5)`. Read-only context for recent decisions and PR summaries.
+
+If the core state object is not found (first run), fall through to the bootstrap pass in Phase 1.
 
 ## Phase 1: Scope the work
 
-### Normal run (state file exists with a valid `next_focus`)
+### Normal run (state exists with a valid `next_focus`)
 
 1. Read the `next_focus` entry. That is your assignment for this run.
 2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the last run. Check whether any persona files in `.dispatch/personas/` were modified — if so, update tracking for those personas (new `prompt_sha`, reset `post_change_sample_size` to 0).
 3. Keep the scope to **one or two personas** per run. If you discover issues with other personas while working, add them to `backlog`.
 
-### Bootstrap run (no state file or first run)
+### Bootstrap run (no state in Brain or first run)
 
-Do a broad assessment to seed the state file. The goal is to produce a baseline for future runs, not to fix everything at once.
+Do a broad assessment to seed the Brain. The goal is to produce a baseline for future runs, not to fix everything at once.
 
 1. **Inventory personas.** List all files in `.dispatch/personas/`. For each, record the latest commit SHA touching that file (`git log -1 --format=%H -- .dispatch/personas/<file>`).
 2. **Gather recent data.** Call `list_recent_persona_reviews` with `since_days: 14` and `list_recent_feedback` with `since_days: 14` to get a broader initial sample.
@@ -40,14 +49,14 @@ Do a broad assessment to seed the state file. The goal is to produce a baseline 
    - Resolution vs dismiss rate
    - A brief qualitative assessment (specific and actionable, or generic/noisy?)
 4. **Assess coverage.** Are there recurring classes of feedback or review gaps that no current persona covers?
-5. **Write the state file** with per-persona baselines, the top issue as `next_focus`, and everything else in `backlog`. Commit just the state file, open a PR, and merge it.
+5. **Seed the Brain** with per-persona baselines in the core state object, the top issue as `next_focus`, everything else in the backlog list, and any recurring themes in the patterns list.
 
 ## Phase 2: Gather data
 
 For normal runs, collect the data needed to evaluate the personas in scope:
 
 1. **Call MCP tools.** Use `list_recent_persona_reviews` and `list_recent_feedback` with `since_days: 7`. Link feedback to reviews by matching `agentId`.
-2. **Check for prompt changes.** For each persona in scope, compare the current latest commit SHA on the persona file to the `prompt_sha` stored in the state file. If it changed:
+2. **Check for prompt changes.** For each persona in scope, compare the current latest commit SHA on the persona file to the `prompt_sha` stored in the core state object. If it changed:
    - Read the commit message and diff to understand what the change was trying to improve
    - Reset that persona's evaluation window — only score reviews produced after the new prompt
    - Note the change in your analysis
@@ -76,7 +85,7 @@ For each persona in scope, assess:
 
 - Is the persona producing repeated boilerplate across different reviews?
 - Is it finding meaningful issues?
-- Compared with the state file's last assessment, is it improved, unchanged, or worse?
+- Compared with the core state's last assessment, is it improved, unchanged, or worse?
 
 ### Coverage (when relevant to scope)
 
@@ -86,7 +95,7 @@ For each persona in scope, assess:
 
 ## Phase 4: Decide and act
 
-Use the state file's prior assessment as context, not as the current verdict. Let new data override old conclusions.
+Use the core state's prior assessment as context, not as the current verdict. Let new data override old conclusions.
 
 - **Keep as-is** if post-change findings are specific, relevant, and frequently resolved.
 - **Adjust prompt** if findings are still noisy, generic, badly scoped, or poorly calibrated. Implement the edit directly in `.dispatch/personas/`.
@@ -104,9 +113,11 @@ If persona files were changed:
 2. Run `pnpm run test:e2e` (Playwright E2E).
 3. All checks must pass before proceeding.
 
-## Phase 6: Update the state file
+## Phase 6: Update the state in the Brain
 
-Before committing, rewrite `.dispatch/job-state/persona-review.md` with:
+Before committing, update Brain state instead of writing a file:
+
+**Core state** — use `brain_store_object` (collection: `job-state`, name: `persona-review`) with the `expectedRevision` from Phase 0. Updated every run. Store:
 
 - `last_audited_sha` — current HEAD.
 - `personas` — for each persona, update:
@@ -116,20 +127,34 @@ Before committing, rewrite `.dispatch/job-state/persona-review.md` with:
   - `post_change_sample_size` — cumulative post-change reviews evaluated across runs. Reset to 0 when `prompt_sha` changes.
   - `notes` — anything the next run should know (limited sample, recently changed, overlaps with another persona)
 - `next_focus` — the specific persona or issue the next run should tackle. Be concrete: name the persona, describe what to evaluate, and why.
-- `backlog` — remaining items, re-prioritized. Remove completed items. Add new observations. Each entry needs enough context that a future run can act on it.
-- `patterns` — observations about persona effectiveness. Add new ones, prune stale ones.
-- `history` — append a one-line entry: date, what was assessed or changed, PR number if applicable.
 
-Treat the state file as a handoff note to a colleague, not a log.
+**Backlog** — use list operations (collection: `job-state`, name: `persona-review-backlog`). Do not rewrite the full list — use surgical mutations:
+
+- `brain_list_remove` — remove items you addressed or that are no longer relevant.
+- `brain_list_push` — add new deferred items as `{"description": "..."}` with enough context for a future run to act on them. Set `maxItems: 30` so the oldest items roll off automatically.
+
+**Patterns** — use list operations (collection: `job-state`, name: `persona-review-patterns`).
+
+- `brain_list_remove` — prune stale observations when needed.
+- `brain_list_push` — add new observations as `{"description": "..."}`. Set `maxItems: 50` so the oldest items roll off automatically.
+
+**Run event** — log this run using `brain_append_event`:
+
+- collection: `job-state`
+- kind: `run`
+- subject: `persona-review`
+- value: `{ "date": "<today>", "summary": "<one-line summary of what was assessed or changed>", "pr": "<PR number or null>" }`
+
+Treat the Brain state as a handoff note to a colleague, not a log.
 
 ## Phase 7: Commit, PR, merge
 
-If no changes were made to persona files (analysis-only run with only a state file update), commit and merge the state file update with a brief PR.
+If no persona files were changed (analysis-only run), do **not** open a repo PR just to persist Brain state. Call `job_complete` after the Brain update and explain what was assessed and what the next run should do.
 
 If persona files were changed:
 
 1. Run `pnpm run format:write` to fix formatting.
-2. Commit on a new branch. Include the state file update in the same commit.
+2. Commit on a new branch. The PR should only contain persona prompt changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was assessed, what changed, what post-change evidence justified the adjustment, and what's queued for the next run.
 4. **Launch a reviewer.** Use `dispatch_launch_persona` to launch `architecture-review` with `recheck: true`. Provide context about what persona changes were made and why. If the reviewer requests changes, address them before proceeding.
 5. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
@@ -141,12 +166,12 @@ If CI takes longer than 30 minutes, call `job_needs_input`.
 
 ## Reporting
 
-Use `job_log` for phase-level progress. Call `job_complete` **only after the PR is merged** (or immediately after merge of the bootstrap state file on first run). Include:
+Use `job_log` for phase-level progress. Call `job_complete` after the Brain state is updated and any required PR is merged. Include:
 
 - `summary` — one paragraph: what you assessed or changed, what's next
 - `per_persona_assessed` — for each persona in scope: review count, signal quality, resolution rate, recommendation
 - `coverage_notes` — any gaps identified or retirement candidates, or "no changes needed"
-- `state_file_summary` — what you wrote into `next_focus` and top backlog items
-- `pr` — the merged PR URL
+- `state_summary` — what you wrote into `next_focus` and top backlog items
+- `pr` — the merged PR URL, or `null` for analysis-only runs with no repo changes
 
 If no persona reviews exist in the last 7 days, call `job_complete` with a note that no analysis is possible.
