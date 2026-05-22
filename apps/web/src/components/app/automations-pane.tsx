@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlarmClock, FormInput, Play } from "lucide-react";
+import { AlarmClock, Brain, FormInput, Play } from "lucide-react";
 import { motion } from "framer-motion";
 
 import {
@@ -8,6 +8,10 @@ import {
   JobListContent,
   JobDetailPane,
 } from "@/components/app/jobs-pane";
+import {
+  BrainsListContent,
+  BrainsDetailPane,
+} from "@/components/app/brains-pane";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { TemplateDetailPane } from "@/components/app/automations-template-detail";
@@ -18,14 +22,14 @@ import { useTemplates, type Template } from "@/hooks/use-templates";
 import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 
-type AutomationsTab = "templates" | "jobs";
+type AutomationsTab = "templates" | "jobs" | "brains";
 
 function resolveTab(pathname: string): AutomationsTab {
-  if (
-    pathname.startsWith("/automations/jobs") ||
-    pathname === "/automations/jobs"
-  ) {
+  if (pathname.startsWith("/automations/jobs")) {
     return "jobs";
+  }
+  if (pathname.startsWith("/automations/brains")) {
+    return "brains";
   }
   return "templates";
 }
@@ -61,6 +65,12 @@ function AutomationsSidebar({
             icon={<AlarmClock className="h-3.5 w-3.5" />}
             label="Jobs"
           />
+          <TabButton
+            active={activeTab === "brains"}
+            onClick={() => onTabChange("brains")}
+            icon={<Brain className="h-3.5 w-3.5" />}
+            label="Brains"
+          />
         </div>
       </div>
       {activeTab === "templates" ? (
@@ -68,8 +78,10 @@ function AutomationsSidebar({
           enabledAgentTypes={enabledAgentTypes}
           onItemSelect={onItemSelect}
         />
-      ) : (
+      ) : activeTab === "jobs" ? (
         <JobListContent onItemSelect={onItemSelect} hideHeader />
+      ) : (
+        <BrainsListContent onItemSelect={onItemSelect} />
       )}
     </div>
   );
@@ -292,6 +304,8 @@ export function AutomationsSidebarContent({
     (tab: AutomationsTab) => {
       if (tab === "jobs") {
         navigate("/automations/jobs");
+      } else if (tab === "brains") {
+        navigate("/automations/brains");
       } else {
         navigate("/automations");
       }
@@ -306,6 +320,15 @@ export function AutomationsSidebarContent({
     [navigate]
   );
 
+  const sidebar = (
+    <AutomationsSidebar
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      enabledAgentTypes={enabledAgentTypes}
+      onItemSelect={isMobile ? closeSidebar : undefined}
+    />
+  );
+
   if (activeTab === "jobs") {
     return (
       <JobsProvider
@@ -314,24 +337,12 @@ export function AutomationsSidebarContent({
         onOpenAgent={openAgent}
         enabledAgentTypes={enabledAgentTypes}
       >
-        <AutomationsSidebar
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          enabledAgentTypes={enabledAgentTypes}
-          onItemSelect={isMobile ? closeSidebar : undefined}
-        />
+        {sidebar}
       </JobsProvider>
     );
   }
 
-  return (
-    <AutomationsSidebar
-      activeTab={activeTab}
-      onTabChange={handleTabChange}
-      enabledAgentTypes={enabledAgentTypes}
-      onItemSelect={isMobile ? closeSidebar : undefined}
-    />
-  );
+  return sidebar;
 }
 
 export function AutomationsDetailContent({
@@ -354,6 +365,10 @@ export function AutomationsDetailContent({
 
   if (activeTab === "templates") {
     return <TemplateDetailPane enabledAgentTypes={enabledAgentTypes} />;
+  }
+
+  if (activeTab === "brains") {
+    return <BrainsDetailPane />;
   }
 
   return (
