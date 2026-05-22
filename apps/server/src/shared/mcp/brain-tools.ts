@@ -17,6 +17,7 @@ type BrainToolContext = {
   repoRoot: string;
   agentId: string;
   store: BrainStore;
+  publishBrainChanged?: () => void;
 };
 
 type ToolResult = {
@@ -76,7 +77,7 @@ export function registerBrainTools(
   allowed: Set<string>,
   ctx: BrainToolContext
 ): void {
-  const { repoRoot, agentId, store } = ctx;
+  const { repoRoot, agentId, store, publishBrainChanged } = ctx;
 
   // ── brain_get_object ──────────────────────────────────────────────
   if (allowed.has("brain_get_object")) {
@@ -157,6 +158,7 @@ export function registerBrainTools(
             value: args.value,
             expectedRevision: args.expectedRevision,
           });
+          publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
             structuredContent: obj as unknown as Record<string, unknown>,
@@ -216,6 +218,7 @@ export function registerBrainTools(
             maxItems: args.maxItems,
             expectedRevision: args.expectedRevision,
           });
+          publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
             structuredContent: result as unknown as Record<string, unknown>,
@@ -275,6 +278,7 @@ export function registerBrainTools(
             where: args.where,
             expectedRevision: args.expectedRevision,
           });
+          publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
             structuredContent: result as unknown as Record<string, unknown>,
@@ -378,6 +382,7 @@ export function registerBrainTools(
             value: args.value,
             expectedRevision: args.expectedRevision,
           });
+          publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
             structuredContent: result as unknown as Record<string, unknown>,
@@ -412,6 +417,7 @@ export function registerBrainTools(
             args.collection,
             args.name
           );
+          if (deleted) publishBrainChanged?.();
           const result = { deleted };
           return {
             content: [
@@ -504,6 +510,7 @@ export function registerBrainTools(
             args.collection,
             args.name
           );
+          if (deleted) publishBrainChanged?.();
           const result = { deleted };
           return {
             content: [
@@ -563,6 +570,7 @@ export function registerBrainTools(
             subject: args.subject,
             tags: args.tags,
           });
+          publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
             structuredContent: event as unknown as Record<string, unknown>,

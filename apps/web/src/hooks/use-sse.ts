@@ -39,6 +39,7 @@ type UiEvent =
   | { type: "feedback.updated"; agentId: string }
   | { type: "job.changed" }
   | { type: "template.changed" }
+  | { type: "brain.changed"; repoRoot: string }
   | {
       type: "notification";
       notificationId: string;
@@ -87,6 +88,7 @@ export function useSSE(authState: AuthState): void {
           // state forever (the query has staleTime: Infinity).
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
+          void queryClient.invalidateQueries({ queryKey: ["brain"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -183,6 +185,11 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "template.changed") {
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
+          return;
+        }
+
+        if (payload.type === "brain.changed") {
+          void queryClient.invalidateQueries({ queryKey: ["brain"] });
           return;
         }
 

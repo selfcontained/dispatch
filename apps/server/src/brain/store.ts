@@ -43,6 +43,26 @@ export type BrainListItem = {
   updatedAt: string;
 };
 
+export type BrainProject = {
+  repoRoot: string;
+  objectCount: number;
+  listCount: number;
+  eventCount: number;
+};
+
+export type BrainCollectionSummary = {
+  collection: string;
+  objectCount: number;
+  listCount: number;
+  eventCount: number;
+};
+
+export type BrainAgentActivity = {
+  objects: BrainObject[];
+  lists: BrainList[];
+  events: BrainEvent[];
+};
+
 // ── Errors ───────────────────────────────────────────────────────────
 
 export class BrainNotFoundError extends Error {
@@ -541,6 +561,153 @@ export class BrainStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  // ── Queries (UI) ────────────────────────────────────────────────
+
+  async listProjects(): Promise<BrainProject[]> {
+    const result = await this.pool.query(`
+      SELECT
+        repo_root AS "repoRoot",
+        COALESCE(obj.cnt, 0)::int AS "objectCount",
+        COALESCE(lst.cnt, 0)::int AS "listCount",
+        COALESCE(evt.cnt, 0)::int AS "eventCount"
+      FROM (
+        SELECT repo_root FROM brain_objects
+        UNION
+        SELECT repo_root FROM brain_lists
+        UNION
+        SELECT repo_root FROM brain_events
+      ) AS roots
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_objects WHERE brain_objects.repo_root = roots.repo_root
+      ) obj ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_lists WHERE brain_lists.repo_root = roots.repo_root
+      ) lst ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_events WHERE brain_events.repo_root = roots.repo_root
+      ) evt ON true
+      ORDER BY repo_root
+    `);
+    return result.rows as BrainProject[];
+  }
+
+  async listCollections(repoRoot: string): Promise<BrainCollectionSummary[]> {
+    const result = await this.pool.query(
+      `SELECT
+        collection,
+        COALESCE(obj.cnt, 0)::int AS "objectCount",
+        COALESCE(lst.cnt, 0)::int AS "listCount",
+        COALESCE(evt.cnt, 0)::int AS "eventCount"
+      FROM (
+        SELECT collection FROM brain_objects WHERE repo_root = $1
+        UNION
+        SELECT collection FROM brain_lists WHERE repo_root = $1
+        UNION
+        SELECT collection FROM brain_events WHERE repo_root = $1
+      ) AS cols
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_objects
+        WHERE brain_objects.repo_root = $1 AND brain_objects.collection = cols.collection
+      ) obj ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_lists
+        WHERE brain_lists.repo_root = $1 AND brain_lists.collection = cols.collection
+      ) lst ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS cnt FROM brain_events
+        WHERE brain_events.repo_root = $1 AND brain_events.collection = cols.collection
+      ) evt ON true
+      ORDER BY collection`,
+      [repoRoot]
+    );
+    return result.rows as BrainCollectionSummary[];
+  }
+
+  async listLists(
+    repoRoot: string,
+    filter?: { collection?: string; limit?: number }
+  ): Promise<(BrainList & { itemCount: number })[]> {
+    const conditions: string[] = ["l.repo_root = $1"];
+    const params: unknown[] = [repoRoot];
+
+    if (filter?.collection) {
+      params.push(filter.collection);
+      conditions.push(`l.collection = $${params.length}`);
+    }
+
+    const limit = clampLimit(filter?.limit);
+    params.push(limit);
+
+    const result = await this.pool.query(
+      `SELECT ${listColumns("l")},
+              COALESCE(ic.cnt, 0)::int AS "itemCount"
+       FROM brain_lists l
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS cnt FROM brain_list_items
+         WHERE brain_list_items.repo_root = l.repo_root
+           AND brain_list_items.collection = l.collection
+           AND brain_list_items.name = l.name
+       ) ic ON true
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY l.updated_at DESC
+       LIMIT $${params.length}`,
+      params
+    );
+    return result.rows.map((row: Record<string, unknown>) => ({
+      ...mapList(row),
+      itemCount: row.itemCount as number,
+    }));
+  }
+
+  async getAgentBrainActivity(
+    repoRoot: string,
+    agentId: string,
+    limit?: number
+  ): Promise<BrainAgentActivity> {
+    const cap = clampLimit(limit);
+    const [objects, lists, events] = await Promise.all([
+      this.pool.query(
+        `SELECT ${objectColumns()} FROM brain_objects
+         WHERE repo_root = $1
+           AND (created_by_agent_id = $2 OR updated_by_agent_id = $2)
+         ORDER BY updated_at DESC
+         LIMIT $3`,
+        [repoRoot, agentId, cap]
+      ),
+      this.pool.query(
+        `SELECT ${listColumns()},
+                COALESCE(ic.cnt, 0)::int AS "itemCount"
+         FROM brain_lists
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS cnt FROM brain_list_items
+           WHERE brain_list_items.repo_root = brain_lists.repo_root
+             AND brain_list_items.collection = brain_lists.collection
+             AND brain_list_items.name = brain_lists.name
+         ) ic ON true
+         WHERE brain_lists.repo_root = $1
+           AND (brain_lists.created_by_agent_id = $2 OR brain_lists.updated_by_agent_id = $2)
+         ORDER BY brain_lists.updated_at DESC
+         LIMIT $3`,
+        [repoRoot, agentId, cap]
+      ),
+      this.pool.query(
+        `SELECT ${eventColumns()} FROM brain_events
+         WHERE repo_root = $1 AND agent_id = $2
+         ORDER BY created_at DESC
+         LIMIT $3`,
+        [repoRoot, agentId, cap]
+      ),
+    ]);
+    return {
+      objects: objects.rows.map(mapObject),
+      lists: lists.rows.map((row: Record<string, unknown>) => ({
+        ...mapList(row),
+        itemCount: row.itemCount as number,
+      })),
+      events: events.rows.map(mapEvent),
+    };
+  }
+
   // ── Events ──────────────────────────────────────────────────────
 
   async appendEvent(
@@ -975,15 +1142,16 @@ function mapEvent(row: Record<string, unknown>): BrainEvent {
   return row as BrainEvent;
 }
 
-function listColumns(): string {
+function listColumns(alias?: string): string {
+  const p = alias ? `${alias}.` : "";
   return `
-    collection,
-    name,
-    revision,
-    created_at AS "createdAt",
-    updated_at AS "updatedAt",
-    created_by_agent_id AS "createdByAgentId",
-    updated_by_agent_id AS "updatedByAgentId"
+    ${p}collection,
+    ${p}name,
+    ${p}revision,
+    ${p}created_at AS "createdAt",
+    ${p}updated_at AS "updatedAt",
+    ${p}created_by_agent_id AS "createdByAgentId",
+    ${p}updated_by_agent_id AS "updatedByAgentId"
   `;
 }
 

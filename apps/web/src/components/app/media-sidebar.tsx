@@ -22,6 +22,7 @@ import {
   isTextFile,
   stripTimestamp,
 } from "@/components/app/media-lightbox";
+import { BrainTabContent } from "@/components/app/brain-tab-content";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ type MediaSidebarSharedProps = {
   selectedAgentId: string | null;
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
+  selectedAgentRepoRoot: string | null;
   selectedAgentPins: AgentPin[];
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
@@ -385,6 +387,7 @@ export function MediaSidebarContent({
   selectedAgentId,
   selectedAgentName,
   selectedAgentWorkspaceRoot,
+  selectedAgentRepoRoot,
   selectedAgentPins,
   animatingMediaKeys,
   mediaViewportRef,
@@ -449,6 +452,20 @@ export function MediaSidebarContent({
                 {unseenMediaCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab("brain")}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              activeTab === "brain"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/80"
+            )}
+          >
+            Brain
+            {activeTab === "brain" ? (
+              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+            ) : null}
           </button>
         </div>
         <div className="flex items-center gap-1 px-2">
@@ -517,6 +534,17 @@ export function MediaSidebarContent({
           hasStream={hasStream}
           streamUrl={streamUrl}
           onUploadFile={onUploadFile}
+        />
+      </div>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeTab !== "brain" && "hidden"
+        )}
+      >
+        <BrainTabContent
+          agentId={selectedAgentId}
+          repoRoot={selectedAgentRepoRoot}
         />
       </div>
     </aside>

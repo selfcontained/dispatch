@@ -33,6 +33,7 @@ export type UiEvent =
     }
   | { type: "job.changed" }
   | { type: "template.changed" }
+  | { type: "brain.changed"; repoRoot: string }
   | {
       type: "notification";
       notificationId: string;

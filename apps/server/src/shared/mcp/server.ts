@@ -355,6 +355,7 @@ export type McpRequestContext = {
   jobTools?: JobTools;
   toolScope?: "agent" | "reviewer" | "job";
   brainStore?: BrainStore;
+  publishBrainChanged?: (repoRoot: string) => void;
 };
 
 export async function handleMcpRequest(
@@ -712,10 +713,14 @@ async function createDispatchMcpServer(
 
   // ── Brain tools (shared memory for agents) ────────────────────────
   if (context.agent && context.repoRoot && context.brainStore) {
+    const brainRepoRoot = context.repoRoot;
     registerBrainTools(server, allowed, {
-      repoRoot: context.repoRoot,
+      repoRoot: brainRepoRoot,
       agentId: context.agent.id,
       store: context.brainStore,
+      publishBrainChanged: context.publishBrainChanged
+        ? () => context.publishBrainChanged!(brainRepoRoot)
+        : undefined,
     });
   }
 

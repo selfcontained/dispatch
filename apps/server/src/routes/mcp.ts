@@ -16,6 +16,7 @@ type McpRouteDeps = {
   agentManager: AgentManager;
   jobService: JobService;
   brainStore: BrainStore;
+  publishBrainChanged: (repoRoot: string) => void;
   getBearerToken: (request: {
     headers: { authorization?: string };
   }) => string | null;
@@ -171,6 +172,7 @@ export async function registerMcpRoutes(
       toolScope: run ? "job" : "agent",
       jobTools,
       brainStore: deps.brainStore,
+      publishBrainChanged: deps.publishBrainChanged,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
@@ -254,6 +256,7 @@ export async function registerMcpRoutes(
           Record<string, unknown>
         >,
       brainStore: deps.brainStore,
+      publishBrainChanged: deps.publishBrainChanged,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
