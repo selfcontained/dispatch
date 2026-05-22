@@ -683,7 +683,9 @@ const SECTIONS: SectionDef[] = [
             Persona reviewers do not have access. Common use cases include
             passing findings or assessments between recurring job runs, sharing
             configuration between agents working in the same repo, and recording
-            structured observations that other agents can query.
+            structured observations that other agents can query. You can inspect
+            an agent's Brain activity in the <strong>Brain</strong> tab of the
+            sidebar.
           </P>
         </Section>
 
@@ -785,7 +787,10 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             </li>
             <li>
               <strong>Agent type</strong> — <Code>claude</Code>,{" "}
-              <Code>codex</Code>, <Code>cursor</Code>, or <Code>opencode</Code>.
+              <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>, or{" "}
+              <Code>terminal</Code>. Terminal templates launch a plain shell
+              session and skip the prompt, worktree, full access, and media
+              fields below.
             </li>
             <li>
               <strong>Use worktree</strong> — give each launch its own git
@@ -1542,10 +1547,20 @@ issues caused or worsened by this diff.`}</CodeBlock>
           <H3>Media sidebar</H3>
           <P>
             Click any agent's media count badge (or press{" "}
-            <Code>Mod+Shift+&gt;</Code>) to open the sidebar. Media items are
-            shown in reverse chronological order (most recent 50). Click an item
-            to open the full-screen lightbox. New items since your last visit
-            are marked with a badge.
+            <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The sidebar has
+            three tabs: <strong>Pins</strong>, <strong>Media</strong>, and{" "}
+            <strong>Brain</strong>.
+          </P>
+          <P>
+            The <strong>Pins</strong> tab shows values the agent has surfaced
+            via <Code>dispatch_pin</Code> — URLs, ports, branch names, file
+            paths, and other key info. The <strong>Media</strong> tab shows
+            shared files in reverse chronological order (most recent 50); click
+            an item to open the full-screen lightbox. New items since your last
+            visit are marked with a badge. The <strong>Brain</strong> tab
+            displays shared-memory objects, lists, and events the agent has
+            written — useful for inspecting job state or inter-agent
+            coordination without calling the Brain tools yourself.
           </P>
           <P>
             The sidebar opens in <strong>drawer</strong> mode by default —
