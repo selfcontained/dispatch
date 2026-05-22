@@ -292,7 +292,7 @@ function ListCard({
           <span className="font-medium truncate">{list.name}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
-          <CopyButton value={allItemValues} />
+          {items.length > 0 ? <CopyButton value={allItemValues} /> : null}
           <span>{list.itemCount} items</span>
           <RelativeTime iso={list.updatedAt} />
         </div>
@@ -312,7 +312,9 @@ function ListCard({
               onClick={() => setExpanded(true)}
               className="w-full px-2.5 py-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors text-center"
             >
-              Show all {list.itemCount} items
+              {list.itemCount <= 50
+                ? `Show all ${list.itemCount} items`
+                : `Show first 50 of ${list.itemCount} items`}
             </button>
           ) : null}
         </div>
@@ -372,7 +374,7 @@ function EventCard({ event }: { event: BrainEvent }): JSX.Element {
         ? { value: event.value }
         : {};
 
-  const allEntries = { ...meta, ...(payload as Record<string, unknown>) };
+  const allEntries = { ...(payload as Record<string, unknown>), ...meta };
 
   return (
     <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5">
@@ -406,7 +408,7 @@ export function BrainTabContent({
   agentId,
   repoRoot,
 }: BrainTabContentProps): JSX.Element {
-  const { data, isLoading } = useAgentBrainActivity(agentId, repoRoot);
+  const { data, isLoading, isError } = useAgentBrainActivity(agentId, repoRoot);
 
   if (!agentId || !repoRoot) {
     return (
@@ -423,6 +425,17 @@ export function BrainTabContent({
     return (
       <div className="grid h-full place-items-center p-4">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
+        <div className="flex flex-col items-center gap-2">
+          <Brain className="h-8 w-8 text-muted-foreground" />
+          <div className="mt-4">Failed to load brain data.</div>
+        </div>
       </div>
     );
   }
