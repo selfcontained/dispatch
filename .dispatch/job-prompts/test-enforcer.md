@@ -2,24 +2,28 @@ Keep Dispatch's local test signal trustworthy.
 
 Restore local test health first. Fix flaky tests when found. If the suite is green, spend the remaining effort on the highest-value missing coverage.
 
-This job runs on a recurring schedule, so lean on the state file to avoid rediscovering the same failures, flakes, and coverage gaps every run.
+This job runs on a recurring schedule, so lean on the Brain shared memory to pass context between runs and avoid rediscovering the same failures, flakes, and coverage gaps every time.
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Treat this as a recurring maintenance job, not a one-off coding session. Use the state file to carry forward what was fixed, what was deferred, and what the next run should focus on.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Treat this as a recurring maintenance job, not a one-off coding session. Use the Brain shared memory to carry forward what was fixed, what was deferred, and what the next run should focus on.
 
-## Phase 0: Read the state file
+## Phase 0: Read the state from the Brain
 
-Read `.dispatch/job-state/test-enforcer.md` before doing anything else. It contains:
+State is spread across purpose-specific brain primitives to keep writes minimal:
 
-- `last_audited_sha` — the HEAD SHA from the previous run
-- `last_coverage_summary` — the most recent useful coverage snapshot and notable deltas
-- `recent_flakes` — flaky tests or local-only failures seen recently, plus what was learned
-- `backlog` — worthwhile follow-up coverage or reliability work that prior runs deferred
-- `next_focus` — the specific area the last run recommended you start with this time
-- `history` — one-line summaries of what each prior run fixed
+1. **Core state** (collection: `job-state`, name: `test-enforcer`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in the state update phase.
+   - `last_audited_sha` — the HEAD SHA from the previous run
+   - `next_focus` — the specific area the last run recommended you start with this time
+   - `last_coverage_summary` — the most recent useful coverage snapshot and notable deltas
 
-If the state file is missing or malformed, bootstrap it during this run and keep the scope modest.
+2. **Backlog** (collection: `job-state`, name: `test-enforcer-backlog`) — read with `brain_list_get`. Worthwhile follow-up coverage or reliability work that prior runs deferred. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+
+3. **Flakes** (collection: `job-state`, name: `test-enforcer-flakes`) — read with `brain_list_get`. Flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses. Managed via `brain_list_push` / `brain_list_remove`.
+
+4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "test-enforcer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+
+If the core state object is not found (first run), bootstrap it during this run and keep the scope modest.
 
 ## Success criteria
 
@@ -34,11 +38,11 @@ If the state file is missing or malformed, bootstrap it during this run and keep
 
 Do not treat every run as a fresh audit of the whole test surface.
 
-1. Read `next_focus` in the state file. That is the default assignment for this run.
+1. Read `next_focus` from the core state object. That is the default assignment for this run.
 2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the previous run.
-3. If `next_focus` was already handled by newer commits, skip it, pick the top relevant item from `backlog`, and note that in the state file update.
+3. If `next_focus` was already handled by newer commits, skip it, pick the top relevant item from the backlog list, and note that in the state update.
 4. If the suite is red locally, stability work overrides `next_focus`.
-5. If the suite is already green, use `next_focus`, `backlog`, and recent diffs to decide where the highest-value coverage or flake-reduction work is.
+5. If the suite is already green, use `next_focus`, the backlog list, and recent diffs to decide where the highest-value coverage or flake-reduction work is.
 
 ## Priority order
 
@@ -103,18 +107,29 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
 
 If required tooling, credentials, or environment capabilities are missing, document that precisely and use the appropriate terminal job report.
 
-## State file update
+## State update in the Brain
 
-Before committing, rewrite `.dispatch/job-state/test-enforcer.md` with:
+**Core state** — use `brain_store_object` (collection: `job-state`, name: `test-enforcer`) with the `expectedRevision` from Phase 0. Updated every run. Three fields:
 
-- `last_audited_sha` — current HEAD
-- `last_coverage_summary` — concise snapshot of overall coverage and any meaningful movement observed this run
-- `recent_flakes` — current list of flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses
-- `backlog` — worthwhile reliability or coverage work intentionally deferred; remove completed items and re-prioritize the rest
-- `next_focus` — the specific area the next run should start with; be concrete about file paths, tests, or workflows
-- `history` — append a one-line entry for this run: date, what was fixed, what coverage was added, and PR number if applicable
+- `last_audited_sha` — current HEAD.
+- `next_focus` — the specific area the next run should start with. Be concrete about file paths, tests, or workflows.
+- `last_coverage_summary` — concise snapshot of overall coverage and any meaningful movement observed this run.
 
-Treat the state file as a handoff note to a colleague, not a log dump.
+**Backlog** — use list operations (collection: `job-state`, name: `test-enforcer-backlog`). Do not rewrite the full list — use surgical mutations:
+
+- `brain_list_remove` — remove items you addressed or that are no longer relevant.
+- `brain_list_push` — add any new deferred reliability or coverage work. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
+
+**Flakes** — use list operations (collection: `job-state`, name: `test-enforcer-flakes`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new flake observations (with `maxItems: 30`) and `brain_list_remove` to prune resolved ones.
+
+**Run event** — log this run using `brain_append_event`:
+
+- collection: `job-state`
+- kind: `run`
+- subject: `test-enforcer`
+- value: `{ "date": "<today>", "summary": "<one-line summary of what was fixed and what coverage was added>", "pr": "<PR number>" }`
+
+This keeps writes minimal — the core object is just three fields, backlog and flake mutations are surgical, and full history lives in the append-only event log.
 
 ## Flaky test policy
 
@@ -258,7 +273,7 @@ Submit a terminal report that includes:
 5. Linear tickets created for non-trivial bugs, including identifiers or links.
 6. Tests added or updated, with a short justification for each.
 7. Coverage gaps identified but intentionally not addressed, with reasoning.
-8. State-file summary, including updated `next_focus` and the top deferred items.
+8. Brain state summary, including updated `next_focus` and the top deferred items.
 9. PR outcome, including the PR URL and whether it merged.
 10. Any remaining environment sensitivity, cleanup risk, or flake risk still worth watching.
 
