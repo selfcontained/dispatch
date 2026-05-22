@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentPin, AgentRecord } from "../agents/types.js";
-import type { JobAgentType } from "../jobs/store.js";
+import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import {
   TemplateStore,
@@ -17,7 +17,7 @@ export type AddTemplateInput = {
   directory: string;
   description?: string | null;
   prompt?: string | null;
-  agentType?: JobAgentType;
+  agentType?: AgentType;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -30,7 +30,7 @@ export type LaunchTemplateInput = {
   templateId: string;
   args?: Record<string, string>;
   directory?: string;
-  agentType?: JobAgentType;
+  agentType?: AgentType;
   startupFiles?: Array<{
     fileName: string;
     originalName?: string;
@@ -137,7 +137,11 @@ export class TemplateService {
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);
     }
-    if (!template.prompt) {
+
+    const resolvedType = input.agentType ?? template.agentType;
+    const isTerminal = resolvedType === "terminal";
+
+    if (!isTerminal && !template.prompt) {
       throw new Error(
         `Template "${template.name}" has no prompt configured. Add a prompt before launching.`
       );
@@ -152,38 +156,43 @@ export class TemplateService {
       );
     }
 
-    const parsedArgs = parseTemplateArgs(template.prompt);
-    const args = input.args ?? {};
+    let finalPrompt: string | undefined;
+    let initialPins: AgentPin[] = [];
 
-    let finalPrompt: string;
-    if (parsedArgs.length > 0) {
-      finalPrompt = substituteArgs(template.prompt, args);
-    } else {
-      finalPrompt = template.prompt;
+    if (!isTerminal && template.prompt) {
+      const parsedArgs = parseTemplateArgs(template.prompt);
+      const args = input.args ?? {};
+
+      finalPrompt =
+        parsedArgs.length > 0
+          ? substituteArgs(template.prompt, args)
+          : template.prompt;
+
+      const argPins = parsedArgs
+        .filter((a) => args[a.key] != null || args[a.name] != null)
+        .map((a) => ({
+          label: a.name,
+          value: args[a.key] ?? args[a.name],
+          type: "string" as const,
+        }));
+
+      initialPins = [...argPins, ...(input.startupPins ?? [])];
     }
-
-    const argPins = parsedArgs
-      .filter((a) => args[a.key] != null || args[a.name] != null)
-      .map((a) => ({
-        label: a.name,
-        value: args[a.key] ?? args[a.name],
-        type: "string" as const,
-      }));
-
-    const initialPins = [...argPins, ...(input.startupPins ?? [])];
 
     const cwd = input.directory ?? template.directory;
     const agent = await this.agentManager.createAgent({
       name: sanitizeAgentName(template.name),
-      type: input.agentType ?? template.agentType,
+      type: resolvedType,
       cwd,
       initialPrompt: finalPrompt,
-      fullAccess: template.fullAccess,
-      useWorktree: template.useWorktree,
-      baseBranch: template.baseBranch ?? undefined,
-      worktreeBranch: template.branchName ?? undefined,
+      fullAccess: !isTerminal && template.fullAccess,
+      useWorktree: !isTerminal && template.useWorktree,
+      baseBranch: !isTerminal ? (template.baseBranch ?? undefined) : undefined,
+      worktreeBranch: !isTerminal
+        ? (template.branchName ?? undefined)
+        : undefined,
       initialPins,
-      initialFiles: input.startupFiles ?? [],
+      initialFiles: !isTerminal ? (input.startupFiles ?? []) : [],
       templateId: template.id,
     });
 

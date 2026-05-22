@@ -12,11 +12,10 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { AgentType } from "@/lib/agent-types";
 import {
   AGENT_TYPE_LABELS,
-  type CliAgentType,
-  isCliAgentType,
+  type AgentType,
+  sortAgentTypes,
 } from "@/lib/agent-types";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { parseTemplateArgs } from "@/hooks/use-templates";
@@ -27,10 +26,11 @@ export function AgentTypeCombobox({
   onChange,
   agentTypes,
 }: {
-  value: CliAgentType;
-  onChange: (value: CliAgentType) => void;
-  agentTypes: CliAgentType[];
+  value: AgentType;
+  onChange: (value: AgentType) => void;
+  agentTypes: AgentType[];
 }): JSX.Element {
+  const sorted = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
   const [open, setOpen] = useState(false);
   const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -82,7 +82,7 @@ export function AgentTypeCombobox({
           >
             <CommandList>
               <CommandGroup>
-                {agentTypes.map((t) => (
+                {sorted.map((t) => (
                   <CommandItem
                     key={t}
                     value={t}
@@ -191,8 +191,8 @@ export function TemplateFullAccessOption({
 }
 
 export interface TemplateConfigFieldsProps {
-  agentType: CliAgentType;
-  onAgentTypeChange: (value: CliAgentType) => void;
+  agentType: AgentType;
+  onAgentTypeChange: (value: AgentType) => void;
   enabledAgentTypes: AgentType[];
   name: string;
   onNameChange: (value: string) => void;
@@ -243,10 +243,7 @@ export function TemplateConfigFields({
   onPromptChange,
   autoFocusName,
 }: TemplateConfigFieldsProps): JSX.Element {
-  const cliAgentTypes = useMemo(
-    () => enabledAgentTypes.filter(isCliAgentType),
-    [enabledAgentTypes]
-  );
+  const isTerminal = agentType === "terminal";
 
   const detectedArgs = useMemo(
     () => (prompt ? parseTemplateArgs(prompt) : []),
@@ -260,7 +257,7 @@ export function TemplateConfigFields({
         <AgentTypeCombobox
           value={agentType}
           onChange={onAgentTypeChange}
-          agentTypes={cliAgentTypes}
+          agentTypes={enabledAgentTypes}
         />
       </div>
 
@@ -294,20 +291,24 @@ export function TemplateConfigFields({
         />
       </div>
 
-      <TemplateWorktreeOption
-        checked={useWorktree}
-        cwd={directory}
-        baseBranch={baseBranch}
-        branchName={branchName}
-        onCheckedChange={onUseWorktreeChange}
-        onBaseBranchChange={onBaseBranchChange}
-        onBranchNameChange={onBranchNameChange}
-      />
+      {!isTerminal ? (
+        <>
+          <TemplateWorktreeOption
+            checked={useWorktree}
+            cwd={directory}
+            baseBranch={baseBranch}
+            branchName={branchName}
+            onCheckedChange={onUseWorktreeChange}
+            onBaseBranchChange={onBaseBranchChange}
+            onBranchNameChange={onBranchNameChange}
+          />
 
-      <TemplateFullAccessOption
-        checked={fullAccess}
-        onCheckedChange={onFullAccessChange}
-      />
+          <TemplateFullAccessOption
+            checked={fullAccess}
+            onCheckedChange={onFullAccessChange}
+          />
+        </>
+      ) : null}
 
       <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
         <Checkbox
@@ -325,52 +326,56 @@ export function TemplateConfigFields({
         </span>
       </label>
 
-      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-        <Checkbox
-          checked={allowMedia}
-          onCheckedChange={() => onAllowMediaChange(!allowMedia)}
-          className="mt-0.5"
-        />
-        <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <Paperclip className="h-3.5 w-3.5" />
-            Allow media attachments on launch
-          </span>
-          <span className="block text-xs text-muted-foreground">
-            Show a context area for files and links when launching this
-            template.
-          </span>
-        </span>
-      </label>
-
-      <div className="space-y-1">
-        <label className="text-sm text-muted-foreground">Prompt</label>
-        <Textarea
-          value={prompt}
-          onChange={(e) => onPromptChange(e.target.value)}
-          placeholder="Describe what the agent should do..."
-          className={cn(
-            "min-h-[120px] resize-y",
-            "ring-offset-background placeholder:text-muted-foreground",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          )}
-        />
-        {detectedArgs.length > 0 ? (
-          <div className="mt-1.5 text-xs text-muted-foreground">
-            Detected arguments:{" "}
-            {detectedArgs.map((a) => (
-              <span
-                key={a.key}
-                className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
-              >
-                {a.name}
-                {a.required ? " *" : ""}
-                {a.multiline ? " (multiline)" : ""}
+      {!isTerminal ? (
+        <>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+            <Checkbox
+              checked={allowMedia}
+              onCheckedChange={() => onAllowMediaChange(!allowMedia)}
+              className="mt-0.5"
+            />
+            <span className="space-y-1">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <Paperclip className="h-3.5 w-3.5" />
+                Allow media attachments on launch
               </span>
-            ))}
+              <span className="block text-xs text-muted-foreground">
+                Show a context area for files and links when launching this
+                template.
+              </span>
+            </span>
+          </label>
+
+          <div className="space-y-1">
+            <label className="text-sm text-muted-foreground">Prompt</label>
+            <Textarea
+              value={prompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="Describe what the agent should do..."
+              className={cn(
+                "min-h-[120px] resize-y",
+                "ring-offset-background placeholder:text-muted-foreground",
+                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              )}
+            />
+            {detectedArgs.length > 0 ? (
+              <div className="mt-1.5 text-xs text-muted-foreground">
+                Detected arguments:{" "}
+                {detectedArgs.map((a) => (
+                  <span
+                    key={a.key}
+                    className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                  >
+                    {a.name}
+                    {a.required ? " *" : ""}
+                    {a.multiline ? " (multiline)" : ""}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        </>
+      ) : null}
     </div>
   );
 }

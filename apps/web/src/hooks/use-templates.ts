@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type { CliAgentType } from "@/lib/agent-types";
+import type { AgentType } from "@/lib/agent-types";
 import type { Agent } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import {
@@ -17,7 +17,7 @@ export type Template = {
   name: string;
   description: string | null;
   prompt: string | null;
-  agentType: CliAgentType;
+  agentType: AgentType;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -33,7 +33,7 @@ export type AddTemplateConfig = {
   directory: string;
   description?: string | null;
   prompt?: string | null;
-  agentType?: CliAgentType;
+  agentType?: AgentType;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -104,7 +104,7 @@ export function useTemplateActions() {
     }: {
       id: string;
       args?: Record<string, string>;
-      agentType?: CliAgentType;
+      agentType?: AgentType;
       startupFiles?: File[];
       startupLinks?: string[];
     }) => {

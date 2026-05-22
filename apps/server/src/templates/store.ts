@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
-import type { JobAgentType } from "../jobs/store.js";
+import type { AgentType } from "../agent-type-settings.js";
 import {
   parseTemplateArgs,
   substituteArgs,
@@ -19,7 +19,7 @@ export type TemplateRecord = {
   name: string;
   description: string | null;
   prompt: string | null;
-  agentType: JobAgentType;
+  agentType: AgentType;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -35,7 +35,7 @@ export type TemplateConfigUpdate = {
   description?: string | null;
   directory?: string;
   prompt?: string | null;
-  agentType?: JobAgentType;
+  agentType?: AgentType;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -52,7 +52,7 @@ export class TemplateStore {
     directory: string;
     description: string | null;
     prompt: string | null;
-    agentType: JobAgentType;
+    agentType: AgentType;
     useWorktree: boolean;
     baseBranch: string | null;
     branchName: string | null;

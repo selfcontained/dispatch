@@ -4,6 +4,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -48,7 +49,11 @@ import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
-import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  sortAgentTypes,
+} from "@/lib/agent-types";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
@@ -176,6 +181,10 @@ function CreateAgentDialogContent({
     }
   }, [step]);
 
+  const sortedAgentTypes = useMemo(
+    () => sortAgentTypes(enabledAgentTypes),
+    [enabledAgentTypes]
+  );
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -478,7 +487,7 @@ function CreateAgentDialogContent({
                       >
                         <CommandList>
                           <CommandGroup>
-                            {enabledAgentTypes.map((agentType) => (
+                            {sortedAgentTypes.map((agentType) => (
                               <CommandItem
                                 key={agentType}
                                 value={agentType}

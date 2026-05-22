@@ -124,6 +124,7 @@ export class JobService {
       ? await this.templateStore.getTemplate(job.templateId)
       : null;
     const agentConfig = template ?? job;
+    const agentType = agentConfig.agentType as JobAgentType;
 
     const rawPrompt = agentConfig.prompt;
     if (!rawPrompt) {
@@ -164,13 +165,9 @@ export class JobService {
     try {
       const agent = await this.agentManager.createAgent({
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
-        type: agentConfig.agentType,
+        type: agentType,
         cwd: job.directory,
-        agentArgs: buildAgentArgs(
-          agentConfig.agentType,
-          prompt,
-          agentConfig.fullAccess
-        ),
+        agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
         fullAccess: agentConfig.fullAccess,
         useWorktree: agentConfig.useWorktree,
         baseBranch: agentConfig.baseBranch ?? undefined,

@@ -3,7 +3,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
-import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
+import { AGENT_TYPES } from "../agent-type-settings.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
@@ -30,7 +30,7 @@ const AddTemplateBodySchema = z.object({
   directory: directoryField,
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
-  agentType: z.enum(CLI_AGENT_TYPES).optional(),
+  agentType: z.enum(AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
@@ -44,7 +44,7 @@ const UpdateTemplateBodySchema = z.object({
   directory: directoryField.optional(),
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
-  agentType: z.enum(CLI_AGENT_TYPES).optional(),
+  agentType: z.enum(AGENT_TYPES).optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
@@ -56,7 +56,7 @@ const UpdateTemplateBodySchema = z.object({
 const LaunchBodySchema = z.object({
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
-  agentType: z.enum(CLI_AGENT_TYPES).optional(),
+  agentType: z.enum(AGENT_TYPES).optional(),
 });
 
 function classifyErrorCode(message: string): number {
