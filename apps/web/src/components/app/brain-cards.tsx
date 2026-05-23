@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, History } from "lucide-react";
 
 import {
   useBrainListItems,
@@ -186,11 +186,12 @@ function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
   return (
     <Link
       to={`/activity/history/${agentId}`}
-      className="hidden font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors sm:inline"
+      className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
       title={agentId}
       onClick={(e) => e.stopPropagation()}
     >
-      {agentId.slice(0, 12)}
+      <History className="inline h-3 w-3 sm:hidden" />
+      <span className="hidden sm:inline">{agentId.slice(0, 12)}</span>
     </Link>
   );
 }

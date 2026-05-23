@@ -429,9 +429,20 @@ function BrainCollectionView({
     );
   }
 
+  const isCapped =
+    !collection &&
+    (objects.length >= 100 || lists.length >= 100 || events.length >= 100);
+
   return (
     <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
       <div className="mx-auto max-w-5xl space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5 overflow-hidden">
+        {isCapped && !search ? (
+          <div className="mx-3 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Showing the first 100 items per section. Select a collection to see
+            all entries.
+          </div>
+        ) : null}
+
         <CollapsibleSection
           title="Objects"
           icon={Database}
