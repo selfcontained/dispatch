@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 
 import {
@@ -10,9 +10,19 @@ import {
   setActivePersonalityId,
   updatePersonality,
 } from "../db/personalities.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 
 const NAME_MAX = 80;
 const PROMPT_MAX = 1000;
+
+function throwUnlessDuplicateName(error: unknown, reply: FastifyReply) {
+  if (errorMessage(error).includes("personalities_name_key")) {
+    return reply
+      .code(409)
+      .send({ error: "A personality with that name already exists." });
+  }
+  throw error;
+}
 
 type PersonalityRouteDeps = {
   pool: Pool;
@@ -58,13 +68,7 @@ export async function registerPersonalityRoutes(
       const personality = await createPersonality(pool, { name, prompt });
       return reply.code(201).send({ personality });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes("personalities_name_key")) {
-        return reply
-          .code(409)
-          .send({ error: "A personality with that name already exists." });
-      }
-      throw error;
+      return throwUnlessDuplicateName(error, reply);
     }
   });
 
@@ -118,13 +122,7 @@ export async function registerPersonalityRoutes(
       }
       return { personality: updated };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes("personalities_name_key")) {
-        return reply
-          .code(409)
-          .send({ error: "A personality with that name already exists." });
-      }
-      throw error;
+      return throwUnlessDuplicateName(error, reply);
     }
   });
 
