@@ -7,7 +7,6 @@ import { toToolError } from "./tool-error.js";
 export type PersonaToolCallbacks = {
   agentId: string;
   parentAgentId?: string | null;
-  allowRecheck?: boolean;
   updateReviewStatus?: McpRequestContext["updateReviewStatus"];
   completeReview?: McpRequestContext["completeReview"];
   getParentContext?: McpRequestContext["getParentContext"];
@@ -154,7 +153,6 @@ export function registerPersonaTools(
   // ── dispatch_get_recheck_context (persona) ────────────────────────
   if (
     allowed.has("dispatch_get_recheck_context") &&
-    callbacks.allowRecheck === true &&
     callbacks.getRecheckContext
   ) {
     const getRecheckContext = callbacks.getRecheckContext;
@@ -163,7 +161,7 @@ export function registerPersonaTools(
       "dispatch_get_recheck_context",
       {
         description:
-          "Reviewer-only for recheck-enabled sessions. Returns whether round-2 context is ready yet and, once it is, the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
+          "Reviewer-only. Returns whether round-2 context is ready yet and, once it is, the parent's resolution summary, per-item resolutions, and the exact commit range to inspect locally with git diff.",
         inputSchema: {},
       },
       async () => {

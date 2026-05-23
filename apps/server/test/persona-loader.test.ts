@@ -250,19 +250,8 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Do NOT submit positive affirmations");
   });
 
-  it("omits the recheck round-trip block by default", () => {
+  it("always includes the recheck round-trip block", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).not.toContain("Recheck round-trip");
-  });
-
-  it("appends the recheck round-trip block when allowRecheck is true", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult("diff"),
-      { allowRecheck: true }
-    );
-
     expect(result).toContain("Recheck round-trip");
     expect(result).toContain("dispatch_complete_review");
     expect(result).toContain("respondsToFeedbackId");
@@ -271,22 +260,20 @@ describe("assemblePersonaPrompt", () => {
     expect(result).not.toContain("pollAgainInSeconds");
     expect(result).toMatch(/push a short prompt/i);
     expect(result).toMatch(/exact commit range/i);
+  });
+
+  it("places the recheck block before context and diff sections", () => {
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("diff")
+    );
 
     const guidanceIdx = result.indexOf("Recheck round-trip");
     const contextIdx = result.indexOf("## Context from parent agent");
     const diffIdx = result.indexOf("## Changes to review");
     expect(guidanceIdx).toBeLessThan(contextIdx);
     expect(contextIdx).toBeLessThan(diffIdx);
-  });
-
-  it("omits the recheck round-trip block when allowRecheck is false", () => {
-    const result = assemblePersonaPrompt(
-      basePersona,
-      "ctx",
-      makeDiffResult("diff"),
-      { allowRecheck: false }
-    );
-    expect(result).not.toContain("Recheck round-trip");
   });
 
   it("includes the diff section by default (includeDiff unset)", () => {

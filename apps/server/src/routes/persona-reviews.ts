@@ -22,7 +22,6 @@ type PersonaReviewRouteDeps = {
       persona: string;
       context: string;
       agentType?: (typeof CLI_AGENT_TYPES)[number];
-      allowRecheck?: boolean;
       includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
@@ -67,7 +66,6 @@ export async function registerPersonaReviewRoutes(
     const body = request.body as {
       persona?: unknown;
       agentType?: unknown;
-      allowRecheck?: unknown;
       includeDiff?: unknown;
     } | null;
     const agentId = params.id ?? "";
@@ -93,11 +91,6 @@ export async function registerPersonaReviewRoutes(
         error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
       });
     }
-    if (typeof body.allowRecheck !== "boolean") {
-      return reply
-        .code(400)
-        .send({ error: "allowRecheck is required and must be a boolean." });
-    }
     if (
       body.includeDiff !== undefined &&
       typeof body.includeDiff !== "boolean"
@@ -118,9 +111,9 @@ export async function registerPersonaReviewRoutes(
       const includeDiff = body.includeDiff !== false;
       const prompt = [
         `Use the dispatch_launch_persona MCP tool to launch the "${body.persona}" persona on your current work.`,
-        `Use agentType: "${body.agentType}", allowRecheck: ${body.allowRecheck ? "true" : "false"}, and includeDiff: ${includeDiff ? "true" : "false"}.`,
+        `Use agentType: "${body.agentType}" and includeDiff: ${includeDiff ? "true" : "false"}.`,
         "Treat this as an author-requested review for the current worktree/branch.",
-        "After launch, if recheck is enabled, do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
+        "Do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
         "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
       ].join(" ");
 
@@ -136,7 +129,6 @@ export async function registerPersonaReviewRoutes(
     const body = request.body as {
       persona?: unknown;
       agentType?: unknown;
-      allowRecheck?: unknown;
       includeDiff?: unknown;
       context?: unknown;
     } | null;
@@ -163,14 +155,6 @@ export async function registerPersonaReviewRoutes(
       return reply.code(400).send({
         error: `agentType must be one of: ${CLI_AGENT_TYPES.join(", ")}`,
       });
-    }
-    if (
-      body.allowRecheck !== undefined &&
-      typeof body.allowRecheck !== "boolean"
-    ) {
-      return reply
-        .code(400)
-        .send({ error: "allowRecheck must be a boolean when provided." });
     }
     if (
       body.includeDiff !== undefined &&
@@ -226,7 +210,6 @@ export async function registerPersonaReviewRoutes(
         persona: body.persona.trim(),
         context,
         agentType: requestedAgentType,
-        allowRecheck: body.allowRecheck === true,
         includeDiff: includeDiffVal,
       });
       const agent = await deps.agentManager.getAgent(result.agentId);

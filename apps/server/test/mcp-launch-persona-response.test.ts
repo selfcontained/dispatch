@@ -7,19 +7,14 @@ describe("buildLaunchPersonaResponseText", () => {
   const agentId = "agt_test123";
   const base = `Launched persona "${persona}" as agent ${agentId}.`;
 
-  it("adds single-pass wait guidance when allowRecheck is false", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, false);
+  it("starts with the launch confirmation", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text.startsWith(base)).toBe(true);
-    expect(text).toContain("This review is push-based");
-    expect(text).toContain("There is no tool to poll");
-    expect(text).toContain(`personaAgentId="${agentId}"`);
   });
 
-  it("appends round-trip guidance when allowRecheck is true", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
-
-    expect(text.startsWith(base)).toBe(true);
-    expect(text).toContain("Review was launched with recheck enabled");
+  it("includes round-trip guidance", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId);
+    expect(text).toContain("multi-step round-trip review");
     expect(text).toContain("dispatch_get_feedback");
     expect(text).toContain("dispatch_resolve_feedback");
     expect(text).toContain("dispatch_submit_resolution");
@@ -27,51 +22,36 @@ describe("buildLaunchPersonaResponseText", () => {
   });
 
   it("tells the parent not to emit a terminal event yet (stay alive)", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).toContain("do not emit a terminal dispatch_event yet");
   });
 
   it("references the specific reviewer agent id in the guidance", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).toContain(`personaAgentId="${agentId}"`);
   });
 
   it("describes waiting in agent-runtime-neutral terms (no Claude-specific tool names)", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).not.toContain("ScheduleWakeup");
     expect(text).toMatch(/keep this turn alive/i);
   });
 
   it("does not instruct the parent to call any await/poll tool", () => {
-    // Round-trip transitions are now pushed via terminal injection, not
-    // surfaced through a polling MCP tool.
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).not.toContain("dispatch_await_review");
     expect(text).not.toContain("dispatch_await_recheck");
     expect(text).not.toMatch(/pollAgainInSeconds/i);
-  });
-
-  it("uses the same non-polling guidance for single-pass reviews", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, false);
-    expect(text).not.toContain("dispatch_await_review");
-    expect(text).not.toContain("dispatch_await_recheck");
-    expect(text).not.toMatch(/pollAgainInSeconds/i);
-  });
-
-  it("acknowledges that single-pass parents must bail out manually if no prompt arrives", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, false);
-    expect(text).toMatch(/bail out/i);
-    expect(text).toMatch(/no parent-side cancel tool/i);
   });
 
   it("explains that the next-round signal arrives via terminal injection", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).toMatch(/inject .* prompt/i);
     expect(text).toMatch(/this terminal/i);
   });
 
   it("tells the parent to commit fixes before submitting resolution", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).toContain(
       "Commit your fixes before submitting the resolution"
     );
@@ -79,7 +59,7 @@ describe("buildLaunchPersonaResponseText", () => {
   });
 
   it("places the guidance block after a blank line separator", () => {
-    const text = buildLaunchPersonaResponseText(persona, agentId, true);
-    expect(text).toContain(`${base}\n\nReview was launched with recheck`);
+    const text = buildLaunchPersonaResponseText(persona, agentId);
+    expect(text).toContain(`${base}\n\nThis is a multi-step round-trip`);
   });
 });

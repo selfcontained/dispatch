@@ -90,7 +90,7 @@ test.describe("Persona recheck UI", () => {
     await expect(cancelButton).not.toBeVisible();
   });
 
-  test("launcher opt-in sends allowRecheck through the launch route", async ({
+  test("launcher does not show allowRecheck toggle (recheck is always on)", async ({
     page,
     request,
   }) => {
@@ -98,21 +98,6 @@ test.describe("Persona recheck UI", () => {
       name: `e2e-agent-${Date.now()}`,
       cwd: process.cwd(),
       useWorktree: false,
-    });
-    let launchRouteCalls = 0;
-    let lastLaunchPayload: unknown = null;
-    page.on("request", (req) => {
-      if (
-        req.method() === "POST" &&
-        req.url().includes(`/api/v1/agents/${agent.id}/launch-review`)
-      ) {
-        launchRouteCalls += 1;
-        try {
-          lastLaunchPayload = req.postDataJSON();
-        } catch {
-          lastLaunchPayload = null;
-        }
-      }
     });
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
@@ -122,29 +107,10 @@ test.describe("Persona recheck UI", () => {
     await expect(
       page.getByRole("heading", { name: "Launch Review" })
     ).toBeVisible();
-    const recheckToggle = page.getByTestId("launch-reviewer-allow-recheck");
-    await recheckToggle.click();
-    await expect(recheckToggle).toHaveAttribute("data-state", "checked");
-    await page.getByRole("button", { name: "Cancel" }).click();
+
     await expect(
-      page.getByRole("heading", { name: "Launch Review" })
+      page.getByTestId("launch-reviewer-allow-recheck")
     ).not.toBeVisible();
-
-    await page.getByTestId("launch-reviewer-button").click();
-    await expect(
-      page.getByRole("heading", { name: "Launch Review" })
-    ).toBeVisible();
-    await expect(recheckToggle).toHaveAttribute("data-state", "checked");
-    await page
-      .getByTestId("launch-reviewer-persona-architecture-review")
-      .click();
-    await page.getByTestId("launch-reviewer-submit").click();
-
-    await expect.poll(() => launchRouteCalls).toBeGreaterThanOrEqual(1);
-    expect(lastLaunchPayload).toMatchObject({
-      persona: "architecture-review",
-      allowRecheck: true,
-    });
   });
 
   test("launcher shows an error when review launch fails", async ({

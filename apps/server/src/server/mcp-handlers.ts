@@ -362,7 +362,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
 
       const feedbackCount = await agentManager.countFeedbackForAgent(agentId);
-      const isMidRoundTrip = review.allowRecheck && review.roundNumber < 2;
+      const isMidRoundTrip = review.roundNumber < 2;
       const parentPrompt = isMidRoundTrip
         ? buildParentRound1FeedbackPrompt({
             persona: review.persona,
@@ -411,7 +411,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       agentId: string
     ): Promise<RecheckContextResult | null> {
       const review = await agentManager.getPersonaReview(agentId);
-      if (!review || !review.allowRecheck) {
+      if (!review) {
         return null;
       }
 
@@ -524,7 +524,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         persona: string;
         context: string;
         agentType?: (typeof CLI_AGENT_TYPES)[number];
-        allowRecheck?: boolean;
         includeDiff?: boolean;
       }
     ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
@@ -613,7 +612,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         );
       }
       const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
-        allowRecheck: opts.allowRecheck,
         includeDiff,
       });
 
@@ -653,7 +651,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         parentAgentId: agentId,
         persona: opts.persona,
         lastReviewedCommit: launchCommit,
-        allowRecheck: opts.allowRecheck,
       });
 
       const agentWithReview = await agentManager.getAgent(agent.id);

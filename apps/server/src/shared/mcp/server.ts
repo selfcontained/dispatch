@@ -25,7 +25,6 @@ export type McpAgent = {
   parentAgentId?: string | null;
   baseBranch?: string | null;
   review?: {
-    allowRecheck?: boolean;
     status?: string | null;
   } | null;
 };
@@ -301,7 +300,6 @@ export type McpRequestContext = {
       persona: string;
       context: string;
       agentType?: LaunchPersonaAgentType;
-      allowRecheck?: boolean;
       includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
@@ -425,7 +423,6 @@ async function createDispatchMcpServer(
     registerPersonaTools(server, allowed, {
       agentId: context.agent.id,
       parentAgentId: context.agent.parentAgentId,
-      allowRecheck: context.agent.review?.allowRecheck,
       updateReviewStatus: context.updateReviewStatus,
       completeReview: context.completeReview,
       getParentContext: context.getParentContext,

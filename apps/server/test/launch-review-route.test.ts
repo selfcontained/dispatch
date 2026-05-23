@@ -118,7 +118,6 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
       payload: {
         persona: malicious,
         agentType: "claude",
-        allowRecheck: true,
       },
     });
 
@@ -137,7 +136,6 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
       payload: {
         persona: "../../etc/passwd",
         agentType: "claude",
-        allowRecheck: false,
       },
     });
 
@@ -156,7 +154,7 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
         method: "POST",
         url: `/api/v1/agents/${agentId}/launch-review`,
         headers: { cookie: sessionCookie, "content-type": "application/json" },
-        payload: { persona, agentType: "claude", allowRecheck: false },
+        payload: { persona, agentType: "claude" },
       });
       expect(response.statusCode).toBe(400);
     }
@@ -171,7 +169,6 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
       payload: {
         persona: "backend-security-review",
         agentType: "claude",
-        allowRecheck: true,
       },
     });
 

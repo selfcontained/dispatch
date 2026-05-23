@@ -63,9 +63,7 @@ export function shortSha(sha: string | null | undefined): string | null {
 }
 
 export function canCancelRecheck(agent: Agent): boolean {
-  const review = agent.review;
-  if (!review?.allowRecheck) return false;
-  return review.status === "awaiting_recheck";
+  return agent.review?.status === "awaiting_recheck";
 }
 
 export function formatFeedbackText(item: FeedbackItem): string {

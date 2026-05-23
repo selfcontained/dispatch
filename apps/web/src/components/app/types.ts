@@ -60,7 +60,6 @@ export type Agent = {
     summary: string | null;
     filesReviewed: string[] | null;
     roundNumber: number;
-    allowRecheck: boolean;
     updatedAt: string;
     resolution: {
       summary: string;

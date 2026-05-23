@@ -258,7 +258,6 @@ function stepsFromReview(
 ): { step1: StepDef; step2: StepDef } {
   const hasResolution = !!child.review?.resolution?.summary;
   const roundNumber = child.review?.roundNumber ?? 1;
-  const allowRecheck = child.review?.allowRecheck ?? false;
   const reviewStatus = child.review?.status ?? null;
   const step1: StepDef = {
     label:
@@ -271,7 +270,7 @@ function stepsFromReview(
   let step2: StepDef;
   if (reviewStatus === "awaiting_recheck") {
     step2 = { label: "Rechecking", color: "orange", filled: false };
-  } else if (allowRecheck && roundNumber < 2) {
+  } else if (roundNumber < 2) {
     step2 = hasResolution
       ? { label: "Awaiting recheck", color: "muted", filled: false }
       : { label: "Awaiting resolution", color: "muted", filled: false };
