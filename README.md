@@ -183,6 +183,17 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `brain_list_delete`          | Delete a shared Brain list and all of its items                            |
 | `brain_append_event`         | Append a structured event to the Brain's immutable event log               |
 | `brain_query_events`         | Query Brain events by collection, kind, subject, tags, and time range      |
+| `list_jobs`                  | List jobs scoped to a directory                                            |
+| `get_job`                    | Get a single job by ID or name                                             |
+| `create_job`                 | Create a new job                                                           |
+| `update_job`                 | Update an existing job's configuration                                     |
+| `delete_job`                 | Delete a job                                                               |
+| `run_job`                    | Trigger an immediate run of a job                                          |
+| `list_templates`             | List templates scoped to a directory                                       |
+| `get_template`               | Get a single template by ID or name                                        |
+| `create_template`            | Create a new reusable agent launch template                                |
+| `update_template`            | Update an existing template                                                |
+| `delete_template`            | Delete a template                                                          |
 
 ### Persona agents
 
@@ -190,7 +201,7 @@ Persona agents get a narrower set focused on reviewing their parent's work: `rev
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `dispatch_list_media`, `dispatch_launch_persona`, `dispatch_get_feedback`, `dispatch_resolve_feedback`, `dispatch_submit_resolution`, `dispatch_cancel_recheck`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`, `brain_get_object`, `brain_store_object`, `brain_list_objects`, `brain_delete_object`, `brain_list_push`, `brain_list_remove`, `brain_list_get`, `brain_list_set`, `brain_list_delete`, `brain_append_event`, and `brain_query_events`.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus `create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_rename_session`, `dispatch_notify`, `dispatch_pin`, `dispatch_share`, `dispatch_list_media`, `dispatch_launch_persona`, `dispatch_get_feedback`, `dispatch_resolve_feedback`, `dispatch_submit_resolution`, `dispatch_cancel_recheck`, `list_agents`, `list_personas`, `list_recent_persona_reviews`, `list_recent_feedback`, `get_activity_summary`, `get_agent_history`, `get_feedback_summary`, `brain_get_object`, `brain_store_object`, `brain_list_objects`, `brain_delete_object`, `brain_list_push`, `brain_list_remove`, `brain_list_get`, `brain_list_set`, `brain_list_delete`, `brain_append_event`, `brain_query_events`, `list_jobs`, `get_job`, `create_job`, `update_job`, `delete_job`, `run_job`, `list_templates`, `get_template`, `create_template`, `update_template`, and `delete_template`.
 
 ### Repo-specific tools
 
