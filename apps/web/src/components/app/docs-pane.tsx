@@ -658,6 +658,18 @@ const SECTIONS: SectionDef[] = [
               <Code>brain_append_event</Code>, <Code>brain_query_events</Code> —
               append to and query the Brain's immutable event log
             </li>
+            <li>
+              <Code>list_jobs</Code>, <Code>get_job</Code>,{" "}
+              <Code>create_job</Code>, <Code>update_job</Code>,{" "}
+              <Code>delete_job</Code>, <Code>run_job</Code> — manage and trigger
+              Dispatch jobs programmatically
+            </li>
+            <li>
+              <Code>list_templates</Code>, <Code>get_template</Code>,{" "}
+              <Code>create_template</Code>, <Code>update_template</Code>,{" "}
+              <Code>delete_template</Code> — manage reusable agent launch
+              templates
+            </li>
           </ul>
         </Section>
 
@@ -1067,6 +1079,15 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               and <Code>brain_query_events</Code>. Same tools as standard
               agents.
             </li>
+            <li>
+              <strong>Automation CRUD</strong> — <Code>list_jobs</Code>,{" "}
+              <Code>get_job</Code>, <Code>create_job</Code>,{" "}
+              <Code>update_job</Code>, <Code>delete_job</Code>,{" "}
+              <Code>run_job</Code>, <Code>list_templates</Code>,{" "}
+              <Code>get_template</Code>, <Code>create_template</Code>,{" "}
+              <Code>update_template</Code>, and <Code>delete_template</Code>.
+              Same tools as standard agents.
+            </li>
           </ul>
         </Section>
 
@@ -1128,10 +1149,13 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <H3>Automations UI</H3>
           <P>
             The Automations page has a tabbed sidebar with{" "}
-            <strong>Templates</strong> and <strong>Jobs</strong> tabs. Both tabs
-            use the same flat-list layout with a sliding indicator that animates
-            between them. Select an item to see its detail view, or use the
-            inline play button on a template for quick launch.
+            <strong>Templates</strong>, <strong>Jobs</strong>, and{" "}
+            <strong>Brains</strong> tabs. The first two use the same flat-list
+            layout with a sliding indicator that animates between them. Select
+            an item to see its detail view, or use the inline play button on a
+            template for quick launch. The <strong>Brains</strong> tab shows a
+            collection-first browser for the repo-scoped Brain — select a
+            project to browse its collections, objects, lists, and events.
           </P>
         </Section>
       </>
