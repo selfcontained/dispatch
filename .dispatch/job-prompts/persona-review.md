@@ -10,7 +10,7 @@ The goal is to keep the persona set effective: tune prompts that are producing n
 
 State is spread across purpose-specific brain primitives to keep writes minimal:
 
-1. **Core state** (collection: `job-state`, name: `persona-review`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 6.
+1. **Core state** (collection: `persona-review`, name: `state`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 6.
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `personas` — per-persona tracking keyed by persona name. Each value stores:
      - `prompt_sha`
@@ -20,11 +20,11 @@ State is spread across purpose-specific brain primitives to keep writes minimal:
      - `notes`
    - `next_focus` — the specific persona or issue the last run recommended you focus on this time
 
-2. **Backlog** (collection: `job-state`, name: `persona-review-backlog`) — read with `brain_list_get`. Prioritized deferred work items. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array. Each item is a JSON object with a `description` field.
+2. **Backlog** (collection: `persona-review`, name: `backlog`) — read with `brain_list_get`. Prioritized deferred work items. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array. Each item is a JSON object with a `description` field.
 
-3. **Patterns** (collection: `job-state`, name: `persona-review-patterns`) — read with `brain_list_get`. Recurring observations about persona effectiveness. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it. Each item is a JSON object with a `description` field.
+3. **Patterns** (collection: `persona-review`, name: `patterns`) — read with `brain_list_get`. Recurring observations about persona effectiveness. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it. Each item is a JSON object with a `description` field.
 
-4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "persona-review", limit: 5)`. Read-only context for recent decisions and PR summaries.
+4. **Run history** — query with `brain_query_events(collection: "persona-review", kind: "run", subject: "persona-review", limit: 5)`. Read-only context for recent decisions and PR summaries.
 
 If the core state object is not found (first run), fall through to the bootstrap pass in Phase 1.
 
@@ -117,7 +117,7 @@ If persona files were changed:
 
 Before committing, update Brain state instead of writing a file:
 
-**Core state** — use `brain_store_object` (collection: `job-state`, name: `persona-review`) with the `expectedRevision` from Phase 0. Updated every run. Store:
+**Core state** — use `brain_store_object` (collection: `persona-review`, name: `state`) with the `expectedRevision` from Phase 0. Updated every run. Store:
 
 - `last_audited_sha` — current HEAD.
 - `personas` — for each persona, update:
@@ -128,19 +128,19 @@ Before committing, update Brain state instead of writing a file:
   - `notes` — anything the next run should know (limited sample, recently changed, overlaps with another persona)
 - `next_focus` — the specific persona or issue the next run should tackle. Be concrete: name the persona, describe what to evaluate, and why.
 
-**Backlog** — use list operations (collection: `job-state`, name: `persona-review-backlog`). Do not rewrite the full list — use surgical mutations:
+**Backlog** — use list operations (collection: `persona-review`, name: `backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove items you addressed or that are no longer relevant.
 - `brain_list_push` — add new deferred items as `{"description": "..."}` with enough context for a future run to act on them. Set `maxItems: 30` so the oldest items roll off automatically.
 
-**Patterns** — use list operations (collection: `job-state`, name: `persona-review-patterns`).
+**Patterns** — use list operations (collection: `persona-review`, name: `patterns`).
 
 - `brain_list_remove` — prune stale observations when needed.
 - `brain_list_push` — add new observations as `{"description": "..."}`. Set `maxItems: 50` so the oldest items roll off automatically.
 
 **Run event** — log this run using `brain_append_event`:
 
-- collection: `job-state`
+- collection: `persona-review`
 - kind: `run`
 - subject: `persona-review`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was assessed or changed>", "pr": "<PR number or null>" }`

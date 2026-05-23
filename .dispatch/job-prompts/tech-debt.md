@@ -10,17 +10,17 @@ Tech debt here means code that works but is unnecessarily hard to maintain, exte
 
 State is spread across purpose-specific brain primitives to keep writes minimal:
 
-1. **Core state** (collection: `job-state`, name: `tech-debt`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+1. **Core state** (collection: `tech-debt`, name: `state`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `next_focus` — the specific area/issue the last run recommended you tackle this time
 
-2. **Backlog** (collection: `job-state`, name: `tech-debt-backlog`) — read with `brain_list_get`. A prioritized list of deferred issues. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+2. **Backlog** (collection: `tech-debt`, name: `backlog`) — read with `brain_list_get`. A prioritized list of deferred issues. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
 
-3. **Patterns** (collection: `job-state`, name: `tech-debt-patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
+3. **Patterns** (collection: `tech-debt`, name: `patterns`) — read with `brain_get_object`. Save its `revision` too if you plan to update it.
    - `patterns` — recurring observations about where debt accumulates in this codebase
    - Only update this object when you have a new pattern to add or a stale one to prune. Most runs won't touch it.
 
-4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "tech-debt", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+4. **Run history** — query with `brain_query_events(collection: "tech-debt", kind: "run", subject: "tech-debt", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 
 If the core state object is not found (first run), fall through to the bootstrap audit in Phase 1.
 
@@ -44,7 +44,7 @@ Do a broad audit to seed the state. Do **not** fix anything yet — the goal is 
 6. **Stale dependencies.** Check `package.json` files for dependencies that appear unused (not imported anywhere).
 7. **Inconsistent patterns.** Note places where the same concept is handled differently across the codebase (e.g., error handling, logging, config access).
 
-Organize findings into a prioritized backlog (highest-impact / lowest-risk items first). Store core state using `brain_store_object` (collection: `job-state`, name: `tech-debt`) with the top item as `next_focus`. Push all other items to the backlog list using `brain_list_push` (collection: `job-state`, name: `tech-debt-backlog`). Open a PR with the audit summary and merge it.
+Organize findings into a prioritized backlog (highest-impact / lowest-risk items first). Store core state using `brain_store_object` (collection: `tech-debt`, name: `state`) with the top item as `next_focus`. Push all other items to the backlog list using `brain_list_push` (collection: `tech-debt`, name: `backlog`). Open a PR with the audit summary and merge it.
 
 ## Phase 2: Fix the issue
 
@@ -65,21 +65,21 @@ For normal runs (not bootstrap), implement the fix:
 
 ## Phase 4: Update the state in the Brain
 
-**Core state** — use `brain_store_object` (collection: `job-state`, name: `tech-debt`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
+**Core state** — use `brain_store_object` (collection: `tech-debt`, name: `state`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
 
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific issue the next run should tackle. Be concrete: include file paths, line numbers, and a brief description of what to do. If the backlog is empty, describe what area to re-audit next.
 
-**Backlog** — use list operations (collection: `job-state`, name: `tech-debt-backlog`). Do not rewrite the full list — use surgical mutations:
+**Backlog** — use list operations (collection: `tech-debt`, name: `backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove the item you just fixed (index 0 if you took the top item).
 - `brain_list_push` — add any new issues you discovered. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem.
 
-**Patterns** — use `brain_store_object` (collection: `job-state`, name: `tech-debt-patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
+**Patterns** — use `brain_store_object` (collection: `tech-debt`, name: `patterns`) with its own `expectedRevision`. Only update when you have a new pattern to add or a stale one to prune. Skip this write if patterns didn't change.
 
 **Run event** — log this run using `brain_append_event`:
 
-- collection: `job-state`
+- collection: `tech-debt`
 - kind: `run`
 - subject: `tech-debt`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was fixed>", "pr": "<PR number>" }`

@@ -33,15 +33,15 @@ Prefer the smallest extraction that makes a meaningful difference. Don't over-sp
 
 State is spread across purpose-specific brain primitives to keep writes minimal:
 
-1. **Core state** (collection: `job-state`, name: `componentizer`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+1. **Core state** (collection: `componentizer`, name: `state`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `next_focus` — the specific component + recommended extraction the last run queued up
 
-2. **Backlog** (collection: `job-state`, name: `componentizer-backlog`) — read with `brain_list_get`. Prioritized list of oversized components with line counts and suggested strategies. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+2. **Backlog** (collection: `componentizer`, name: `backlog`) — read with `brain_list_get`. Prioritized list of oversized components with line counts and suggested strategies. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
 
-3. **Patterns** (collection: `job-state`, name: `componentizer-patterns`) — read with `brain_list_get`. Observations about where components tend to bloat in this codebase. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
+3. **Patterns** (collection: `componentizer`, name: `patterns`) — read with `brain_list_get`. Observations about where components tend to bloat in this codebase. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
 
-4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "componentizer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+4. **Run history** — query with `brain_query_events(collection: "componentizer", kind: "run", subject: "componentizer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 
 If the core state object is not found (first run), fall through to the bootstrap scan in Phase 1.
 
@@ -61,7 +61,7 @@ Do a scan to seed the Brain. Do **not** refactor anything yet — the goal is to
 2. For each file over 300 lines, briefly assess which refactoring strategy would apply and how impactful the split would be.
 3. Prioritize by: (a) files that agents touch most often (route components, shared UI), (b) worst offenders by line count, (c) clearest extraction path (low-risk splits first).
 4. Skip files that are large by nature and don't benefit from splitting: generated code, test fixtures, single complex forms that are genuinely cohesive.
-5. Store core state using `brain_store_object` (collection: `job-state`, name: `componentizer`) with the top candidate as `next_focus`. Push all other items to the backlog list using `brain_list_push` (collection: `job-state`, name: `componentizer-backlog`). Open a PR with the scan summary and merge it.
+5. Store core state using `brain_store_object` (collection: `componentizer`, name: `state`) with the top candidate as `next_focus`. Push all other items to the backlog list using `brain_list_push` (collection: `componentizer`, name: `backlog`). Open a PR with the scan summary and merge it.
 
 ## Phase 2: Refactor the component
 
@@ -83,21 +83,21 @@ If a refactoring turns out to be riskier than expected (component is tightly cou
 
 ## Phase 4: Update the state in the Brain
 
-**Core state** — use `brain_store_object` (collection: `job-state`, name: `componentizer`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
+**Core state** — use `brain_store_object` (collection: `componentizer`, name: `state`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
 
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific component the next run should tackle. Be concrete: include the file path, current line count, and the recommended extraction strategy. If the backlog is empty, describe what area to re-scan next.
 
-**Backlog** — use list operations (collection: `job-state`, name: `componentizer-backlog`). Do not rewrite the full list — use surgical mutations:
+**Backlog** — use list operations (collection: `componentizer`, name: `backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove the item you just refactored (index 0 if you took the top item).
 - `brain_list_push` — add any new candidates you noticed. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
 
-**Patterns** — use list operations (collection: `job-state`, name: `componentizer-patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
+**Patterns** — use list operations (collection: `componentizer`, name: `patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
 
 **Run event** — log this run using `brain_append_event`:
 
-- collection: `job-state`
+- collection: `componentizer`
 - kind: `run`
 - subject: `componentizer`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was refactored>", "pr": "<PR number>" }`

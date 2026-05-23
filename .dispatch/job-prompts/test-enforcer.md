@@ -12,16 +12,16 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 State is spread across purpose-specific brain primitives to keep writes minimal:
 
-1. **Core state** (collection: `job-state`, name: `test-enforcer`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in the state update phase.
+1. **Core state** (collection: `test-enforcer`, name: `state`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in the state update phase.
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `next_focus` — the specific area the last run recommended you start with this time
    - `last_coverage_summary` — the most recent useful coverage snapshot and notable deltas
 
-2. **Backlog** (collection: `job-state`, name: `test-enforcer-backlog`) — read with `brain_list_get`. Worthwhile follow-up coverage or reliability work that prior runs deferred. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+2. **Backlog** (collection: `test-enforcer`, name: `backlog`) — read with `brain_list_get`. Worthwhile follow-up coverage or reliability work that prior runs deferred. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
 
-3. **Flakes** (collection: `job-state`, name: `test-enforcer-flakes`) — read with `brain_list_get`. Flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses. Managed via `brain_list_push` / `brain_list_remove`.
+3. **Flakes** (collection: `test-enforcer`, name: `flakes`) — read with `brain_list_get`. Flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses. Managed via `brain_list_push` / `brain_list_remove`.
 
-4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "test-enforcer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+4. **Run history** — query with `brain_query_events(collection: "test-enforcer", kind: "run", subject: "test-enforcer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 
 If the core state object is not found (first run), bootstrap it during this run and keep the scope modest.
 
@@ -109,22 +109,22 @@ If required tooling, credentials, or environment capabilities are missing, docum
 
 ## State update in the Brain
 
-**Core state** — use `brain_store_object` (collection: `job-state`, name: `test-enforcer`) with the `expectedRevision` from Phase 0. Updated every run. Three fields:
+**Core state** — use `brain_store_object` (collection: `test-enforcer`, name: `state`) with the `expectedRevision` from Phase 0. Updated every run. Three fields:
 
 - `last_audited_sha` — current HEAD.
 - `next_focus` — the specific area the next run should start with. Be concrete about file paths, tests, or workflows.
 - `last_coverage_summary` — concise snapshot of overall coverage and any meaningful movement observed this run.
 
-**Backlog** — use list operations (collection: `job-state`, name: `test-enforcer-backlog`). Do not rewrite the full list — use surgical mutations:
+**Backlog** — use list operations (collection: `test-enforcer`, name: `backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove items you addressed or that are no longer relevant.
 - `brain_list_push` — add any new deferred reliability or coverage work. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
 
-**Flakes** — use list operations (collection: `job-state`, name: `test-enforcer-flakes`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new flake observations (with `maxItems: 30`) and `brain_list_remove` to prune resolved ones.
+**Flakes** — use list operations (collection: `test-enforcer`, name: `flakes`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new flake observations (with `maxItems: 30`) and `brain_list_remove` to prune resolved ones.
 
 **Run event** — log this run using `brain_append_event`:
 
-- collection: `job-state`
+- collection: `test-enforcer`
 - kind: `run`
 - subject: `test-enforcer`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was fixed and what coverage was added>", "pr": "<PR number>" }`
