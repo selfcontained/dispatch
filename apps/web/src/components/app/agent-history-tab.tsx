@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -942,9 +943,9 @@ function AgentHistoryDetail({
   agentId: string;
   onBack: () => void;
 }) {
-  const { data, isLoading } = useHistoryAgentDetail(agentId);
+  const { data, isLoading, isError } = useHistoryAgentDetail(agentId);
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="space-y-4 p-5">
         <button
@@ -957,6 +958,27 @@ function AgentHistoryDetail({
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-8 animate-pulse rounded bg-muted/30" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="space-y-4 p-5">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to history
+        </button>
+        <div className="flex flex-col items-center justify-center py-16 text-center text-sm text-muted-foreground">
+          <Search className="mb-3 h-8 w-8" />
+          <div className="font-medium text-foreground">Agent not found</div>
+          <div className="mt-1 max-w-xs text-xs">
+            No history data exists for this agent ID. It may have been cleaned
+            up or the link may be invalid.
+          </div>
         </div>
       </div>
     );
@@ -1120,20 +1142,21 @@ export function AgentHistoryTab({
   range: ActivityRange;
   onRangeChange: (r: ActivityRange) => void;
 }) {
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { agentId: selectedAgentId } = useParams<{ agentId?: string }>();
 
   if (selectedAgentId) {
     return (
       <AgentHistoryDetail
         agentId={selectedAgentId}
-        onBack={() => setSelectedAgentId(null)}
+        onBack={() => navigate("/activity/history")}
       />
     );
   }
 
   return (
     <AgentHistoryList
-      onSelect={setSelectedAgentId}
+      onSelect={(id) => navigate(`/activity/history/${id}`)}
       range={range}
       onRangeChange={onRangeChange}
     />
