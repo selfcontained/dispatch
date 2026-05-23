@@ -8,15 +8,15 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 State is spread across purpose-specific brain primitives to keep writes minimal:
 
-1. **Core state** (collection: `job-state`, name: `docs-audit`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
+1. **Core state** (collection: `docs-audit`, name: `state`) — read with `brain_get_object`. **Save the `revision`** for `expectedRevision` in Phase 4.
    - `last_audited_sha` — the HEAD SHA from the previous run
    - `next_focus` — the specific area the last run recommended you focus on this time
 
-2. **Backlog** (collection: `job-state`, name: `docs-audit-backlog`) — read with `brain_list_get`. Items noticed during prior passes but left for later runs. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+2. **Backlog** (collection: `docs-audit`, name: `backlog`) — read with `brain_list_get`. Items noticed during prior passes but left for later runs. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
 
-3. **Patterns** (collection: `job-state`, name: `docs-audit-patterns`) — read with `brain_list_get`. Recurring observations about where docs tend to go stale. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
+3. **Patterns** (collection: `docs-audit`, name: `patterns`) — read with `brain_list_get`. Recurring observations about where docs tend to go stale. Managed via `brain_list_push` / `brain_list_remove` — most runs won't touch it.
 
-4. **Run history** — query with `brain_query_events(collection: "job-state", kind: "run", subject: "docs-audit", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
+4. **Run history** — query with `brain_query_events(collection: "docs-audit", kind: "run", subject: "docs-audit", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 
 If the core state object is not found (first run), fall through to a bootstrap full pass (see Phase 5 fallback), log what you found, and seed the Brain at the end.
 
@@ -72,21 +72,21 @@ Do not rewrite docs for style. Fix factual drift only.
 
 ## Phase 4: Update the state in the Brain
 
-**Core state** — use `brain_store_object` (collection: `job-state`, name: `docs-audit`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
+**Core state** — use `brain_store_object` (collection: `docs-audit`, name: `state`) with the `expectedRevision` from Phase 0. Updated every run. Only two fields:
 
 - `last_audited_sha` — current HEAD (the commit you're about to create will supersede this when it lands).
 - `next_focus` — the specific area the next run should start with. Be concrete ("audit docs-pane Worktrees section against `packages/shared/src/git/worktree.ts`") rather than vague ("check worktrees").
 
-**Backlog** — use list operations (collection: `job-state`, name: `docs-audit-backlog`). Do not rewrite the full list — use surgical mutations:
+**Backlog** — use list operations (collection: `docs-audit`, name: `backlog`). Do not rewrite the full list — use surgical mutations:
 
 - `brain_list_remove` — remove items you addressed or that are no longer relevant.
 - `brain_list_push` — add any new issues you noticed but deferred. Each item is a JSON object with a `description` field (e.g., `{"description": "..."}`). Each entry should have enough context that a future run can act on it without re-discovering the problem. Set `maxItems: 30` so the oldest items roll off if the list grows too large.
 
-**Patterns** — use list operations (collection: `job-state`, name: `docs-audit-patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
+**Patterns** — use list operations (collection: `docs-audit`, name: `patterns`). Each item is a JSON object with a `description` field. Use `brain_list_push` to add new observations (with `maxItems: 50` so the oldest roll off) and `brain_list_remove` to prune stale ones. Skip if patterns didn't change.
 
 **Run event** — log this run using `brain_append_event`:
 
-- collection: `job-state`
+- collection: `docs-audit`
 - kind: `run`
 - subject: `docs-audit`
 - value: `{ "date": "<today>", "summary": "<one-line summary of what was audited and fixed>", "pr": "<PR number>" }`
