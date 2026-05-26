@@ -267,9 +267,7 @@ export async function registerMcpRoutes(
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
-        review: review
-          ? { allowRecheck: review.allowRecheck, status: review.status }
-          : null,
+        review: review ? { status: review.status } : null,
       },
       repoRoot,
       worktreeRoot,

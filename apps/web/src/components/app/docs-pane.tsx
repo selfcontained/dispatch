@@ -1097,9 +1097,8 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
             Because job agents can launch personas and act on their findings, a
             recurring job can self-review its own work without a human in the
             loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
-            <Code>dispatch_launch_persona</Code> (pass{" "}
-            <Code>allowRecheck: true</Code> for a round-2 pass), read findings
-            with <Code>dispatch_get_feedback</Code>, fix and commit them, then{" "}
+            <Code>dispatch_launch_persona</Code>, read findings with{" "}
+            <Code>dispatch_get_feedback</Code>, fix and commit them, then{" "}
             <Code>dispatch_submit_resolution</Code> — the reviewer rechecks
             against the new HEAD and emits a final verdict. The mechanics are
             documented under <strong>Reviewers → Round-trip reviews</strong> and
@@ -1373,9 +1372,7 @@ issues caused or worsened by this diff.`}</CodeBlock>
         <Section>
           <H3>Round-trip reviews</H3>
           <P>
-            Parent agents can opt into a single recheck pass by passing{" "}
-            <Code>allowRecheck: true</Code> to{" "}
-            <Code>dispatch_launch_persona</Code>. The reviewer stays alive after
+            Every review includes a recheck pass. The reviewer stays alive after
             its round-1 verdict, waiting for the parent to resolve feedback and
             submit a resolution — then performs a second pass and emits a final
             verdict.

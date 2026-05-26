@@ -1113,7 +1113,6 @@ export class AgentManager {
     parentAgentId: string;
     persona: string;
     lastReviewedCommit?: string | null;
-    allowRecheck?: boolean;
   }): Promise<PersonaReviewRecord> {
     return personaReviews.createPersonaReview(this.pool, input);
   }
@@ -1377,7 +1376,6 @@ export class AgentManager {
            'summary', pr.summary,
            'filesReviewed', pr.files_reviewed,
            'roundNumber', pr.round_number,
-           'allowRecheck', pr.allow_recheck,
            'updatedAt', pr.updated_at,
            'resolution', (
              SELECT json_build_object(

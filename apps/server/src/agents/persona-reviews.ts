@@ -14,7 +14,6 @@ export type PersonaReviewRecord = {
   filesReviewed: string[] | null;
   lastReviewedCommit: string | null;
   roundNumber: number;
-  allowRecheck: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -54,7 +53,6 @@ const PERSONA_REVIEW_SELECT = `
          files_reviewed AS "filesReviewed",
          last_reviewed_commit AS "lastReviewedCommit",
          round_number AS "roundNumber",
-         allow_recheck AS "allowRecheck",
          created_at AS "createdAt", updated_at AS "updatedAt"
   FROM persona_reviews
 `;
@@ -65,7 +63,6 @@ const PERSONA_REVIEW_RETURNING = `
             files_reviewed AS "filesReviewed",
             last_reviewed_commit AS "lastReviewedCommit",
             round_number AS "roundNumber",
-            allow_recheck AS "allowRecheck",
             created_at AS "createdAt", updated_at AS "updatedAt"
 `;
 
@@ -120,19 +117,17 @@ export async function createPersonaReview(
     parentAgentId: string;
     persona: string;
     lastReviewedCommit?: string | null;
-    allowRecheck?: boolean;
   }
 ): Promise<PersonaReviewRecord> {
   const result = await pool.query<PersonaReviewRecord>(
     `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, last_reviewed_commit, allow_recheck)
-     VALUES ($1, $2, $3, $4, COALESCE($5, false))
+     VALUES ($1, $2, $3, $4, true)
      ${PERSONA_REVIEW_RETURNING}`,
     [
       input.agentId,
       input.parentAgentId,
       input.persona,
       input.lastReviewedCommit ?? null,
-      input.allowRecheck ?? null,
     ]
   );
   return result.rows[0]!;
@@ -465,7 +460,7 @@ export async function submitReviewResolution(
       [review.id, roundNumber, summary, input.resolutionCommit ?? null]
     );
 
-    const nextStatus = review.allowRecheck ? "awaiting_recheck" : "complete";
+    const nextStatus = "awaiting_recheck";
     const updatedReviewResult = await client.query<PersonaReviewRecord>(
       `UPDATE persona_reviews
          SET status = $2, updated_at = NOW()
@@ -588,12 +583,11 @@ export async function cancelReviewRecheck(
       await client.query("COMMIT");
       return { review, transitioned: false };
     }
-    if (
-      review.status !== "awaiting_recheck" &&
-      !(review.status === "complete" && review.allowRecheck)
-    ) {
+    const isAwaitingResolution =
+      review.status === "complete" && review.roundNumber < 2;
+    if (review.status !== "awaiting_recheck" && !isAwaitingResolution) {
       throw new AgentError(
-        `Recheck can only be cancelled while awaiting round 2 or while the reviewer is polling after round 1 (current: ${review.status}).`,
+        `Recheck can only be cancelled while awaiting resolution or round 2 (current: ${review.status}, round: ${review.roundNumber}).`,
         409
       );
     }

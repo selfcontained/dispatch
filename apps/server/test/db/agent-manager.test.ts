@@ -1832,7 +1832,6 @@ describe("AgentManager", () => {
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
-          allowRecheck: true,
         });
         await manager.completePersonaReview(child.id, {
           verdict: "approve",
@@ -2001,18 +2000,17 @@ describe("AgentManager", () => {
         expect(resolutions[0].resolutionCommit).toBe("headsha1");
       });
 
-      it("keeps non-recheck reviews in complete after resolution submission", async () => {
+      it("transitions reviews to awaiting_recheck after resolution submission", async () => {
         const { parent, child } = await seedCompletedReview();
 
         const result = await manager.submitReviewResolution({
           parentAgentId: parent.id,
           personaAgentId: child.id,
-          summary: "Recorded the resolution without a recheck.",
+          summary: "Recorded the resolution for recheck.",
           resolutionCommit: "headsha1",
         });
 
-        expect(result.review.status).toBe("complete");
-        expect(result.review.allowRecheck).toBe(false);
+        expect(result.review.status).toBe("awaiting_recheck");
       });
 
       it("rejects repeat submit once the review is awaiting_recheck", async () => {
@@ -2159,7 +2157,6 @@ describe("AgentManager", () => {
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
-          allowRecheck: true,
         });
         await manager.completePersonaReview(child.id, {
           verdict: "approve",
@@ -2308,7 +2305,6 @@ describe("AgentManager", () => {
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
-          allowRecheck: true,
         });
 
         await expect(
@@ -2316,7 +2312,7 @@ describe("AgentManager", () => {
             parentAgentId: parent.id,
             personaAgentId: child.id,
           })
-        ).rejects.toThrow(/can only be cancelled while awaiting round 2/i);
+        ).rejects.toThrow(/can only be cancelled while awaiting/i);
       });
 
       it("records round 2 findings with round_number = 2", async () => {
@@ -2978,7 +2974,6 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
         persona: "architecture-review",
         lastReviewedCommit: "abc123",
-        allowRecheck: true,
       });
       await manager.completePersonaReview(reviewer.id, {
         verdict: "request_changes",

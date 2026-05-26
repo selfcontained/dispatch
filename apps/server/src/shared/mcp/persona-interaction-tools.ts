@@ -75,7 +75,7 @@ export function registerPersonaInteractionTools(
       "dispatch_launch_persona",
       {
         description:
-          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files. Pass `allowRecheck: true` to opt into a single round-trip — the reviewer will stay alive after its initial verdict and perform a second pass after you call dispatch_submit_resolution. Adds latency (~several minutes); use when verification matters.",
+          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files. Reviews always include a recheck pass — the reviewer stays alive after its initial verdict and performs a second pass after you call dispatch_submit_resolution.",
         inputSchema: {
           persona: z
             .string()
@@ -94,12 +94,6 @@ export function registerPersonaInteractionTools(
             .describe(
               "Optional agent runtime override for the persona launch."
             ),
-          allowRecheck: z
-            .boolean()
-            .default(false)
-            .describe(
-              "Opt into a single round-trip review: the reviewer stays alive after its initial verdict and performs a second pass once you call dispatch_submit_resolution. Adds latency (~several minutes); use when verification matters."
-            ),
           includeDiff: z
             .boolean()
             .default(true)
@@ -114,13 +108,11 @@ export function registerPersonaInteractionTools(
             persona: args.persona,
             context: args.context,
             agentType: args.agentType,
-            allowRecheck: args.allowRecheck,
             includeDiff: args.includeDiff,
           });
           const text = buildLaunchPersonaResponseText(
             result.persona,
-            result.agentId,
-            args.allowRecheck ?? false
+            result.agentId
           );
           return {
             content: [{ type: "text", text }],
@@ -192,7 +184,7 @@ export function registerPersonaInteractionTools(
       "dispatch_resolve_feedback",
       {
         description:
-          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — when the review was launched with allowRecheck: true, the reviewer sees the reason in their recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
+          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — the reviewer sees the reason in their recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
         inputSchema: {
           feedbackId: z
             .number()
@@ -244,7 +236,7 @@ export function registerPersonaInteractionTools(
       "dispatch_submit_resolution",
       {
         description:
-          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. IMPORTANT: commit your fixes before calling this. The server captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit — if you submit with uncommitted changes, the reviewer sees an empty diff and will re-flag the same issues. When the review was launched with allowRecheck: true, submitting the resolution triggers the reviewer's single recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
+          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. IMPORTANT: commit your fixes before calling this. The server captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit — if you submit with uncommitted changes, the reviewer sees an empty diff and will re-flag the same issues. Submitting the resolution triggers the reviewer's recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
         inputSchema: {
           personaAgentId: z
             .string()
@@ -285,22 +277,11 @@ export function registerPersonaInteractionTools(
 
 export function buildLaunchPersonaResponseText(
   persona: string,
-  agentId: string,
-  allowRecheck: boolean
+  agentId: string
 ): string {
-  const base = `Launched persona "${persona}" as agent ${agentId}.`;
-  if (!allowRecheck) {
-    return `${base}
+  return `Launched persona "${persona}" as agent ${agentId}.
 
-This review is push-based. Do not emit a terminal dispatch_event yet. Keep this turn alive and wait for the server to inject a completion prompt into this terminal when the reviewer finishes.
-
-There is no tool to poll while waiting. When the completion prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") only if that prompt says feedback items were recorded, then wrap up.
-
-If no prompt has arrived after a clearly unreasonable delay (the reviewer crashed, was archived, or got stuck), bail out on your own with a non-done dispatch_event explaining what happened — there is no parent-side cancel tool for single-pass reviews today.`;
-  }
-  return `${base}
-
-Review was launched with recheck enabled. This is a multi-step round-trip — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution, and the server will push a new prompt into this terminal when each round transitions.
+This is a multi-step round-trip review — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution, and the server will push a new prompt into this terminal when each round transitions.
 
 1. Wait for round 1. The server will inject a new prompt here when the reviewer submits their round-1 verdict. There is no tool to poll — keep this turn alive however your agent runtime allows, then act on the prompt when it arrives.
 

@@ -1,12 +1,10 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useAtom } from "jotai";
+import { useCallback, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
   CommandGroup,
@@ -39,7 +37,6 @@ import {
   type AgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
-import { reviewAllowRecheckPrefAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type PersonaSummary = {
@@ -72,10 +69,6 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.worktreePath ?? agent.cwd;
-  const allowRecheckAtom = useMemo(
-    () => reviewAllowRecheckPrefAtom(cwd.trim()),
-    [cwd]
-  );
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,7 +76,6 @@ export function PersonaLauncher({
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
-  const [allowRecheck, setAllowRecheck] = useAtom(allowRecheckAtom);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -109,7 +101,6 @@ export function PersonaLauncher({
         body: JSON.stringify({
           persona,
           agentType: selectedAgentType,
-          allowRecheck,
         }),
       });
     },
@@ -251,8 +242,9 @@ export function PersonaLauncher({
             <DialogHeader>
               <DialogTitle>Launch Review</DialogTitle>
               <DialogDescription>
-                Pick a reviewer persona, review agent type, and whether to ask
-                for a follow-up verification pass.
+                Pick a reviewer persona and review agent type. The reviewer will
+                automatically do a follow-up verification pass after you resolve
+                its feedback.
               </DialogDescription>
             </DialogHeader>
 
@@ -348,27 +340,6 @@ export function PersonaLauncher({
                       </div>
                     ) : null}
                   </div>
-
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                    <Checkbox
-                      checked={allowRecheck}
-                      onCheckedChange={() => {
-                        launchMutation.reset();
-                        setAllowRecheck((current) => !current);
-                      }}
-                      className="mt-0.5"
-                      data-testid="launch-reviewer-allow-recheck"
-                    />
-                    <span className="space-y-1">
-                      <span className="block text-sm font-medium text-foreground">
-                        Re-review after feedback is addressed
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Adds a second pass once the first round of feedback is
-                        resolved.
-                      </span>
-                    </span>
-                  </label>
 
                   <div className="space-y-2">
                     <label className="text-sm text-muted-foreground">

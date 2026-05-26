@@ -147,13 +147,8 @@ Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback li
 `.trim();
 }
 
-/**
- * Round-trip guidance appended when the review was launched with
- * allowRecheck: true. Tells the reviewer to stay alive after round 1,
- * wait for a server-injected round-2 prompt, and deliver a second verdict.
- */
 const RECHECK_ROUND_TRIP_GUIDANCE = `
-## Recheck round-trip (this review has \`allowRecheck: true\`)
+## Recheck round-trip
 
 This is a two-round review. You have a round-1 obligation (already described above) AND a round-2 obligation described below. Do not emit a terminal \`dispatch_event\` until BOTH rounds are complete or the recheck has been explicitly cancelled.
 
@@ -165,8 +160,6 @@ This is a two-round review. You have a round-1 obligation (already described abo
 `.trim();
 
 export type AssemblePersonaPromptOptions = {
-  /** When true, appends the recheck round-trip guidance block. */
-  allowRecheck?: boolean;
   /** When false, omits the git diff section from the prompt. Defaults to true. */
   includeDiff?: boolean;
 };
@@ -249,9 +242,7 @@ export function assemblePersonaPrompt(
     personaBody.trimEnd(),
     buildStandardFeedbackGuidance(includeDiff),
   ];
-  if (options.allowRecheck) {
-    sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
-  }
+  sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
   sections.push(`## Context from parent agent\n${context}`);
   if (includeDiff && diffResult) {
     if (diffResult.diffByteSize <= INLINE_DIFF_THRESHOLD_BYTES) {

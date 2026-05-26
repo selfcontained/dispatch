@@ -23,7 +23,6 @@ type ReviewerSeed = {
     message: string | null;
     summary: string | null;
     roundNumber: number;
-    allowRecheck: boolean;
     minutesAgo: number;
     resolution: Resolution | null;
   } | null;
@@ -47,7 +46,6 @@ const REVIEWERS: ReviewerSeed[] = [
       message: "Scanning hook dependencies",
       summary: null,
       roundNumber: 1,
-      allowRecheck: false,
       minutesAgo: 1,
       resolution: null,
     },
@@ -67,7 +65,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "Timezone drift and legend reset need to be resolved before merge. Keyboard focus regression on the day picker is also open.",
       roundNumber: 1,
-      allowRecheck: true,
       minutesAgo: 30,
       resolution: null,
     },
@@ -82,7 +79,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "The loading-state polish looks better, but I need to verify the final retry flow after your fixes land.",
       roundNumber: 1,
-      allowRecheck: true,
       minutesAgo: 20,
       resolution: {
         summary:
@@ -103,7 +99,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "Missing JSDoc on the public hooks export and the README example no longer compiles.",
       roundNumber: 1,
-      allowRecheck: false,
       minutesAgo: 90,
       resolution: {
         summary:
@@ -124,7 +119,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "Round 2: the retry loop now handles the cache miss, but still bypasses the circuit breaker.",
       roundNumber: 2,
-      allowRecheck: true,
       minutesAgo: 60,
       resolution: {
         summary:
@@ -145,7 +139,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "No regressions on the hot path; p95 render time unchanged at 12ms.",
       roundNumber: 1,
-      allowRecheck: false,
       minutesAgo: 45,
       resolution: null,
     },
@@ -160,7 +153,6 @@ const REVIEWERS: ReviewerSeed[] = [
       summary:
         "Focus order and ARIA labels look correct after the latest pass.",
       roundNumber: 1,
-      allowRecheck: false,
       minutesAgo: 120,
       resolution: {
         summary:
@@ -197,7 +189,7 @@ export async function seedPersonaReviews(client: PoolClient): Promise<void> {
       INSERT INTO persona_reviews (
         agent_id, parent_agent_id, persona, status, verdict, message, summary,
         files_reviewed, round_number, allow_recheck, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$11)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,true,$10,$10)
       RETURNING id
       `,
       [
@@ -210,7 +202,6 @@ export async function seedPersonaReviews(client: PoolClient): Promise<void> {
         r.summary,
         JSON.stringify([]),
         r.roundNumber,
-        r.allowRecheck,
         createdAt,
       ]
     );

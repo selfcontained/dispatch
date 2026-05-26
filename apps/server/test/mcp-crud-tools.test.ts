@@ -241,7 +241,7 @@ describe("MCP CRUD tools", () => {
       );
       await pool.query(
         `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, round_number, allow_recheck)
-         VALUES ('agt_crud_persona', 'agt_crud_parent', 'security-review', 'reviewing', 1, false)`
+         VALUES ('agt_crud_persona', 'agt_crud_parent', 'security-review', 'reviewing', 1, true)`
       );
 
       const response = await mcpToolsList(
