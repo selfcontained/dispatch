@@ -39,17 +39,20 @@ If the core state object is not found (first run), bootstrap it during this run 
 Do not treat every run as a fresh audit of the whole test surface.
 
 1. Read `next_focus` from the core state object. That is the default assignment for this run.
-2. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the previous run.
-3. If `next_focus` was already handled by newer commits, skip it, pick the top relevant item from the backlog list, and note that in the state update.
-4. If the suite is red locally, stability work overrides `next_focus`.
-5. If the suite is already green, use `next_focus`, the backlog list, and recent diffs to decide where the highest-value coverage or flake-reduction work is.
+2. Read the `flakes` list and treat it as explicit deferred input for this run, not just passive context.
+3. Run `git diff --name-only <last_audited_sha>..HEAD` to see what changed since the previous run.
+4. If `next_focus` was already handled by newer commits, skip it, pick the top relevant item from the backlog list, and note that in the state update.
+5. If the suite is red locally, stability work overrides `next_focus`.
+6. If the suite is green but the `flakes` list has relevant unresolved items, triage those before taking on unrelated coverage work or a new backlog item. Only skip a flake entry if newer commits already addressed it, it is clearly stale, or it is no longer actionable; record that decision in the state update and prune the item if appropriate.
+7. If the suite is already green and there are no relevant unresolved flake entries, use `next_focus`, the backlog list, and recent diffs to decide where the highest-value coverage or flake-reduction work is.
 
 ## Priority order
 
 1. Restore local test health.
-2. Remove or reduce flakiness.
-3. Add meaningful coverage after the suite is stable.
-4. If changes were made, land them completely.
+2. Triage and address queued flake reports from the `flakes` list.
+3. Remove or reduce newly observed flakiness.
+4. Add meaningful coverage after the suite is stable and queued flakes have been handled or intentionally deferred.
+5. If changes were made, land them completely.
 
 Do not spend meaningful time adding coverage while unresolved local failures still need action.
 
