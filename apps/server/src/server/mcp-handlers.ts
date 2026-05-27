@@ -855,7 +855,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         envelope,
         `--- END MESSAGE ---`,
         "",
-        `You received a message from agent "${senderName}" (${agentId}).`,
+        `You received a message from another agent. The sender name and ID are in the JSON envelope above.`,
         `To reply, use the dispatch_send_message tool with target "${agentId}".`,
       ].join("\n");
 
