@@ -73,7 +73,7 @@
 }
 ```
 
-`type` is one of `claude`, `codex`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
+`type` is one of `claude`, `codex`, `cursor`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
 
 `useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch forks from `baseBranch` or the existing `worktreeBranch` is checked out directly. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
 
@@ -219,12 +219,11 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 {
   "persona": "backend-security-review",
   "agentType": "claude",
-  "allowRecheck": true,
   "includeDiff": true
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`codex`, `claude`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. Reviews always include a recheck pass — the reviewer stays alive after its initial verdict and performs a second pass once the parent submits a resolution.
 
 ### `POST /agents/:id/persona-reviews`
 
@@ -232,13 +231,12 @@ Sends a server-built prompt into the parent agent's tmux session asking it to ca
 {
   "persona": "backend-security-review",
   "agentType": "claude",
-  "allowRecheck": true,
   "includeDiff": true,
   "context": "Review the auth middleware refactor in apps/server/src/auth/."
 }
 ```
 
-Spawns the persona review agent directly (without going through the parent agent's tmux). `agentType` and `allowRecheck` are optional; `context` defaults to a short generic briefing if omitted. Returns the new persona agent.
+Spawns the persona review agent directly (without going through the parent agent's tmux). `agentType` is optional; `context` defaults to a short generic briefing if omitted. Returns the new persona agent.
 
 ## Feedback
 
