@@ -771,6 +771,137 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       };
     },
 
+    async sendMessage(
+      agentId: string,
+      input: { target: string; message: string; senderRepoRoot: string | null }
+    ): Promise<{
+      delivered: boolean;
+      targetAgentId: string;
+      targetAgentName: string;
+    }> {
+      const sender = await agentManager.getAgent(agentId);
+      if (!sender) throw new Error("Sender agent not found.");
+
+      const senderRepoRoot = input.senderRepoRoot;
+      const allAgentsRaw = await agentManager.listAgents();
+
+      const allAgents: typeof allAgentsRaw = [];
+      for (const a of allAgentsRaw) {
+        if (a.id === agentId) continue;
+        if (!senderRepoRoot) {
+          allAgents.push(a);
+          continue;
+        }
+        try {
+          const aRoot = await resolveRepoRoot(a.cwd);
+          if (aRoot === senderRepoRoot) allAgents.push(a);
+        } catch {
+          // agent cwd not in a git repo — skip
+        }
+      }
+
+      const isAgentId = input.target.startsWith("agt_");
+
+      let target: (typeof allAgents)[number] | undefined;
+      if (isAgentId) {
+        target = allAgents.find((a) => a.id === input.target);
+      } else {
+        const lowerTarget = input.target.toLowerCase();
+        const matches = allAgents.filter(
+          (a) =>
+            a.id !== agentId &&
+            a.status === "running" &&
+            a.name.toLowerCase().includes(lowerTarget)
+        );
+        if (matches.length === 1) {
+          target = matches[0];
+        } else if (matches.length > 1) {
+          const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
+          throw new Error(
+            `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
+          );
+        }
+      }
+
+      if (!target) {
+        const running = allAgents
+          .filter((a) => a.id !== agentId && a.status === "running")
+          .map((a) => `  ${a.id} "${a.name}"`)
+          .join("\n");
+        throw new Error(
+          `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
+        );
+      }
+
+      if (target.id === agentId) {
+        throw new Error("Cannot send a message to yourself.");
+      }
+
+      if (target.status !== "running") {
+        throw new Error(
+          `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
+        );
+      }
+
+      const senderName = sender.name;
+      const prompt = [
+        `<agent-message from="${senderName}" sender-id="${agentId}">`,
+        input.message,
+        `</agent-message>`,
+        "",
+        `You received a message from agent "${senderName}" (${agentId}).`,
+        `To reply, use the dispatch_send_message tool with target "${agentId}".`,
+      ].join("\n");
+
+      await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+
+      return {
+        delivered: true,
+        targetAgentId: target.id,
+        targetAgentName: target.name,
+      };
+    },
+
+    async listAgentsForAgent(
+      agentId: string,
+      senderRepoRoot: string | null
+    ): Promise<
+      Array<{
+        id: string;
+        name: string;
+        status: string;
+        latestEvent: { type: string; message: string } | null;
+      }>
+    > {
+      const agents = await agentManager.listAgents();
+      const result: Array<{
+        id: string;
+        name: string;
+        status: string;
+        latestEvent: { type: string; message: string } | null;
+      }> = [];
+      for (const a of agents) {
+        if (a.id === agentId) continue;
+        if (senderRepoRoot) {
+          try {
+            const aRoot = await resolveRepoRoot(a.cwd);
+            if (aRoot !== senderRepoRoot) continue;
+          } catch {
+            continue;
+          }
+        }
+        result.push({
+          id: a.id,
+          name: a.name,
+          status: a.status,
+          latestEvent: a.latestEvent
+            ? { type: a.latestEvent.type, message: a.latestEvent.message }
+            : null,
+        });
+      }
+      return result;
+    },
+
     async listMedia(
       agentId: string,
       opts: { source?: string }

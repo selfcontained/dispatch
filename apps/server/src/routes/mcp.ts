@@ -61,6 +61,8 @@ type McpRouteDeps = {
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
   mcpJobLog: unknown;
+  mcpSendMessage: unknown;
+  mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
 };
 
@@ -204,6 +206,8 @@ export async function registerMcpRoutes(
       resolveFeedback: deps.mcpResolveFeedback,
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
+      sendMessage: deps.mcpSendMessage,
+      listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         deps.agentManager.getActivitySummary(params as never) as Promise<
           Record<string, unknown>
@@ -283,6 +287,8 @@ export async function registerMcpRoutes(
       resolveFeedback: deps.mcpResolveFeedback,
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
+      sendMessage: deps.mcpSendMessage,
+      listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       getParentContext: deps.mcpGetParentContext,

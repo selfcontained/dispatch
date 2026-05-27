@@ -90,6 +90,8 @@ const AGENT_TOOLS = new Set([
   "dispatch_resolve_feedback",
   "dispatch_submit_resolution",
   "dispatch_cancel_recheck",
+  "list_agents",
+  "dispatch_send_message",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -136,6 +138,7 @@ const JOB_TOOLS = new Set([
   "job_needs_input",
   "job_log",
   "list_agents",
+  "dispatch_send_message",
   "list_personas",
   "list_recent_persona_reviews",
   "list_recent_feedback",
@@ -351,6 +354,25 @@ export type McpRequestContext = {
     agentId: string,
     input: { personaAgentId: string; reason?: string }
   ) => Promise<void>;
+  sendMessage?: (
+    agentId: string,
+    input: { target: string; message: string; senderRepoRoot: string | null }
+  ) => Promise<{
+    delivered: boolean;
+    targetAgentId: string;
+    targetAgentName: string;
+  }>;
+  listAgentsForAgent?: (
+    agentId: string,
+    senderRepoRoot: string | null
+  ) => Promise<
+    Array<{
+      id: string;
+      name: string;
+      status: string;
+      latestEvent: { type: string; message: string } | null;
+    }>
+  >;
   getActivitySummary?: (params: {
     start: Date;
     end: Date;
@@ -730,6 +752,94 @@ async function createDispatchMcpServer(
       resolveFeedback: context.resolveFeedback,
       submitResolution: context.submitResolution,
     });
+  }
+
+  // ── Inter-agent messaging tools ───────────────────────────────────
+  // list_agents for standard agents (job agents get it via registerJobTools)
+  if (
+    allowed.has("list_agents") &&
+    context.agent &&
+    context.listAgentsForAgent &&
+    !context.jobTools
+  ) {
+    const agentId = context.agent.id;
+    const listAgentsForAgent = context.listAgentsForAgent;
+
+    server.registerTool(
+      "list_agents",
+      {
+        description:
+          "List other agents on this Dispatch server with their IDs, names, statuses, and latest activity. " +
+          "Use this to discover agents you can communicate with via dispatch_send_message.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const agents = await listAgentsForAgent(agentId, context.repoRoot);
+          return {
+            content: [
+              { type: "text", text: JSON.stringify({ agents }, null, 2) },
+            ],
+            structuredContent: { agents },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (
+    allowed.has("dispatch_send_message") &&
+    context.agent &&
+    context.sendMessage
+  ) {
+    const agentId = context.agent.id;
+    const sendMessage = context.sendMessage;
+
+    server.registerTool(
+      "dispatch_send_message",
+      {
+        description:
+          "Send a message to another running agent. The message is injected into the target agent's session. " +
+          "The target agent can reply using the same tool. Use list_agents to discover available agents. " +
+          "Target can be an agent ID (agt_xxx) or a name (partial match). " +
+          "Only works for agents that are currently running.",
+        inputSchema: {
+          target: z
+            .string()
+            .min(1)
+            .describe(
+              "Agent ID (agt_xxx) or name to send the message to. Names are fuzzy-matched against running agents."
+            ),
+          message: z
+            .string()
+            .min(1)
+            .max(10000)
+            .describe("The message content to send."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await sendMessage(agentId, {
+            target: args.target,
+            message: args.message,
+            senderRepoRoot: context.repoRoot,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Message delivered to "${result.targetAgentName}" (${result.targetAgentId}).`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
   }
 
   // ── Brain tools (shared memory for agents) ────────────────────────
