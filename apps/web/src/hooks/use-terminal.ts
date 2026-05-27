@@ -945,6 +945,11 @@ export function useTerminal(args: {
       dispatchingMouseDown = false;
     };
 
+    // Suppress the browser's native context menu so it doesn't overlap tmux's
+    // right-click menu rendered inside the terminal.
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+    host.addEventListener("contextmenu", onContextMenu);
+
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: true });
     const onWheel = () => noteScrollInteractionRef.current();
@@ -995,6 +1000,7 @@ export function useTerminal(args: {
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
+      host.removeEventListener("contextmenu", onContextMenu);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
