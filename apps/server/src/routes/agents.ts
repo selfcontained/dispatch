@@ -35,6 +35,7 @@ import {
   parseOptionalBooleanField,
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
 const COPY_MODE_ASSIST_DISABLED_ERROR = "Copy mode assist is disabled.";
 const AGENT_LATEST_EVENT_TYPES = [
@@ -442,9 +443,7 @@ export async function registerAgentRoutes(
       try {
         await deps.startStream(id, body.port);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to start stream.";
-        return reply.code(502).send({ error: message });
+        return reply.code(502).send({ error: errorMessage(error) });
       }
       return { ok: true };
     }
@@ -526,7 +525,7 @@ export async function registerAgentRoutes(
       parsedRequest = await parseCreateAgentRequest(request);
     } catch (error) {
       return reply.code(400).send({
-        error: error instanceof Error ? error.message : "Invalid request body.",
+        error: errorMessage(error),
       });
     }
     const { body, startupFiles } = parsedRequest;
@@ -577,7 +576,7 @@ export async function registerAgentRoutes(
       );
     } catch (error) {
       return reply.code(400).send({
-        error: error instanceof Error ? error.message : "Invalid request body.",
+        error: errorMessage(error),
       });
     }
 
@@ -651,7 +650,7 @@ export async function registerAgentRoutes(
       startupPins = createStartupPins(startupLinks ?? []);
     } catch (error) {
       return reply.code(400).send({
-        error: error instanceof Error ? error.message : "Invalid startupLinks.",
+        error: errorMessage(error),
       });
     }
 
@@ -1130,9 +1129,9 @@ export async function registerAgentRoutes(
           assistState.connectionId = assistConnection.connectionId;
         }
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Terminal attach failed.";
-        socket.send(JSON.stringify({ type: "error", message }));
+        socket.send(
+          JSON.stringify({ type: "error", message: errorMessage(error) })
+        );
         socket.close(1011, "attach failed");
         return;
       }
