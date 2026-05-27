@@ -1,9 +1,10 @@
 ## What's Changed
-* Add unit tests for agent-types utility functions by @selfcontained in https://github.com/selfcontained/dispatch/pull/599
-* Use per-job brain collections instead of shared job-state by @selfcontained in https://github.com/selfcontained/dispatch/pull/601
-* Add CRUD tools to docs and document Brains tab by @selfcontained in https://github.com/selfcontained/dispatch/pull/600
-* Extract duplicate constraint-error handler in personalities.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/602
-* Remove allowRecheck option — make recheck always-on by @selfcontained in https://github.com/selfcontained/dispatch/pull/603
+* Add unit tests for archive, ide-types, and store reconciliation by @selfcontained in https://github.com/selfcontained/dispatch/pull/604
+* Prioritize queued flakes in Test Enforcer prompt by @selfcontained in https://github.com/selfcontained/dispatch/pull/605
+* Add telemetry unit tests and fix E2E flake in callable-jobs by @selfcontained in https://github.com/selfcontained/dispatch/pull/606
+* Fix API spec drift: remove allowRecheck, add cursor by @selfcontained in https://github.com/selfcontained/dispatch/pull/607
+* Adopt shared errorMessage() in agents.ts and templates.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/608
+* Suppress native context menu in terminal pane by @selfcontained in https://github.com/selfcontained/dispatch/pull/609
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.21.4...v0.21.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.21.5...v0.21.6
