@@ -783,15 +783,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       if (!sender) throw new Error("Sender agent not found.");
 
       const senderRepoRoot = input.senderRepoRoot;
-      const allAgentsRaw = await agentManager.listAgents();
+      if (!senderRepoRoot) {
+        throw new Error(
+          "Cannot send messages: unable to determine your project's repository root."
+        );
+      }
 
+      const allAgentsRaw = await agentManager.listAgents();
       const allAgents: typeof allAgentsRaw = [];
       for (const a of allAgentsRaw) {
         if (a.id === agentId) continue;
-        if (!senderRepoRoot) {
-          allAgents.push(a);
-          continue;
-        }
         try {
           const aRoot = await resolveRepoRoot(a.cwd);
           if (aRoot === senderRepoRoot) allAgents.push(a);
@@ -844,10 +845,15 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
 
       const senderName = sender.name;
+      const envelope = JSON.stringify({
+        from: senderName,
+        senderId: agentId,
+        message: input.message,
+      });
       const prompt = [
-        `<agent-message from="${senderName}" sender-id="${agentId}">`,
-        input.message,
-        `</agent-message>`,
+        `--- DISPATCH MESSAGE ---`,
+        envelope,
+        `--- END MESSAGE ---`,
         "",
         `You received a message from agent "${senderName}" (${agentId}).`,
         `To reply, use the dispatch_send_message tool with target "${agentId}".`,
@@ -873,6 +879,12 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         latestEvent: { type: string; message: string } | null;
       }>
     > {
+      if (!senderRepoRoot) {
+        throw new Error(
+          "Cannot list agents: unable to determine your project's repository root."
+        );
+      }
+
       const agents = await agentManager.listAgents();
       const result: Array<{
         id: string;
@@ -882,13 +894,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }> = [];
       for (const a of agents) {
         if (a.id === agentId) continue;
-        if (senderRepoRoot) {
-          try {
-            const aRoot = await resolveRepoRoot(a.cwd);
-            if (aRoot !== senderRepoRoot) continue;
-          } catch {
-            continue;
-          }
+        try {
+          const aRoot = await resolveRepoRoot(a.cwd);
+          if (aRoot !== senderRepoRoot) continue;
+        } catch {
+          continue;
         }
         result.push({
           id: a.id,
