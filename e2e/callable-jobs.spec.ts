@@ -164,6 +164,7 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await palette.getByRole("combobox").pressSequentially("e2e-callable", {
       delay: 30,
     });
+    await expect(palette.getByText(templateName)).toBeVisible();
 
     await page.keyboard.press("Enter");
     const launchDialog = page.getByRole("dialog", { name: templateName });
