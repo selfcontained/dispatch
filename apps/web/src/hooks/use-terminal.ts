@@ -949,29 +949,14 @@ export function useTerminal(args: {
     // as an SGR mouse event, which triggers tmux's display-menu. Stopping
     // propagation here keeps the browser's native contextmenu event intact
     // so the user gets the standard copy/paste menu without a tmux menu
-    // overlapping it.
-    //
-    // In Firefox, xterm preps its hidden textarea from mousedown (not
-    // contextmenu), so we replicate that here: position the textarea at
-    // the cursor, populate it with the current selection, and focus it so
-    // the native context menu's Copy targets the right text.
+    // overlapping it. Focus xterm's textarea so native Paste targets it.
     const onRightMouseDown = (e: MouseEvent) => {
       if (e.button !== 2) return;
       e.stopPropagation();
       const textarea = host.querySelector(
         "textarea.xterm-helper-textarea"
       ) as HTMLTextAreaElement | null;
-      if (textarea && screenEl) {
-        const pos = screenEl.getBoundingClientRect();
-        textarea.style.width = "20px";
-        textarea.style.height = "20px";
-        textarea.style.left = `${e.clientX - pos.left - 10}px`;
-        textarea.style.top = `${e.clientY - pos.top - 10}px`;
-        textarea.style.zIndex = "1000";
-        textarea.focus();
-        textarea.value = term.getSelection();
-        textarea.select();
-      }
+      if (textarea) textarea.focus();
     };
     host.addEventListener("mousedown", onRightMouseDown, true);
 
