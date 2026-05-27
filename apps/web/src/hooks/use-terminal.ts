@@ -945,6 +945,21 @@ export function useTerminal(args: {
       dispatchingMouseDown = false;
     };
 
+    // Intercept right-click (button 2) before xterm forwards it to tmux
+    // as an SGR mouse event, which triggers tmux's display-menu. Stopping
+    // propagation here keeps the browser's native contextmenu event intact
+    // so the user gets the standard copy/paste menu without a tmux menu
+    // overlapping it. Focus xterm's textarea so native Paste targets it.
+    const onRightMouseDown = (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      e.stopPropagation();
+      const textarea = host.querySelector(
+        "textarea.xterm-helper-textarea"
+      ) as HTMLTextAreaElement | null;
+      if (textarea) textarea.focus();
+    };
+    host.addEventListener("mousedown", onRightMouseDown, true);
+
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: true });
     const onWheel = () => noteScrollInteractionRef.current();
@@ -995,6 +1010,7 @@ export function useTerminal(args: {
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
+      host.removeEventListener("mousedown", onRightMouseDown, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
