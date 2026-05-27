@@ -225,8 +225,7 @@ export async function registerTemplateRoutes(
         );
       } catch (error) {
         return reply.code(400).send({
-          error:
-            error instanceof Error ? error.message : "Invalid startupLinks.",
+          error: errorMessage(error),
         });
       }
 
@@ -236,8 +235,7 @@ export async function registerTemplateRoutes(
           startupPins = createStartupPins(startupLinks);
         } catch (error) {
           return reply.code(400).send({
-            error:
-              error instanceof Error ? error.message : "Invalid startupLinks.",
+            error: errorMessage(error),
           });
         }
       }
