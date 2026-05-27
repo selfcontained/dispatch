@@ -945,10 +945,15 @@ export function useTerminal(args: {
       dispatchingMouseDown = false;
     };
 
-    // Suppress the browser's native context menu so it doesn't overlap tmux's
-    // right-click menu rendered inside the terminal.
-    const onContextMenu = (e: MouseEvent) => e.preventDefault();
-    host.addEventListener("contextmenu", onContextMenu);
+    // Intercept right-click (button 2) before xterm forwards it to tmux
+    // as an SGR mouse event, which triggers tmux's display-menu. Stopping
+    // propagation here keeps the browser's native contextmenu event intact
+    // so the user gets the standard copy/paste menu without a tmux menu
+    // overlapping it.
+    const onRightMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) e.stopPropagation();
+    };
+    host.addEventListener("mousedown", onRightMouseDown, true);
 
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: true });
@@ -1000,7 +1005,7 @@ export function useTerminal(args: {
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
-      host.removeEventListener("contextmenu", onContextMenu);
+      host.removeEventListener("mousedown", onRightMouseDown, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
       if (screenEl) {
