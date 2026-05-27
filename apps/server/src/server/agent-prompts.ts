@@ -15,6 +15,12 @@ export function createPromptInjector(
     try {
       const access = await agentManager.getTerminalAccess(agentId);
       if (access.mode !== "tmux") {
+        const err = new Error(
+          "Agent has no active terminal session — prompt cannot be delivered."
+        );
+        if (opts.swallowFailure === false) {
+          throw err;
+        }
         appLog.debug(
           { agentId, mode: access.mode },
           "Skipping tmux injection — agent has no tmux session"
