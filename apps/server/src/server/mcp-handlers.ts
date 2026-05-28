@@ -2,6 +2,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
+import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type {
@@ -84,6 +85,7 @@ type CreateMcpHandlersDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
+  appLog: FastifyBaseLogger;
 };
 
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
@@ -118,6 +120,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     publishUiEvent,
     withStreamFlag,
     sendAgentPrompt,
+    appLog,
   } = deps;
 
   return {
@@ -844,23 +847,28 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         );
       }
 
-      const senderName = sender.name;
       const envelope = JSON.stringify({
-        from: senderName,
+        from: sender.name,
         senderId: agentId,
         message: input.message,
+        replyTarget: agentId,
       });
-      const prompt = [
-        `--- DISPATCH MESSAGE ---`,
-        envelope,
-        `--- END MESSAGE ---`,
-        "",
-        `You received a message from another agent. The sender name and ID are in the JSON envelope above.`,
-        `To reply, use the dispatch_send_message tool with target "${agentId}".`,
-      ].join("\n");
+      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
 
-      await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+      try {
+        await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+      } catch (err) {
+        appLog.error(
+          { err, senderId: agentId, targetId: target.id },
+          "dispatch_send_message: tmux delivery failed"
+        );
+        throw err;
+      }
 
+      appLog.info(
+        { senderId: agentId, targetId: target.id },
+        "dispatch_send_message: delivered"
+      );
       return {
         delivered: true,
         targetAgentId: target.id,

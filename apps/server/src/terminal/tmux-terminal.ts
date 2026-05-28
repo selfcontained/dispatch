@@ -156,7 +156,7 @@ export class TmuxTerminal {
     // the program until copy mode is cancelled. Exit it first so injections
     // land on the live prompt.
     await this.exitCopyMode().catch(() => undefined);
-    await runCommand("tmux", ["set-buffer", "-b", bufferName, sanitized]);
+    await runCommand("tmux", ["set-buffer", "-b", bufferName, "--", sanitized]);
     try {
       await runCommand("tmux", [
         "paste-buffer",

@@ -299,6 +299,7 @@ const mcpHandlers = createMcpHandlers({
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
+  appLog: app.log,
 });
 const jobTerminalStatuses = new Set([
   "completed",
