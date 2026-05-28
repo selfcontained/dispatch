@@ -78,7 +78,6 @@ import type {
   PersonaReviewRecord,
   PersonaReviewResolutionItem,
   PersonaReviewResolutionRecord,
-  ReviewerRecheckContext,
 } from "./persona-reviews.js";
 import * as feedbackQueries from "./feedback.js";
 import type { FeedbackInput, FeedbackRecord } from "./feedback.js";
@@ -103,7 +102,6 @@ export type {
   PersonaReviewRecord,
   PersonaReviewResolutionItem,
   PersonaReviewResolutionRecord,
-  ReviewerRecheckContext,
 } from "./persona-reviews.js";
 export { resolveProgressPingStatus } from "./persona-reviews.js";
 export type { FeedbackInput, FeedbackRecord } from "./feedback.js";
@@ -1141,12 +1139,6 @@ export class AgentManager {
     return personaReviews.getPersonaReview(this.pool, agentId);
   }
 
-  async getPersonaReviewsByParent(
-    parentAgentId: string
-  ): Promise<PersonaReviewRecord[]> {
-    return personaReviews.getPersonaReviewsByParent(this.pool, parentAgentId);
-  }
-
   async listRecentPersonaReviews(
     sinceDays: number
   ): Promise<PersonaReviewRecord[]> {
@@ -1297,12 +1289,6 @@ export class AgentManager {
     reviewId: number
   ): Promise<PersonaReviewResolutionRecord[]> {
     return personaReviews.getReviewResolutions(this.pool, reviewId);
-  }
-
-  async getReviewerRecheckContext(
-    agentId: string
-  ): Promise<ReviewerRecheckContext | null> {
-    return personaReviews.getReviewerRecheckContext(this.pool, agentId);
   }
 
   async listResolvedFeedbackForRound(
