@@ -15,7 +15,7 @@ import { clearCachesAndReload, reloadApp } from "@/lib/pwa-update";
 import {
   cleanError,
   type AppVersionInfo,
-} from "@/components/app/release-manager-utils";
+} from "@/components/app/release-utils";
 
 export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const navigate = useNavigate();

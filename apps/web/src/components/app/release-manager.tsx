@@ -49,7 +49,7 @@ import {
   formatInlineProgress,
   progressPercent,
   describeForceTriggers,
-} from "./release-manager-utils";
+} from "./release-utils";
 
 type UpdatesSectionProps = {
   stream: UseReleaseStreamResult;

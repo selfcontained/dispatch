@@ -3,7 +3,7 @@ import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
-import { cleanError, formatProgressLabel } from "./release-manager-utils";
+import { cleanError, formatProgressLabel } from "./release-utils";
 
 type OperationTakeoverProps = {
   job: ReleaseJob;
