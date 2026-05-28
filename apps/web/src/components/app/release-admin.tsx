@@ -6,7 +6,7 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import { OperationTakeover } from "@/components/app/release-manager";
+import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type {
