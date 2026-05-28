@@ -299,6 +299,7 @@ const mcpHandlers = createMcpHandlers({
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
+  appLog: app.log,
 });
 const jobTerminalStatuses = new Set([
   "completed",
@@ -461,6 +462,8 @@ async function registerRoutes() {
     mcpResolveFeedback: mcpHandlers.resolveFeedback,
     mcpSubmitResolution: mcpHandlers.submitResolution,
     mcpCancelRecheck: mcpHandlers.cancelRecheck,
+    mcpSendMessage: mcpHandlers.sendMessage,
+    mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
     mcpDeletePin: mcpHandlers.deletePin,
     mcpGetParentContext: mcpHandlers.getParentContext,

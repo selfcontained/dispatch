@@ -2,6 +2,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
+import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type {
@@ -84,6 +85,7 @@ type CreateMcpHandlersDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
+  appLog: FastifyBaseLogger;
 };
 
 function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
@@ -118,6 +120,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     publishUiEvent,
     withStreamFlag,
     sendAgentPrompt,
+    appLog,
   } = deps;
 
   return {
@@ -769,6 +772,152 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         source,
         description: opts.description,
       };
+    },
+
+    async sendMessage(
+      agentId: string,
+      input: { target: string; message: string; senderRepoRoot: string | null }
+    ): Promise<{
+      delivered: boolean;
+      targetAgentId: string;
+      targetAgentName: string;
+    }> {
+      const sender = await agentManager.getAgent(agentId);
+      if (!sender) throw new Error("Sender agent not found.");
+
+      const senderRepoRoot = input.senderRepoRoot;
+      if (!senderRepoRoot) {
+        throw new Error(
+          "Cannot send messages: unable to determine your project's repository root."
+        );
+      }
+
+      const allAgentsRaw = await agentManager.listAgents();
+      const allAgents: typeof allAgentsRaw = [];
+      for (const a of allAgentsRaw) {
+        if (a.id === agentId) continue;
+        try {
+          const aRoot = await resolveRepoRoot(a.cwd);
+          if (aRoot === senderRepoRoot) allAgents.push(a);
+        } catch {
+          // agent cwd not in a git repo — skip
+        }
+      }
+
+      const isAgentId = input.target.startsWith("agt_");
+
+      let target: (typeof allAgents)[number] | undefined;
+      if (isAgentId) {
+        target = allAgents.find((a) => a.id === input.target);
+      } else {
+        const lowerTarget = input.target.toLowerCase();
+        const matches = allAgents.filter(
+          (a) =>
+            a.id !== agentId &&
+            a.status === "running" &&
+            a.name.toLowerCase().includes(lowerTarget)
+        );
+        if (matches.length === 1) {
+          target = matches[0];
+        } else if (matches.length > 1) {
+          const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
+          throw new Error(
+            `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
+          );
+        }
+      }
+
+      if (!target) {
+        const running = allAgents
+          .filter((a) => a.id !== agentId && a.status === "running")
+          .map((a) => `  ${a.id} "${a.name}"`)
+          .join("\n");
+        throw new Error(
+          `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
+        );
+      }
+
+      if (target.id === agentId) {
+        throw new Error("Cannot send a message to yourself.");
+      }
+
+      if (target.status !== "running") {
+        throw new Error(
+          `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
+        );
+      }
+
+      const envelope = JSON.stringify({
+        from: sender.name,
+        senderId: agentId,
+        message: input.message,
+        replyTarget: agentId,
+      });
+      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
+
+      try {
+        await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+      } catch (err) {
+        appLog.error(
+          { err, senderId: agentId, targetId: target.id },
+          "dispatch_send_message: tmux delivery failed"
+        );
+        throw err;
+      }
+
+      appLog.info(
+        { senderId: agentId, targetId: target.id },
+        "dispatch_send_message: delivered"
+      );
+      return {
+        delivered: true,
+        targetAgentId: target.id,
+        targetAgentName: target.name,
+      };
+    },
+
+    async listAgentsForAgent(
+      agentId: string,
+      senderRepoRoot: string | null
+    ): Promise<
+      Array<{
+        id: string;
+        name: string;
+        status: string;
+        latestEvent: { type: string; message: string } | null;
+      }>
+    > {
+      if (!senderRepoRoot) {
+        throw new Error(
+          "Cannot list agents: unable to determine your project's repository root."
+        );
+      }
+
+      const agents = await agentManager.listAgents();
+      const result: Array<{
+        id: string;
+        name: string;
+        status: string;
+        latestEvent: { type: string; message: string } | null;
+      }> = [];
+      for (const a of agents) {
+        if (a.id === agentId) continue;
+        try {
+          const aRoot = await resolveRepoRoot(a.cwd);
+          if (aRoot !== senderRepoRoot) continue;
+        } catch {
+          continue;
+        }
+        result.push({
+          id: a.id,
+          name: a.name,
+          status: a.status,
+          latestEvent: a.latestEvent
+            ? { type: a.latestEvent.type, message: a.latestEvent.message }
+            : null,
+        });
+      }
+      return result;
     },
 
     async listMedia(

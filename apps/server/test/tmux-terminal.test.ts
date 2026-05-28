@@ -25,7 +25,13 @@ describe("TmuxTerminal.sendCommand", () => {
   function setBufferCalls(): string[] {
     return runCommandMock.mock.calls
       .filter(([, args]) => Array.isArray(args) && args[0] === "set-buffer")
-      .map(([, args]) => (args as string[])[3] ?? "");
+      .map(([, args]) => (args as string[])[4] ?? "");
+  }
+
+  function setBufferArgs(): string[][] {
+    return runCommandMock.mock.calls
+      .filter(([, args]) => Array.isArray(args) && args[0] === "set-buffer")
+      .map(([, args]) => args as string[]);
   }
 
   it("strips bracketed-paste end markers before passing to set-buffer", async () => {
@@ -52,6 +58,27 @@ describe("TmuxTerminal.sendCommand", () => {
     await terminal.sendCommand(text);
 
     expect(setBufferCalls()[0]).toBe(text);
+  });
+
+  it("passes -- end-of-options before buffer content in set-buffer", async () => {
+    const terminal = new TmuxTerminal("session-x");
+    await terminal.sendCommand("hello world");
+
+    const args = setBufferArgs();
+    expect(args).toHaveLength(1);
+    expect(args[0][3]).toBe("--");
+    expect(args[0][4]).toBe("hello world");
+  });
+
+  it("delivers content starting with dashes without flag parsing", async () => {
+    const terminal = new TmuxTerminal("session-x");
+    const dashContent = '--- DISPATCH MESSAGE ---\n{"from":"test"}';
+    await terminal.sendCommand(dashContent);
+
+    const args = setBufferArgs();
+    expect(args).toHaveLength(1);
+    expect(args[0][3]).toBe("--");
+    expect(args[0][4]).toBe(dashContent);
   });
 
   it("cancels tmux copy mode before injecting", async () => {
