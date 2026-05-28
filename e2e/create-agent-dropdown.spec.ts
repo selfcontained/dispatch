@@ -48,7 +48,7 @@ test.describe("Create agent dialog", () => {
     await expect(form).not.toBeVisible({ timeout: 3_000 });
   });
 
-  test("recent directories remain visible while typing a new path", async ({
+  test("recent directories filter by typed project name or path", async ({
     page,
   }) => {
     await page.addInitScript(() => {
@@ -65,16 +65,24 @@ test.describe("Create agent dialog", () => {
     await expect(form).toBeVisible();
 
     const cwdInput = form.getByTestId("create-agent-cwd");
-    await cwdInput.fill("/brand/new/path");
+    await cwdInput.fill("myapp");
     const recentOptions = form.getByTestId("create-agent-cwd-history-option");
 
+    await expect(recentOptions).toHaveCount(1);
+    await expect(recentOptions.first()).toContainText("myapp");
+    await expect(cwdInput).toHaveValue("myapp");
+
+    await cwdInput.press("ArrowDown");
+    await expect(recentOptions.first()).toHaveAttribute(
+      "data-selected",
+      "true"
+    );
+    await cwdInput.press("Enter");
+    await expect(cwdInput).toHaveValue("/home/user/projects/myapp");
+
+    await cwdInput.fill("/tmp");
     await expect(
-      page.getByRole("option", { name: "/home/user/projects/myapp" })
+      recentOptions.filter({ hasText: "/tmp/existing-project" })
     ).toBeVisible();
-    await expect(
-      page.getByRole("option", { name: "/tmp/existing-project" })
-    ).toBeVisible();
-    await expect(recentOptions).toHaveCount(2);
-    await expect(cwdInput).toHaveValue("/brand/new/path");
   });
 });

@@ -3,6 +3,7 @@ import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
 
 import { PathInput } from "@/components/app/path-input";
+import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import {
   JobFullAccessOption,
   JobKeepAgentOption,
@@ -106,6 +107,13 @@ export function AddJobFlow({
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const {
+    history: cwdHistory,
+    removableHistory: removableCwdHistory,
+    historyMetadata: cwdHistoryMetadata,
+    add: addCwdHistory,
+    remove: removeCwdHistory,
+  } = useCwdHistory();
   const effectiveEnabled = schedule.trim() ? enableImmediately : false;
   const scheduleError = cronError(schedule, effectiveEnabled);
   const canAdd =
@@ -154,6 +162,10 @@ export function AddJobFlow({
                   label=""
                   placeholder="~/code/project"
                   id="job-directory"
+                  history={cwdHistory}
+                  removableHistory={removableCwdHistory}
+                  historyMetadata={cwdHistoryMetadata}
+                  onRemoveHistory={removeCwdHistory}
                   data-testid="job-directory-input"
                 />
               </div>
@@ -382,9 +394,10 @@ export function AddJobFlow({
           disabled={!canAdd || isAdding}
           onClick={() => {
             setSubmitError(null);
+            const trimmedDirectory = directory.trim();
             void onAddJob({
               name: displayName.trim(),
-              directory: directory.trim(),
+              directory: trimmedDirectory,
               displayName: displayName.trim(),
               prompt: prompt.trim(),
               schedule: schedule.trim() || null,
@@ -399,7 +412,9 @@ export function AddJobFlow({
               callable,
               singleton,
               enabled: effectiveEnabled,
-            }).catch((error) => setSubmitError(errorMessage(error)));
+            })
+              .then(() => addCwdHistory(trimmedDirectory))
+              .catch((error) => setSubmitError(errorMessage(error)));
           }}
         >
           {isAdding ? <ActivityBars size={16} className="mr-2" /> : null}

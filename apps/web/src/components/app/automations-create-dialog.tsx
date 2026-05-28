@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
+import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,6 +57,7 @@ function CreateTemplateDialogContent({
   const [callable, setCallable] = useState(true);
   const [allowMedia, setAllowMedia] = useState(true);
   const [creating, setCreating] = useState(false);
+  const { add: addCwdHistory } = useCwdHistory();
 
   const handleCreate = useCallback(() => {
     const isTerminal = agentType === "terminal";
@@ -75,6 +77,7 @@ function CreateTemplateDialogContent({
         allowMedia: isTerminal ? false : allowMedia,
       })
       .then(() => {
+        addCwdHistory(directory);
         onOpenChange(false);
         toast.success("Template created.");
       })
@@ -95,6 +98,7 @@ function CreateTemplateDialogContent({
     fullAccess,
     callable,
     allowMedia,
+    addCwdHistory,
     onOpenChange,
   ]);
 

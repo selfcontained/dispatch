@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { THEMES, useTheme, type ThemeId } from "@/hooks/use-theme";
+import { PathInput } from "@/components/app/path-input";
 
 // Canvas for one-off component experiments. Add sections below as needed and
 // remove them once the work ships — this page intentionally stays empty
@@ -46,6 +47,15 @@ function ThemePicker({
 
 export function DesignLab() {
   const { theme, setTheme } = useTheme();
+  const [cwd, setCwd] = useState("~/dev/apps/dispatch");
+
+  const projectHistory = [
+    "~/dev/apps/dispatch",
+    "~/dev/apps/dispatch-ios",
+    "~/dev/tools/codex",
+    "~/work/customer-portal",
+    "~/experiments/agent-sandbox",
+  ];
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -66,7 +76,7 @@ export function DesignLab() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Sandbox for previewing component variations against different
-            themes. Currently empty — add experiments as sections below.
+            themes.
           </p>
         </header>
 
@@ -74,14 +84,69 @@ export function DesignLab() {
           <ThemePicker theme={theme} setTheme={setTheme} />
         </div>
 
-        <div className="rounded-xl border border-dashed border-border bg-card/30 px-8 py-16 text-center">
-          <p className="text-sm text-muted-foreground">
-            No active experiments. Add a section to{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              apps/web/src/components/app/design-lab.tsx
-            </code>{" "}
-            to preview a component.
-          </p>
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">
+                Working Directory Input
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Shared input used by agents, templates, and jobs.
+              </p>
+            </div>
+
+            <PathInput
+              value={cwd}
+              onChange={setCwd}
+              label="Working directory"
+              history={projectHistory}
+              historyMetadata={{
+                "~/dev/apps/dispatch": {
+                  label: "dispatch",
+                  usageCount: 32,
+                  iconUrl: "/icons/teal/brand-icon.svg",
+                },
+                "~/dev/apps/dispatch-ios": {
+                  label: "dispatch-ios",
+                  usageCount: 11,
+                },
+                "~/dev/tools/codex": {
+                  label: "codex",
+                  usageCount: 18,
+                },
+                "~/work/customer-portal": {
+                  label: "customer-portal",
+                  usageCount: 7,
+                },
+                "~/experiments/agent-sandbox": {
+                  label: "agent-sandbox",
+                  usageCount: 3,
+                },
+              }}
+              onRemoveHistory={() => undefined}
+              data-testid="design-lab-path-input"
+              historyItemTestId="design-lab-path-option"
+            />
+          </section>
+
+          <section className="space-y-3 text-sm text-muted-foreground">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+              Interaction Targets
+            </h2>
+            <div className="rounded-md border border-border bg-card/50 p-4">
+              <ul className="list-disc space-y-2 pl-5">
+                <li>
+                  Tab accepts the inline completion without adding a slash.
+                </li>
+                <li>Arrow up/down moves through project rows.</li>
+                <li>Enter or Space selects the highlighted project.</li>
+                <li>
+                  Frequently used projects sort above recent-but-rare ones.
+                </li>
+                <li>Known projects can render as compact names with icons.</li>
+              </ul>
+            </div>
+          </section>
         </div>
       </div>
     </div>

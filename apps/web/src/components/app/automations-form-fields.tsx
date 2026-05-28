@@ -2,6 +2,7 @@ import { useMemo, useCallback, useRef, useState } from "react";
 import { Check, ChevronDown, GitBranch, Paperclip } from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
+import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { PathInput } from "@/components/app/path-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -244,6 +245,12 @@ export function TemplateConfigFields({
   autoFocusName,
 }: TemplateConfigFieldsProps): JSX.Element {
   const isTerminal = agentType === "terminal";
+  const {
+    history: cwdHistory,
+    removableHistory: removableCwdHistory,
+    historyMetadata: cwdHistoryMetadata,
+    remove: removeCwdHistory,
+  } = useCwdHistory();
 
   const detectedArgs = useMemo(
     () => (prompt ? parseTemplateArgs(prompt) : []),
@@ -288,6 +295,10 @@ export function TemplateConfigFields({
           value={directory}
           onChange={onDirectoryChange}
           placeholder="/path/to/repo"
+          history={cwdHistory}
+          removableHistory={removableCwdHistory}
+          historyMetadata={cwdHistoryMetadata}
+          onRemoveHistory={removeCwdHistory}
         />
       </div>
 
