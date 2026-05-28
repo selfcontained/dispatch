@@ -17,9 +17,9 @@ State is spread across purpose-specific brain primitives to keep writes minimal:
    - `next_focus` — the specific area the last run recommended you start with this time
    - `last_coverage_summary` — the most recent useful coverage snapshot and notable deltas
 
-2. **Backlog** (collection: `test-enforcer`, name: `backlog`) — read with `brain_list_get`. Worthwhile follow-up coverage or reliability work that prior runs deferred. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array.
+2. **Backlog** (collection: `test-enforcer`, name: `backlog`) — read with `brain_list_get`. Worthwhile follow-up coverage or reliability work that prior runs deferred. Managed via `brain_list_push` / `brain_list_remove` — never regenerate the full array. Items with `source: "deferred-work-triage"` were reported by other agents and routed here automatically — treat them like any other backlog item.
 
-3. **Flakes** (collection: `test-enforcer`, name: `flakes`) — read with `brain_list_get`. Flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses. Managed via `brain_list_push` / `brain_list_remove`.
+3. **Flakes** (collection: `test-enforcer`, name: `flakes`) — read with `brain_list_get`. Flaky tests or local-only failure patterns worth remembering, with brief notes on fixes or hypotheses. Managed via `brain_list_push` / `brain_list_remove`. Items with `source: "deferred-work-triage"` were reported by other agents — they may include evidence from the reporting agent's context.
 
 4. **Run history** — query with `brain_query_events(collection: "test-enforcer", kind: "run", subject: "test-enforcer", limit: 5)`. Read-only context — useful for PR descriptions and avoiding duplicate work.
 

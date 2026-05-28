@@ -155,6 +155,12 @@ Before marking any task as done, run the following checks and fix any failures:
 
   `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
 
+## Deferred Work
+
+- When you discover follow-up work during a task that belongs to a recurring job (flaky tests, missing coverage, tech debt, oversized components, stale docs), report it with the `dispatch_report_deferred_work` MCP tool instead of writing directly into job-specific Brain collections.
+- The tool accepts a `kind` (flake, coverage_gap, tech_debt, componentization, docs_gap, bug, refactor, other), a `summary`, and optional `details`, `files`, `evidence`, `priority`, and `suggestedJob`.
+- Items land in a shared intake queue and are automatically triaged into the appropriate job's backlog by the deferred-work-triage recurring job.
+
 ## Personas
 
 - When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.

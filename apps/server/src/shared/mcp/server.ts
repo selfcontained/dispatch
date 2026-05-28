@@ -84,6 +84,8 @@ const AGENT_TOOLS = new Set([
   "dispatch_share",
   "dispatch_list_media",
   "dispatch_feedback",
+  "dispatch_report_deferred_work",
+  "dispatch_list_deferred_work",
   "list_personas",
   "dispatch_launch_persona",
   "dispatch_get_feedback",
@@ -128,6 +130,8 @@ const JOB_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_share",
   "dispatch_list_media",
+  "dispatch_report_deferred_work",
+  "dispatch_list_deferred_work",
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
@@ -855,6 +859,24 @@ async function createDispatchMcpServer(
     });
   }
 
+  // ── Deferred work tools ──────────────────────────────────────────
+  if (context.agent && context.repoRoot && context.brainStore) {
+    const dwCtx = {
+      repoRoot: context.repoRoot,
+      agentId: context.agent.id,
+      store: context.brainStore,
+      publishBrainChanged: context.publishBrainChanged
+        ? () => context.publishBrainChanged!(context.repoRoot!)
+        : undefined,
+    };
+    if (allowed.has("dispatch_report_deferred_work")) {
+      registerDeferredWorkTool(server, dwCtx);
+    }
+    if (allowed.has("dispatch_list_deferred_work")) {
+      registerListDeferredWorkTool(server, dwCtx);
+    }
+  }
+
   // ── Summary / analytics tools (available to both agents and jobs) ──
   registerAnalyticsTools(server, allowed, {
     getActivitySummary:
@@ -1227,4 +1249,220 @@ function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {
     }
   }
   return schema;
+}
+
+// ── Deferred work intake tool ───────────────────────────────────────
+
+const DEFERRED_WORK_COLLECTION = "deferred-work";
+const DEFERRED_WORK_INTAKE_LIST = "intake";
+const DEFERRED_WORK_MAX_ITEMS = 200;
+
+const DEFERRED_WORK_KINDS = [
+  "flake",
+  "coverage_gap",
+  "tech_debt",
+  "componentization",
+  "docs_gap",
+  "bug",
+  "refactor",
+  "other",
+] as const;
+
+function registerDeferredWorkTool(
+  server: McpServer,
+  ctx: {
+    repoRoot: string;
+    agentId: string;
+    store: BrainStore;
+    publishBrainChanged?: () => void;
+  }
+): void {
+  server.registerTool(
+    "dispatch_report_deferred_work",
+    {
+      description:
+        "Report work that should be handled later by a recurring job (e.g. flaky tests, " +
+        "coverage gaps, tech debt). Items are placed in a shared intake queue and triaged " +
+        "into the appropriate job's backlog automatically. Use this instead of writing " +
+        "directly into job-specific Brain collections.",
+      inputSchema: {
+        kind: z
+          .enum(DEFERRED_WORK_KINDS)
+          .describe(
+            "Category of deferred work: flake (flaky test), coverage_gap (missing test coverage), " +
+              "tech_debt (code quality), componentization (oversized component/file), " +
+              "docs_gap (missing/stale docs), bug (non-critical bug), refactor (structural improvement), " +
+              "other (anything else)."
+          ),
+        summary: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe("Short description of the work to be done."),
+        details: z
+          .string()
+          .max(2000)
+          .optional()
+          .describe(
+            "Longer explanation with context, reproduction steps, or analysis."
+          ),
+        files: z
+          .array(z.string())
+          .max(20)
+          .optional()
+          .describe("File paths relevant to this work item."),
+        evidence: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe(
+            "Supporting evidence: failed test names, error messages, commands run, " +
+              "screenshot references, commit SHAs, PR URLs, etc."
+          ),
+        priority: z
+          .enum(["low", "medium", "high"])
+          .default("medium")
+          .describe("Relative priority for triage."),
+        suggestedJob: z
+          .string()
+          .optional()
+          .describe(
+            "Hint for which recurring job should handle this (e.g. 'test-enforcer', " +
+              "'componentizer'). The triage job makes the final routing decision."
+          ),
+      },
+    },
+    async (args) => {
+      try {
+        const item = {
+          kind: args.kind,
+          summary: args.summary,
+          details: args.details ?? null,
+          files: args.files ?? [],
+          evidence: (args.evidence as Record<string, unknown>) ?? {},
+          priority: args.priority,
+          suggestedJob: args.suggestedJob ?? null,
+          reportedBy: ctx.agentId,
+          reportedAt: new Date().toISOString(),
+          status: "pending",
+        };
+
+        const result = await ctx.store.pushListItems(
+          ctx.repoRoot,
+          ctx.agentId,
+          {
+            collection: DEFERRED_WORK_COLLECTION,
+            name: DEFERRED_WORK_INTAKE_LIST,
+            items: [item],
+            maxItems: DEFERRED_WORK_MAX_ITEMS,
+          }
+        );
+
+        ctx.publishBrainChanged?.();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `Deferred work reported: "${args.summary}" (${args.kind}, ${args.priority} priority). ` +
+                `Intake queue now has ${result.length} item(s).`,
+            },
+          ],
+          structuredContent: {
+            kind: args.kind,
+            summary: args.summary,
+            priority: args.priority,
+            queueLength: result.length,
+            revision: result.revision,
+          },
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+}
+
+function registerListDeferredWorkTool(
+  server: McpServer,
+  ctx: {
+    repoRoot: string;
+    agentId: string;
+    store: BrainStore;
+  }
+): void {
+  server.registerTool(
+    "dispatch_list_deferred_work",
+    {
+      description:
+        "List pending deferred work items from the shared intake queue. " +
+        "Shows work reported by any agent via dispatch_report_deferred_work that has not yet " +
+        "been triaged into a job-specific backlog.",
+      inputSchema: {
+        kind: z
+          .enum(DEFERRED_WORK_KINDS)
+          .optional()
+          .describe("Filter by work category. Omit to list all kinds."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .default(50)
+          .describe("Maximum number of items to return."),
+      },
+    },
+    async (args) => {
+      try {
+        const result = await ctx.store.getListItems(ctx.repoRoot, {
+          collection: DEFERRED_WORK_COLLECTION,
+          name: DEFERRED_WORK_INTAKE_LIST,
+          limit: args.limit,
+          order: "desc",
+        });
+
+        let items = result.items;
+        if (args.kind) {
+          items = items.filter(
+            (item) =>
+              item.value != null &&
+              typeof item.value === "object" &&
+              (item.value as Record<string, unknown>).kind === args.kind
+          );
+        }
+
+        const summary =
+          `${items.length} item(s) in intake queue` +
+          (args.kind ? ` matching kind "${args.kind}"` : "") +
+          ` (${result.totalCount} total).`;
+
+        return {
+          content: [
+            { type: "text", text: summary },
+            {
+              type: "text",
+              text: JSON.stringify(
+                items.map((item) => ({
+                  index: item.index,
+                  ...(item.value as Record<string, unknown>),
+                })),
+                null,
+                2
+              ),
+            },
+          ],
+          structuredContent: {
+            items: items.map((item) => ({
+              index: item.index,
+              ...(item.value as Record<string, unknown>),
+            })),
+            totalCount: result.totalCount,
+            revision: result.revision,
+          },
+        };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
 }
