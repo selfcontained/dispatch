@@ -126,23 +126,8 @@ export function formatPrimitive(v: unknown): {
   if (typeof v === "string") {
     return { text: `"${v}"`, className: "text-emerald-400" };
   }
-  if (Array.isArray(v)) {
-    const inner = v
-      .slice(0, 3)
-      .map((item) =>
-        typeof item === "string"
-          ? `"${item.length > 30 ? item.slice(0, 27) + "…" : item}"`
-          : JSON.stringify(item)
-      );
-    const suffix = v.length > 3 ? `, …+${v.length - 3}` : "";
-    return {
-      text: `[${inner.join(", ")}${suffix}]`,
-      className: "text-muted-foreground",
-    };
-  }
-  const keys = Object.keys(v as Record<string, unknown>);
   return {
-    text: `{${keys.slice(0, 3).join(", ")}${keys.length > 3 ? ", …" : ""}}`,
+    text: JSON.stringify(v),
     className: "text-muted-foreground",
   };
 }
@@ -172,7 +157,9 @@ export function KeyValueTable({ value }: { value: unknown }): JSX.Element {
             className="flex gap-2 text-xs font-mono leading-relaxed min-w-0"
           >
             <span className="text-sky-400 shrink-0">{key}</span>
-            <span className={cn(fmt.className, "truncate")}>{fmt.text}</span>
+            <span className={cn(fmt.className, "whitespace-nowrap")}>
+              {fmt.text}
+            </span>
           </div>
         );
       })}
@@ -260,7 +247,7 @@ export function ObjectCard({
           <RelativeTime iso={obj.updatedAt} />
         </div>
       </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-hidden">
+      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
         <KeyValueTable
           value={{
             ...(typeof obj.value === "object" &&
@@ -304,7 +291,7 @@ function ListItemRow({
       <span className="text-muted-foreground shrink-0 w-4 text-right pt-px">
         {index}
       </span>
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-x-auto">
         {entries.map(([k, v]) => {
           const fmt = formatPrimitive(v);
           return (
@@ -313,7 +300,9 @@ function ListItemRow({
               className="flex gap-1.5 leading-relaxed min-w-0"
             >
               <span className="text-sky-400 shrink-0">{k as string}:</span>
-              <span className={cn(fmt.className, "truncate")}>{fmt.text}</span>
+              <span className={cn(fmt.className, "whitespace-nowrap")}>
+                {fmt.text}
+              </span>
             </div>
           );
         })}
@@ -431,7 +420,7 @@ export function EventCard({
           <RelativeTime iso={event.createdAt} />
         </div>
       </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-hidden">
+      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
         <KeyValueTable value={allEntries} />
       </div>
     </div>
