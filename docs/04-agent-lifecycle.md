@@ -19,7 +19,7 @@
 - `standard` — every agent created via the normal Create dialog or job/persona launch.
 - `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
-Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `terminal`).
+Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `cursor` / `terminal`).
 
 ## Setup Phases
 
