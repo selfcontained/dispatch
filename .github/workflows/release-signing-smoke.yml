@@ -23,12 +23,12 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -36,7 +36,7 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -90,7 +90,7 @@ jobs:
       artifact_name: ${{ steps.meta.outputs.artifact_name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
@@ -101,7 +101,7 @@ jobs:
           REF_SLUG=$(printf '%s' '${{ inputs.ref }}' | tr '/:' '--')
           echo "artifact_name=release-signing-smoke-${REF_SLUG}-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -109,7 +109,7 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -161,7 +161,7 @@ jobs:
         run: bin/pack-release --output dispatch-release.tar.gz
 
       - name: Upload smoke bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.meta.outputs.artifact_name }}
           if-no-files-found: error
@@ -185,12 +185,12 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -198,7 +198,7 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -206,7 +206,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download smoke bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build-signed-binaries.outputs.artifact_name }}
 
@@ -262,12 +262,12 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -275,7 +275,7 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -283,7 +283,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Download smoke bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build-signed-binaries.outputs.artifact_name }}
 
