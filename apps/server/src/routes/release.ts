@@ -378,6 +378,7 @@ export async function registerReleaseRoutes(
         "--repo",
         repo,
         "--prerelease=false",
+        "--latest",
       ]);
       return { ok: true, tag: body.tag };
     } catch (err) {
