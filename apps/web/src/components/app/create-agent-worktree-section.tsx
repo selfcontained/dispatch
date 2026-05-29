@@ -78,6 +78,7 @@ export function WorktreeSection({
         </span>
       </label>
       <div
+        aria-disabled={controlsDisabled}
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
           branchOptionsEnabled
@@ -99,7 +100,10 @@ export function WorktreeSection({
               testIdPrefix="create-agent"
               disabled={controlsDisabled}
             />
-            <div className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3">
+            <div
+              aria-disabled={controlsDisabled}
+              className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3"
+            >
               <label
                 className={cn(
                   "flex items-start gap-3",
@@ -127,6 +131,7 @@ export function WorktreeSection({
                 </span>
               </label>
               <div
+                aria-disabled={controlsDisabled || !newBranchChecked}
                 className={cn(
                   "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
                   newBranchChecked

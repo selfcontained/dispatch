@@ -109,11 +109,19 @@ export function PathInput({
   }, [filteredHistoryOptions, projectSuggestionOptions]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const projectSuggestionsRequestRef = useRef(0);
+  const listboxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!dropdownOpen) return;
     setSelectedIndex(0);
   }, [dropdownOpen, options.length, historyFilter]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    listboxRef.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [dropdownOpen, selectedIndex]);
 
   const selectOption = useCallback(
     (option: HistoryOption) => {
@@ -352,11 +360,7 @@ export function PathInput({
                 }
                 setSelectedIndex((index) => Math.max(index - 1, 0));
               }
-              if (
-                (e.key === "Enter" || e.key === " ") &&
-                dropdownOpen &&
-                selectedOption
-              ) {
+              if (e.key === "Enter" && dropdownOpen && selectedOption) {
                 e.preventDefault();
                 e.stopPropagation();
                 selectOption(selectedOption);
@@ -398,6 +402,7 @@ export function PathInput({
               Suggestions
             </div>
             <div
+              ref={listboxRef}
               role="listbox"
               className="max-h-[240px] overflow-y-auto overflow-x-hidden"
             >
@@ -425,18 +430,7 @@ export function PathInput({
                     onMouseMove={() => setSelectedIndex(index)}
                   >
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/40">
-                      {option.iconUrl ? (
-                        <img
-                          src={option.iconUrl}
-                          alt=""
-                          onError={(event) => {
-                            event.currentTarget.style.display = "none";
-                          }}
-                          className="h-4 w-4 object-contain"
-                        />
-                      ) : (
-                        <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
+                      <PathOptionIcon iconUrl={option.iconUrl} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium leading-4">
@@ -517,4 +511,21 @@ export function PathInput({
       ) : null}
     </div>
   );
+}
+
+function PathOptionIcon({ iconUrl }: { iconUrl?: string }): JSX.Element {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (iconUrl && !imageFailed) {
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        onError={() => setImageFailed(true)}
+        className="h-4 w-4 object-contain"
+      />
+    );
+  }
+
+  return <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />;
 }

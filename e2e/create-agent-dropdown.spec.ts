@@ -77,6 +77,14 @@ test.describe("Create agent dialog", () => {
       "data-selected",
       "true"
     );
+    await cwdInput.press(" ");
+    await expect(cwdInput).toHaveValue("myapp ");
+
+    await cwdInput.fill("myapp");
+    await expect(recentOptions.first()).toHaveAttribute(
+      "data-selected",
+      "true"
+    );
     await cwdInput.press("Enter");
     await expect(cwdInput).toHaveValue("/home/user/projects/myapp");
 
