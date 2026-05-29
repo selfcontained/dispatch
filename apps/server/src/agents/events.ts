@@ -67,6 +67,66 @@ export async function writeLatestEvent(
     );
 }
 
+/**
+ * Conditional variant of `writeLatestEvent`. Only updates the agent's
+ * latest-event columns when `latest_event_updated_at` still matches
+ * `expectedUpdatedAt` — i.e. no other event was written between the
+ * caller's read and this write. Returns `true` when the row was updated,
+ * `false` when the precondition failed (another event landed first).
+ */
+export async function writeLatestEventIfCurrent(
+  pool: Pool,
+  logger: FastifyBaseLogger,
+  id: string,
+  expectedUpdatedAt: string,
+  input: AgentLatestEventInput
+): Promise<boolean> {
+  const message = input.message.trim();
+  if (!message) {
+    throw new AgentError(
+      "Latest event message must be a non-empty string.",
+      400
+    );
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE agents
+    SET latest_event_type = $2,
+        latest_event_message = $3,
+        latest_event_metadata = $4::jsonb,
+        latest_event_updated_at = NOW(),
+        updated_at = NOW()
+    WHERE id = $1 AND deleted_at IS NULL
+      AND latest_event_updated_at::text = $5
+    `,
+    [
+      id,
+      input.type,
+      message,
+      JSON.stringify(input.metadata ?? {}),
+      expectedUpdatedAt,
+    ]
+  );
+
+  if (result.rowCount !== 1) {
+    return false;
+  }
+
+  pool
+    .query(
+      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
+       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
+       FROM agents WHERE id = $1`,
+      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
+    )
+    .catch((err) =>
+      logger.warn({ err }, "Failed to insert agent event history")
+    );
+
+  return true;
+}
+
 export type AgentEventBus = {
   /** Register a callback invoked after every successful upsert + agent fetch. */
   subscribe(listener: AgentEventListener): void;

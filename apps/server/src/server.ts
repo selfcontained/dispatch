@@ -140,6 +140,7 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { createActivityMonitor } from "./agents/activity-monitor.js";
 import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
 
@@ -257,11 +258,27 @@ const autoCheckRuntime = createAutoCheckRuntime({
   logger: app.log,
 });
 
+const activityMonitor = createActivityMonitor({
+  pool,
+  logger: app.log,
+  correctLatestEvent: async (id, expectedUpdatedAt, input) => {
+    const agent = await agentManager.upsertLatestEventIfCurrent(
+      id,
+      expectedUpdatedAt,
+      {
+        ...input,
+        metadata: { ...(input.metadata ?? {}), source: "activity-monitor" },
+      }
+    );
+    return agent !== null;
+  },
+});
 const agentLifecycleRuntime = createAgentLifecycleRuntime({
   agentManager,
   streamManager,
   appLog: app.log,
   reconcileIntervalMs: AGENT_STATUS_RECONCILE_INTERVAL_MS,
+  activityMonitor,
   withStreamFlag,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
 });
