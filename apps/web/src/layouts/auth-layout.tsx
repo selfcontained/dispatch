@@ -7,12 +7,11 @@ function ClearReloadButton() {
   return (
     <div className="fixed bottom-4 right-4">
       <Button
-        variant="ghost"
+        variant="default"
         size="sm"
-        className="text-xs text-muted-foreground/50 hover:text-muted-foreground"
         onClick={() => void clearCachesAndReload()}
       >
-        Clear app data & reload
+        Clear cache & reload
       </Button>
     </div>
   );
