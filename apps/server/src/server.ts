@@ -261,11 +261,16 @@ const autoCheckRuntime = createAutoCheckRuntime({
 const activityMonitor = createActivityMonitor({
   pool,
   logger: app.log,
-  setSystemLatestEvent: async (id, input) => {
-    await agentManager.upsertLatestEvent(id, {
-      ...input,
-      metadata: { ...(input.metadata ?? {}), source: "activity-monitor" },
-    });
+  correctLatestEvent: async (id, expectedUpdatedAt, input) => {
+    const agent = await agentManager.upsertLatestEventIfCurrent(
+      id,
+      expectedUpdatedAt,
+      {
+        ...input,
+        metadata: { ...(input.metadata ?? {}), source: "activity-monitor" },
+      }
+    );
+    return agent !== null;
   },
 });
 const agentLifecycleRuntime = createAgentLifecycleRuntime({

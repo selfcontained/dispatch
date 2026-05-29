@@ -34,6 +34,7 @@ import {
   type AgentEventBus,
   createAgentEventBus,
   writeLatestEvent,
+  writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { seedInitialMedia } from "./media-seed.js";
@@ -966,6 +967,27 @@ export class AgentManager {
     // Fire-and-forget: refresher swallows its own errors, throttles bursts,
     // and dedupes concurrent signals. We just nudge it on every status
     // transition so the diff badge tracks scope as work lands.
+    void this.diffStatsRefresher?.signal(id);
+    return agent;
+  }
+
+  async upsertLatestEventIfCurrent(
+    id: string,
+    expectedUpdatedAt: string,
+    input: AgentLatestEventInput
+  ): Promise<AgentRecord | null> {
+    const updated = await writeLatestEventIfCurrent(
+      this.pool,
+      this.logger,
+      id,
+      expectedUpdatedAt,
+      input
+    );
+    if (!updated) return null;
+
+    const agent = await this.getAgent(id);
+    if (!agent) return null;
+    this.eventBus.publish(agent);
     void this.diffStatsRefresher?.signal(id);
     return agent;
   }

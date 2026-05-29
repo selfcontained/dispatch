@@ -22,6 +22,7 @@ type AgentActivityRow = {
   id: string;
   tmuxSession: string;
   latestEventType: AgentLatestEventType | null;
+  latestEventUpdatedAt: string | null;
 };
 
 type ActivityState = {
@@ -32,10 +33,13 @@ type ActivityState = {
 export type ActivityMonitorDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
-  setSystemLatestEvent: (
+  /** Conditionally write a corrective event — only succeeds if the
+   *  agent's latest event hasn't changed since `expectedUpdatedAt`. */
+  correctLatestEvent: (
     id: string,
+    expectedUpdatedAt: string,
     input: AgentLatestEventInput
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 };
 
 export type ActivityMonitor = {
@@ -53,6 +57,10 @@ export type ActivityMonitor = {
  *   - Pane active + status is blocked/idle/done/waiting_user → working
  *   - Pane stale (3+ min) + status is working → idle
  *
+ * Corrections are conditional — they only apply when the agent's latest
+ * event hasn't changed between the monitor's read and write, preventing
+ * a stale snapshot from overwriting a newer agent-reported event.
+ *
  * Runs on the same cadence as the reconciler (called from the reconcile
  * loop) but is a separate concern — the reconciler handles session
  * lifecycle, the activity monitor handles status accuracy.
@@ -69,7 +77,8 @@ export function createActivityMonitor(
       const result = await pool.query(
         `SELECT id,
                 tmux_session   AS "tmuxSession",
-                latest_event_type AS "latestEventType"
+                latest_event_type AS "latestEventType",
+                latest_event_updated_at AS "latestEventUpdatedAt"
          FROM agents
          WHERE deleted_at IS NULL
            AND status = 'running'
@@ -104,7 +113,8 @@ export function createActivityMonitor(
           });
 
           const eventType = row.latestEventType;
-          if (!eventType) continue;
+          const eventUpdatedAt = row.latestEventUpdatedAt;
+          if (!eventType || !eventUpdatedAt) continue;
 
           if (paneChanged && eventType !== "working") {
             logger.info(
@@ -112,10 +122,17 @@ export function createActivityMonitor(
               "Activity monitor: pane active, correcting %s → working",
               eventType
             );
-            await deps.setSystemLatestEvent(row.id, {
-              type: "working",
-              message: "Activity detected",
-            });
+            const applied = await deps.correctLatestEvent(
+              row.id,
+              eventUpdatedAt,
+              { type: "working", message: "Activity detected" }
+            );
+            if (!applied) {
+              logger.debug(
+                { agentId: row.id },
+                "Activity monitor: correction skipped — event was updated concurrently"
+              );
+            }
           } else if (!paneChanged && eventType === "working") {
             const staleDurationMs = now - prev.lastChangeAt;
             if (staleDurationMs >= STALE_WORKING_MS) {
@@ -124,10 +141,17 @@ export function createActivityMonitor(
                 "Activity monitor: pane stale for %dms, correcting working → idle",
                 staleDurationMs
               );
-              await deps.setSystemLatestEvent(row.id, {
-                type: "idle",
-                message: "No recent activity detected",
-              });
+              const applied = await deps.correctLatestEvent(
+                row.id,
+                eventUpdatedAt,
+                { type: "idle", message: "No recent activity detected" }
+              );
+              if (!applied) {
+                logger.debug(
+                  { agentId: row.id },
+                  "Activity monitor: correction skipped — event was updated concurrently"
+                );
+              }
             }
           }
         } catch (err) {
