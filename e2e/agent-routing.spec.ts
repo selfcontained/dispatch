@@ -2,10 +2,18 @@ import { expect, test } from "@playwright/test";
 import { cleanupE2EAgents, createAgentViaAPI } from "./helpers";
 
 async function waitForAppShell(
-  page: import("@playwright/test").Page
+  page: import("@playwright/test").Page,
+  agentName?: string
 ): Promise<void> {
   await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
   await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
+  if (agentName) {
+    await page
+      .getByTestId("agent-sidebar")
+      .getByText(agentName)
+      .first()
+      .waitFor({ state: "visible" });
+  }
 }
 
 test.describe("Agent routing", () => {
@@ -22,7 +30,7 @@ test.describe("Agent routing", () => {
     });
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await waitForAppShell(page);
+    await waitForAppShell(page, agent.name);
 
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
     await expect(page.getByTestId("current-session-name")).toContainText(
@@ -40,7 +48,7 @@ test.describe("Agent routing", () => {
     });
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await waitForAppShell(page);
+    await waitForAppShell(page, agent.name);
     await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
 
     await page.getByTestId("settings-button").click();
@@ -65,13 +73,13 @@ test.describe("Agent routing", () => {
     await page.goto(`/agents/${agent.id}/feedback/not-a-number`, {
       waitUntil: "domcontentloaded",
     });
-    await waitForAppShell(page);
+    await waitForAppShell(page, agent.name);
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
 
     await page.goto(`/agents/${agent.id}/review/not-a-real-agent`, {
       waitUntil: "domcontentloaded",
     });
-    await waitForAppShell(page);
+    await waitForAppShell(page, agent.name);
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
   });
 
@@ -96,7 +104,7 @@ test.describe("Agent routing", () => {
     await page.goto(`/agents/${agent.id}/feedback/99999`, {
       waitUntil: "domcontentloaded",
     });
-    await waitForAppShell(page);
+    await waitForAppShell(page, agent.name);
 
     await expect(page).toHaveURL(
       new RegExp(`/agents/${agent.id}/feedback/99999$`)
