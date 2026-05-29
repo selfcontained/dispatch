@@ -16,7 +16,6 @@ import {
   EventCard,
 } from "@/components/app/brain-cards";
 import { decodeRepoRoot, encodeRepoRoot } from "@/lib/brain-encoding";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -434,8 +433,8 @@ function BrainCollectionView({
     (objects.length >= 100 || lists.length >= 100 || events.length >= 100);
 
   return (
-    <ScrollArea className="min-h-0 flex-1 overflow-x-hidden">
-      <div className="mx-auto max-w-5xl space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5 overflow-hidden">
+    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5">
         {isCapped && !search ? (
           <div className="mx-3 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             Showing the first 100 items per section. Select a collection to see
@@ -483,6 +482,6 @@ function BrainCollectionView({
           ))}
         </CollapsibleSection>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
