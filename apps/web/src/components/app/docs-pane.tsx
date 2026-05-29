@@ -638,6 +638,14 @@ const SECTIONS: SectionDef[] = [
               the reviewer exits cleanly
             </li>
             <li>
+              <Code>list_agents</Code> — list other agents in the same project
+              with their IDs, statuses, and latest activity
+            </li>
+            <li>
+              <Code>dispatch_send_message</Code> — send a message to another
+              running agent by ID or name; the target can reply the same way
+            </li>
+            <li>
               <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
               <Code>get_feedback_summary</Code> — analytics queries over recent
               Dispatch activity
@@ -1052,14 +1060,14 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               bumps, doc audits).
             </li>
             <li>
-              <strong>Discovery</strong> — <Code>list_agents</Code>,{" "}
+              <strong>Discovery &amp; messaging</strong> —{" "}
+              <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
               <Code>list_personas</Code>,{" "}
               <Code>list_recent_persona_reviews</Code>,{" "}
               <Code>list_recent_feedback</Code>,{" "}
               <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
               and <Code>get_feedback_summary</Code> let a job sweep over recent
-              activity — for example, a triage job that reads what's been
-              happening and posts a summary.
+              activity, coordinate with other agents, or post a summary.
             </li>
             <li>
               <strong>Round-trip review</strong> —{" "}
