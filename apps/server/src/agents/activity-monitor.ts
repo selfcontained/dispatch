@@ -78,7 +78,7 @@ export function createActivityMonitor(
         `SELECT id,
                 tmux_session   AS "tmuxSession",
                 latest_event_type AS "latestEventType",
-                latest_event_updated_at AS "latestEventUpdatedAt"
+                latest_event_updated_at::text AS "latestEventUpdatedAt"
          FROM agents
          WHERE deleted_at IS NULL
            AND status = 'running'

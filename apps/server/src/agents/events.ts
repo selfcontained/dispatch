@@ -98,7 +98,7 @@ export async function writeLatestEventIfCurrent(
         latest_event_updated_at = NOW(),
         updated_at = NOW()
     WHERE id = $1 AND deleted_at IS NULL
-      AND latest_event_updated_at = $5
+      AND latest_event_updated_at::text = $5
     `,
     [
       id,
