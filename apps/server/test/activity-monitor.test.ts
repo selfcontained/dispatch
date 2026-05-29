@@ -1,0 +1,264 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+
+import {
+  createActivityMonitor,
+  type ActivityMonitorDeps,
+} from "../src/agents/activity-monitor.js";
+
+const fakeLogger = {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+  trace: vi.fn(),
+  child: () => fakeLogger,
+  level: "info",
+  silent: vi.fn(),
+} as unknown as import("fastify").FastifyBaseLogger;
+
+let paneContent = "initial";
+let sessionExists = true;
+
+vi.mock("../src/terminal/tmux-terminal.js", () => {
+  return {
+    TmuxTerminal: class MockTmuxTerminal {
+      async hasSession() {
+        return sessionExists;
+      }
+      async captureRecentLines() {
+        return paneContent;
+      }
+      digest(content: string) {
+        return content;
+      }
+    },
+  };
+});
+
+function makePool(rows: Array<Record<string, unknown>>) {
+  return {
+    query: vi.fn().mockResolvedValue({ rows }),
+  } as unknown as import("pg").Pool;
+}
+
+function makeDeps(
+  rows: Array<Record<string, unknown>>,
+  overrides: Partial<ActivityMonitorDeps> = {}
+): ActivityMonitorDeps {
+  return {
+    pool: makePool(rows),
+    logger: fakeLogger,
+    setSystemLatestEvent: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+describe("createActivityMonitor", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    paneContent = "initial";
+    sessionExists = true;
+  });
+
+  it("records baseline on first tick without correcting", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+  });
+
+  it("corrects blocked → working when pane changes", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "blocked" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).toHaveBeenCalledWith("agt_001", {
+      type: "working",
+      message: "Activity detected",
+    });
+  });
+
+  it("corrects idle → working when pane changes", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).toHaveBeenCalledWith("agt_001", {
+      type: "working",
+      message: "Activity detected",
+    });
+  });
+
+  it("corrects done → working when pane changes", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "done" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).toHaveBeenCalledWith("agt_001", {
+      type: "working",
+      message: "Activity detected",
+    });
+  });
+
+  it("corrects waiting_user → working when pane changes", async () => {
+    const deps = makeDeps([
+      {
+        id: "agt_001",
+        tmuxSession: "sess_001",
+        latestEventType: "waiting_user",
+      },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).toHaveBeenCalledWith("agt_001", {
+      type: "working",
+      message: "Activity detected",
+    });
+  });
+
+  it("does not correct when already working and pane active", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "working" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+  });
+
+  it("corrects working → idle after stale threshold", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "working" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "static-content";
+    await monitor.check();
+
+    // Advance time past the 3-minute threshold
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 200_000);
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).toHaveBeenCalledWith("agt_001", {
+      type: "idle",
+      message: "No recent activity detected",
+    });
+
+    vi.restoreAllMocks();
+  });
+
+  it("does not correct working → idle before threshold", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "working" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "static-content";
+    await monitor.check();
+
+    // Advance time but not past threshold
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it("skips agents whose tmux session is gone", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+    ]);
+    sessionExists = false;
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+  });
+
+  it("prunes state for agents no longer running", async () => {
+    const pool = makePool([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+    ]);
+    const deps = makeDeps([], { pool });
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    // Agent disappears
+    (pool.query as ReturnType<typeof vi.fn>).mockResolvedValue({ rows: [] });
+    await monitor.check();
+
+    // Agent reappears with new content — should be baseline (no correction)
+    (pool.query as ReturnType<typeof vi.fn>).mockResolvedValue({
+      rows: [
+        { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+      ],
+    });
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+  });
+
+  it("forget() drops state for a specific agent", async () => {
+    const deps = makeDeps([
+      { id: "agt_001", tmuxSession: "sess_001", latestEventType: "idle" },
+    ]);
+    const monitor = createActivityMonitor(deps);
+
+    paneContent = "content-A";
+    await monitor.check();
+
+    monitor.forget("agt_001");
+
+    // Next tick is baseline again — no correction
+    paneContent = "content-B";
+    await monitor.check();
+
+    expect(deps.setSystemLatestEvent).not.toHaveBeenCalled();
+  });
+});

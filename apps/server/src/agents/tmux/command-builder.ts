@@ -165,7 +165,7 @@ export function buildLaunchGuidance(
       );
     }
     rules.push(
-      "Report status with dispatch_event. Types: working (making progress), blocked (stuck, cannot proceed alone), waiting_user (need input), done (task fully complete), idle (answered a question, no code changes). Emit working at turn start and when shifting phases (e.g. research → coding → testing). Emit a terminal event before your final response. Use blocked only when truly stuck — not for errors you're actively fixing."
+      "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
     rules.push(
       "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries). Update or delete stale pins. For longer artifacts, write a file via dispatch_share and pin a reference."
