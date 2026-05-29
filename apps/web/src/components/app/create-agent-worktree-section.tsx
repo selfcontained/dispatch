@@ -32,6 +32,10 @@ export function WorktreeSection({
   createNewBranch,
   onCreateNewBranchChange,
 }: WorktreeSectionProps): JSX.Element {
+  const controlsDisabled = !worktreeAvailable || !worktreeChecked;
+  const branchOptionsEnabled = worktreeAvailable && worktreeChecked;
+  const newBranchChecked = branchOptionsEnabled && createNewBranch;
+
   return (
     <div
       className={cn(
@@ -48,7 +52,10 @@ export function WorktreeSection({
       >
         <Checkbox
           checked={worktreeChecked}
-          onCheckedChange={() => onUseWorktreeChange(!useWorktree)}
+          onCheckedChange={() => {
+            const nextUseWorktree = !useWorktree;
+            onUseWorktreeChange(nextUseWorktree);
+          }}
           disabled={!worktreeAvailable}
           className="mt-0.5"
           title={
@@ -71,16 +78,15 @@ export function WorktreeSection({
         </span>
       </label>
       <div
+        aria-disabled={controlsDisabled}
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-          worktreeChecked
+          branchOptionsEnabled
             ? "grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0"
+            : "grid-rows-[1fr] opacity-60"
         )}
-        aria-hidden={!worktreeChecked}
-        {...(!worktreeChecked ? ({ inert: "" } as Record<string, string>) : {})}
       >
-        <div className="min-h-0 overflow-hidden">
+        <div className="min-h-0">
           <div className="ml-8 w-[calc(100%-2rem)] space-y-3 pt-1">
             <BranchSelect
               cwd={cwd}
@@ -92,17 +98,27 @@ export function WorktreeSection({
               baseBranchHelper="The branch to check out in the worktree."
               showNewBranchInput={false}
               testIdPrefix="create-agent"
+              disabled={controlsDisabled}
             />
-            <div className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3">
-              <label className="flex cursor-pointer items-start gap-3">
+            <div
+              aria-disabled={controlsDisabled}
+              className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3"
+            >
+              <label
+                className={cn(
+                  "flex items-start gap-3",
+                  controlsDisabled ? "cursor-not-allowed" : "cursor-pointer"
+                )}
+              >
                 <Checkbox
-                  checked={createNewBranch}
+                  checked={newBranchChecked}
                   onCheckedChange={() =>
                     onCreateNewBranchChange(!createNewBranch)
                   }
                   className="mt-0.5"
                   title="Toggle new branch creation"
                   data-testid="create-agent-new-branch"
+                  disabled={controlsDisabled}
                 />
                 <span className="space-y-1">
                   <span className="block text-sm font-medium text-foreground">
@@ -115,18 +131,15 @@ export function WorktreeSection({
                 </span>
               </label>
               <div
+                aria-disabled={controlsDisabled || !newBranchChecked}
                 className={cn(
                   "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-                  createNewBranch
+                  newBranchChecked
                     ? "grid-rows-[1fr] opacity-100"
-                    : "grid-rows-[0fr] opacity-0"
+                    : "grid-rows-[1fr] opacity-60"
                 )}
-                aria-hidden={!createNewBranch}
-                {...(!createNewBranch
-                  ? ({ inert: "" } as Record<string, string>)
-                  : {})}
               >
-                <div className="min-h-0 overflow-hidden">
+                <div className="min-h-0">
                   <div className="space-y-1 pt-2">
                     <label className="block text-xs text-muted-foreground">
                       New branch name
@@ -138,6 +151,7 @@ export function WorktreeSection({
                       }
                       placeholder="auto-generated if empty"
                       data-testid="create-agent-worktree-branch"
+                      disabled={controlsDisabled || !newBranchChecked}
                     />
                   </div>
                 </div>

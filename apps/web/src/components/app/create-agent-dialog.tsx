@@ -17,14 +17,12 @@ import {
   startupFileKey,
 } from "@/components/app/create-agent-dialog-clipboard";
 import {
-  addToCwdHistory,
   CONTEXT_PROMPT_ID,
   LAST_USED_CWD_KEY,
   LAST_USED_TYPE_KEY,
-  readCwdHistory,
   readLastUsedAgentType,
   readLastUsedCwd,
-  removeCwdFromHistory,
+  useCwdHistory,
   useCreateAgentPrefs,
 } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
@@ -123,9 +121,13 @@ function CreateAgentDialogContent({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [contextDraftInvalid, setContextDraftInvalid] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [cwdHistory, setCwdHistory] = useState<string[]>(() =>
-    readCwdHistory()
-  );
+  const {
+    history: cwdHistory,
+    removableHistory: removableCwdHistory,
+    historyMetadata: cwdHistoryMetadata,
+    add: addCwdHistory,
+    remove: removeCwdHistory,
+  } = useCwdHistory();
   const {
     fullAccess: createFullAccess,
     setFullAccess: setCreateFullAccess,
@@ -190,10 +192,6 @@ function CreateAgentDialogContent({
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
   const closeTypeDropdown = useCallback(() => setTypeDropdownOpen(false), []);
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
-
-  const handleRemoveCwdHistory = useCallback((cwd: string) => {
-    setCwdHistory(removeCwdFromHistory(cwd));
-  }, []);
 
   const handlePathInfoChange = useCallback(
     (info: { isGitRepo: boolean } | null) => {
@@ -379,7 +377,7 @@ function CreateAgentDialogContent({
           window.localStorage.setItem(LAST_USED_CWD_KEY, cwd);
           window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         }
-        setCwdHistory(addToCwdHistory(cwd));
+        addCwdHistory(cwd);
         await onCreated(payload.agent, createType);
       } finally {
         setCreating(false);
@@ -396,6 +394,7 @@ function CreateAgentDialogContent({
       createUseWorktree,
       createWorktreeBranch,
       initialPrompt,
+      addCwdHistory,
       onCreated,
       startupFiles,
       startupLinks,
@@ -403,7 +402,7 @@ function CreateAgentDialogContent({
     ]
   );
 
-  const worktreeAvailable = cwdIsGitRepo !== false;
+  const worktreeAvailable = cwdIsGitRepo === true;
   const worktreeChecked = worktreeAvailable && createUseWorktree;
 
   return (
@@ -537,7 +536,9 @@ function CreateAgentDialogContent({
                   onChange={setCreateCwd}
                   label="Working directory"
                   history={cwdHistory}
-                  onRemoveHistory={handleRemoveCwdHistory}
+                  removableHistory={removableCwdHistory}
+                  historyMetadata={cwdHistoryMetadata}
+                  onRemoveHistory={removeCwdHistory}
                   onPathInfoChange={handlePathInfoChange}
                   data-testid="create-agent-cwd"
                   historyItemTestId="create-agent-cwd-history-option"

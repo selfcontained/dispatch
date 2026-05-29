@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
+import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import type { AgentType } from "@/lib/agent-types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ function TemplateDetail({
   const navigate = useNavigate();
   const { updateTemplate, removeTemplate, launchTemplate } =
     useTemplateActions();
+  const { add: addCwdHistory } = useCwdHistory();
 
   const [displayName, setDisplayName] = useState(template.name);
   const [description, setDescription] = useState(template.description ?? "");
@@ -126,7 +128,10 @@ function TemplateDetail({
         callable,
         allowMedia: isTerminal ? false : allowMedia,
       })
-      .then(() => toast.success("Settings saved."))
+      .then(() => {
+        addCwdHistory(directory);
+        toast.success("Settings saved.");
+      })
       .catch((err: Error) => setSaveError(err.message));
   }, [
     updateTemplate,
@@ -142,6 +147,7 @@ function TemplateDetail({
     fullAccess,
     callable,
     allowMedia,
+    addCwdHistory,
   ]);
 
   const handleDelete = useCallback(() => {

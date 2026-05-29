@@ -311,16 +311,67 @@ export async function registerActivityRoutes(
     return { ok: true };
   });
 
-  app.get("/api/v1/history/projects", async () => {
-    const result = await deps.pool.query<{ project: string }>(
-      `SELECT DISTINCT COALESCE(git_context->>'repoRoot', cwd) AS project
-       FROM agents
-       WHERE parent_agent_id IS NULL
-         AND deleted_at IS NOT NULL
-         AND COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL
-       ORDER BY project`
+  app.get("/api/v1/history/projects", async (request) => {
+    const query = request.query as Record<string, unknown>;
+    const search =
+      typeof query.search === "string" ? query.search.trim().toLowerCase() : "";
+    const limit = Math.min(
+      Math.max(parseInt(String(query.limit ?? "20"), 10) || 20, 1),
+      50
     );
-    return { projects: result.rows.map((row) => row.project) };
+    const params: unknown[] = [];
+    const where = [
+      "parent_agent_id IS NULL",
+      "COALESCE(git_context->>'repoRoot', cwd) IS NOT NULL",
+    ];
+
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(
+        `(LOWER(COALESCE(git_context->>'repoRoot', cwd)) LIKE $${params.length} OR LOWER(regexp_replace(COALESCE(git_context->>'repoRoot', cwd), '/+$', '')) LIKE $${params.length})`
+      );
+    }
+    params.push(limit);
+
+    const result = await deps.pool.query<{
+      project: string;
+      usage_count: number;
+      latest_created_at: Date;
+      agent_id: string;
+      icon_agent_id: string | null;
+    }>(
+      `SELECT project,
+              COUNT(*)::int AS usage_count,
+              MAX(created_at) AS latest_created_at,
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS agent_id,
+              (ARRAY_AGG(id ORDER BY created_at DESC) FILTER (WHERE repo_icon_path IS NOT NULL))[1] AS icon_agent_id
+       FROM (
+         SELECT id,
+                created_at,
+                COALESCE(git_context->>'repoRoot', cwd) AS project,
+                git_context->>'repoIconPath' AS repo_icon_path
+         FROM agents
+         WHERE ${where.join(" AND ")}
+       ) project_agents
+       GROUP BY project
+       ORDER BY usage_count DESC, latest_created_at DESC, project ASC
+       LIMIT $${params.length}`,
+      params
+    );
+
+    const projectOptions = result.rows.map((row) => ({
+      path: row.project,
+      usageCount: row.usage_count,
+      latestCreatedAt: row.latest_created_at.toISOString(),
+      iconUrl: row.icon_agent_id
+        ? `/api/v1/agents/${encodeURIComponent(row.icon_agent_id)}/repo-icon`
+        : undefined,
+    }));
+
+    return {
+      projects: projectOptions.map((project) => project.path),
+      projectOptions,
+    };
   });
 
   app.get("/api/v1/history/agents", async (request) => {

@@ -36,6 +36,8 @@ export type BranchSelectProps = {
   baseBranchHelper?: string;
   /** When false, hide the "new branch name" text input. Defaults to true. */
   showNewBranchInput?: boolean;
+  /** Disable branch controls while preserving their layout. */
+  disabled?: boolean;
 };
 
 export function BranchSelect({
@@ -49,6 +51,7 @@ export function BranchSelect({
   baseBranchLabel = "Base branch",
   baseBranchHelper,
   showNewBranchInput = true,
+  disabled = false,
 }: BranchSelectProps): JSX.Element {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
@@ -63,7 +66,7 @@ export function BranchSelect({
 
   const fetchBranches = useCallback(async () => {
     const trimmed = cwd.trim();
-    if (!trimmed) return;
+    if (!trimmed || disabled) return;
     setBranchesLoading(true);
     setFetchError(null);
     try {
@@ -80,15 +83,16 @@ export function BranchSelect({
       setBranchesLoading(false);
       setFetchedForCwd(trimmed);
     }
-  }, [cwd]);
+  }, [cwd, disabled]);
 
   const openDropdown = useCallback(() => {
+    if (disabled) return;
     setDropdownOpen(true);
     if (fetchedForCwd !== cwd.trim()) {
       void fetchBranches();
     }
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [fetchBranches, fetchedForCwd, cwd, setDropdownOpen]);
+  }, [disabled, fetchBranches, fetchedForCwd, cwd, setDropdownOpen]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
@@ -119,6 +123,7 @@ export function BranchSelect({
           type="button"
           role="combobox"
           tabIndex={0}
+          disabled={disabled}
           aria-expanded={dropdownOpen}
           data-testid={`${testIdPrefix}-base-branch`}
           onClick={() =>
@@ -132,7 +137,8 @@ export function BranchSelect({
           }}
           className={cn(
             "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-            "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+            "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring",
+            disabled && "cursor-not-allowed opacity-60"
           )}
         >
           {baseBranch}
@@ -239,6 +245,7 @@ export function BranchSelect({
           onChange={(event) => onWorktreeBranchChange(event.target.value)}
           placeholder={worktreeBranchPlaceholder}
           data-testid={`${testIdPrefix}-worktree-branch`}
+          disabled={disabled}
         />
       ) : null}
     </div>

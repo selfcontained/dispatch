@@ -3,17 +3,20 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
+  FolderGit2,
   GitBranch,
   X,
 } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
 import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+  acceptGhostCompletion,
+  filterHistoryOptions,
+  getHistoryOptions,
+  ghostCompletionSuffix,
+  type HistoryOption,
+  type PathHistoryMetadata,
+} from "@/components/app/path-input-utils";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -33,6 +36,10 @@ type PathInputProps = {
   showValidation?: boolean;
   /** Recent directory history for dropdown */
   history?: string[];
+  /** History entries that can be removed from this client. Defaults to history. */
+  removableHistory?: string[];
+  /** Extra presentation data for history entries, keyed by full path. */
+  historyMetadata?: Record<string, PathHistoryMetadata>;
   /** Called when a history entry is removed */
   onRemoveHistory?: (dir: string) => void;
   /**
@@ -59,6 +66,8 @@ export function PathInput({
   placeholder = "~/path/to/project",
   showValidation = true,
   history = [],
+  removableHistory,
+  historyMetadata = {},
   onRemoveHistory,
   onPathInfoChange,
   label,
@@ -72,37 +81,142 @@ export function PathInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const closeDropdown = useCallback(() => setDropdownOpen(false), []);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
-  const sortedHistory = useMemo(
-    () => [...history].sort((left, right) => left.localeCompare(right)),
-    [history]
+  const [historyFilter, setHistoryFilter] = useState("");
+  const historyOptions = useMemo<HistoryOption[]>(
+    () => getHistoryOptions(history, historyMetadata),
+    [history, historyMetadata]
+  );
+  const filteredHistoryOptions = useMemo<HistoryOption[]>(
+    () => filterHistoryOptions(historyOptions, historyFilter),
+    [historyOptions, historyFilter]
+  );
+  const [projectSuggestionOptions, setProjectSuggestionOptions] = useState<
+    HistoryOption[]
+  >([]);
+  const removableHistoryPathSet = useMemo(
+    () => new Set(removableHistory ?? history),
+    [history, removableHistory]
+  );
+  const options = useMemo<HistoryOption[]>(() => {
+    const seen = new Set<string>();
+    return [...filteredHistoryOptions, ...projectSuggestionOptions].filter(
+      (option) => {
+        if (seen.has(option.path)) return false;
+        seen.add(option.path);
+        return true;
+      }
+    );
+  }, [filteredHistoryOptions, projectSuggestionOptions]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const projectSuggestionsRequestRef = useRef(0);
+  const listboxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    setSelectedIndex(0);
+  }, [dropdownOpen, options.length, historyFilter]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    listboxRef.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [dropdownOpen, selectedIndex]);
+
+  const selectOption = useCallback(
+    (option: HistoryOption) => {
+      onChange(option.path);
+      setDropdownOpen(false);
+      inputRef.current?.focus();
+    },
+    [onChange]
   );
 
   // --- Path validation state ---
   const [pathValidation, setPathValidation] = useState<PathInfo | null>(null);
   const [validating, setValidating] = useState(false);
+  const validationRequestRef = useRef(0);
 
   // --- Inline ghost autocomplete ---
   const [ghostSuffix, setGhostSuffix] = useState("");
+  const completionRequestRef = useRef(0);
+
+  // Debounced project suggestions from agent history. This is intentionally
+  // separate from filesystem path completions: the dropdown shows known
+  // projects, while arbitrary full paths still validate and can use Tab.
+  useEffect(() => {
+    if (!dropdownOpen) {
+      projectSuggestionsRequestRef.current += 1;
+      setProjectSuggestionOptions([]);
+      return;
+    }
+
+    const requestId = ++projectSuggestionsRequestRef.current;
+    const query = historyFilter.trim();
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ limit: "20" });
+      if (query) params.set("search", query);
+
+      api<{
+        projectOptions?: Array<{
+          path: string;
+          usageCount: number;
+          iconUrl?: string;
+        }>;
+        projects: string[];
+      }>(`/api/v1/history/projects?${params.toString()}`)
+        .then((payload) => {
+          if (requestId !== projectSuggestionsRequestRef.current) return;
+          const metadata = Object.fromEntries(
+            (payload.projectOptions ?? []).map((option) => [
+              option.path,
+              {
+                usageCount: option.usageCount,
+                iconUrl: option.iconUrl,
+              },
+            ])
+          );
+          setProjectSuggestionOptions(
+            getHistoryOptions(payload.projects, metadata)
+          );
+        })
+        .catch(() => {
+          if (requestId === projectSuggestionsRequestRef.current) {
+            setProjectSuggestionOptions([]);
+          }
+        });
+    }, 120);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [dropdownOpen, historyFilter]);
 
   // Debounced path validation
   useEffect(() => {
     const trimmed = value.trim();
     if (!trimmed) {
+      validationRequestRef.current += 1;
       setPathValidation(null);
       onPathInfoChange?.(null);
       return;
     }
     if (!showValidation) return;
+    const requestId = ++validationRequestRef.current;
     // Treat the path as unknown until the new validation lands so callers
     // don't act on stale info from the previous value during the debounce.
     setPathValidation(null);
     onPathInfoChange?.(null);
     setValidating(true);
     const timer = setTimeout(() => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
       api<PathInfo & { resolvedPath: string }>(
-        `/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`
+        `/api/v1/system/path-info?path=${encodeURIComponent(trimmed)}`,
+        { signal: controller.signal }
       )
         .then((result) => {
+          if (requestId !== validationRequestRef.current) return;
           if (result.privacyRestricted) {
             setPathValidation(null);
             onPathInfoChange?.(null);
@@ -117,13 +231,20 @@ export function PathInput({
           onPathInfoChange?.(info);
         })
         .catch(() => {
+          if (requestId !== validationRequestRef.current) return;
           setPathValidation(null);
           onPathInfoChange?.(null);
         })
-        .finally(() => setValidating(false));
+        .finally(() => {
+          clearTimeout(timeout);
+          if (requestId === validationRequestRef.current) {
+            setValidating(false);
+          }
+        });
     }, 400);
     return () => {
       clearTimeout(timer);
+      validationRequestRef.current += 1;
       setValidating(false);
     };
   }, [value, showValidation, onPathInfoChange]);
@@ -132,36 +253,39 @@ export function PathInput({
   useEffect(() => {
     const trimmed = value.trim();
     if (!trimmed || (!trimmed.startsWith("/") && !trimmed.startsWith("~"))) {
+      completionRequestRef.current += 1;
       setGhostSuffix("");
       return;
     }
+    const requestId = ++completionRequestRef.current;
+    setGhostSuffix("");
     const timer = setTimeout(() => {
       api<{ completions: string[]; privacyRestricted?: boolean }>(
         `/api/v1/system/path-completions?prefix=${encodeURIComponent(trimmed)}`
       )
         .then((result) => {
+          if (requestId !== completionRequestRef.current) return;
           if (result.privacyRestricted) {
             setGhostSuffix("");
             return;
           }
           if (result.completions.length > 0) {
-            const best = result.completions[0];
-            if (best.startsWith(trimmed.replace(/\/$/, ""))) {
-              let suffix = best.slice(trimmed.replace(/\/$/, "").length);
-              if (trimmed.endsWith("/") && suffix.startsWith("/")) {
-                suffix = suffix.slice(1);
-              }
-              setGhostSuffix(suffix);
-            } else {
-              setGhostSuffix("");
-            }
+            setGhostSuffix(
+              ghostCompletionSuffix(trimmed, result.completions[0])
+            );
           } else {
             setGhostSuffix("");
           }
         })
-        .catch(() => setGhostSuffix(""));
+        .catch(() => {
+          if (requestId === completionRequestRef.current) {
+            setGhostSuffix("");
+          }
+        });
     }, 150);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [value]);
 
   return (
@@ -193,31 +317,58 @@ export function PathInput({
             ref={inputRef}
             id={id}
             value={value}
+            aria-expanded={dropdownOpen}
+            aria-haspopup="listbox"
+            aria-activedescendant={
+              dropdownOpen && options[selectedIndex]
+                ? `${id ?? testId ?? "path-input"}-option-${selectedIndex}`
+                : undefined
+            }
             onChange={(event) => {
-              onChange(event.target.value);
-              if (history.length > 0) {
-                setDropdownOpen(true);
-              }
+              const nextValue = event.target.value;
+              onChange(nextValue);
+              setHistoryFilter(nextValue);
+              setDropdownOpen(true);
+            }}
+            onFocus={() => {
+              setHistoryFilter("");
+              setDropdownOpen(true);
             }}
             onKeyDown={(e) => {
+              const selectedOption = options[selectedIndex];
               if (e.key === "Escape" && dropdownOpen) {
                 e.preventDefault();
                 e.stopPropagation();
                 setDropdownOpen(false);
               }
-              if (
-                (e.key === "Enter" || e.key === "ArrowDown") &&
-                !dropdownOpen &&
-                history.length > 0
-              ) {
+              if (e.key === "ArrowDown" && options.length > 0) {
                 e.preventDefault();
-                setDropdownOpen(true);
+                if (!dropdownOpen) {
+                  setDropdownOpen(true);
+                  return;
+                }
+                setSelectedIndex((index) =>
+                  Math.min(index + 1, options.length - 1)
+                );
+              }
+              if (e.key === "ArrowUp" && options.length > 0) {
+                e.preventDefault();
+                if (!dropdownOpen) {
+                  setDropdownOpen(true);
+                  setSelectedIndex(options.length - 1);
+                  return;
+                }
+                setSelectedIndex((index) => Math.max(index - 1, 0));
+              }
+              if (e.key === "Enter" && dropdownOpen && selectedOption) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectOption(selectedOption);
               }
               if (e.key === "Tab" && ghostSuffix) {
                 e.preventDefault();
                 e.stopPropagation();
-                const accepted = value.replace(/\/$/, "") + ghostSuffix + "/";
-                onChange(accepted);
+                onChange(acceptGhostCompletion(value, ghostSuffix));
                 setGhostSuffix("");
               }
             }}
@@ -245,52 +396,76 @@ export function PathInput({
             </button>
           ) : null}
         </div>
-        {dropdownOpen && sortedHistory.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
-            <Command
-              shouldFilter={false}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setDropdownOpen(false);
-                  inputRef.current?.focus();
-                }
-              }}
+        {dropdownOpen && options.length > 0 ? (
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+            <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+              Suggestions
+            </div>
+            <div
+              ref={listboxRef}
+              role="listbox"
+              className="max-h-[240px] overflow-y-auto overflow-x-hidden"
             >
-              <CommandList>
-                <CommandGroup heading="Recent">
-                  {sortedHistory.map((dir) => (
-                    <CommandItem
-                      key={dir}
-                      value={dir}
-                      data-testid={historyItemTestId}
-                      className="group font-mono text-xs"
-                      onSelect={() => {
-                        onChange(dir);
-                        setDropdownOpen(false);
-                        inputRef.current?.focus();
-                      }}
-                    >
-                      <span className="truncate">{dir}</span>
-                      {onRemoveHistory ? (
-                        <button
-                          type="button"
-                          className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onRemoveHistory(dir);
-                          }}
-                          title="Remove from history"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      ) : null}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
+              {options.map((option, index) => {
+                const selected = index === selectedIndex;
+                const isRemovableOption = removableHistoryPathSet.has(
+                  option.path
+                );
+                return (
+                  <div
+                    key={option.path}
+                    id={`${id ?? testId ?? "path-input"}-option-${index}`}
+                    role="option"
+                    aria-selected={selected}
+                    data-testid={historyItemTestId}
+                    data-selected={selected}
+                    className={cn(
+                      "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-xs outline-none",
+                      selected && "bg-primary/20 text-foreground"
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      selectOption(option);
+                    }}
+                    onMouseMove={() => setSelectedIndex(index)}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/40">
+                      <PathOptionIcon iconUrl={option.iconUrl} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium leading-4">
+                        {option.label}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                        {option.path}
+                      </span>
+                    </span>
+                    {option.usageCount > 0 ? (
+                      <span
+                        className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                        title={`${option.usageCount} uses`}
+                      >
+                        {option.usageCount}
+                      </span>
+                    ) : null}
+                    {onRemoveHistory && isRemovableOption ? (
+                      <button
+                        type="button"
+                        className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onRemoveHistory(option.path);
+                        }}
+                        title="Remove from history"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : null}
       </div>
@@ -336,4 +511,21 @@ export function PathInput({
       ) : null}
     </div>
   );
+}
+
+function PathOptionIcon({ iconUrl }: { iconUrl?: string }): JSX.Element {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (iconUrl && !imageFailed) {
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        onError={() => setImageFailed(true)}
+        className="h-4 w-4 object-contain"
+      />
+    );
+  }
+
+  return <FolderGit2 className="h-3.5 w-3.5 text-muted-foreground" />;
 }
