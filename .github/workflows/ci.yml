@@ -9,7 +9,7 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # ci.yml doesn't call gh/git push/private-registry work (that's release.yml).
           # Skipping credential persist means checkout's post-run also skips the
@@ -17,7 +17,7 @@ jobs:
           # with no submodules and slow on self-hosted macOS.
           persist-credentials: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -25,7 +25,7 @@ jobs:
         with:
           bun-version: "1.3.13"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -91,7 +91,7 @@ jobs:
           TEST_DATABASE_URL: postgres://dispatch:dispatch@127.0.0.1:${{ steps.postgres.outputs.port }}/postgres
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
