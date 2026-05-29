@@ -40,6 +40,9 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } =
   await import("../../src/agents/manager.js");
+const feedbackQueries = await import("../../src/agents/feedback.js");
+const personaReviews = await import("../../src/agents/persona-reviews.js");
+const telemetry = await import("../../src/agents/telemetry.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
@@ -1384,20 +1387,23 @@ describe("AgentManager", () => {
       });
 
       // Submit feedback from both children
-      await manager.submitFeedback(childA.id, {
+      await feedbackQueries.submitFeedback(pool, childA.id, {
         severity: "high",
         description: "SQL injection in login handler",
         filePath: "src/auth.ts",
         lineNumber: 42,
       });
-      await manager.submitFeedback(childB.id, {
+      await feedbackQueries.submitFeedback(pool, childB.id, {
         severity: "low",
         description: "Button color contrast",
         filePath: "src/button.tsx",
       });
 
       // Parent A should only see child A's feedback
-      const resultA = await manager.listFeedbackByParentGrouped(parentA.id);
+      const resultA = await feedbackQueries.listFeedbackByParentGrouped(
+        pool,
+        parentA.id
+      );
       expect(resultA.personas).toHaveLength(1);
       expect(resultA.personas[0].persona).toBe("security-review");
       expect(resultA.personas[0].agentId).toBe(childA.id);
@@ -1407,7 +1413,10 @@ describe("AgentManager", () => {
       );
 
       // Parent B should only see child B's feedback
-      const resultB = await manager.listFeedbackByParentGrouped(parentB.id);
+      const resultB = await feedbackQueries.listFeedbackByParentGrouped(
+        pool,
+        parentB.id
+      );
       expect(resultB.personas).toHaveLength(1);
       expect(resultB.personas[0].persona).toBe("ux-review");
       expect(resultB.personas[0].agentId).toBe(childB.id);
@@ -1424,7 +1433,10 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      const result = await manager.listFeedbackByParentGrouped(parent.id);
+      const result = await feedbackQueries.listFeedbackByParentGrouped(
+        pool,
+        parent.id
+      );
       expect(result.personas).toHaveLength(0);
     });
 
@@ -1450,10 +1462,15 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      await manager.submitFeedback(secChild.id, { description: "sec finding" });
-      await manager.submitFeedback(uxChild.id, { description: "ux finding" });
+      await feedbackQueries.submitFeedback(pool, secChild.id, {
+        description: "sec finding",
+      });
+      await feedbackQueries.submitFeedback(pool, uxChild.id, {
+        description: "ux finding",
+      });
 
-      const filtered = await manager.listFeedbackByParentGrouped(
+      const filtered = await feedbackQueries.listFeedbackByParentGrouped(
+        pool,
         parent.id,
         "security-review"
       );
@@ -1476,16 +1493,19 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      await manager.submitFeedback(child.id, {
+      await feedbackQueries.submitFeedback(pool, child.id, {
         severity: "critical",
         description: "finding 1",
       });
-      await manager.submitFeedback(child.id, {
+      await feedbackQueries.submitFeedback(pool, child.id, {
         severity: "low",
         description: "finding 2",
       });
 
-      const result = await manager.listFeedbackByParentGrouped(parent.id);
+      const result = await feedbackQueries.listFeedbackByParentGrouped(
+        pool,
+        parent.id
+      );
       expect(result.personas).toHaveLength(1);
       expect(result.personas[0].feedback).toHaveLength(2);
       expect(result.personas[0].feedback[0].description).toBe("finding 1");
@@ -1508,12 +1528,13 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      const feedback = await manager.submitFeedback(child.id, {
+      const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
         severity: "high",
         description: "XSS vulnerability",
       });
 
-      const updated = await manager.updateFeedbackStatusByParent(
+      const updated = await feedbackQueries.updateFeedbackStatusByParent(
+        pool,
         feedback.id,
         parent.id,
         "fixed"
@@ -1542,11 +1563,12 @@ describe("AgentManager", () => {
         parentAgentId: parentA.id,
       });
 
-      const feedback = await manager.submitFeedback(child.id, {
+      const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
         description: "finding",
       });
 
-      const result = await manager.updateFeedbackStatusByParent(
+      const result = await feedbackQueries.updateFeedbackStatusByParent(
+        pool,
         feedback.id,
         parentB.id,
         "ignored",
@@ -1562,7 +1584,8 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      const result = await manager.updateFeedbackStatusByParent(
+      const result = await feedbackQueries.updateFeedbackStatusByParent(
+        pool,
         99999,
         parent.id,
         "fixed"
@@ -1593,7 +1616,7 @@ describe("AgentManager", () => {
     describe("updateFeedbackStatus (direct)", () => {
       it("rejects ignored without a reason", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1604,7 +1627,7 @@ describe("AgentManager", () => {
 
       it("rejects ignored with a whitespace-only reason", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1617,7 +1640,7 @@ describe("AgentManager", () => {
 
       it("persists reason, commit, and resolved_at when ignored with a reason", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1644,7 +1667,7 @@ describe("AgentManager", () => {
 
       it("accepts fixed without a reason and records commit + resolved_at", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1663,7 +1686,7 @@ describe("AgentManager", () => {
 
       it("persists reason when fixed with a reason", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1680,7 +1703,7 @@ describe("AgentManager", () => {
 
       it("preserves reason on a benign re-resolve with no reason", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1703,7 +1726,7 @@ describe("AgentManager", () => {
 
       it("does not drift resolved_at on a benign re-resolve", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1730,7 +1753,7 @@ describe("AgentManager", () => {
 
       it("clears resolved_at when reverting to open", async () => {
         const { child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
@@ -1749,12 +1772,13 @@ describe("AgentManager", () => {
     describe("updateFeedbackStatusByParent (reason validation + commit)", () => {
       it("rejects ignored without a reason", async () => {
         const { parent, child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
         await expect(
-          manager.updateFeedbackStatusByParent(
+          feedbackQueries.updateFeedbackStatusByParent(
+            pool,
             feedback.id,
             parent.id,
             "ignored"
@@ -1764,11 +1788,12 @@ describe("AgentManager", () => {
 
       it("persists reason and resolution_commit when a parent ignores", async () => {
         const { parent, child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
-        const updated = await manager.updateFeedbackStatusByParent(
+        const updated = await feedbackQueries.updateFeedbackStatusByParent(
+          pool,
           feedback.id,
           parent.id,
           "ignored",
@@ -1786,11 +1811,12 @@ describe("AgentManager", () => {
 
       it("accepts fixed without a reason when parent resolves", async () => {
         const { parent, child } = await seedParentChild();
-        const feedback = await manager.submitFeedback(child.id, {
+        const feedback = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "finding",
         });
 
-        const updated = await manager.updateFeedbackStatusByParent(
+        const updated = await feedbackQueries.updateFeedbackStatusByParent(
+          pool,
           feedback.id,
           parent.id,
           "fixed",
@@ -1809,13 +1835,13 @@ describe("AgentManager", () => {
         child: Awaited<ReturnType<typeof manager.createAgent>>;
       }> {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
-        await manager.completePersonaReview(child.id, {
+        await personaReviews.completePersonaReview(pool, child.id, {
           verdict: "approve",
           summary: "All good",
         });
@@ -1827,13 +1853,13 @@ describe("AgentManager", () => {
         child: Awaited<ReturnType<typeof manager.createAgent>>;
       }> {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
-        await manager.completePersonaReview(child.id, {
+        await personaReviews.completePersonaReview(pool, child.id, {
           verdict: "approve",
           summary: "All good",
           lastReviewedCommit: "round1sha",
@@ -1845,7 +1871,7 @@ describe("AgentManager", () => {
         const { parent, child } = await seedCompletedReview();
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "",
@@ -1857,7 +1883,7 @@ describe("AgentManager", () => {
         const { parent, child } = await seedCompletedReview();
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "   \n\t ",
@@ -1869,7 +1895,7 @@ describe("AgentManager", () => {
         const { parent, child } = await seedCompletedReview();
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "x".repeat(10_001),
@@ -1880,14 +1906,14 @@ describe("AgentManager", () => {
       it("rejects when the review is not in 'complete' state", async () => {
         const { parent, child } = await seedParentChild();
         // Create but do NOT complete the review — status stays 'reviewing'.
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
         });
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "Addressed everything",
@@ -1897,17 +1923,17 @@ describe("AgentManager", () => {
 
       it("rejects when there are still open feedback items", async () => {
         const { parent, child } = await seedCompletedReview();
-        const openItem = await manager.submitFeedback(child.id, {
+        const openItem = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "unresolved",
         });
         // Also add a resolved item to confirm only the open ones are reported.
-        const fixedItem = await manager.submitFeedback(child.id, {
+        const fixedItem = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "done",
         });
         await manager.updateFeedbackStatus(fixedItem.id, child.id, "fixed");
 
-        const err = await manager
-          .submitReviewResolution({
+        const err = await personaReviews
+          .submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "Addressed some",
@@ -1926,7 +1952,7 @@ describe("AgentManager", () => {
 
       it("rejects when an ignored item is missing a reason", async () => {
         const { parent, child } = await seedCompletedReview();
-        const item = await manager.submitFeedback(child.id, {
+        const item = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "maybe later",
         });
         // Insert a bare 'ignored' row directly — bypass the resolve API guard
@@ -1936,8 +1962,8 @@ describe("AgentManager", () => {
           [item.id]
         );
 
-        const err = await manager
-          .submitReviewResolution({
+        const err = await personaReviews
+          .submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "Covered the rest",
@@ -1962,7 +1988,7 @@ describe("AgentManager", () => {
         // No createPersonaReview call.
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "nothing to resolve against",
@@ -1972,14 +1998,14 @@ describe("AgentManager", () => {
 
       it("persists summary and resolution_commit on the happy path", async () => {
         const { parent, child } = await seedCompletedReviewWithRecheck();
-        const item = await manager.submitFeedback(child.id, {
+        const item = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "a thing",
         });
         await manager.updateFeedbackStatus(item.id, child.id, "ignored", {
           reason: "rejected by design",
         });
 
-        const result = await manager.submitReviewResolution({
+        const result = await personaReviews.submitReviewResolution(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "Accepted one, rejected one.",
@@ -1992,7 +2018,8 @@ describe("AgentManager", () => {
         expect(result.review.status).toBe("awaiting_recheck");
 
         // Confirm via a separate read path so the test also covers read APIs.
-        const resolutions = await manager.getReviewResolutions(
+        const resolutions = await personaReviews.getReviewResolutions(
+          pool,
           result.review.id
         );
         expect(resolutions).toHaveLength(1);
@@ -2003,7 +2030,7 @@ describe("AgentManager", () => {
       it("transitions reviews to awaiting_recheck after resolution submission", async () => {
         const { parent, child } = await seedCompletedReview();
 
-        const result = await manager.submitReviewResolution({
+        const result = await personaReviews.submitReviewResolution(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "Recorded the resolution for recheck.",
@@ -2016,7 +2043,7 @@ describe("AgentManager", () => {
       it("rejects repeat submit once the review is awaiting_recheck", async () => {
         const { parent, child } = await seedCompletedReviewWithRecheck();
 
-        await manager.submitReviewResolution({
+        await personaReviews.submitReviewResolution(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "v1",
@@ -2024,7 +2051,7 @@ describe("AgentManager", () => {
         });
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "v2 — revised",
@@ -2036,7 +2063,7 @@ describe("AgentManager", () => {
       it("trims leading/trailing whitespace from the stored summary", async () => {
         const { parent, child } = await seedCompletedReview();
 
-        const result = await manager.submitReviewResolution({
+        const result = await personaReviews.submitReviewResolution(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "   padded summary   \n",
@@ -2047,10 +2074,12 @@ describe("AgentManager", () => {
 
       it("does not persist any resolution when a precondition fails", async () => {
         const { parent, child } = await seedCompletedReview();
-        await manager.submitFeedback(child.id, { description: "still open" });
+        await feedbackQueries.submitFeedback(pool, child.id, {
+          description: "still open",
+        });
 
         await expect(
-          manager.submitReviewResolution({
+          personaReviews.submitReviewResolution(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
             summary: "optimistic",
@@ -2058,7 +2087,10 @@ describe("AgentManager", () => {
         ).rejects.toThrow();
 
         const review = await manager.getPersonaReview(child.id);
-        const resolutions = await manager.getReviewResolutions(review!.id);
+        const resolutions = await personaReviews.getReviewResolutions(
+          pool,
+          review!.id
+        );
         expect(resolutions).toHaveLength(0);
       });
     });
@@ -2067,7 +2099,7 @@ describe("AgentManager", () => {
       it("stores the launch commit on createPersonaReview", async () => {
         const { parent, child } = await seedParentChild();
 
-        const review = await manager.createPersonaReview({
+        const review = await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
@@ -2082,7 +2114,7 @@ describe("AgentManager", () => {
       it("defaults to null when no commit is supplied at launch", async () => {
         const { parent, child } = await seedParentChild();
 
-        const review = await manager.createPersonaReview({
+        const review = await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
@@ -2093,36 +2125,44 @@ describe("AgentManager", () => {
 
       it("updates last_reviewed_commit on completePersonaReview", async () => {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
 
-        const completed = await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "fine",
-          lastReviewedCommit: "completesha",
-        });
+        const completed = await personaReviews.completePersonaReview(
+          pool,
+          child.id,
+          {
+            verdict: "approve",
+            summary: "fine",
+            lastReviewedCommit: "completesha",
+          }
+        );
 
         expect(completed.lastReviewedCommit).toBe("completesha");
       });
 
       it("preserves last_reviewed_commit via COALESCE when completion omits it", async () => {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
 
-        const completed = await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "fine",
-          // no lastReviewedCommit
-        });
+        const completed = await personaReviews.completePersonaReview(
+          pool,
+          child.id,
+          {
+            verdict: "approve",
+            summary: "fine",
+            // no lastReviewedCommit
+          }
+        );
 
         expect(completed.lastReviewedCommit).toBe("launchsha");
       });
@@ -2134,13 +2174,13 @@ describe("AgentManager", () => {
         child: Awaited<ReturnType<typeof manager.createAgent>>;
       }> {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
-        await manager.completePersonaReview(child.id, {
+        await personaReviews.completePersonaReview(pool, child.id, {
           verdict: "approve",
           summary: "All good",
         });
@@ -2152,13 +2192,13 @@ describe("AgentManager", () => {
         child: Awaited<ReturnType<typeof manager.createAgent>>;
       }> {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
           lastReviewedCommit: "launchsha",
         });
-        await manager.completePersonaReview(child.id, {
+        await personaReviews.completePersonaReview(pool, child.id, {
           verdict: "approve",
           summary: "All good",
           lastReviewedCommit: "round1sha",
@@ -2168,7 +2208,7 @@ describe("AgentManager", () => {
 
       async function seedAwaitingRecheckReview() {
         const { parent, child } = await seedCompletedReviewWithRecheck();
-        const original = await manager.submitFeedback(child.id, {
+        const original = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "round 1 finding",
           severity: "high",
           filePath: "apps/server/src/server.ts",
@@ -2178,7 +2218,7 @@ describe("AgentManager", () => {
           reason: "patched",
           resolutionCommit: "fixsha",
         });
-        await manager.submitReviewResolution({
+        await personaReviews.submitReviewResolution(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           summary: "Patched the finding.",
@@ -2190,11 +2230,15 @@ describe("AgentManager", () => {
       it("allows round 2 completion from awaiting_recheck and increments round_number", async () => {
         const { child } = await seedAwaitingRecheckReview();
 
-        const completed = await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "Round 2 complete",
-          lastReviewedCommit: "round2sha",
-        });
+        const completed = await personaReviews.completePersonaReview(
+          pool,
+          child.id,
+          {
+            verdict: "approve",
+            summary: "Round 2 complete",
+            lastReviewedCommit: "round2sha",
+          }
+        );
 
         expect(completed.status).toBe("complete");
         expect(completed.roundNumber).toBe(2);
@@ -2203,13 +2247,13 @@ describe("AgentManager", () => {
 
       it("rejects a third completion attempt in v1", async () => {
         const { child } = await seedAwaitingRecheckReview();
-        await manager.completePersonaReview(child.id, {
+        await personaReviews.completePersonaReview(pool, child.id, {
           verdict: "approve",
           summary: "Round 2 complete",
         });
 
-        const err = await manager
-          .completePersonaReview(child.id, {
+        const err = await personaReviews
+          .completePersonaReview(pool, child.id, {
             verdict: "approve",
             summary: "Round 3",
           })
@@ -2224,7 +2268,11 @@ describe("AgentManager", () => {
       it("listResolvedFeedbackForRound returns the per-item resolutions for a round", async () => {
         const { child, original } = await seedAwaitingRecheckReview();
 
-        const items = await manager.listResolvedFeedbackForRound(child.id, 1);
+        const items = await personaReviews.listResolvedFeedbackForRound(
+          pool,
+          child.id,
+          1
+        );
 
         expect(items).toEqual([
           expect.objectContaining({
@@ -2243,17 +2291,19 @@ describe("AgentManager", () => {
 
       it("countFeedbackForAgent returns the total feedback count for an agent", async () => {
         const { child } = await seedAwaitingRecheckReview();
-        await manager.submitFeedback(child.id, {
+        await feedbackQueries.submitFeedback(pool, child.id, {
           description: "round 2 follow-up",
         });
 
-        await expect(manager.countFeedbackForAgent(child.id)).resolves.toBe(2);
+        await expect(
+          feedbackQueries.countFeedbackForAgent(pool, child.id)
+        ).resolves.toBe(2);
       });
 
       it("cancels recheck from the parent and rejects cancelling after round 2 completes", async () => {
         const { parent, child } = await seedAwaitingRecheckReview();
 
-        const result = await manager.cancelReviewRecheck({
+        const result = await personaReviews.cancelReviewRecheck(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           reason: "shipping without recheck",
@@ -2264,13 +2314,13 @@ describe("AgentManager", () => {
 
         const { parent: parent2, child: child2 } =
           await seedAwaitingRecheckReview();
-        await manager.completePersonaReview(child2.id, {
+        await personaReviews.completePersonaReview(pool, child2.id, {
           verdict: "approve",
           summary: "Round 2 complete",
         });
 
         await expect(
-          manager.cancelReviewRecheck({
+          personaReviews.cancelReviewRecheck(pool, {
             parentAgentId: parent2.id,
             personaAgentId: child2.id,
           })
@@ -2280,14 +2330,14 @@ describe("AgentManager", () => {
       it("returns transitioned: false when called on an already-cancelled review", async () => {
         const { parent, child } = await seedAwaitingRecheckReview();
 
-        const first = await manager.cancelReviewRecheck({
+        const first = await personaReviews.cancelReviewRecheck(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           reason: "first",
         });
         expect(first.transitioned).toBe(true);
 
-        const second = await manager.cancelReviewRecheck({
+        const second = await personaReviews.cancelReviewRecheck(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           reason: "second",
@@ -2300,7 +2350,7 @@ describe("AgentManager", () => {
 
       it("rejects cancelling while round 1 review is still in progress", async () => {
         const { parent, child } = await seedParentChild();
-        await manager.createPersonaReview({
+        await personaReviews.createPersonaReview(pool, {
           agentId: child.id,
           parentAgentId: parent.id,
           persona: "security-review",
@@ -2308,7 +2358,7 @@ describe("AgentManager", () => {
         });
 
         await expect(
-          manager.cancelReviewRecheck({
+          personaReviews.cancelReviewRecheck(pool, {
             parentAgentId: parent.id,
             personaAgentId: child.id,
           })
@@ -2318,9 +2368,13 @@ describe("AgentManager", () => {
       it("records round 2 findings with round_number = 2", async () => {
         const { child } = await seedAwaitingRecheckReview();
 
-        const round2Feedback = await manager.submitFeedback(child.id, {
-          description: "round 2 follow-up",
-        });
+        const round2Feedback = await feedbackQueries.submitFeedback(
+          pool,
+          child.id,
+          {
+            description: "round 2 follow-up",
+          }
+        );
 
         expect(round2Feedback.roundNumber).toBe(2);
       });
@@ -2328,10 +2382,14 @@ describe("AgentManager", () => {
       it("persists respondsToFeedbackId on round 2 follow-up findings", async () => {
         const { child, original } = await seedAwaitingRecheckReview();
 
-        const round2Feedback = await manager.submitFeedback(child.id, {
-          description: "round 2 follow-up",
-          respondsToFeedbackId: original.id,
-        });
+        const round2Feedback = await feedbackQueries.submitFeedback(
+          pool,
+          child.id,
+          {
+            description: "round 2 follow-up",
+            respondsToFeedbackId: original.id,
+          }
+        );
 
         expect(round2Feedback.roundNumber).toBe(2);
         expect(round2Feedback.respondsToFeedbackId).toBe(original.id);
@@ -2340,12 +2398,16 @@ describe("AgentManager", () => {
       it("rejects respondsToFeedbackId that belongs to a different review", async () => {
         const { child } = await seedAwaitingRecheckReview();
         const { child: otherChild } = await seedAwaitingRecheckReview();
-        const foreignOriginal = await manager.submitFeedback(otherChild.id, {
-          description: "other reviewer's finding",
-        });
+        const foreignOriginal = await feedbackQueries.submitFeedback(
+          pool,
+          otherChild.id,
+          {
+            description: "other reviewer's finding",
+          }
+        );
 
         await expect(
-          manager.submitFeedback(child.id, {
+          feedbackQueries.submitFeedback(pool, child.id, {
             description: "cross-linked follow-up",
             respondsToFeedbackId: foreignOriginal.id,
           })
@@ -2356,7 +2418,7 @@ describe("AgentManager", () => {
         const { child } = await seedAwaitingRecheckReview();
 
         await expect(
-          manager.submitFeedback(child.id, {
+          feedbackQueries.submitFeedback(pool, child.id, {
             description: "pointing at a ghost",
             respondsToFeedbackId: 999999,
           })
@@ -2365,7 +2427,7 @@ describe("AgentManager", () => {
 
       it("rejects respondsToFeedbackId that points at a round-2 finding", async () => {
         const { child, original } = await seedAwaitingRecheckReview();
-        const round2 = await manager.submitFeedback(child.id, {
+        const round2 = await feedbackQueries.submitFeedback(pool, child.id, {
           description: "round 2 follow-up",
           respondsToFeedbackId: original.id,
         });
@@ -2373,7 +2435,7 @@ describe("AgentManager", () => {
         // verify the round-number guard by attempting to respond to a
         // round-2 item directly, which should be rejected.
         await expect(
-          manager.submitFeedback(child.id, {
+          feedbackQueries.submitFeedback(pool, child.id, {
             description: "chain to a round-2 item",
             respondsToFeedbackId: round2.id,
           })
@@ -2383,8 +2445,8 @@ describe("AgentManager", () => {
       it("updatePersonaReviewStatus rejects a ping on a completed review with a specific 409", async () => {
         const { child } = await seedCompletedReview();
 
-        const err = await manager
-          .updatePersonaReviewStatus(child.id, {
+        const err = await personaReviews
+          .updatePersonaReviewStatus(pool, child.id, {
             status: "reviewing",
             message: "late ping",
           })
@@ -2397,14 +2459,14 @@ describe("AgentManager", () => {
 
       it("updatePersonaReviewStatus rejects a ping on a cancelled review with a specific 409", async () => {
         const { parent, child } = await seedAwaitingRecheckReview();
-        await manager.cancelReviewRecheck({
+        await personaReviews.cancelReviewRecheck(pool, {
           parentAgentId: parent.id,
           personaAgentId: child.id,
           reason: "aborted",
         });
 
-        const err = await manager
-          .updatePersonaReviewStatus(child.id, {
+        const err = await personaReviews
+          .updatePersonaReviewStatus(pool, child.id, {
             status: "reviewing",
             message: "ping after cancel",
           })
@@ -2423,7 +2485,7 @@ describe("AgentManager", () => {
         // end-to-end dogfood.
         const { child } = await seedAwaitingRecheckReview();
 
-        await manager.updatePersonaReviewStatus(child.id, {
+        await personaReviews.updatePersonaReviewStatus(pool, child.id, {
           status: "reviewing",
           message: "Starting round 2",
         });
@@ -2432,10 +2494,14 @@ describe("AgentManager", () => {
         expect(stillAwaiting!.status).toBe("awaiting_recheck");
         expect(stillAwaiting!.message).toBe("Starting round 2");
 
-        const completed = await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "Round 2 done",
-        });
+        const completed = await personaReviews.completePersonaReview(
+          pool,
+          child.id,
+          {
+            verdict: "approve",
+            summary: "Round 2 done",
+          }
+        );
         expect(completed.status).toBe("complete");
         expect(completed.roundNumber).toBe(2);
       });
@@ -2453,10 +2519,14 @@ describe("AgentManager", () => {
           [child.id]
         );
 
-        const completed = await manager.completePersonaReview(child.id, {
-          verdict: "approve",
-          summary: "Round 2 done despite the detour",
-        });
+        const completed = await personaReviews.completePersonaReview(
+          pool,
+          child.id,
+          {
+            verdict: "approve",
+            summary: "Round 2 done despite the detour",
+          }
+        );
         expect(completed.status).toBe("complete");
         expect(completed.roundNumber).toBe(2);
       });
@@ -2477,12 +2547,12 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      await manager.createPersonaReview({
+      await personaReviews.createPersonaReview(pool, {
         agentId: child.id,
         parentAgentId: parent.id,
         persona: "security-review",
       });
-      await manager.completePersonaReview(child.id, {
+      await personaReviews.completePersonaReview(pool, child.id, {
         verdict: "approve",
         summary: "Looks good",
       });
@@ -2516,13 +2586,13 @@ describe("AgentManager", () => {
         parentAgentId: parent.id,
       });
 
-      await manager.submitFeedback(child.id, {
+      await feedbackQueries.submitFeedback(pool, child.id, {
         severity: "high",
         description: "SQL injection risk",
         filePath: "src/db.ts",
         lineNumber: 10,
       });
-      await manager.submitFeedback(child.id, {
+      await feedbackQueries.submitFeedback(pool, child.id, {
         severity: "low",
         description: "Minor style issue",
       });
@@ -2961,7 +3031,9 @@ describe("AgentManager", () => {
         [agent.id]
       );
 
-      const media = await manager.listMedia(agent.id);
+      const media = await telemetry.listMedia(pool, agent.id, (id) =>
+        path.join(testConfig.mediaRoot, id)
+      );
       expect(media).toHaveLength(1);
       const item = media[0]!;
       expect(item.fileName).toBe("doc.pdf");
@@ -2993,7 +3065,9 @@ describe("AgentManager", () => {
           [agent.id]
         );
 
-        const media = await manager.listMedia(agent.id);
+        const media = await telemetry.listMedia(pool, agent.id, (id) =>
+          path.join(testConfig.mediaRoot, id)
+        );
         expect(media).toHaveLength(1);
         expect(media[0]!.filePath).toBe(path.join(customDir, "screen.png"));
         expect(media[0]!.sizeBytes).toBe(256);

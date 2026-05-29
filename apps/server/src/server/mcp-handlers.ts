@@ -13,6 +13,9 @@ import type {
   PersonaReviewRecord,
   PersonaReviewResolutionRecord,
 } from "../agents/manager.js";
+import * as feedbackQueries from "../agents/feedback.js";
+import * as personaReviews from "../agents/persona-reviews.js";
+import * as telemetry from "../agents/telemetry.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -158,7 +161,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       agentId: string,
       feedback: FeedbackInput
     ): Promise<FeedbackRecord> {
-      const record = await agentManager.submitFeedback(agentId, feedback);
+      const record = await feedbackQueries.submitFeedback(
+        pool,
+        agentId,
+        feedback
+      );
       publishUiEvent({
         type: "feedback.created",
         agentId,
@@ -171,7 +178,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       agentId: string,
       opts: { persona?: string; limit?: number }
     ) {
-      return agentManager.listFeedbackByParentGrouped(
+      return feedbackQueries.listFeedbackByParentGrouped(
+        pool,
         agentId,
         opts.persona,
         opts.limit
@@ -186,7 +194,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     ): Promise<FeedbackRecord> {
       const parent = await agentManager.getAgent(agentId);
       const resolutionCommit = parent ? await resolveHeadSha(parent.cwd) : null;
-      const record = await agentManager.updateFeedbackStatusByParent(
+      const record = await feedbackQueries.updateFeedbackStatusByParent(
+        pool,
         feedbackId,
         agentId,
         status,
@@ -215,7 +224,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const parent = await agentManager.getAgent(agentId);
       if (!parent) throw new Error("Agent not found.");
       const resolutionCommit = await resolveHeadSha(parent.cwd);
-      const result = await agentManager.submitReviewResolution({
+      const result = await personaReviews.submitReviewResolution(pool, {
         parentAgentId: agentId,
         personaAgentId: input.personaAgentId,
         summary: input.summary,
@@ -252,11 +261,14 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       agentId: string,
       input: { personaAgentId: string; reason?: string }
     ): Promise<void> {
-      const { review, transitioned } = await agentManager.cancelReviewRecheck({
-        parentAgentId: agentId,
-        personaAgentId: input.personaAgentId,
-        reason: input.reason ?? null,
-      });
+      const { review, transitioned } = await personaReviews.cancelReviewRecheck(
+        pool,
+        {
+          parentAgentId: agentId,
+          personaAgentId: input.personaAgentId,
+          reason: input.reason ?? null,
+        }
+      );
       const [child, parent] = await Promise.all([
         agentManager.getAgent(input.personaAgentId),
         agentManager.getAgent(review.parentAgentId),
@@ -308,7 +320,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       agentId: string,
       input: { status: string; message?: string }
     ): Promise<void> {
-      const review = await agentManager.updatePersonaReviewStatus(
+      const review = await personaReviews.updatePersonaReviewStatus(
+        pool,
         agentId,
         input
       );
@@ -343,7 +356,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const lastReviewedCommit = personaAgent
         ? await resolveHeadSha(personaAgent.cwd)
         : null;
-      const review = await agentManager.completePersonaReview(agentId, {
+      const review = await personaReviews.completePersonaReview(pool, agentId, {
         ...input,
         lastReviewedCommit,
       });
@@ -364,7 +377,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         });
       }
 
-      const feedbackCount = await agentManager.countFeedbackForAgent(agentId);
+      const feedbackCount = await feedbackQueries.countFeedbackForAgent(
+        pool,
+        agentId
+      );
       const isMidRoundTrip = review.roundNumber < 2;
       const parentPrompt = isMidRoundTrip
         ? buildParentRound1FeedbackPrompt({
@@ -395,7 +411,9 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         value: p.value,
         type: p.type,
       }));
-      const media = await agentManager.listMedia(parentAgentId);
+      const media = await telemetry.listMedia(pool, parentAgentId, (id) =>
+        path.join(mediaRoot, id)
+      );
 
       return {
         pins,
@@ -413,18 +431,19 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     async getRecheckContext(
       agentId: string
     ): Promise<RecheckContextResult | null> {
-      const review = await agentManager.getPersonaReview(agentId);
+      const review = await personaReviews.getPersonaReview(pool, agentId);
       if (!review) {
         return null;
       }
 
       const resolution = (
-        await agentManager.getReviewResolutions(review.id)
+        await personaReviews.getReviewResolutions(pool, review.id)
       ).at(-1);
       const lastReviewedCommit = review.lastReviewedCommit;
       const resolutionCommit = resolution?.resolutionCommit ?? null;
       const resolutions = resolution
-        ? await agentManager.listResolvedFeedbackForRound(
+        ? await personaReviews.listResolvedFeedbackForRound(
+            pool,
             agentId,
             resolution.roundNumber
           )
@@ -649,7 +668,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       });
 
       const launchCommit = await resolveHeadSha(parentCwd);
-      await agentManager.createPersonaReview({
+      await personaReviews.createPersonaReview(pool, {
         agentId: agent.id,
         parentAgentId: agentId,
         persona: opts.persona,

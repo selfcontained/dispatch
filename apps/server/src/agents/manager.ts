@@ -1106,35 +1106,6 @@ export class AgentManager {
 
   // --- Persona Reviews ---
 
-  async createPersonaReview(input: {
-    agentId: string;
-    parentAgentId: string;
-    persona: string;
-    lastReviewedCommit?: string | null;
-  }): Promise<PersonaReviewRecord> {
-    return personaReviews.createPersonaReview(this.pool, input);
-  }
-
-  async updatePersonaReviewStatus(
-    agentId: string,
-    input: { status: string; message?: string }
-  ): Promise<PersonaReviewRecord> {
-    return personaReviews.updatePersonaReviewStatus(this.pool, agentId, input);
-  }
-
-  async completePersonaReview(
-    agentId: string,
-    input: {
-      verdict: string;
-      summary: string;
-      filesReviewed?: string[];
-      message?: string;
-      lastReviewedCommit?: string | null;
-    }
-  ): Promise<PersonaReviewRecord> {
-    return personaReviews.completePersonaReview(this.pool, agentId, input);
-  }
-
   async getPersonaReview(agentId: string): Promise<PersonaReviewRecord | null> {
     return personaReviews.getPersonaReview(this.pool, agentId);
   }
@@ -1184,31 +1155,7 @@ export class AgentManager {
     return telemetry.getFeedbackSummary(this.pool, params);
   }
 
-  // --- Media ---
-
-  async listMedia(agentId: string): Promise<
-    Array<{
-      fileName: string;
-      filePath: string;
-      description: string | null;
-      source: string;
-      sizeBytes: number;
-      createdAt: string;
-    }>
-  > {
-    return telemetry.listMedia(this.pool, agentId, (id) =>
-      this.defaultMediaDir(id)
-    );
-  }
-
   // --- Feedback ---
-
-  async submitFeedback(
-    agentId: string,
-    feedback: FeedbackInput
-  ): Promise<FeedbackRecord> {
-    return feedbackQueries.submitFeedback(this.pool, agentId, feedback);
-  }
 
   async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
     return feedbackQueries.listFeedback(this.pool, agentId);
@@ -1216,25 +1163,6 @@ export class AgentManager {
 
   async listFeedbackByParent(parentAgentId: string): Promise<FeedbackRecord[]> {
     return feedbackQueries.listFeedbackByParent(this.pool, parentAgentId);
-  }
-
-  async listFeedbackByParentGrouped(
-    parentAgentId: string,
-    persona?: string,
-    limit = 100
-  ): Promise<{
-    personas: Array<{
-      persona: string;
-      agentId: string;
-      feedback: FeedbackRecord[];
-    }>;
-  }> {
-    return feedbackQueries.listFeedbackByParentGrouped(
-      this.pool,
-      parentAgentId,
-      persona,
-      limit
-    );
   }
 
   async updateFeedbackStatus(
@@ -1250,64 +1178,6 @@ export class AgentManager {
       status,
       options
     );
-  }
-
-  async updateFeedbackStatusByParent(
-    feedbackId: number,
-    parentAgentId: string,
-    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
-    options: { reason?: string | null; resolutionCommit?: string | null } = {}
-  ): Promise<FeedbackRecord | null> {
-    return feedbackQueries.updateFeedbackStatusByParent(
-      this.pool,
-      feedbackId,
-      parentAgentId,
-      status,
-      options
-    );
-  }
-
-  async countFeedbackForAgent(agentId: string): Promise<number> {
-    return feedbackQueries.countFeedbackForAgent(this.pool, agentId);
-  }
-
-  // --- Review Resolutions / Recheck ---
-
-  async submitReviewResolution(input: {
-    parentAgentId: string;
-    personaAgentId: string;
-    summary: string;
-    resolutionCommit?: string | null;
-  }): Promise<{
-    review: PersonaReviewRecord;
-    resolution: PersonaReviewResolutionRecord;
-  }> {
-    return personaReviews.submitReviewResolution(this.pool, input);
-  }
-
-  async getReviewResolutions(
-    reviewId: number
-  ): Promise<PersonaReviewResolutionRecord[]> {
-    return personaReviews.getReviewResolutions(this.pool, reviewId);
-  }
-
-  async listResolvedFeedbackForRound(
-    personaAgentId: string,
-    roundNumber: number
-  ): Promise<PersonaReviewResolutionItem[]> {
-    return personaReviews.listResolvedFeedbackForRound(
-      this.pool,
-      personaAgentId,
-      roundNumber
-    );
-  }
-
-  async cancelReviewRecheck(input: {
-    parentAgentId: string;
-    personaAgentId: string;
-    reason?: string | null;
-  }): Promise<{ review: PersonaReviewRecord; transitioned: boolean }> {
-    return personaReviews.cancelReviewRecheck(this.pool, input);
   }
 
   private baseAgentSelectSql(): string {

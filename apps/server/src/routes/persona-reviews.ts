@@ -11,6 +11,7 @@ import {
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
+import * as personaReviews from "../agents/persona-reviews.js";
 import type { Pool } from "pg";
 
 type PersonaReviewRouteDeps = {
@@ -246,7 +247,7 @@ export async function registerPersonaReviewRoutes(
         const parent = await deps.agentManager.getAgent(agentId);
         if (!parent) return reply.code(404).send({ error: "Agent not found." });
         const resolutionCommit = await resolveHeadSha(parent.cwd);
-        const result = await deps.agentManager.submitReviewResolution({
+        const result = await personaReviews.submitReviewResolution(deps.pool, {
           parentAgentId: agentId,
           personaAgentId,
           summary: body.summary,
