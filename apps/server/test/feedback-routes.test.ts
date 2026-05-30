@@ -10,9 +10,16 @@ import {
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 
 import { registerFeedbackRoutes } from "../src/routes/feedback.js";
+import * as feedbackQueries from "../src/agents/feedback.js";
 
 vi.mock("../src/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123"),
+}));
+
+vi.mock("../src/agents/feedback.js", () => ({
+  listFeedback: vi.fn(),
+  listFeedbackByParent: vi.fn(),
+  updateFeedbackStatus: vi.fn(),
 }));
 
 const mockFeedback = {
@@ -24,14 +31,9 @@ const mockFeedback = {
 
 function createMockDeps() {
   return {
+    pool: {} as never,
     agentManager: {
       getAgent: vi.fn(async () => ({ id: "agt_test1", cwd: "/tmp" })),
-      listFeedback: vi.fn(async () => [mockFeedback]),
-      listFeedbackByParent: vi.fn(async () => [mockFeedback]),
-      updateFeedbackStatus: vi.fn(async () => ({
-        ...mockFeedback,
-        status: "fixed",
-      })),
     },
     publishUiEvent: vi.fn(),
     handleAgentError: vi.fn((reply: FastifyReply, error: unknown) =>
@@ -63,12 +65,16 @@ beforeEach(() => {
     id: "agt_test1",
     cwd: "/tmp",
   });
-  deps.agentManager.listFeedback.mockResolvedValue([mockFeedback]);
-  deps.agentManager.listFeedbackByParent.mockResolvedValue([mockFeedback]);
-  deps.agentManager.updateFeedbackStatus.mockResolvedValue({
+  vi.mocked(feedbackQueries.listFeedback).mockResolvedValue([
+    mockFeedback,
+  ] as never);
+  vi.mocked(feedbackQueries.listFeedbackByParent).mockResolvedValue([
+    mockFeedback,
+  ] as never);
+  vi.mocked(feedbackQueries.updateFeedbackStatus).mockResolvedValue({
     ...mockFeedback,
     status: "fixed",
-  });
+  } as never);
 });
 
 describe("GET /api/v1/agents/:id/feedback", () => {
@@ -80,7 +86,10 @@ describe("GET /api/v1/agents/:id/feedback", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ feedback: [mockFeedback] });
     expect(deps.agentManager.getAgent).toHaveBeenCalledWith("agt_test1");
-    expect(deps.agentManager.listFeedback).toHaveBeenCalledWith("agt_test1");
+    expect(feedbackQueries.listFeedback).toHaveBeenCalledWith(
+      deps.pool,
+      "agt_test1"
+    );
   });
 
   it("returns 404 when agent is not found", async () => {
@@ -100,7 +109,8 @@ describe("GET /api/v1/agents/:id/feedback", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ feedback: [mockFeedback] });
-    expect(deps.agentManager.listFeedbackByParent).toHaveBeenCalledWith(
+    expect(feedbackQueries.listFeedbackByParent).toHaveBeenCalledWith(
+      deps.pool,
       "agt_test1"
     );
     expect(deps.agentManager.getAgent).not.toHaveBeenCalled();
@@ -125,12 +135,12 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
       payload: { status: "dismissed" },
     });
     expect(res.statusCode).toBe(200);
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "dismissed",
-      { reason: null, resolutionCommit: null }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "dismissed", {
+      reason: null,
+      resolutionCommit: null,
+    });
   });
 
   it("updates feedback status to forwarded", async () => {
@@ -140,12 +150,12 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
       payload: { status: "forwarded" },
     });
     expect(res.statusCode).toBe(200);
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "forwarded",
-      { reason: null, resolutionCommit: null }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "forwarded", {
+      reason: null,
+      resolutionCommit: null,
+    });
   });
 
   it("updates feedback status to open", async () => {
@@ -155,12 +165,12 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
       payload: { status: "open" },
     });
     expect(res.statusCode).toBe(200);
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "open",
-      { reason: null, resolutionCommit: null }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "open", {
+      reason: null,
+      resolutionCommit: null,
+    });
   });
 
   it("resolves head sha when status is fixed", async () => {
@@ -173,12 +183,12 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
     expect(res.statusCode).toBe(200);
     expect(deps.agentManager.getAgent).toHaveBeenCalledWith("agt_test1");
     expect(resolveHeadSha).toHaveBeenCalledWith("/tmp");
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "fixed",
-      { reason: null, resolutionCommit: "abc123" }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "fixed", {
+      reason: null,
+      resolutionCommit: "abc123",
+    });
   });
 
   it("resolves head sha when status is ignored with reason", async () => {
@@ -191,12 +201,12 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
     expect(res.statusCode).toBe(200);
     expect(deps.agentManager.getAgent).toHaveBeenCalledWith("agt_test1");
     expect(resolveHeadSha).toHaveBeenCalledWith("/tmp");
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "ignored",
-      { reason: "not relevant", resolutionCommit: "abc123" }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "ignored", {
+      reason: "not relevant",
+      resolutionCommit: "abc123",
+    });
   });
 
   it("does not fetch agent or resolve sha for non-resolving statuses", async () => {
@@ -212,7 +222,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
 
   it("publishes ui event on successful update", async () => {
     const dismissedFeedback = { ...mockFeedback, status: "dismissed" };
-    deps.agentManager.updateFeedbackStatus.mockResolvedValueOnce(
+    vi.mocked(feedbackQueries.updateFeedbackStatus).mockResolvedValueOnce(
       dismissedFeedback
     );
     await app.inject({
@@ -228,7 +238,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
   });
 
   it("returns 404 when feedback is not found", async () => {
-    deps.agentManager.updateFeedbackStatus.mockResolvedValue(null);
+    vi.mocked(feedbackQueries.updateFeedbackStatus).mockResolvedValue(null);
     const res = await app.inject({
       method: "PATCH",
       url: "/api/v1/agents/agt_test1/feedback/1",
@@ -368,7 +378,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
   });
 
   it("calls handleAgentError on thrown errors", async () => {
-    deps.agentManager.updateFeedbackStatus.mockRejectedValue(
+    vi.mocked(feedbackQueries.updateFeedbackStatus).mockRejectedValue(
       new Error("db fail")
     );
     const res = await app.inject({
@@ -388,11 +398,11 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId", () => {
       payload: { status: "fixed" },
     });
     expect(res.statusCode).toBe(200);
-    expect(deps.agentManager.updateFeedbackStatus).toHaveBeenCalledWith(
-      1,
-      "agt_test1",
-      "fixed",
-      { reason: null, resolutionCommit: null }
-    );
+    expect(
+      vi.mocked(feedbackQueries.updateFeedbackStatus)
+    ).toHaveBeenCalledWith(deps.pool, 1, "agt_test1", "fixed", {
+      reason: null,
+      resolutionCommit: null,
+    });
   });
 });

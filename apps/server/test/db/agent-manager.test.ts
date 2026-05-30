@@ -40,6 +40,9 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } =
   await import("../../src/agents/manager.js");
+const feedbackQueries = await import("../../src/agents/feedback.js");
+const personaReviewQueries =
+  await import("../../src/agents/persona-reviews.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
@@ -1598,7 +1601,12 @@ describe("AgentManager", () => {
         });
 
         await expect(
-          manager.updateFeedbackStatus(feedback.id, child.id, "ignored")
+          feedbackQueries.updateFeedbackStatus(
+            pool,
+            feedback.id,
+            child.id,
+            "ignored"
+          )
         ).rejects.toThrow(/reason is required/);
       });
 
@@ -1609,9 +1617,15 @@ describe("AgentManager", () => {
         });
 
         await expect(
-          manager.updateFeedbackStatus(feedback.id, child.id, "ignored", {
-            reason: "   ",
-          })
+          feedbackQueries.updateFeedbackStatus(
+            pool,
+            feedback.id,
+            child.id,
+            "ignored",
+            {
+              reason: "   ",
+            }
+          )
         ).rejects.toThrow(/reason is required/);
       });
 
@@ -1622,7 +1636,8 @@ describe("AgentManager", () => {
         });
 
         const before = Date.now();
-        const updated = await manager.updateFeedbackStatus(
+        const updated = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "ignored",
@@ -1648,7 +1663,8 @@ describe("AgentManager", () => {
           description: "finding",
         });
 
-        const updated = await manager.updateFeedbackStatus(
+        const updated = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "fixed",
@@ -1667,7 +1683,8 @@ describe("AgentManager", () => {
           description: "finding",
         });
 
-        const updated = await manager.updateFeedbackStatus(
+        const updated = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "fixed",
@@ -1684,13 +1701,20 @@ describe("AgentManager", () => {
           description: "finding",
         });
 
-        await manager.updateFeedbackStatus(feedback.id, child.id, "ignored", {
-          reason: "Won't fix",
-          resolutionCommit: "sha1",
-        });
+        await feedbackQueries.updateFeedbackStatus(
+          pool,
+          feedback.id,
+          child.id,
+          "ignored",
+          {
+            reason: "Won't fix",
+            resolutionCommit: "sha1",
+          }
+        );
         // Re-resolve as fixed without passing reason/commit — the original
         // audit trail must be preserved (COALESCE behavior).
-        const second = await manager.updateFeedbackStatus(
+        const second = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "fixed"
@@ -1707,7 +1731,8 @@ describe("AgentManager", () => {
           description: "finding",
         });
 
-        const first = await manager.updateFeedbackStatus(
+        const first = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "fixed"
@@ -1716,7 +1741,8 @@ describe("AgentManager", () => {
 
         await new Promise((resolve) => setTimeout(resolve, 50));
 
-        const second = await manager.updateFeedbackStatus(
+        const second = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "ignored",
@@ -1734,8 +1760,14 @@ describe("AgentManager", () => {
           description: "finding",
         });
 
-        await manager.updateFeedbackStatus(feedback.id, child.id, "fixed");
-        const reopened = await manager.updateFeedbackStatus(
+        await feedbackQueries.updateFeedbackStatus(
+          pool,
+          feedback.id,
+          child.id,
+          "fixed"
+        );
+        const reopened = await feedbackQueries.updateFeedbackStatus(
+          pool,
           feedback.id,
           child.id,
           "open"
@@ -1904,7 +1936,12 @@ describe("AgentManager", () => {
         const fixedItem = await manager.submitFeedback(child.id, {
           description: "done",
         });
-        await manager.updateFeedbackStatus(fixedItem.id, child.id, "fixed");
+        await feedbackQueries.updateFeedbackStatus(
+          pool,
+          fixedItem.id,
+          child.id,
+          "fixed"
+        );
 
         const err = await manager
           .submitReviewResolution({
@@ -1975,9 +2012,15 @@ describe("AgentManager", () => {
         const item = await manager.submitFeedback(child.id, {
           description: "a thing",
         });
-        await manager.updateFeedbackStatus(item.id, child.id, "ignored", {
-          reason: "rejected by design",
-        });
+        await feedbackQueries.updateFeedbackStatus(
+          pool,
+          item.id,
+          child.id,
+          "ignored",
+          {
+            reason: "rejected by design",
+          }
+        );
 
         const result = await manager.submitReviewResolution({
           parentAgentId: parent.id,
@@ -2174,10 +2217,16 @@ describe("AgentManager", () => {
           filePath: "apps/server/src/server.ts",
           lineNumber: 42,
         });
-        await manager.updateFeedbackStatus(original.id, child.id, "fixed", {
-          reason: "patched",
-          resolutionCommit: "fixsha",
-        });
+        await feedbackQueries.updateFeedbackStatus(
+          pool,
+          original.id,
+          child.id,
+          "fixed",
+          {
+            reason: "patched",
+            resolutionCommit: "fixsha",
+          }
+        );
         await manager.submitReviewResolution({
           parentAgentId: parent.id,
           personaAgentId: child.id,
@@ -2487,7 +2536,10 @@ describe("AgentManager", () => {
         summary: "Looks good",
       });
 
-      const reviews = await manager.listRecentPersonaReviews(7);
+      const reviews = await personaReviewQueries.listRecentPersonaReviews(
+        pool,
+        7
+      );
       expect(reviews.length).toBeGreaterThanOrEqual(1);
       const review = reviews.find((r) => r.agentId === child.id);
       expect(review).toBeDefined();
@@ -2497,7 +2549,10 @@ describe("AgentManager", () => {
     });
 
     it("should return empty array when no reviews exist in the window", async () => {
-      const reviews = await manager.listRecentPersonaReviews(7);
+      const reviews = await personaReviewQueries.listRecentPersonaReviews(
+        pool,
+        7
+      );
       expect(reviews).toEqual([]);
     });
   });
@@ -2527,7 +2582,7 @@ describe("AgentManager", () => {
         description: "Minor style issue",
       });
 
-      const feedback = await manager.listRecentFeedback(7);
+      const feedback = await feedbackQueries.listRecentFeedback(pool, 7);
       expect(feedback.length).toBeGreaterThanOrEqual(2);
       const items = feedback.filter((f) => f.agentId === child.id);
       expect(items).toHaveLength(2);
@@ -2538,7 +2593,7 @@ describe("AgentManager", () => {
     });
 
     it("should return empty array when no feedback exists in the window", async () => {
-      const feedback = await manager.listRecentFeedback(7);
+      const feedback = await feedbackQueries.listRecentFeedback(pool, 7);
       expect(feedback).toEqual([]);
     });
   });

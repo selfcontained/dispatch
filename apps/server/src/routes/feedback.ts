@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import * as feedbackQueries from "../agents/feedback.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 
 type FeedbackRouteDeps = {
+  pool: Pool;
   agentManager: AgentManager;
   publishUiEvent: (event: unknown) => void;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
@@ -19,12 +22,15 @@ export async function registerFeedbackRoutes(
     const id = params.id ?? "";
     try {
       if (query.scope === "children") {
-        const feedback = await deps.agentManager.listFeedbackByParent(id);
+        const feedback = await feedbackQueries.listFeedbackByParent(
+          deps.pool,
+          id
+        );
         return { feedback };
       }
       const agent = await deps.agentManager.getAgent(id);
       if (!agent) return reply.code(404).send({ error: "Agent not found." });
-      const feedback = await deps.agentManager.listFeedback(id);
+      const feedback = await feedbackQueries.listFeedback(deps.pool, id);
       return { feedback };
     } catch (error) {
       return deps.handleAgentError(reply, error);
@@ -91,7 +97,8 @@ export async function registerFeedbackRoutes(
           : null;
         const resolutionCommit =
           isResolving && agent ? await resolveHeadSha(agent.cwd) : null;
-        const updated = await deps.agentManager.updateFeedbackStatus(
+        const updated = await feedbackQueries.updateFeedbackStatus(
+          deps.pool,
           feedbackId,
           agentId,
           body.status as
