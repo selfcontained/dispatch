@@ -1,8 +1,12 @@
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
+import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import * as feedbackQueries from "../agents/feedback.js";
+import * as personaReviews from "../agents/persona-reviews.js";
+import * as telemetry from "../agents/telemetry.js";
 import type { BrainStore } from "../brain/store.js";
 import type { AddJobInput, JobService } from "../jobs/service.js";
 import type {
@@ -20,6 +24,7 @@ type McpRouteDeps = {
   config: {
     authToken: string;
   };
+  pool: Pool;
   agentManager: AgentManager;
   jobService: JobService;
   templateService: TemplateService;
@@ -168,15 +173,15 @@ export async function registerMcpRoutes(
             }));
           },
           listRecentPersonaReviews: (sinceDays: number) =>
-            deps.agentManager.listRecentPersonaReviews(sinceDays),
+            personaReviews.listRecentPersonaReviews(deps.pool, sinceDays),
           listRecentFeedback: (sinceDays: number) =>
-            deps.agentManager.listRecentFeedback(sinceDays),
+            feedbackQueries.listRecentFeedback(deps.pool, sinceDays),
           getActivitySummary: (params: Record<string, unknown>) =>
-            deps.agentManager.getActivitySummary(params as never),
+            telemetry.getActivitySummary(deps.pool, params as never),
           getAgentHistory: (params: Record<string, unknown>) =>
-            deps.agentManager.getAgentHistory(params as never),
+            telemetry.getAgentHistory(deps.pool, params as never),
           getFeedbackSummary: (params: Record<string, unknown>) =>
-            deps.agentManager.getFeedbackSummary(params as never),
+            telemetry.getFeedbackSummary(deps.pool, params as never),
         }
       : undefined;
 
@@ -209,15 +214,15 @@ export async function registerMcpRoutes(
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
-        deps.agentManager.getActivitySummary(params as never) as Promise<
+        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getAgentHistory: (params: Record<string, unknown>) =>
-        deps.agentManager.getAgentHistory(params as never) as Promise<
+        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
-        deps.agentManager.getFeedbackSummary(params as never) as Promise<
+        telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       toolScope: run ? "job" : "agent",
@@ -247,7 +252,7 @@ export async function registerMcpRoutes(
     }
 
     const review = agent.persona
-      ? await deps.agentManager.getPersonaReview(agentId)
+      ? await personaReviews.getPersonaReview(deps.pool, agentId)
       : null;
     const activeJobRun = await deps.jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
@@ -296,15 +301,15 @@ export async function registerMcpRoutes(
       updateReviewStatus: deps.mcpUpdateReviewStatus,
       completeReview: deps.mcpCompleteReview,
       getActivitySummary: (params: Record<string, unknown>) =>
-        deps.agentManager.getActivitySummary(params as never) as Promise<
+        telemetry.getActivitySummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getAgentHistory: (params: Record<string, unknown>) =>
-        deps.agentManager.getAgentHistory(params as never) as Promise<
+        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
-        deps.agentManager.getFeedbackSummary(params as never) as Promise<
+        telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       crudTools: buildCrudCallbacks(deps),

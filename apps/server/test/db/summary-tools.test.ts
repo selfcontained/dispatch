@@ -17,6 +17,7 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 }));
 
 const { AgentManager } = await import("../../src/agents/manager.js");
+const telemetry = await import("../../src/agents/telemetry.js");
 
 let pool: Pool;
 
@@ -186,7 +187,7 @@ function hoursAgo(hours: number): Date {
 
 describe("getActivitySummary", () => {
   it("returns empty results when no data exists", async () => {
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(7),
       end: new Date(),
     });
@@ -207,7 +208,7 @@ describe("getActivitySummary", () => {
     await insertEvent("a1", "working", start);
     await insertEvent("a1", "done", afterOneHour);
 
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(1),
       end: new Date(),
     });
@@ -247,7 +248,7 @@ describe("getActivitySummary", () => {
       [created, JSON.stringify(gitA)]
     );
 
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(7),
       end: new Date(),
     });
@@ -276,7 +277,7 @@ describe("getActivitySummary", () => {
     await insertAgent("a1", { gitContext: gitA, latestEventType: "done" });
     await insertAgent("a2", { gitContext: gitB, latestEventType: "done" });
 
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       project: "/projects/alpha",
@@ -292,7 +293,7 @@ describe("getActivitySummary", () => {
     await insertAgent("a2", { latestEventType: "done" });
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
 
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(7),
       end: new Date(),
     });
@@ -312,7 +313,7 @@ describe("getActivitySummary", () => {
     await insertEvent("a2", "working", hoursAgo(6));
     await insertEvent("a2", "done", hoursAgo(3));
 
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: daysAgo(1),
       end: new Date(),
     });
@@ -333,7 +334,7 @@ describe("getActivitySummary", () => {
     await insertEvent("a1", "done", hoursAgo(8));
 
     // Query a 9-hour window — the working event is before range start
-    const result = await manager.getActivitySummary({
+    const result = await telemetry.getActivitySummary(pool, {
       start: hoursAgo(9),
       end: new Date(),
     });
@@ -349,7 +350,7 @@ describe("getActivitySummary", () => {
 
 describe("getAgentHistory", () => {
   it("returns empty results when no agents exist", async () => {
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -373,7 +374,7 @@ describe("getAgentHistory", () => {
       parentAgentId: "parent",
     });
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -396,7 +397,7 @@ describe("getAgentHistory", () => {
       parentAgentId: "parent",
     });
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -416,7 +417,7 @@ describe("getAgentHistory", () => {
     await insertAgent("a2", { createdAt: hoursAgo(2) });
     await insertAgent("a3", { createdAt: hoursAgo(1) });
 
-    const page1 = await manager.getAgentHistory({
+    const page1 = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 2,
@@ -431,7 +432,7 @@ describe("getAgentHistory", () => {
     expect(page1.total).toBe(3);
     expect(page1.hasMore).toBe(true);
 
-    const page2 = await manager.getAgentHistory({
+    const page2 = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 2,
@@ -451,7 +452,7 @@ describe("getAgentHistory", () => {
     await insertEvent("a1", "working", hoursAgo(2));
     await insertEvent("a1", "done", hoursAgo(1));
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -484,7 +485,7 @@ describe("getAgentHistory", () => {
       description: "Missing type annotation",
     });
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -513,7 +514,7 @@ describe("getAgentHistory", () => {
       summary: "All clear",
     });
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -537,7 +538,7 @@ describe("getAgentHistory", () => {
     await insertAgent("a1", { gitContext: gitA });
     await insertAgent("a2", { gitContext: gitB });
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       project: "/projects/alpha",
@@ -559,7 +560,7 @@ describe("getAgentHistory", () => {
     await insertAgent("a2");
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = 'a2'");
 
-    const result = await manager.getAgentHistory({
+    const result = await telemetry.getAgentHistory(pool, {
       start: daysAgo(7),
       end: new Date(),
       limit: 20,
@@ -579,7 +580,7 @@ describe("getAgentHistory", () => {
 
 describe("getFeedbackSummary", () => {
   it("returns empty results when no feedback exists", async () => {
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(14),
       end: new Date(),
       groupBy: "persona",
@@ -600,7 +601,7 @@ describe("getFeedbackSummary", () => {
     await insertFeedback("reviewer", { severity: "low", status: "ignored" });
     await insertFeedback("reviewer", { severity: "info", status: "open" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",
@@ -634,7 +635,7 @@ describe("getFeedbackSummary", () => {
     await insertFeedback("sec-rev", { description: "XSS risk" });
     await insertFeedback("ux-rev", { description: "Poor contrast" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",
@@ -657,7 +658,7 @@ describe("getFeedbackSummary", () => {
     await insertFeedback("rev", { severity: "high" });
     await insertFeedback("rev", { severity: "low" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "severity",
@@ -687,7 +688,7 @@ describe("getFeedbackSummary", () => {
     });
     await insertFeedback("rev", { filePath: "/projects/test/src/db/query.ts" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "directory",
@@ -724,7 +725,7 @@ describe("getFeedbackSummary", () => {
       severity: "high",
     });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",
@@ -750,7 +751,7 @@ describe("getFeedbackSummary", () => {
     await insertReview("r2", "p2", "sec", { verdict: "request_changes" });
     await insertReview("r3", "p1", "ux", { verdict: "approve" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",
@@ -781,7 +782,7 @@ describe("getFeedbackSummary", () => {
     await insertFeedback("r1", { description: "Alpha finding" });
     await insertFeedback("r2", { description: "Beta finding" });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       project: "/projects/alpha",
@@ -805,7 +806,7 @@ describe("getFeedbackSummary", () => {
       createdAt: daysAgo(30),
     });
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",
@@ -826,7 +827,7 @@ describe("getFeedbackSummary", () => {
       "UPDATE agents SET deleted_at = NOW() WHERE id = 'parent'"
     );
 
-    const result = await manager.getFeedbackSummary({
+    const result = await telemetry.getFeedbackSummary(pool, {
       start: daysAgo(7),
       end: new Date(),
       groupBy: "persona",

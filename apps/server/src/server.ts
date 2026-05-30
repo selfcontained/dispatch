@@ -458,6 +458,7 @@ async function registerRoutes() {
 
   await registerMcpRoutes(app, {
     config,
+    pool,
     agentManager,
     jobService,
     templateService,
@@ -627,6 +628,7 @@ async function registerRoutes() {
   // --- Feedback ---
 
   await registerFeedbackRoutes(app, {
+    pool,
     agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     handleAgentError,

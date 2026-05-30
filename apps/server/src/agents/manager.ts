@@ -68,12 +68,6 @@ import type {
   WorktreeStatus,
 } from "./types.js";
 import * as telemetry from "./telemetry.js";
-import type {
-  ActivitySummaryResult,
-  AgentHistoryEntry,
-  AgentHistoryResult,
-  FeedbackSummaryResult,
-} from "./telemetry.js";
 import * as personaReviews from "./persona-reviews.js";
 import type {
   PersonaReviewRecord,
@@ -93,12 +87,6 @@ export type {
   AgentTerminalAccess,
   WorktreeStatus,
 } from "./types.js";
-export type {
-  ActivitySummaryResult,
-  AgentHistoryEntry,
-  AgentHistoryResult,
-  FeedbackSummaryResult,
-} from "./telemetry.js";
 export type {
   PersonaReviewRecord,
   PersonaReviewResolutionItem,
@@ -1161,51 +1149,6 @@ export class AgentManager {
     return personaReviews.getPersonaReview(this.pool, agentId);
   }
 
-  async listRecentPersonaReviews(
-    sinceDays: number
-  ): Promise<PersonaReviewRecord[]> {
-    return personaReviews.listRecentPersonaReviews(this.pool, sinceDays);
-  }
-
-  async listRecentFeedback(
-    sinceDays: number
-  ): Promise<Array<FeedbackRecord & { persona: string }>> {
-    return feedbackQueries.listRecentFeedback(this.pool, sinceDays);
-  }
-
-  // --- Activity / History / Feedback Summaries ---
-
-  async getActivitySummary(params: {
-    start: Date;
-    end: Date;
-    project?: string;
-  }): Promise<ActivitySummaryResult> {
-    return telemetry.getActivitySummary(this.pool, params);
-  }
-
-  async getAgentHistory(params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
-  }): Promise<AgentHistoryResult> {
-    return telemetry.getAgentHistory(this.pool, params);
-  }
-
-  async getFeedbackSummary(params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    groupBy: "persona" | "severity" | "directory";
-  }): Promise<FeedbackSummaryResult> {
-    return telemetry.getFeedbackSummary(this.pool, params);
-  }
-
   // --- Media ---
 
   async listMedia(agentId: string): Promise<
@@ -1232,14 +1175,6 @@ export class AgentManager {
     return feedbackQueries.submitFeedback(this.pool, agentId, feedback);
   }
 
-  async listFeedback(agentId: string): Promise<FeedbackRecord[]> {
-    return feedbackQueries.listFeedback(this.pool, agentId);
-  }
-
-  async listFeedbackByParent(parentAgentId: string): Promise<FeedbackRecord[]> {
-    return feedbackQueries.listFeedbackByParent(this.pool, parentAgentId);
-  }
-
   async listFeedbackByParentGrouped(
     parentAgentId: string,
     persona?: string,
@@ -1256,21 +1191,6 @@ export class AgentManager {
       parentAgentId,
       persona,
       limit
-    );
-  }
-
-  async updateFeedbackStatus(
-    feedbackId: number,
-    agentId: string,
-    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
-    options: { reason?: string | null; resolutionCommit?: string | null } = {}
-  ): Promise<FeedbackRecord | null> {
-    return feedbackQueries.updateFeedbackStatus(
-      this.pool,
-      feedbackId,
-      agentId,
-      status,
-      options
     );
   }
 
