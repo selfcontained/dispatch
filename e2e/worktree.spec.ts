@@ -99,11 +99,11 @@ test.describe("Worktree", () => {
 
       const cwdInput = page.getByTestId("create-agent-cwd");
       await cwdInput.fill(repoPath);
-      // Wait for path validation to complete before checking the result.
-      const validationSpinner = form.getByRole("status", { name: "Loading" });
-      await validationSpinner.waitFor({ state: "visible", timeout: 5000 });
-      await validationSpinner.waitFor({ state: "hidden", timeout: 15000 });
-      await expect(form.getByText("Git repository")).toBeVisible();
+      // Wait for path validation to finish — the spinner may flash too fast to
+      // observe under parallel load, so wait for the result text directly.
+      await expect(form.getByText("Git repository")).toBeVisible({
+        timeout: 15000,
+      });
 
       // Worktree checkbox should exist and be checked by default
       const worktreeCheckbox = page.getByTestId("create-agent-worktree");
@@ -128,10 +128,9 @@ test.describe("Worktree", () => {
 
       const cwdInput = page.getByTestId("create-agent-cwd");
       await cwdInput.fill(repoPath);
-      const validationSpinner = form.getByRole("status", { name: "Loading" });
-      await validationSpinner.waitFor({ state: "visible", timeout: 5000 });
-      await validationSpinner.waitFor({ state: "hidden", timeout: 15000 });
-      await expect(form.getByText("Git repository")).toBeVisible();
+      await expect(form.getByText("Git repository")).toBeVisible({
+        timeout: 15000,
+      });
 
       const worktreeCheckbox = page.getByTestId("create-agent-worktree");
       await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
