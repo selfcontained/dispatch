@@ -489,138 +489,209 @@ export class AgentManager {
     );
 
     if (this.config.agentRuntime === "inert") {
-      // Inert mode: no tmux, no setup script — do worktree synchronously and go straight to running
-      let effectiveCwd = originalCwd;
-      let worktreePath: string | null = null;
-      let worktreeBranch: string | null = null;
-
-      if (useWorktree && worktreeBranchName) {
-        try {
-          const result = await createGitWorktree({
-            cwd: originalCwd,
-            name,
-            branchName: createNewBranch ? worktreeBranchName : undefined,
-            baseBranch: normalizedBaseBranch,
-            worktreePath: worktreePathOverride,
-            createNewBranch,
-          });
-          worktreePath = result.worktreePath;
-          worktreeBranch = result.branchName;
-          effectiveCwd = result.worktreePath;
-          this.logger.info(
-            { agentId: id, worktreePath, worktreeBranch },
-            "Created worktree for inert agent."
-          );
-          await setupAgentWorkspace(originalCwd, worktreePath, this.logger);
-        } catch (error) {
-          // The user explicitly asked for an isolated worktree. Don't silently
-          // fall back to running in their primary checkout — surface the
-          // failure and mark the agent as failed so it shows up in the UI
-          // with a clear last_error.
-          const message =
-            error instanceof Error ? error.message : String(error);
-          const lastError = `Worktree creation failed: ${message}`;
-          this.logger.warn(
-            { err: error, agentId: id },
-            "Worktree creation failed for inert agent."
-          );
-          await this.setAgentStatus(id, "stopped", lastError);
-          await this.setSystemLatestEvent(id, {
-            type: "blocked",
-            message: lastError,
-          });
-          if (error instanceof GitWorktreeError) {
-            throw new AgentError(lastError, error.statusCode);
-          }
-          throw new AgentError(lastError, 500);
-        }
-      }
-
-      await this.pool.query(
-        `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
-        [id, effectiveCwd, worktreePath, worktreeBranch]
-      );
-      // Populate gitContext synchronously so the create response and the
-      // resulting agent.upsert SSE both carry it — no UI flicker waiting
-      // for a background refresh to arrive.
-      await this.populateGitContext(id);
-      await this.setSystemLatestEvent(
+      await this.launchInertAgent({
         id,
-        type === "terminal"
-          ? { type: "idle", message: "Terminal session started." }
-          : { type: "idle", message: "Session started." }
-      );
+        type,
+        name,
+        originalCwd,
+        useWorktree,
+        createNewBranch,
+        worktreeBranchName,
+        normalizedBaseBranch,
+        worktreePathOverride,
+      });
     } else {
-      try {
-        await this.runtime.ensureNoExistingSession(tmuxSession);
-
-        // Personality applies only to regular agent launches. Skip for any
-        // specialized role: review personas, job runs, and assisted-update
-        // agents — those flows already drive their own prompts and an
-        // unrelated voice tweak risks destabilizing them.
-        const personality =
-          input.persona || input.jobRunId || role === "assisted_update"
-            ? null
-            : await getActivePersonality(this.pool);
-
-        // Build the agent command that the setup script will exec into
-        const agentCommand = buildAgentCommand(
-          this.config,
-          type,
-          role,
-          agentArgs,
-          mediaDir,
-          tmuxSession,
-          fullAccess,
-          cliSessionId ?? undefined,
-          false,
-          input.jobRunId,
-          shouldSuggestSessionRename(name, id, {
-            persona: input.persona,
-            jobRunId: input.jobRunId,
-            templateId: input.templateId,
-          }),
-          !input.persona && !input.jobRunId && (input.autoReview ?? false),
-          startupPrompt,
-          personality?.prompt ?? null
-        );
-        // Generate a setup script that handles worktree creation, env copy,
-        // dep install, and then exec's into the agent CLI — all visible in the terminal.
-        // Stderr/exit-capture wrapping is applied by the runtime, not the script.
-        const setupScript = generateSetupScript(this.config, {
-          agentId: id,
-          agentType: type,
-          originalCwd,
-          useWorktree,
-          createNewBranch,
-          worktreeBranchName,
-          baseBranch: normalizedBaseBranch,
-          worktreePathOverride,
-          agentName: name,
-          agentCommand,
-          jobRunId: input.jobRunId,
-        });
-
-        await this.runtime.launch({
-          sessionName: tmuxSession,
-          cwd: originalCwd,
-          agentId: id,
-          payload: { kind: "setup-script", scriptContent: setupScript },
-        });
-      } catch (error) {
-        const message = errorMessage(error);
-        await this.setAgentStatus(id, "error", message);
-        await this.setSetupPhase(id, null);
-        await this.setSystemLatestEvent(id, {
-          type: "blocked",
-          message: `Failed to create agent: ${message}`,
-          metadata: { source: "system", phase: "create" },
-        });
-        throw new AgentError(`Failed to create agent: ${message}`, 500);
-      }
+      await this.launchWithSetupScript({
+        id,
+        type,
+        role,
+        name,
+        originalCwd,
+        tmuxSession,
+        mediaDir,
+        agentArgs,
+        fullAccess,
+        useWorktree,
+        createNewBranch,
+        worktreeBranchName,
+        normalizedBaseBranch,
+        worktreePathOverride,
+        cliSessionId,
+        startupPrompt,
+        persona: input.persona,
+        jobRunId: input.jobRunId,
+        templateId: input.templateId,
+        autoReview: input.autoReview ?? false,
+      });
     }
 
     return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  private async launchInertAgent(opts: {
+    id: string;
+    type: AgentType;
+    name: string;
+    originalCwd: string;
+    useWorktree: boolean;
+    createNewBranch: boolean;
+    worktreeBranchName: string | undefined;
+    normalizedBaseBranch: string | undefined;
+    worktreePathOverride: string | undefined;
+  }): Promise<void> {
+    const { id, type, name, originalCwd, useWorktree, createNewBranch } = opts;
+    let effectiveCwd = originalCwd;
+    let worktreePath: string | null = null;
+    let worktreeBranch: string | null = null;
+
+    if (useWorktree && opts.worktreeBranchName) {
+      try {
+        const result = await createGitWorktree({
+          cwd: originalCwd,
+          name,
+          branchName: createNewBranch ? opts.worktreeBranchName : undefined,
+          baseBranch: opts.normalizedBaseBranch,
+          worktreePath: opts.worktreePathOverride,
+          createNewBranch,
+        });
+        worktreePath = result.worktreePath;
+        worktreeBranch = result.branchName;
+        effectiveCwd = result.worktreePath;
+        this.logger.info(
+          { agentId: id, worktreePath, worktreeBranch },
+          "Created worktree for inert agent."
+        );
+        await setupAgentWorkspace(originalCwd, worktreePath, this.logger);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const lastError = `Worktree creation failed: ${message}`;
+        this.logger.warn(
+          { err: error, agentId: id },
+          "Worktree creation failed for inert agent."
+        );
+        await this.setAgentStatus(id, "stopped", lastError);
+        await this.setSystemLatestEvent(id, {
+          type: "blocked",
+          message: lastError,
+        });
+        if (error instanceof GitWorktreeError) {
+          throw new AgentError(lastError, error.statusCode);
+        }
+        throw new AgentError(lastError, 500);
+      }
+    }
+
+    await this.pool.query(
+      `UPDATE agents SET status = 'running', cwd = $2, worktree_path = $3, worktree_branch = $4, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
+      [id, effectiveCwd, worktreePath, worktreeBranch]
+    );
+    await this.populateGitContext(id);
+    await this.setSystemLatestEvent(
+      id,
+      type === "terminal"
+        ? { type: "idle", message: "Terminal session started." }
+        : { type: "idle", message: "Session started." }
+    );
+  }
+
+  private async launchWithSetupScript(opts: {
+    id: string;
+    type: AgentType;
+    role: AgentRole;
+    name: string;
+    originalCwd: string;
+    tmuxSession: string;
+    mediaDir: string;
+    agentArgs: string[];
+    fullAccess: boolean;
+    useWorktree: boolean;
+    createNewBranch: boolean;
+    worktreeBranchName: string | undefined;
+    normalizedBaseBranch: string | undefined;
+    worktreePathOverride: string | undefined;
+    cliSessionId: string | null;
+    startupPrompt: string | undefined;
+    persona: string | undefined;
+    jobRunId: string | undefined;
+    templateId: string | undefined;
+    autoReview: boolean;
+  }): Promise<void> {
+    const {
+      id,
+      type,
+      role,
+      name,
+      originalCwd,
+      tmuxSession,
+      mediaDir,
+      agentArgs,
+      fullAccess,
+      useWorktree,
+      createNewBranch,
+      cliSessionId,
+      startupPrompt,
+    } = opts;
+
+    try {
+      await this.runtime.ensureNoExistingSession(tmuxSession);
+
+      const personality =
+        opts.persona || opts.jobRunId || role === "assisted_update"
+          ? null
+          : await getActivePersonality(this.pool);
+
+      const agentCommand = buildAgentCommand(
+        this.config,
+        type,
+        role,
+        agentArgs,
+        mediaDir,
+        tmuxSession,
+        fullAccess,
+        cliSessionId ?? undefined,
+        false,
+        opts.jobRunId,
+        shouldSuggestSessionRename(name, id, {
+          persona: opts.persona,
+          jobRunId: opts.jobRunId,
+          templateId: opts.templateId,
+        }),
+        !opts.persona && !opts.jobRunId && opts.autoReview,
+        startupPrompt,
+        personality?.prompt ?? null
+      );
+
+      const setupScript = generateSetupScript(this.config, {
+        agentId: id,
+        agentType: type,
+        originalCwd,
+        useWorktree,
+        createNewBranch,
+        worktreeBranchName: opts.worktreeBranchName,
+        baseBranch: opts.normalizedBaseBranch,
+        worktreePathOverride: opts.worktreePathOverride,
+        agentName: name,
+        agentCommand,
+        jobRunId: opts.jobRunId,
+      });
+
+      await this.runtime.launch({
+        sessionName: tmuxSession,
+        cwd: originalCwd,
+        agentId: id,
+        payload: { kind: "setup-script", scriptContent: setupScript },
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      await this.setAgentStatus(id, "error", message);
+      await this.setSetupPhase(id, null);
+      await this.setSystemLatestEvent(id, {
+        type: "blocked",
+        message: `Failed to create agent: ${message}`,
+        metadata: { source: "system", phase: "create" },
+      });
+      throw new AgentError(`Failed to create agent: ${message}`, 500);
+    }
   }
 
   /**
